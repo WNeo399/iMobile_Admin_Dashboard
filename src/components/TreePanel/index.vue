@@ -7,19 +7,19 @@
         <i :class="titleIconClass"></i> {{ title }}
       </span>
       <div class="tree-actions" v-show="!collapsed">
-        <el-tooltip :content="isExpandedAll ? '收起全部' : '展开全部'" placement="right">
+        <el-tooltip :content="isExpandedAll ? 'Collapse all' : 'Expand All'" placement="right">
           <i class="tree-action-icon" :class="isExpandedAll ? 'el-icon-arrow-down' : 'el-icon-arrow-up'" @click="toggleExpandAll" />
         </el-tooltip>
-        <el-tooltip content="刷新" placement="right">
+        <!-- <el-tooltip content="Refresh" placement="right">
           <i class="tree-action-icon el-icon-refresh" @click="handleRefresh" />
-        </el-tooltip>
+        </el-tooltip> -->
         <slot name="actions"></slot>
       </div>
     </div>
     
     <!-- 侧边栏展开/收起按钮 -->
     <div class="collapse-button-container">
-      <el-tooltip :content="collapsed ? '展开' : '收起'" placement="right">
+      <el-tooltip :content="collapsed ? 'Exoand' : 'Collapse'" placement="right">
         <i class="collapse-button" :class="collapsed ? 'el-icon-d-arrow-right' : 'el-icon-d-arrow-left'" @click="toggleCollapsed" />
       </el-tooltip>
     </div>
@@ -73,7 +73,7 @@ export default {
     // 标题图标类名
     titleIconClass: {
       type: String,
-      default: 'el-icon-office-building'
+      default: 'el-icon-s-order'
     },
     // 是否显示搜索框
     showSearch: {
@@ -106,7 +106,7 @@ export default {
     // 是否在点击节点时展开或收起
     expandOnClickNode: {
       type: Boolean,
-      default: false
+      default: true
     },
     // 是否显示复选框
     showCheckbox: {

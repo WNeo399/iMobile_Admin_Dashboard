@@ -9,7 +9,7 @@
       <top-bar id="topbar-container" class="topbar-container" />
     </template>
     <div class="right-menu">
-      <template v-if="device!=='mobile'">
+      <!-- <template v-if="device!=='mobile'">
         <search id="header-search" class="right-menu-item" />
 
         <el-tooltip content="源码地址" effect="dark" placement="bottom">
@@ -30,8 +30,8 @@
           <header-notice id="header-notice" class="right-menu-item hover-effect" />
         </el-tooltip>
 
-      </template>
-
+      </template> -->
+<!-- 
       <el-dropdown class="avatar-container right-menu-item hover-effect" trigger="hover">
         <div class="avatar-wrapper">
           <img :src="avatar" class="user-avatar">
@@ -51,7 +51,7 @@
             <span>退出登录</span>
           </el-dropdown-item>
         </el-dropdown-menu>
-      </el-dropdown>
+      </el-dropdown> -->
     </div>
   </div>
 </template>

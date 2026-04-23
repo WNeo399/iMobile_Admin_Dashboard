@@ -44,7 +44,7 @@ export default {
     }
   },
   mounted() {
-    this.loadNoticeTop()
+    // this.loadNoticeTop()
   },
   methods: {
     // 鼠标移入铃铛区域

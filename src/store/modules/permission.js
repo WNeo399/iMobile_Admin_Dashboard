@@ -25,7 +25,9 @@ const permission = {
       state.topbarRouters = routes
     },
     SET_SIDEBAR_ROUTERS: (state, routes) => {
-      state.sidebarRouters = routes
+
+      // state.sidebarRouters = routes
+      state.sidebarRouters = constantRoutes.concat(routes)
     },
   },
   actions: {
