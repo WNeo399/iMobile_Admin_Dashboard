@@ -18,6 +18,8 @@ RUN npm ci
 # Copy local code to the container image.
 COPY . ./
 
+RUN echo "API=$VUE_APP_BASE_API"
+
 # Build the app.
 RUN npm run build:prod
 
