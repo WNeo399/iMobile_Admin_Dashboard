@@ -112,6 +112,24 @@ export const constantRoutes = [
         }
       }
     ]
+  },  {
+    path: "/products",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: {title: "Products", icon: "el-icon-notebook-2"},
+    children: [
+      {
+        path: "collections",
+        component: (resolve)=>require(["@/views/products/collection"], resolve),
+        name: "Collections",
+        meta: {
+          title: "Collections",
+          icon: "goods"
+        }
+      }
+    ]
   }
   // {
   //   path: "/system",
