@@ -28,7 +28,6 @@ ENV VUE_APP_TITLE=$VUE_APP_TITLE
 ENV ENV=$ENV
 ENV NODE_ENV=$NODE_ENV
 
-RUN echo "API=$VUE_APP_BASE_API"
 
 # Build the app.
 RUN npm run build:prod

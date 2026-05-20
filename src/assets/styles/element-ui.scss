@@ -83,6 +83,12 @@
   box-sizing: content-box;
 }
 
+// Default table cell wrapping — break-word keeps full words intact and only
+// breaks them when they don't fit, instead of Element UI's default break-all.
+.el-table .cell {
+  word-break: break-word;
+}
+
 .el-menu--collapse
   > div
   > .el-submenu

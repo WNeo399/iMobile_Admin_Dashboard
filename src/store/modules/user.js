@@ -1,4 +1,3 @@
-import store from '@/store'
 import router from '@/router'
 import cache from '@/plugins/cache'
 import { MessageBox, } from 'element-ui'
@@ -53,7 +52,6 @@ const user = {
         login(username, password, code, uuid).then(res => {
           setToken(res.token)
           commit('SET_TOKEN', res.token)
-          store.dispatch('lock/unlockScreen')
           resolve()
         }).catch(error => {
           reject(error)

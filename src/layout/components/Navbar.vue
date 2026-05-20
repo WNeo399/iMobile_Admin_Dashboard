@@ -114,12 +114,6 @@ export default {
     setLayout(event) {
       this.$emit('setLayout')
     },
-    lockScreen() {
-      const currentPath = this.$route.fullPath
-      this.$store.dispatch('lock/lockScreen', currentPath).then(() => {
-        this.$router.push('/lock')
-      })
-    },
     logout() {
       this.$confirm('确定注销并退出系统吗？', '提示', {
         confirmButtonText: '确定',

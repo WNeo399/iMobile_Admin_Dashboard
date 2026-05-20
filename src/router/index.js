@@ -75,12 +75,6 @@ export const constantRoutes = [
     ],
   },
   {
-    path: "/lock",
-    component: () => import("@/views/lock"),
-    hidden: true,
-    meta: { title: "锁定屏幕" },
-  },
-  {
     path: "/user",
     component: Layout,
     hidden: true,
@@ -110,16 +104,7 @@ export const constantRoutes = [
           title: "Stock Mornitoring",
           icon: "goods"
         }
-      }
-    ]
-  },  {
-    path: "/products",
-    component: Layout,
-    redirect: "noRedirect",
-    hidden: false,
-    alwaysShow: true,
-    meta: {title: "Products", icon: "el-icon-notebook-2"},
-    children: [
+      },
       {
         path: "collections",
         component: (resolve)=>require(["@/views/products/collection"], resolve),
@@ -130,101 +115,58 @@ export const constantRoutes = [
         }
       }
     ]
+  },
+  {
+    path: "/sqt",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "SQT", icon: "el-icon-s-cooperation" },
+    children: [
+      {
+        path: "cases",
+        component: (resolve) => require(["@/views/sqt/cases/index"], resolve),
+        name: "SqtCases",
+        meta: {
+          title: "Cases",
+          icon: "el-icon-tickets"
+        }
+      },
+      {
+        path: "shops",
+        component: (resolve) => require(["@/views/sqt/shops/index"], resolve),
+        name: "SqtShops",
+        meta: {
+          title: "Shops",
+          icon: "el-icon-office-building"
+        }
+      },
+      {
+        path: "models",
+        component: (resolve) => require(["@/views/sqt/models/index"], resolve),
+        name: "SqtModels",
+        meta: {
+          title: "Models",
+          icon: "el-icon-mobile-phone"
+        }
+      },
+      {
+        path: "models/:id",
+        component: (resolve) => require(["@/views/sqt/models/detail"], resolve),
+        name: "SqtModelDetail",
+        hidden: true,
+        meta: {
+          title: "Model Detail",
+          activeMenu: "/sqt/models"
+        }
+      }
+    ]
   }
-  // {
-  //   path: "/system",
-  //   component: Layout,
-  //   redirect: "noRedirect",
-  //   hidden: false,
-  //   alwaysShow: true,
-  //   meta: { title: "系统管理", icon: "system" },
-  //   children: [
-  //     {
-  //       path: "user",
-  //       component: (resolve) => require(["@/views/system/user"], resolve),
-  //       name: "Useer",
-  //       meta: {
-  //         title: "用户管理",
-  //         icon: "user",
-  //       },
-  //     },
-  //   ],
-  // },
 ];
 
 // 动态路由，基于用户权限动态去加载
-export const dynamicRoutes = [
-  {
-    path: "/system/user-auth",
-    component: Layout,
-    hidden: true,
-    permissions: ["system:user:edit"],
-    children: [
-      {
-        path: "role/:userId(\\d+)",
-        component: () => import("@/views/system/user/authRole"),
-        name: "AuthRole",
-        meta: { title: "分配角色", activeMenu: "/system/user" },
-      },
-    ],
-  },
-  {
-    path: "/system/role-auth",
-    component: Layout,
-    hidden: true,
-    permissions: ["system:role:edit"],
-    children: [
-      {
-        path: "user/:roleId(\\d+)",
-        component: () => import("@/views/system/role/authUser"),
-        name: "AuthUser",
-        meta: { title: "分配用户", activeMenu: "/system/role" },
-      },
-    ],
-  },
-  {
-    path: "/system/dict-data",
-    component: Layout,
-    hidden: true,
-    permissions: ["system:dict:list"],
-    children: [
-      {
-        path: "index/:dictId(\\d+)",
-        component: () => import("@/views/system/dict/data"),
-        name: "Data",
-        meta: { title: "字典数据", activeMenu: "/system/dict" },
-      },
-    ],
-  },
-  {
-    path: "/monitor/job-log",
-    component: Layout,
-    hidden: true,
-    permissions: ["monitor:job:list"],
-    children: [
-      {
-        path: "index/:jobId(\\d+)",
-        component: () => import("@/views/monitor/job/log"),
-        name: "JobLog",
-        meta: { title: "调度日志", activeMenu: "/monitor/job" },
-      },
-    ],
-  },
-  {
-    path: "/tool/gen-edit",
-    component: Layout,
-    hidden: true,
-    permissions: ["tool:gen:edit"],
-    children: [
-      {
-        path: "index/:tableId(\\d+)",
-        component: () => import("@/views/tool/gen/editTable"),
-        name: "GenEdit",
-        meta: { title: "修改生成配置", activeMenu: "/tool/gen" },
-      },
-    ],
-  },
-];
+export const dynamicRoutes = [];
 
 // 防止连续点击多次路由报错
 let routerPush = Router.prototype.push;
