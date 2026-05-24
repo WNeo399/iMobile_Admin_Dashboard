@@ -8,10 +8,11 @@ export function listCases(query) {
   })
 }
 
-export function getCaseCounts() {
+export function getCaseCounts(query) {
   return request({
     url: '/sqt/cases/counts',
-    method: 'get'
+    method: 'get',
+    params: query
   })
 }
 
@@ -65,6 +66,14 @@ export function markPartsReceived(id, data) {
 export function markCaseRepaired(id, data) {
   return request({
     url: `/sqt/cases/${id}/markRepaired`,
+    method: 'post',
+    data
+  })
+}
+
+export function selectCaseParts(id, data) {
+  return request({
+    url: `/sqt/cases/${id}/parts`,
     method: 'post',
     data
   })

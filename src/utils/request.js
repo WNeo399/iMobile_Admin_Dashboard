@@ -110,13 +110,35 @@ service.interceptors.response.use(res => {
   },
   error => {
     console.log('err' + error)
-    let { message } = error
+    const status = error.response && error.response.status
+    // A 401 *while we hold a token* means the session expired — prompt re-login.
+    // A 401 without a token is just a failed login attempt, so let it fall through.
+    if (status === 401 && getToken()) {
+      if (!isRelogin.show) {
+        isRelogin.show = true
+        MessageBox.confirm('Your session has expired. Please log in again.', 'Session Expired', {
+          confirmButtonText: 'Re-login',
+          cancelButtonText: 'Cancel',
+          type: 'warning'
+        }).then(() => {
+          isRelogin.show = false
+          store.dispatch('LogOut').then(() => {
+            location.href = '/login'
+          })
+        }).catch(() => {
+          isRelogin.show = false
+        })
+      }
+      return Promise.reject('Session expired, please log in again.')
+    }
+    // Prefer the server-provided message when available
+    let message = (error.response && error.response.data && error.response.data.message) || error.message
     if (message == "Network Error") {
-      message = "后端接口连接异常"
-    } else if (message.includes("timeout")) {
-      message = "系统接口请求超时"
-    } else if (message.includes("Request failed with status code")) {
-      message = "系统接口" + message.slice(-3) + "异常"
+      message = "Cannot connect to the server"
+    } else if (message && message.includes("timeout")) {
+      message = "Request timed out"
+    } else if (message && message.includes("Request failed with status code")) {
+      message = "Server error " + message.slice(-3)
     }
     Message({ message: message, type: 'error', duration: 5 * 1000 })
     return Promise.reject(error)

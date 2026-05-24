@@ -47,11 +47,6 @@ export const constantRoutes = [
     hidden: true,
   },
   {
-    path: "/register",
-    component: () => import("@/views/register"),
-    hidden: true,
-  },
-  {
     path: "/404",
     component: () => import("@/views/error/404"),
     hidden: true,
@@ -88,6 +83,13 @@ export const constantRoutes = [
       },
     ],
   },
+];
+
+// Permission-gated module routes. These are registered in the router (so they
+// are navigable) but the sidebar only shows the ones the user's permissions
+// allow, and the router guard blocks direct-URL access to forbidden routes.
+// `meta.permissions` lists the permission(s) that grant access to a route.
+export const moduleRoutes = [
   {
     path: "/zohoInventory",
     component: Layout,
@@ -102,7 +104,8 @@ export const constantRoutes = [
         name: "StockMonitoring",
         meta: {
           title: "Stock Mornitoring",
-          icon: "goods"
+          icon: "goods",
+          permissions: ["zoho:stock:view"]
         }
       },
       {
@@ -111,7 +114,8 @@ export const constantRoutes = [
         name: "Collections",
         meta: {
           title: "Collections",
-          icon: "goods"
+          icon: "goods",
+          permissions: ["zoho:collection:view"]
         }
       }
     ]
@@ -130,7 +134,8 @@ export const constantRoutes = [
         name: "SqtCases",
         meta: {
           title: "Cases",
-          icon: "el-icon-tickets"
+          icon: "el-icon-tickets",
+          permissions: ["sqt:case:list"]
         }
       },
       {
@@ -139,7 +144,8 @@ export const constantRoutes = [
         name: "SqtShops",
         meta: {
           title: "Shops",
-          icon: "el-icon-office-building"
+          icon: "el-icon-office-building",
+          permissions: ["sqt:shop:list"]
         }
       },
       {
@@ -148,7 +154,8 @@ export const constantRoutes = [
         name: "SqtModels",
         meta: {
           title: "Models",
-          icon: "el-icon-mobile-phone"
+          icon: "el-icon-mobile-phone",
+          permissions: ["sqt:model:list"]
         }
       },
       {
@@ -158,7 +165,28 @@ export const constantRoutes = [
         hidden: true,
         meta: {
           title: "Model Detail",
-          activeMenu: "/sqt/models"
+          activeMenu: "/sqt/models",
+          permissions: ["sqt:model:list"]
+        }
+      }
+    ]
+  },
+  {
+    path: "/system",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "System", icon: "el-icon-setting" },
+    children: [
+      {
+        path: "users",
+        component: (resolve) => require(["@/views/system/users/index"], resolve),
+        name: "SystemUsers",
+        meta: {
+          title: "Users",
+          icon: "peoples",
+          permissions: ["system:user:manage"]
         }
       }
     ]
@@ -183,5 +211,7 @@ Router.prototype.replace = function push(location) {
 export default new Router({
   mode: "history", // 去掉url中的#
   scrollBehavior: () => ({ y: 0 }),
-  routes: constantRoutes,
+  // Register common + gated module routes. The sidebar and the navigation
+  // guard filter the gated ones by the user's permissions.
+  routes: constantRoutes.concat(moduleRoutes),
 });

@@ -377,7 +377,9 @@
 .tree-sidebar-manage-wrap {
   display: flex;
   gap: 0;
-  min-height: calc(100vh - 130px);
+  /* Fixed height (not min-height) so the content area scrolls internally and
+     the tree panel stays pinned on the left instead of scrolling off-screen. */
+  height: calc(100vh - 130px);
   padding: 0 !important;
   overflow: hidden;
 }

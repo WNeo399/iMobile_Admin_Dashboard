@@ -7,7 +7,7 @@
           v-model="loginForm.username"
           type="text"
           auto-complete="off"
-          placeholder="账号"
+          placeholder="Username or Email"
         >
           <svg-icon slot="prefix" icon-class="user" class="el-input__icon input-icon" />
         </el-input>
@@ -17,27 +17,13 @@
           v-model="loginForm.password"
           type="password"
           auto-complete="off"
-          placeholder="密码"
+          placeholder="Password"
           @keyup.enter.native="handleLogin"
         >
           <svg-icon slot="prefix" icon-class="password" class="el-input__icon input-icon" />
         </el-input>
       </el-form-item>
-      <!-- <el-form-item prop="code" v-if="captchaEnabled">
-        <el-input
-          v-model="loginForm.code"
-          auto-complete="off"
-          placeholder="验证码"
-          style="width: 63%"
-          @keyup.enter.native="handleLogin"
-        >
-          <svg-icon slot="prefix" icon-class="validCode" class="el-input__icon input-icon" />
-        </el-input>
-        <div class="login-code">
-          <img :src="codeUrl" @click="getCode" class="login-code-img"/>
-        </div>
-      </el-form-item> -->
-      <el-checkbox v-model="loginForm.rememberMe" style="margin:0px 0px 25px 0px;">记住密码</el-checkbox>
+      <el-checkbox v-model="loginForm.rememberMe" style="margin:0px 0px 25px 0px;">Remember me</el-checkbox>
       <el-form-item style="width:100%;">
         <el-button
           :loading="loading"
@@ -46,11 +32,11 @@
           style="width:100%;"
           @click.native.prevent="handleLogin"
         >
-          <span v-if="!loading">登 录</span>
-          <span v-else>登 录 中...</span>
+          <span v-if="!loading">Login</span>
+          <span v-else>Logging in...</span>
         </el-button>
         <div style="float: right;" v-if="register">
-          <router-link class="link-type" :to="'/register'">立即注册</router-link>
+          <router-link class="link-type" :to="'/register'">Register now</router-link>
         </div>
       </el-form-item>
     </el-form>
@@ -62,7 +48,6 @@
 </template>
 
 <script>
-import { getCodeImg } from "@/api/login"
 import Cookies from "js-cookie"
 import { encrypt, decrypt } from '@/utils/jsencrypt'
 import defaultSettings from '@/settings'
@@ -73,27 +58,21 @@ export default {
     return {
       title: process.env.VUE_APP_TITLE,
       footerContent: defaultSettings.footerContent,
-      codeUrl: "",
       loginForm: {
-        username: "admin",
-        password: "admin123",
-        rememberMe: false,
-        code: "",
-        uuid: ""
+        username: "",
+        password: "",
+        rememberMe: false
       },
       loginRules: {
         username: [
-          { required: true, trigger: "blur", message: "请输入您的账号" }
+          { required: true, trigger: "blur", message: "Please enter your username or email" }
         ],
         password: [
-          { required: true, trigger: "blur", message: "请输入您的密码" }
-        ],
-        // code: [{ required: true, trigger: "change", message: "请输入验证码" }]
+          { required: true, trigger: "blur", message: "Please enter your password" }
+        ]
       },
       loading: false,
-      // 验证码开关
-      captchaEnabled: false,
-      // 注册开关
+      // self-service registration disabled (accounts are provisioned by admins)
       register: false,
       redirect: undefined
     }
@@ -107,19 +86,9 @@ export default {
     }
   },
   created() {
-    this.getCode()
     this.getCookie()
   },
   methods: {
-    getCode() {
-      getCodeImg().then(res => {
-        this.captchaEnabled = res.captchaEnabled === undefined ? true : res.captchaEnabled
-        if (this.captchaEnabled) {
-          this.codeUrl = "data:image/gif;base64," + res.img
-          this.loginForm.uuid = res.uuid
-        }
-      })
-    },
     getCookie() {
       const username = Cookies.get("username")
       const password = Cookies.get("password")
@@ -131,7 +100,6 @@ export default {
       }
     },
     handleLogin() {
-        // this.$router.push({ path: this.redirect || "/" }).catch(()=>{})
       this.$refs.loginForm.validate(valid => {
         if (valid) {
           this.loading = true
@@ -148,9 +116,6 @@ export default {
             this.$router.push({ path: this.redirect || "/" }).catch(()=>{})
           }).catch(() => {
             this.loading = false
-            if (this.captchaEnabled) {
-              this.getCode()
-            }
           })
         }
       })

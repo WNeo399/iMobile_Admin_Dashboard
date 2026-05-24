@@ -1,12 +1,10 @@
 import store from '@/store'
+import { hasPermission } from '@/utils/permission'
 
 function authPermission(permission) {
-  const all_permission = "*:*:*"
   const permissions = store.getters && store.getters.permissions
   if (permission && permission.length > 0) {
-    return permissions.some(v => {
-      return all_permission === v || v === permission
-    })
+    return hasPermission(permissions, permission)
   } else {
     return false
   }

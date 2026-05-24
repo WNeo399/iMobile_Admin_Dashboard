@@ -31,33 +31,52 @@
         </el-tooltip>
 
       </template> -->
-<!-- 
       <el-dropdown class="avatar-container right-menu-item hover-effect" trigger="hover">
         <div class="avatar-wrapper">
           <img :src="avatar" class="user-avatar">
           <span class="user-nickname"> {{ nickName }} </span>
         </div>
         <el-dropdown-menu slot="dropdown">
-          <router-link to="/user/profile">
-            <el-dropdown-item>个人中心</el-dropdown-item>
-          </router-link>
-          <el-dropdown-item @click.native="setLayout" v-if="setting">
-            <span>布局设置</span>
-          </el-dropdown-item>
-          <el-dropdown-item @click.native="lockScreen">
-            <span>锁定屏幕</span>
+          <el-dropdown-item @click.native="openChangePassword">
+            <span>Change Password</span>
           </el-dropdown-item>
           <el-dropdown-item divided @click.native="logout">
-            <span>退出登录</span>
+            <span>Logout</span>
           </el-dropdown-item>
         </el-dropdown-menu>
-      </el-dropdown> -->
+      </el-dropdown>
     </div>
+
+    <el-dialog
+      title="Change Password"
+      :visible.sync="pwdDialogOpen"
+      width="420px"
+      append-to-body
+      @close="resetPwdForm"
+    >
+      <el-form ref="pwdForm" :model="pwdForm" :rules="pwdRules" label-width="150px" size="small">
+        <el-form-item label="Current Password" prop="currentPassword">
+          <el-input v-model="pwdForm.currentPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="New Password" prop="newPassword">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password
+            placeholder="At least 6 characters" />
+        </el-form-item>
+        <el-form-item label="Confirm Password" prop="confirmPassword">
+          <el-input v-model="pwdForm.confirmPassword" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <div slot="footer">
+        <el-button type="primary" :loading="pwdSubmitting" @click="submitChangePassword">Save</el-button>
+        <el-button @click="pwdDialogOpen = false">Cancel</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import { mapGetters } from 'vuex'
+import { changePassword } from '@/api/login'
 import Breadcrumb from '@/components/Breadcrumb'
 import TopNav from './TopNav'
 import TopBar from './TopBar'
@@ -83,6 +102,33 @@ export default {
     RuoYiGit,
     RuoYiDoc,
     HeaderNotice
+  },
+  data() {
+    const validateConfirm = (rule, value, callback) => {
+      if (value !== this.pwdForm.newPassword) {
+        callback(new Error('Passwords do not match'))
+      } else {
+        callback()
+      }
+    }
+    return {
+      pwdDialogOpen: false,
+      pwdSubmitting: false,
+      pwdForm: { currentPassword: '', newPassword: '', confirmPassword: '' },
+      pwdRules: {
+        currentPassword: [
+          { required: true, message: 'Enter your current password', trigger: 'blur' }
+        ],
+        newPassword: [
+          { required: true, message: 'Enter a new password', trigger: 'blur' },
+          { min: 6, message: 'At least 6 characters', trigger: 'blur' }
+        ],
+        confirmPassword: [
+          { required: true, message: 'Confirm your new password', trigger: 'blur' },
+          { validator: validateConfirm, trigger: 'blur' }
+        ]
+      }
+    }
   },
   computed: {
     ...mapGetters([
@@ -114,14 +160,44 @@ export default {
     setLayout(event) {
       this.$emit('setLayout')
     },
+    openChangePassword() {
+      this.pwdDialogOpen = true
+      this.$nextTick(() => {
+        this.$refs.pwdForm && this.$refs.pwdForm.clearValidate()
+      })
+    },
+    resetPwdForm() {
+      this.pwdForm = { currentPassword: '', newPassword: '', confirmPassword: '' }
+      this.$nextTick(() => {
+        this.$refs.pwdForm && this.$refs.pwdForm.clearValidate()
+      })
+    },
+    submitChangePassword() {
+      this.$refs.pwdForm.validate(valid => {
+        if (!valid) return
+        this.pwdSubmitting = true
+        changePassword({
+          currentPassword: this.pwdForm.currentPassword,
+          newPassword: this.pwdForm.newPassword
+        }).then(() => {
+          this.$message.success('Password changed')
+          this.pwdDialogOpen = false
+        }).catch(e => {
+          const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to change password'
+          this.$message.error(msg)
+        }).finally(() => {
+          this.pwdSubmitting = false
+        })
+      })
+    },
     logout() {
-      this.$confirm('确定注销并退出系统吗？', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+      this.$confirm('Are you sure you want to log out?', 'Confirm', {
+        confirmButtonText: 'Confirm',
+        cancelButtonText: 'Cancel',
         type: 'warning'
       }).then(() => {
         this.$store.dispatch('LogOut').then(() => {
-          location.href = '/index'
+          location.href = '/login'
         })
       }).catch(() => {})
     }

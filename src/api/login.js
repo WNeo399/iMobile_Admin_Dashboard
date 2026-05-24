@@ -1,15 +1,13 @@
 import request from '@/utils/request'
 
-// 登录方法
-export function login(username, password, code, uuid) {
+// Login — `username` accepts either a username or an email address
+export function login(username, password) {
   const data = {
     username,
-    password,
-    code,
-    uuid
+    password
   }
   return request({
-    url: '/login',
+    url: '/auth/login',
     headers: {
       isToken: false,
       repeatSubmit: false
@@ -19,42 +17,27 @@ export function login(username, password, code, uuid) {
   })
 }
 
-// 注册方法
-export function register(data) {
-  return request({
-    url: '/register',
-    headers: {
-      isToken: false
-    },
-    method: 'post',
-    data: data
-  })
-}
-
-// 获取用户详细信息
+// Current user info (role, permissions, shop scope)
 export function getInfo() {
   return request({
-    url: '/users/getInfo',
+    url: '/auth/getInfo',
     method: 'get'
   })
 }
 
-// 退出方法
+// Logout
 export function logout() {
   return request({
-    url: '/logout',
+    url: '/auth/logout',
     method: 'post'
   })
 }
 
-// 获取验证码
-export function getCodeImg() {
+// Change own password
+export function changePassword(data) {
   return request({
-    url: '/captchaImage',
-    headers: {
-      isToken: false
-    },
-    method: 'get',
-    timeout: 20000
+    url: '/auth/changePassword',
+    method: 'post',
+    data
   })
 }

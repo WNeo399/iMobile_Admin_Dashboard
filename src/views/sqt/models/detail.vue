@@ -28,9 +28,11 @@
 
             <el-table v-loading="partsLoading" :data="parts" empty-text="No parts added yet">
                 <el-table-column label="Part Name" prop="partName" min-width="160" sortable />
-                <el-table-column label="Quality" prop="qualityName" width="140">
+                <el-table-column label="Genuine" width="120" align="center">
                     <template slot-scope="scope">
-                        <el-tag size="mini" type="info">{{ scope.row.qualityName }}</el-tag>
+                        <el-tag size="mini" :type="scope.row.genuine ? 'success' : 'info'">
+                            {{ scope.row.genuine ? 'Genuine' : 'Non-genuine' }}
+                        </el-tag>
                     </template>
                 </el-table-column>
                 <el-table-column label="Price" width="120" align="right" sortable
@@ -81,19 +83,16 @@
                         </el-form-item>
                     </el-col>
                     <el-col :span="12">
-                        <el-form-item label="Quality" prop="qualityId">
-                            <el-select v-model="partForm.qualityId" placeholder="Select quality"
-                                style="width: 100%">
-                                <el-option v-for="q in qualities" :key="q._id" :label="q.name" :value="q._id" />
-                            </el-select>
+                        <el-form-item label="Price (AUD)" prop="price">
+                            <el-input-number v-model="partForm.price" :min="0" :precision="2" :step="1"
+                                style="width: 100%" />
                         </el-form-item>
                     </el-col>
                 </el-row>
                 <el-row :gutter="16">
                     <el-col :span="12">
-                        <el-form-item label="Price (AUD)" prop="price">
-                            <el-input-number v-model="partForm.price" :min="0" :precision="2" :step="1"
-                                style="width: 100%" />
+                        <el-form-item label="Genuine" prop="genuine">
+                            <el-checkbox v-model="partForm.genuine">Genuine (original) part</el-checkbox>
                         </el-form-item>
                     </el-col>
                     <el-col :span="12">
@@ -127,13 +126,12 @@
 <script>
 import { getModel } from '@/api/sqt/models'
 import { listParts, createPart, updatePart, deletePart } from '@/api/sqt/parts'
-import { listQualities } from '@/api/sqt/qualities'
 
 function emptyPartForm() {
     return {
         _id: null,
         partName: '',
-        qualityId: '',
+        genuine: false,
         price: 0,
         active: true,
         identifiers: { sku: '', partNumber: '', zohoName: '' }
@@ -149,13 +147,11 @@ export default {
             partSubmitLoading: false,
             model: null,
             parts: [],
-            qualities: [],
             partOpen: false,
             partDialogTitle: '',
             partForm: emptyPartForm(),
             partRules: {
                 partName: [{ required: true, message: 'Part name is required', trigger: 'blur' }],
-                qualityId: [{ required: true, message: 'Quality is required', trigger: 'change' }],
                 price: [{ required: true, type: 'number', message: 'Price is required', trigger: 'blur' }]
             }
         }
@@ -175,12 +171,8 @@ export default {
         async loadAll() {
             this.loading = true
             try {
-                const [modelRes, qualitiesRes] = await Promise.all([
-                    getModel(this.modelId),
-                    listQualities()
-                ])
+                const modelRes = await getModel(this.modelId)
                 this.model = modelRes.data
-                this.qualities = qualitiesRes.data || []
                 await this.loadParts()
             } catch (e) {
                 console.error(e)
@@ -210,7 +202,7 @@ export default {
             this.partForm = {
                 _id: row._id,
                 partName: row.partName || '',
-                qualityId: row.qualityId || '',
+                genuine: !!row.genuine,
                 price: Number(row.price) || 0,
                 active: row.active !== false,
                 identifiers: {
@@ -225,7 +217,7 @@ export default {
         async handleDeletePart(row) {
             try {
                 await this.$confirm(
-                    `Delete "${row.partName}" (${row.qualityName})?`,
+                    `Delete "${row.partName}" (${row.genuine ? 'Genuine' : 'Non-genuine'})?`,
                     'Warning',
                     {
                         confirmButtonText: 'Confirm',
@@ -250,7 +242,7 @@ export default {
                 try {
                     const payload = {
                         partName: this.partForm.partName,
-                        qualityId: this.partForm.qualityId,
+                        genuine: this.partForm.genuine,
                         price: this.partForm.price,
                         active: this.partForm.active,
                         identifiers: {

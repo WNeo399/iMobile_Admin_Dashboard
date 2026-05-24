@@ -6,13 +6,24 @@ import 'nprogress/nprogress.css'
 import { getToken } from '@/utils/auth'
 import { isPathMatch } from '@/utils/validate'
 import { isRelogin } from '@/utils/request'
+import auth from '@/plugins/auth'
 
 NProgress.configure({ showSpinner: false })
 
-const whiteList = ['/login', '/register']
+const whiteList = ['/login']
 
 const isWhiteList = (path) => {
   return whiteList.some(pattern => isPathMatch(pattern, path))
+}
+
+// Every matched route record (parent + child) must pass its meta gate.
+const isRouteAllowed = (to) => {
+  return to.matched.every(record => {
+    const meta = record.meta || {}
+    if (meta.permissions) return auth.hasPermiOr(meta.permissions)
+    if (meta.roles) return auth.hasRoleOr(meta.roles)
+    return true
+  })
 }
 
 router.beforeEach((to, from, next) => {
@@ -28,23 +39,24 @@ router.beforeEach((to, from, next) => {
     } else {
       if (store.getters.roles.length === 0) {
         isRelogin.show = true
-                next()
-        // 判断当前用户是否已拉取完user_info信息
-        // store.dispatch('GetInfo').then(() => {
-        //   isRelogin.show = false
-        //   store.dispatch('GenerateRoutes').then(accessRoutes => {
-        //     // 根据roles权限生成可访问的路由表
-        //     router.addRoutes(accessRoutes) // 动态添加可访问路由表
-        //     next({ ...to, replace: true }) // hack方法 确保addRoutes已完成
-        //   })
-        // }).catch(err => {
-        //     store.dispatch('LogOut').then(() => {
-        //       Message.error(err)
-        //       next({ path: '/' })
-        //     })
-        //   })
-      } else {
+        // Load the user's profile/role/permissions, then build the filtered
+        // sidebar. Re-enter the route so the permission check below runs.
+        store.dispatch('GetInfo').then(() => {
+          isRelogin.show = false
+          store.dispatch('GenerateRoutes').then(() => {
+            next({ ...to, replace: true })
+          })
+        }).catch(err => {
+          store.dispatch('LogOut').then(() => {
+            Message.error(err)
+            next({ path: '/login' })
+          })
+        })
+      } else if (isRouteAllowed(to)) {
         next()
+      } else {
+        next({ path: '/401' })
+        NProgress.done()
       }
     }
   } else {

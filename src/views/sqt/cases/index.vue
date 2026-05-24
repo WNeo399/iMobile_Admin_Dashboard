@@ -48,6 +48,7 @@
                             clearable
                             filterable
                             style="width: 220px"
+                            @change="handleShopChange"
                         >
                             <el-option
                                 v-for="s in shops"
@@ -144,6 +145,7 @@
                         <template slot-scope="scope">
                             <el-button
                                 v-if="scope.row.status === 'pending'"
+                                v-hasPermi="['sqt:case:sendParts']"
                                 size="mini"
                                 type="text"
                                 icon="el-icon-box"
@@ -193,11 +195,27 @@
                             >Mark Collected</el-button>
                             <el-button
                                 v-if="scope.row.status === 'unrepairable'"
+                                v-hasPermi="['sqt:case:markBer']"
                                 size="mini"
                                 type="text"
                                 icon="el-icon-refresh-right"
                                 @click="handleMarkBer(scope.row)"
                             >Mark BER</el-button>
+                            <el-button
+                                v-if="scope.row.status === 'repaired-and-collected'"
+                                v-hasPermi="['sqt:case:selectParts']"
+                                size="mini"
+                                type="text"
+                                icon="el-icon-shopping-cart-2"
+                                @click="handleSelectParts(scope.row)"
+                            >Select Parts</el-button>
+                            <el-button
+                                v-hasPermi="['sqt:case:changeStatus']"
+                                size="mini"
+                                type="text"
+                                icon="el-icon-sort"
+                                @click="handleChangeStatus(scope.row)"
+                            >Change Status</el-button>
                             <el-button size="mini" type="text" icon="el-icon-chat-line-square"
                                 @click="handleNotes(scope.row)">
                                 Notes
@@ -224,6 +242,7 @@
             :visible.sync="notesDialogOpen"
             width="620px"
             append-to-body
+            :close-on-click-modal="false"
         >
             <div class="notes-list" v-if="notesList.length">
                 <div v-for="(n, idx) in notesList" :key="idx" class="note-item">
@@ -242,11 +261,8 @@
             </div>
 
             <el-divider content-position="left">Add a note</el-divider>
-            <el-form :model="noteForm" label-width="90px" size="small">
-                <el-form-item label="Added By">
-                    <el-input v-model="noteForm.addedBy" placeholder="Admin" />
-                </el-form-item>
-                <el-form-item label="Note" required>
+            <el-form :model="noteForm" size="small">
+                <el-form-item required style="margin-bottom: 0">
                     <el-input
                         v-model="noteForm.text"
                         type="textarea"
@@ -260,6 +276,214 @@
                     Add Note
                 </el-button>
                 <el-button @click="notesDialogOpen = false">Close</el-button>
+            </div>
+        </el-dialog>
+
+        <!-- Change Status dialog (Admin / TechElite — set any status) -->
+        <el-dialog
+            :title="changeStatusDialogTitle"
+            :visible.sync="changeStatusDialogOpen"
+            width="480px"
+            append-to-body
+            :close-on-click-modal="false"
+        >
+            <el-form :model="changeStatusForm" label-width="90px" size="small">
+                <el-form-item label="Status" required>
+                    <el-select v-model="changeStatusForm.status" placeholder="Select a status"
+                        style="width: 100%">
+                        <el-option v-for="s in statusOptions" :key="s.value" :label="s.label"
+                            :value="s.value" />
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="Note" required>
+                    <el-input v-model="changeStatusForm.note" type="textarea" :rows="3"
+                        placeholder="Reason for this status change (required)" />
+                </el-form-item>
+            </el-form>
+            <div slot="footer">
+                <el-button type="primary" :loading="changeStatusSubmitting" @click="submitChangeStatus">
+                    Save
+                </el-button>
+                <el-button @click="changeStatusDialogOpen = false">Cancel</el-button>
+            </div>
+        </el-dialog>
+
+        <!-- Select Parts dialog (Repaired & Collected — Admin / TechElite) -->
+        <el-dialog
+            :title="selectPartsDialogTitle"
+            :visible.sync="selectPartsDialogOpen"
+            width="780px"
+            append-to-body
+            top="calc(15vh - 50px)"
+            :close-on-click-modal="false"
+            @close="resetSelectParts"
+        >
+            <div v-if="selectPartsCase" class="select-parts-scroll">
+                <el-card shadow="never" class="send-parts-device">
+                    <div slot="header" class="send-parts-card-header">
+                        <i class="el-icon-mobile-phone" /> Device Info
+                    </div>
+                    <el-descriptions
+                        v-if="selectPartsCase.device"
+                        :column="2"
+                        size="small"
+                        border
+                        :label-style="{ width: '130px', whiteSpace: 'nowrap' }"
+                    >
+                        <el-descriptions-item label="Brand">
+                            {{ selectPartsCase.device.brand || '—' }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Category">
+                            {{ selectPartsCase.device.category || '—' }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="IMEI">
+                            {{ selectPartsCase.device.imei || '—' }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Purchase Price">
+                            <span v-if="selectPurchasePrice > 0">
+                                AUD {{ selectPurchasePrice.toFixed(2) }}
+                            </span>
+                            <span v-else>—</span>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Repair Budget">
+                            <span v-if="repairBudget > 0">AUD {{ repairBudget.toFixed(2) }}</span>
+                            <span v-else>—</span>
+                            <span class="repair-budget-hint">(60% of purchase price)</span>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Model" :span="2">
+                            <el-select
+                                v-model="modelSelectValue"
+                                placeholder="Select a model"
+                                filterable
+                                clearable
+                                :loading="modelsLoading"
+                                style="width: 100%"
+                                @change="onSelectPartsModelChange"
+                            >
+                                <el-option
+                                    v-for="m in modelOptions"
+                                    :key="m._id"
+                                    :label="m.brandName ? (m.brandName + ' — ' + m.name) : m.name"
+                                    :value="m._id"
+                                />
+                            </el-select>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Description" :span="2">
+                            <div class="multiline">{{ selectPartsCase.device.description || '—' }}</div>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Described Fault" :span="2">
+                            <div class="multiline">{{ selectPartsCase.describedFault || '—' }}</div>
+                        </el-descriptions-item>
+                    </el-descriptions>
+                    <div v-else class="empty-block">No device info recorded.</div>
+                </el-card>
+
+                <div class="select-parts-header">
+                    <span style="font-weight: 500">Available Parts</span>
+                    <el-button
+                        v-if="selectPartsModelId"
+                        size="mini"
+                        type="primary"
+                        plain
+                        icon="el-icon-plus"
+                        @click="openAddPart"
+                    >Add New Part</el-button>
+                </div>
+
+                <div v-if="!selectPartsModelId" class="empty-block">
+                    Select a model above to choose its parts.
+                </div>
+                <div v-else v-loading="selectPartsLoading" class="select-parts-body">
+                    <el-alert
+                        v-if="budgetWarning && chosenParts.length"
+                        type="warning"
+                        show-icon
+                        :closable="false"
+                        class="select-parts-warning"
+                        :title="`Estimated charge (parts + 70) × 1.1 = AUD ${estimatedCharge.toFixed(2)} exceeds the repair budget of AUD ${repairBudget.toFixed(2)}.`"
+                    />
+                    <div v-if="!nonGenuineParts.length && !selectPartsLoading" class="empty-block">
+                        No non-genuine parts available for this model yet. Use 'Add New Part'.
+                    </div>
+                    <el-table v-else :data="nonGenuineParts" size="small" border>
+                        <el-table-column width="46" align="center">
+                            <template slot-scope="scope">
+                                <el-checkbox v-model="scope.row._selected" />
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Item" min-width="220">
+                            <template slot-scope="scope">
+                                <div>{{ scope.row.partName }}</div>
+                                <div class="product-sub-sku">
+                                    {{ (scope.row.identifiers && (scope.row.identifiers.partNumber || scope.row.identifiers.sku)) || '—' }}
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column v-if="canViewPrice" label="Price" width="120" align="right">
+                            <template slot-scope="scope">
+                                <span v-if="scope.row.price">AUD {{ Number(scope.row.price).toFixed(2) }}</span>
+                                <span v-else style="color: #c0c4cc">—</span>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+
+                    <div v-if="chosenParts.length" class="select-parts-summary">
+                        <div class="summary-line">
+                            <span>Selected parts total:</span>
+                            <strong>AUD {{ chosenPartsTotal.toFixed(2) }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div slot="footer">
+                <el-button
+                    type="primary"
+                    :loading="selectPartsSubmitting"
+                    :disabled="!selectPartsModelId"
+                    @click="submitSelectParts"
+                >Save</el-button>
+                <el-button @click="selectPartsDialogOpen = false">Cancel</el-button>
+            </div>
+        </el-dialog>
+
+        <!-- Add New Part dialog (nested in Select Parts) -->
+        <el-dialog
+            title="Add Part"
+            :visible.sync="addPartDialogOpen"
+            width="560px"
+            append-to-body
+            :close-on-click-modal="false"
+            @close="resetAddPartForm"
+        >
+            <el-form ref="addPartForm" :model="addPartForm" :rules="addPartRules" label-width="120px" size="small">
+                <el-row :gutter="16">
+                    <el-col :span="12">
+                        <el-form-item label="Part Name" prop="partName">
+                            <el-input v-model="addPartForm.partName" placeholder="OCTA, Screen, Battery..." />
+                        </el-form-item>
+                    </el-col>
+                    <el-col :span="12">
+                        <el-form-item label="Price (AUD)" prop="price">
+                            <el-input-number v-model="addPartForm.price" :min="0" :precision="2" :step="1"
+                                style="width: 100%" />
+                        </el-form-item>
+                    </el-col>
+                </el-row>
+                <el-divider content-position="left">Identifiers (optional)</el-divider>
+                <el-form-item label="SKU">
+                    <el-input v-model="addPartForm.identifiers.sku" placeholder="21077" />
+                </el-form-item>
+                <el-form-item label="Part Number">
+                    <el-input v-model="addPartForm.identifiers.partNumber" placeholder="GH82-24544A" />
+                </el-form-item>
+                <el-form-item label="Zoho Name">
+                    <el-input v-model="addPartForm.identifiers.zohoName" />
+                </el-form-item>
+            </el-form>
+            <div slot="footer">
+                <el-button type="primary" :loading="addPartSubmitting" @click="submitAddPart">Add</el-button>
+                <el-button @click="addPartDialogOpen = false">Cancel</el-button>
             </div>
         </el-dialog>
 
@@ -296,6 +520,10 @@
                         <el-descriptions-item label="IMEI">
                             {{ sendPartsCase.device.imei || '—' }}
                         </el-descriptions-item>
+                        <el-descriptions-item label="Purchase Price">
+                            <span v-if="devicePurchasePrice > 0">AUD {{ devicePurchasePrice.toFixed(2) }}</span>
+                            <span v-else>—</span>
+                        </el-descriptions-item>
                         <el-descriptions-item label="Description" :span="2">
                             <div class="multiline">{{ sendPartsCase.device.description || '—' }}</div>
                         </el-descriptions-item>
@@ -305,61 +533,6 @@
                     </el-descriptions>
                     <div v-else class="empty-block">No device info recorded.</div>
                 </el-card>
-
-                <div v-if="sendPartsExistingOrders.length" class="sent-orders-section">
-                    <div class="sent-orders-title">
-                        <i class="el-icon-document-checked" />
-                        Previously Sent Parts
-                        <span class="sent-orders-count">({{ sendPartsExistingOrders.length }} order{{ sendPartsExistingOrders.length === 1 ? '' : 's' }})</span>
-                    </div>
-                    <div
-                        v-for="(order, idx) in sendPartsExistingOrders"
-                        :key="order.zohoSalesOrderId || idx"
-                        class="sent-order-card"
-                    >
-                        <div class="sent-order-header">
-                            <i class="el-icon-truck" />
-                            <a
-                                v-if="order.zohoSalesOrderId"
-                                :href="`https://inventory.zoho.com/app/746138234#/salesorders/${order.zohoSalesOrderId}`"
-                                target="_blank"
-                                rel="noopener"
-                                class="product-link"
-                            >{{ order.zohoSalesOrderNumber || order.zohoSalesOrderId }}</a>
-                            <span v-else>{{ order.zohoSalesOrderNumber || '—' }}</span>
-                            <span class="sent-order-date">{{ formatDate(order.orderedAt) }}</span>
-                            <el-tag
-                                size="mini"
-                                :type="order.receivedAt ? 'success' : 'info'"
-                                effect="light"
-                                class="sent-order-status"
-                            >
-                                <i :class="order.receivedAt ? 'el-icon-check' : 'el-icon-time'" />
-                                {{ order.receivedAt ? `Received ${formatDate(order.receivedAt)}` : 'Awaiting receipt' }}
-                            </el-tag>
-                            <span class="sent-order-parts-count">
-                                {{ (order.lineItems || []).length }} part{{ (order.lineItems || []).length === 1 ? '' : 's' }}
-                            </span>
-                        </div>
-                        <el-table :data="order.lineItems || []" size="mini" border class="sent-order-table">
-                            <el-table-column label="Part" prop="partName" min-width="180" />
-                            <el-table-column label="SKU" prop="sku" width="130">
-                                <template slot-scope="scope">
-                                    {{ scope.row.sku || '—' }}
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="Unit Price" width="120" align="right">
-                                <template slot-scope="scope">
-                                    <span v-if="scope.row.unitPrice">AUD {{ Number(scope.row.unitPrice).toFixed(2) }}</span>
-                                    <span v-else>—</span>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="Sent" prop="quantitySent" width="70" align="center" />
-                            <el-table-column label="Used" prop="quantityUsed" width="70" align="center" />
-                            <el-table-column label="Returned" prop="quantityReturned" width="90" align="center" />
-                        </el-table>
-                    </div>
-                </div>
 
                 <div class="send-parts-search">
                     <label class="send-parts-label">Search Zoho products</label>
@@ -431,6 +604,59 @@
                         </template>
                     </el-table-column>
                 </el-table>
+
+                <div v-if="sendPartsExistingOrders.length" class="sent-orders-section">
+                    <div class="sent-orders-title">
+                        <i class="el-icon-document-checked" />
+                        Previously Sent Parts
+                        <span class="sent-orders-count">({{ sendPartsExistingOrders.length }} order{{ sendPartsExistingOrders.length === 1 ? '' : 's' }})</span>
+                    </div>
+                    <div
+                        v-for="(order, idx) in sendPartsExistingOrders"
+                        :key="order.zohoSalesOrderId || idx"
+                        class="sent-order-card"
+                    >
+                        <div class="sent-order-header">
+                            <i class="el-icon-truck" />
+                            <a
+                                v-if="order.zohoSalesOrderId"
+                                :href="`https://inventory.zoho.com/app/746138234#/salesorders/${order.zohoSalesOrderId}`"
+                                target="_blank"
+                                rel="noopener"
+                                class="product-link"
+                            >{{ order.zohoSalesOrderNumber || order.zohoSalesOrderId }}</a>
+                            <span v-else>{{ order.zohoSalesOrderNumber || '—' }}</span>
+                            <span class="sent-order-date">{{ formatDate(order.orderedAt) }}</span>
+                            <el-tag
+                                size="mini"
+                                :type="order.receivedAt ? 'success' : 'info'"
+                                effect="light"
+                                class="sent-order-status"
+                            >
+                                <i :class="order.receivedAt ? 'el-icon-check' : 'el-icon-time'" />
+                                {{ order.receivedAt ? `Received ${formatDate(order.receivedAt)}` : 'Awaiting receipt' }}
+                            </el-tag>
+                            <span class="sent-order-parts-count">
+                                {{ (order.lineItems || []).length }} part{{ (order.lineItems || []).length === 1 ? '' : 's' }}
+                            </span>
+                        </div>
+                        <el-table :data="order.lineItems || []" size="mini" border class="sent-order-table">
+                            <el-table-column label="Part" prop="partName" min-width="180" />
+                            <el-table-column label="SKU" prop="sku" width="130">
+                                <template slot-scope="scope">
+                                    {{ scope.row.sku || '—' }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column v-if="canViewPrice" label="Unit Price" width="120" align="right">
+                                <template slot-scope="scope">
+                                    <span v-if="scope.row.unitPrice">AUD {{ Number(scope.row.unitPrice).toFixed(2) }}</span>
+                                    <span v-else>—</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="Sent" prop="quantitySent" width="70" align="center" />
+                        </el-table>
+                    </div>
+                </div>
             </div>
 
             <div slot="footer">
@@ -818,7 +1044,7 @@
                                         {{ scope.row.sku || '—' }}
                                     </template>
                                 </el-table-column>
-                                <el-table-column label="Unit Price" width="120" align="right">
+                                <el-table-column v-if="canViewPrice" label="Unit Price" width="120" align="right">
                                     <template slot-scope="scope">
                                         <span v-if="scope.row.unitPrice">AUD {{ Number(scope.row.unitPrice).toFixed(2) }}</span>
                                         <span v-else>—</span>
@@ -903,8 +1129,10 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { listCases, getCaseCounts, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired } from '@/api/sqt/cases'
+import { listCases, getCaseCounts, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts } from '@/api/sqt/cases'
 import { listShops } from '@/api/sqt/shops'
+import { listParts, createPart } from '@/api/sqt/parts'
+import { listModels } from '@/api/sqt/models'
 import { searchProducts } from '@/api/zoho/products/product'
 
 const STATUS_META = [
@@ -973,8 +1201,32 @@ export default {
             notesDialogOpen: false,
             notesCaseRef: null,
             notesList: [],
-            noteForm: { text: '', addedBy: 'Admin' },
+            noteForm: { text: '' },
             noteSubmitting: false,
+
+            // Admin / TechElite: change a case to any status (requires a note)
+            changeStatusDialogOpen: false,
+            changeStatusCase: null,
+            changeStatusSubmitting: false,
+            changeStatusForm: { status: '', note: '' },
+            statusOptions: STATUS_META.map(s => ({ value: s.value, label: s.label })),
+
+            // Select Parts (Repaired & Collected — Admin / TechElite)
+            selectPartsDialogOpen: false,
+            selectPartsCase: null,
+            selectPartsLoading: false,
+            selectPartsSubmitting: false,
+            availableParts: [],
+            modelSelectValue: '',
+            modelOptions: [],
+            modelsLoading: false,
+            addPartDialogOpen: false,
+            addPartSubmitting: false,
+            addPartForm: { partName: '', price: 0, genuine: false, identifiers: { sku: '', partNumber: '', zohoName: '' } },
+            addPartRules: {
+                partName: [{ required: true, message: 'Part name is required', trigger: 'blur' }],
+                price: [{ required: true, type: 'number', message: 'Price is required', trigger: 'blur' }]
+            },
 
             detailDialogOpen: false,
             detailCase: null,
@@ -984,6 +1236,14 @@ export default {
         }
     },
     computed: {
+        canViewPrice() {
+            const roles = this.$store.getters.roles || []
+            return roles.includes('admin') || roles.includes('techelite-admin')
+        },
+        devicePurchasePrice() {
+            const p = this.sendPartsCase && this.sendPartsCase.device && this.sendPartsCase.device.purchasePrice
+            return Number(p) > 0 ? Number(p) : 0
+        },
         treeData() {
             const byStatus = this.counts.byStatus || {}
             return [
@@ -1002,6 +1262,41 @@ export default {
         notesDialogTitle() {
             if (!this.notesCaseRef) return 'Notes'
             return `Notes — ${this.caseLabel(this.notesCaseRef)}`
+        },
+        changeStatusDialogTitle() {
+            if (!this.changeStatusCase) return 'Change Status'
+            return `Change Status — ${this.caseLabel(this.changeStatusCase)}`
+        },
+        selectPartsDialogTitle() {
+            if (!this.selectPartsCase) return 'Select Parts'
+            return `Select Parts — ${this.caseLabel(this.selectPartsCase)}`
+        },
+        selectPartsModelId() {
+            return this.selectPartsCase && this.selectPartsCase.device && this.selectPartsCase.device.modelId
+        },
+        // Only non-genuine parts can be selected for a case
+        nonGenuineParts() {
+            return this.availableParts.filter(p => !p.genuine)
+        },
+        chosenParts() {
+            return this.availableParts.filter(p => p._selected)
+        },
+        chosenPartsTotal() {
+            return this.chosenParts.reduce((sum, p) => sum + (Number(p.price) || 0), 0)
+        },
+        selectPurchasePrice() {
+            const p = this.selectPartsCase && this.selectPartsCase.device && this.selectPartsCase.device.purchasePrice
+            return Number(p) > 0 ? Number(p) : 0
+        },
+        repairBudget() {
+            return this.selectPurchasePrice * 0.6
+        },
+        // Estimated charge: (parts total + 70) with a 10% uplift
+        estimatedCharge() {
+            return (this.chosenPartsTotal + 70) * 1.1
+        },
+        budgetWarning() {
+            return this.repairBudget > 0 && this.estimatedCharge > this.repairBudget
         },
         sendPartsDialogTitle() {
             if (!this.sendPartsCase) return 'Send Parts'
@@ -1102,13 +1397,29 @@ export default {
         },
         async loadCounts() {
             try {
-                const res = await getCaseCounts()
+                const params = {}
+                // When a shop is selected, scope the status counts to it too so
+                // the tree shows exactly what that shop would see.
+                if (this.queryParams.shopId) params.shopId = this.queryParams.shopId
+                const res = await getCaseCounts(params)
                 this.counts = res.data || { total: 0, byStatus: {} }
             } catch (e) {
                 console.error(e)
             }
         },
+        handleShopChange() {
+            // Switching shop re-scopes both the table and the status counts.
+            this.queryParams.page = 1
+            this.refreshAll()
+        },
         async loadShops() {
+            // Shop-scoped users can't hit the admin shop list endpoint (403);
+            // use the accessible shops returned with their profile instead.
+            const accessible = this.$store.getters.accessibleShopIds
+            if (Array.isArray(accessible)) {
+                this.shops = this.$store.getters.shops || []
+                return
+            }
             try {
                 const res = await listShops({ page: 1, pageSize: 200 })
                 this.shops = res.data || []
@@ -1423,6 +1734,150 @@ export default {
                 this.markBerSubmitting = false
             }
         },
+        handleSelectParts(row) {
+            this.selectPartsCase = row
+            this.availableParts = []
+            const mId = (row.device && row.device.modelId) || ''
+            this.modelSelectValue = mId
+            // Seed the dropdown with the current model so its label shows instantly
+            this.modelOptions = mId
+                ? [{ _id: mId, name: (row.device && row.device.modelName) || '', brandName: (row.device && row.device.brand) || '' }]
+                : []
+            this.selectPartsDialogOpen = true
+            this.loadModels()
+            this.loadAvailableParts()
+        },
+        // Load the full model catalogue from sqt_models (small collection),
+        // ensuring the case's current model is always present in the options.
+        async loadModels() {
+            this.modelsLoading = true
+            try {
+                const res = await listModels({ page: 1, pageSize: 500 })
+                let opts = res.data || []
+                const cur = this.selectPartsCase && this.selectPartsCase.device
+                if (cur && cur.modelId && !opts.some(m => String(m._id) === String(cur.modelId))) {
+                    opts = [{ _id: cur.modelId, name: cur.modelName || '', brandName: cur.brand || '' }, ...opts]
+                }
+                this.modelOptions = opts
+            } catch (e) {
+                console.error(e)
+            } finally {
+                this.modelsLoading = false
+            }
+        },
+        async onSelectPartsModelChange(modelId) {
+            if (!this.selectPartsCase) return
+            const prev = (this.selectPartsCase.device && this.selectPartsCase.device.modelId) || ''
+            try {
+                const res = await updateCaseDevice(this.selectPartsCase._id, { modelId: modelId || null })
+                const updated = res && res.data
+                if (updated) {
+                    this.selectPartsCase = updated
+                    const idx = this.list.findIndex(c => c._id === updated._id)
+                    if (idx !== -1) this.$set(this.list, idx, updated)
+                }
+                this.$message.success('Model updated')
+                await this.loadAvailableParts()
+            } catch (e) {
+                console.error(e)
+                this.modelSelectValue = prev // revert on failure
+                const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to update model'
+                this.$message.error(msg)
+            }
+        },
+        async loadAvailableParts() {
+            const modelId = this.selectPartsModelId
+            if (!modelId) {
+                this.availableParts = []
+                return
+            }
+            this.selectPartsLoading = true
+            try {
+                const res = await listParts(modelId)
+                const existing = (this.selectPartsCase && this.selectPartsCase.partsForInvoice) || []
+                this.availableParts = (res.data || []).map(p => {
+                    const sel = existing.find(e => String(e.partPriceId) === String(p._id))
+                    return { ...p, _selected: !!sel }
+                })
+            } catch (e) {
+                console.error(e)
+                this.$message.error('Failed to load parts')
+            } finally {
+                this.selectPartsLoading = false
+            }
+        },
+        async submitSelectParts() {
+            if (!this.selectPartsCase) return
+            const parts = this.availableParts
+                .filter(p => p._selected)
+                .map(p => ({ partPriceId: p._id }))
+            this.selectPartsSubmitting = true
+            try {
+                const res = await selectCaseParts(this.selectPartsCase._id, { parts })
+                const updated = res && res.data
+                if (updated) {
+                    const idx = this.list.findIndex(c => c._id === updated._id)
+                    if (idx !== -1) this.$set(this.list, idx, updated)
+                }
+                this.$message.success(`Saved ${parts.length} part(s)`)
+                this.selectPartsDialogOpen = false
+            } catch (e) {
+                console.error(e)
+                const msg = (e.response && e.response.data && e.response.data.message) || 'Save failed'
+                this.$message.error(msg)
+            } finally {
+                this.selectPartsSubmitting = false
+            }
+        },
+        resetSelectParts() {
+            this.selectPartsCase = null
+            this.availableParts = []
+            this.modelSelectValue = ''
+            this.modelOptions = []
+        },
+        openAddPart() {
+            this.addPartForm = { partName: '', price: 0, genuine: false, identifiers: { sku: '', partNumber: '', zohoName: '' } }
+            this.addPartDialogOpen = true
+            this.$nextTick(() => this.$refs.addPartForm && this.$refs.addPartForm.clearValidate())
+        },
+        submitAddPart() {
+            this.$refs.addPartForm.validate(async valid => {
+                if (!valid) return
+                this.addPartSubmitting = true
+                try {
+                    const payload = {
+                        partName: this.addPartForm.partName,
+                        genuine: false, // parts added here are non-genuine
+                        price: this.addPartForm.price,
+                        active: true,
+                        identifiers: {
+                            sku: this.addPartForm.identifiers.sku || null,
+                            partNumber: this.addPartForm.identifiers.partNumber || null,
+                            zohoName: this.addPartForm.identifiers.zohoName || null
+                        }
+                    }
+                    const res = await createPart(this.selectPartsModelId, payload)
+                    this.$message.success('Part added')
+                    // Append and auto-select the new part
+                    if (res && res.data) {
+                        this.availableParts.push({ ...res.data, _selected: true })
+                    } else {
+                        this.loadAvailableParts()
+                    }
+                    this.addPartDialogOpen = false
+                } catch (e) {
+                    console.error(e)
+                    const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to add part'
+                    this.$message.error(msg)
+                } finally {
+                    this.addPartSubmitting = false
+                }
+            })
+        },
+        resetAddPartForm() {
+            this.addPartForm = { partName: '', price: 0, genuine: false, identifiers: { sku: '', partNumber: '', zohoName: '' } }
+            this.$nextTick(() => this.$refs.addPartForm && this.$refs.addPartForm.clearValidate())
+        },
         async submitMarkCollected() {
             if (!this.markCollectedCase) return
             this.markCollectedSubmitting = true
@@ -1534,8 +1989,46 @@ export default {
         handleNotes(row) {
             this.notesCaseRef = row
             this.notesList = Array.isArray(row.notes) ? row.notes.slice() : []
-            this.noteForm = { text: '', addedBy: 'Admin' }
+            this.noteForm = { text: '' }
             this.notesDialogOpen = true
+        },
+        handleChangeStatus(row) {
+            this.changeStatusCase = row
+            this.changeStatusForm = { status: row.status, note: '' }
+            this.changeStatusDialogOpen = true
+        },
+        async submitChangeStatus() {
+            if (!this.changeStatusCase) return
+            if (!this.changeStatusForm.status) {
+                this.$message.warning('Please select a status')
+                return
+            }
+            if (!this.changeStatusForm.note.trim()) {
+                this.$message.warning('A note is required to change the status')
+                return
+            }
+            this.changeStatusSubmitting = true
+            try {
+                const res = await changeCaseStatus(this.changeStatusCase._id, {
+                    status: this.changeStatusForm.status,
+                    note: this.changeStatusForm.note.trim()
+                })
+                const updated = res && res.data
+                const newStatus = (updated && updated.status) || this.changeStatusForm.status
+                this.$message.success(`Status changed to "${this.statusLabel(newStatus)}"`)
+                if (updated) {
+                    const idx = this.list.findIndex(c => c._id === updated._id)
+                    if (idx !== -1) this.$set(this.list, idx, updated)
+                }
+                this.changeStatusDialogOpen = false
+                this.refreshAll()
+            } catch (e) {
+                console.error(e)
+                const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to change status'
+                this.$message.error(msg)
+            } finally {
+                this.changeStatusSubmitting = false
+            }
         },
         async submitNote() {
             const text = (this.noteForm.text || '').trim()
@@ -1545,10 +2038,7 @@ export default {
             }
             this.noteSubmitting = true
             try {
-                const res = await addCaseNote(this.notesCaseRef._id, {
-                    text,
-                    addedBy: this.noteForm.addedBy || 'Admin'
-                })
+                const res = await addCaseNote(this.notesCaseRef._id, { text })
                 const updated = res.data
                 // refresh dialog state from server response
                 this.notesList = Array.isArray(updated.notes) ? updated.notes.slice() : []
@@ -1737,6 +2227,39 @@ export default {
         color: #409EFF;
         margin-right: 4px;
     }
+}
+.select-parts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #606266;
+}
+.select-parts-scroll {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.repair-budget-hint {
+    margin-left: 6px;
+    color: #909399;
+    font-size: 12px;
+}
+.select-parts-summary {
+    margin-top: 12px;
+    .summary-line {
+        text-align: right;
+        font-size: 13px;
+        color: #606266;
+        strong {
+            margin-left: 6px;
+            color: #303133;
+        }
+    }
+}
+.select-parts-warning {
+    margin-bottom: 10px;
 }
 .send-parts-search {
     margin-bottom: 12px;
