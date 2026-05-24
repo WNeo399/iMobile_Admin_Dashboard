@@ -339,17 +339,6 @@
                         <el-descriptions-item label="IMEI">
                             {{ selectPartsCase.device.imei || '—' }}
                         </el-descriptions-item>
-                        <el-descriptions-item label="Purchase Price">
-                            <span v-if="selectPurchasePrice > 0">
-                                AUD {{ selectPurchasePrice.toFixed(2) }}
-                            </span>
-                            <span v-else>—</span>
-                        </el-descriptions-item>
-                        <el-descriptions-item label="Repair Budget">
-                            <span v-if="repairBudget > 0">AUD {{ repairBudget.toFixed(2) }}</span>
-                            <span v-else>—</span>
-                            <span class="repair-budget-hint">(60% of purchase price)</span>
-                        </el-descriptions-item>
                         <el-descriptions-item label="Model" :span="2">
                             <el-select
                                 v-model="modelSelectValue"
@@ -373,6 +362,17 @@
                         </el-descriptions-item>
                         <el-descriptions-item label="Described Fault" :span="2">
                             <div class="multiline">{{ selectPartsCase.describedFault || '—' }}</div>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Repair Budget">
+                            <span v-if="repairBudget > 0">AUD {{ repairBudget.toFixed(2) }}</span>
+                            <span v-else>—</span>
+                            <span class="repair-budget-hint">(60% of purchase price)</span>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Purchase Price">
+                            <span v-if="selectPurchasePrice > 0">
+                                AUD {{ selectPurchasePrice.toFixed(2) }}
+                            </span>
+                            <span v-else>—</span>
                         </el-descriptions-item>
                     </el-descriptions>
                     <div v-else class="empty-block">No device info recorded.</div>
@@ -413,9 +413,11 @@
                         </el-table-column>
                         <el-table-column label="Item" min-width="220">
                             <template slot-scope="scope">
-                                <div>{{ scope.row.partName }}</div>
-                                <div class="product-sub-sku">
-                                    {{ (scope.row.identifiers && (scope.row.identifiers.partNumber || scope.row.identifiers.sku)) || '—' }}
+                                <div class="part-item-row">
+                                    <span class="part-item-name">{{ scope.row.partName }}</span>
+                                    <span class="part-item-code">
+                                        {{ (scope.row.identifiers && (scope.row.identifiers.partNumber || scope.row.identifiers.sku)) || '—' }}
+                                    </span>
                                 </div>
                             </template>
                         </el-table-column>
@@ -431,6 +433,18 @@
                         <div class="summary-line">
                             <span>Selected parts total:</span>
                             <strong>AUD {{ chosenPartsTotal.toFixed(2) }}</strong>
+                        </div>
+                        <div class="summary-line">
+                            <span>Labor:</span>
+                            <strong>AUD {{ laborCost.toFixed(2) }}</strong>
+                        </div>
+                        <div class="summary-line">
+                            <span>GST (10%):</span>
+                            <strong>AUD {{ chosenGst.toFixed(2) }}</strong>
+                        </div>
+                        <div class="summary-line summary-total">
+                            <span>Total:</span>
+                            <strong>AUD {{ chosenGrandTotal.toFixed(2) }}</strong>
                         </div>
                     </div>
                 </div>
@@ -1143,11 +1157,15 @@ const STATUS_META = [
     { value: 'repairing', label: 'Repairing', tag: '', color: '#409EFF' },
     { value: 'repaired', label: 'Repaired', tag: 'success', color: '#67C23A' },
     { value: 'repaired-and-collected', label: 'Repaired & Collected', tag: 'success', color: '#67C23A' },
+    { value: 'waiting-solvup', label: 'Waiting Solvup', tag: 'warning', color: '#E6A23C' },
     { value: 'unrepairable', label: 'Unrepairable', tag: 'danger', color: '#F56C6C' },
     { value: 'ber', label: 'BER', tag: 'danger', color: '#F56C6C' },
     { value: 'completed', label: 'Completed', tag: 'success', color: '#67C23A' },
     { value: 'cancelled', label: 'Cancelled', tag: 'info', color: '#C0C4CC' }
 ]
+
+const LABOR_COST = 70
+const GST_RATE = 0.1
 
 export default {
     name: 'SqtCases',
@@ -1284,6 +1302,18 @@ export default {
         chosenPartsTotal() {
             return this.chosenParts.reduce((sum, p) => sum + (Number(p.price) || 0), 0)
         },
+        laborCost() {
+            return LABOR_COST
+        },
+        chosenSubtotal() {
+            return this.chosenPartsTotal + this.laborCost
+        },
+        chosenGst() {
+            return this.chosenSubtotal * GST_RATE
+        },
+        chosenGrandTotal() {
+            return this.chosenSubtotal + this.chosenGst
+        },
         selectPurchasePrice() {
             const p = this.selectPartsCase && this.selectPartsCase.device && this.selectPartsCase.device.purchasePrice
             return Number(p) > 0 ? Number(p) : 0
@@ -1291,9 +1321,9 @@ export default {
         repairBudget() {
             return this.selectPurchasePrice * 0.6
         },
-        // Estimated charge: (parts total + 70) with a 10% uplift
+        // Estimated charge: (parts + labor) with GST applied
         estimatedCharge() {
-            return (this.chosenPartsTotal + 70) * 1.1
+            return this.chosenGrandTotal
         },
         budgetWarning() {
             return this.repairBudget > 0 && this.estimatedCharge > this.repairBudget
@@ -1819,8 +1849,14 @@ export default {
                     const idx = this.list.findIndex(c => c._id === updated._id)
                     if (idx !== -1) this.$set(this.list, idx, updated)
                 }
-                this.$message.success(`Saved ${parts.length} part(s)`)
+                if (parts.length > 0) {
+                    this.$message.success(`Saved ${parts.length} part(s) — moved to Waiting Solvup`)
+                } else {
+                    this.$message.success('Part selection cleared')
+                }
                 this.selectPartsDialogOpen = false
+                // Status may have moved to "waiting-solvup" — re-pull list + tree counts.
+                this.refreshAll()
             } catch (e) {
                 console.error(e)
                 const msg = (e.response && e.response.data && e.response.data.message) || 'Save failed'
@@ -2257,6 +2293,15 @@ export default {
             color: #303133;
         }
     }
+    .summary-total {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid #ebeef5;
+        font-size: 14px;
+        strong {
+            font-size: 15px;
+        }
+    }
 }
 .select-parts-warning {
     margin-bottom: 10px;
@@ -2327,6 +2372,19 @@ export default {
     color: #909399;
     font-size: 12px;
     margin-top: 2px;
+}
+.part-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.part-item-name {
+    font-weight: 500;
+}
+.part-item-code {
+    color: #909399;
+    font-size: 12px;
 }
 
 .sent-orders-section {
