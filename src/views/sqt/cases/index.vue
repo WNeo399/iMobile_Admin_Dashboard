@@ -1292,9 +1292,11 @@ export default {
         selectPartsModelId() {
             return this.selectPartsCase && this.selectPartsCase.device && this.selectPartsCase.device.modelId
         },
-        // Only non-genuine parts can be selected for a case
+        // Only non-genuine parts can be selected for a case (price high → low)
         nonGenuineParts() {
-            return this.availableParts.filter(p => !p.genuine)
+            return this.availableParts
+                .filter(p => !p.genuine)
+                .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0))
         },
         chosenParts() {
             return this.availableParts.filter(p => p._selected)
@@ -1622,6 +1624,14 @@ export default {
                         ? `Sales order ${soNumber} created — case moved to Waiting for Parts`
                         : 'Order created — case updated'
                 )
+                // RepairDesk status mirror is best-effort — warn if it didn't take
+                const rd = res && res.data && res.data.repairDesk
+                if (rd && rd.success === false) {
+                    this.$message.warning(
+                        'Case updated, but the RepairDesk ticket status could not be updated. Please update it manually.'
+                    )
+                    console.warn('RepairDesk update failed:', rd.error)
+                }
                 // Reflect the updated case in the table immediately, then refresh counts/list
                 const updatedCase = res && res.data && res.data.case
                 if (updatedCase) {

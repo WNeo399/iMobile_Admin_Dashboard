@@ -33,7 +33,7 @@
       </template> -->
       <el-dropdown class="avatar-container right-menu-item hover-effect" trigger="hover">
         <div class="avatar-wrapper">
-          <img :src="avatar" class="user-avatar">
+          <el-avatar :size="32" class="user-avatar">{{ userInitial }}</el-avatar>
           <span class="user-nickname"> {{ nickName }} </span>
         </div>
         <el-dropdown-menu slot="dropdown">
@@ -151,6 +151,10 @@ export default {
       get() {
         return this.$store.state.settings.sidebarLogo
       }
+    },
+    userInitial() {
+      const name = (this.nickName || this.name || '').trim()
+      return name ? name.charAt(0).toUpperCase() : 'U'
     }
   },
   methods: {
@@ -297,9 +301,9 @@ export default {
 
         .user-avatar {
           cursor: pointer;
-          width: 30px;
-          height: 30px;
-          border-radius: 50%;
+          background-color: #8E54E9;
+          color: #fff;
+          font-weight: 500;
         }
 
         .user-nickname{
