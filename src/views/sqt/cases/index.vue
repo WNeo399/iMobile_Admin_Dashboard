@@ -1,10 +1,17 @@
 <template>
-    <div class="app-container tree-sidebar-manage-wrap">
+    <div :class="['app-container tree-sidebar-manage-wrap', { 'is-phone': isPhone, 'is-compact': isCompact }]">
+        <!--
+            Desktop / tablet: TreePanel sidebar is inline.
+            Phone: the tree is moved into an off-canvas drawer (opened by the
+            "Status" button in the toolbar) so the table gets the full width.
+        -->
         <tree-panel
+            v-if="!isPhone"
             title="Status"
             title-icon-class="el-icon-s-flag"
             :tree-data="treeData"
             :default-expand-all="true"
+            :default-collapsed="isCompact"
             :show-search="false"
             storage-key="sqt-cases-sidebar-width"
             ref="statusTreeRef"
@@ -29,52 +36,117 @@
             </template>
         </tree-panel>
 
+        <!-- Mobile-only off-canvas Status drawer (left side, narrow) -->
+        <el-drawer
+            v-if="isPhone"
+            title="Status"
+            :visible.sync="mobileFilterOpen"
+            direction="ltr"
+            size="80%"
+            :wrapper-closable="true"
+            custom-class="mobile-status-drawer"
+        >
+            <div class="drawer-status-list">
+                <div
+                    v-for="node in mobileStatusList"
+                    :key="node.id"
+                    :class="['drawer-status-item', { active: (node.id === 'all' && !activeStatus) || node.id === activeStatus }]"
+                    @click="handleStatusClick(node)"
+                >
+                    <i
+                        :class="node.id === 'all' ? 'el-icon-files' : 'el-icon-collection-tag'"
+                        :style="{ color: statusColor(node.id) }"
+                    />
+                    <span class="drawer-status-label">{{ node.label }}</span>
+                    <el-badge
+                        v-if="node.count !== undefined"
+                        :value="node.count"
+                        :max="999"
+                        :type="node.id === 'all' ? 'primary' : badgeType(node.id)"
+                    />
+                </div>
+            </div>
+        </el-drawer>
+
         <div class="tree-sidebar-content">
             <div class="content-inner">
-                <el-form :model="queryParams" ref="queryForm" size="small" :inline="true">
-                    <el-form-item label="Search" prop="search">
-                        <el-input
-                            v-model="queryParams.search"
-                            placeholder="Case ID, name, IMEI, email…"
-                            clearable
-                            style="width: 260px"
-                            @keyup.enter.native="handleQuery"
+                <!--
+                    Filter toolbar. Inline on desktop, stacked full-width on
+                    phones. The "Status" button only appears on phone (it opens
+                    the drawer above); on desktop the tree is always visible.
+                -->
+                <div :class="['filter-bar', { stacked: isPhone }]">
+                    <el-button
+                        v-if="isPhone"
+                        size="small"
+                        icon="el-icon-s-flag"
+                        @click="mobileFilterOpen = true"
+                        class="filter-status-btn"
+                    >
+                        Status<span v-if="activeStatus">: {{ statusLabel(activeStatus) }}</span>
+                    </el-button>
+
+                    <el-input
+                        v-model="queryParams.search"
+                        placeholder="Case ID, name, IMEI, email…"
+                        clearable
+                        size="small"
+                        prefix-icon="el-icon-search"
+                        class="filter-search"
+                        @keyup.enter.native="handleQuery"
+                        @clear="handleQuery"
+                    />
+
+                    <el-select
+                        v-model="queryParams.shopId"
+                        placeholder="Any shop"
+                        clearable
+                        filterable
+                        size="small"
+                        class="filter-shop"
+                        @change="handleShopChange"
+                    >
+                        <el-option
+                            v-for="s in shops"
+                            :key="s._id"
+                            :label="s.storeName"
+                            :value="s._id"
                         />
-                    </el-form-item>
-                    <el-form-item label="Shop" prop="shopId">
-                        <el-select
-                            v-model="queryParams.shopId"
-                            placeholder="Any shop"
-                            clearable
-                            filterable
-                            style="width: 220px"
-                            @change="handleShopChange"
-                        >
-                            <el-option
-                                v-for="s in shops"
-                                :key="s._id"
-                                :label="s.storeName"
-                                :value="s._id"
-                            />
-                        </el-select>
-                    </el-form-item>
-                    <el-form-item>
-                        <el-button type="primary" icon="el-icon-search" size="mini" @click="handleQuery">
+                    </el-select>
+
+                    <div class="filter-actions">
+                        <el-button type="primary" icon="el-icon-search" size="small" @click="handleQuery">
                             Search
                         </el-button>
-                        <el-button icon="el-icon-refresh" size="mini" @click="resetQuery">
+                        <el-button icon="el-icon-refresh" size="small" @click="resetQuery">
                             Reset
                         </el-button>
-                    </el-form-item>
-                </el-form>
-
-                <el-row :gutter="10" class="mb8">
-                    <el-col :span="1.5">
-                        <el-button plain icon="el-icon-refresh" size="mini" @click="refreshAll">
+                        <el-button plain icon="el-icon-refresh-right" size="small" @click="refreshAll">
                             Refresh
                         </el-button>
-                    </el-col>
-                </el-row>
+
+                        <!--
+                            Table / card view toggle. Only shown on desktop
+                            (≥992); below that, card view is forced and the
+                            toggle would have no effect.
+                        -->
+                        <el-tooltip v-if="!isCompact" content="Toggle view" placement="top">
+                            <el-radio-group
+                                :value="viewMode"
+                                size="small"
+                                class="view-toggle"
+                                @input="setViewMode"
+                            >
+                                <el-radio-button label="table">
+                                    <i class="el-icon-tickets" />
+                                </el-radio-button>
+                                <el-radio-button label="card">
+                                    <i class="el-icon-menu" />
+                                </el-radio-button>
+                            </el-radio-group>
+                        </el-tooltip>
+                    </div>
+                </div>
 
                 <div class="active-filter" v-if="activeStatus">
                     <el-tag closable size="small" @close="clearStatusFilter">
@@ -82,15 +154,24 @@
                     </el-tag>
                 </div>
 
-                <el-table v-loading="loading" :data="list">
-                    <el-table-column label="Case" min-width="170">
+                <!--
+                    Desktop / tablet table view. Shop + Created columns hide
+                    under 1100px to avoid a horizontal scrollbar; the same
+                    data is still visible in the Case detail dialog.
+                -->
+                <el-table v-if="!useCardView" v-loading="loading" :data="list">
+                    <el-table-column label="Case" min-width="190">
                         <template slot-scope="scope">
                             <div>
                                 <a class="case-link" @click="openDetail(scope.row)">
                                     Case {{ scope.row.caseId || '—' }}
                                 </a>
-                                <div style="color: #999; font-size: 12px">
+                                <div class="case-sub">
                                     SR {{ scope.row.serviceRequestId || '—' }}
+                                </div>
+                                <div class="case-sub case-shop" v-if="scope.row.shopName">
+                                    <i class="el-icon-office-building" />
+                                    {{ scope.row.shopName }}
                                 </div>
                             </div>
                         </template>
@@ -102,7 +183,7 @@
                                     {{ scope.row.customer.firstName || '' }}
                                     {{ scope.row.customer.lastName || '' }}
                                 </div>
-                                <div style="color: #999; font-size: 12px">
+                                <div class="case-sub">
                                     {{ scope.row.customer.phone || '—' }}
                                 </div>
                             </div>
@@ -114,15 +195,10 @@
                                 <div>
                                     {{ scope.row.device.description || '—' }}
                                 </div>
-                                <div style="color: #999; font-size: 12px">
+                                <div class="case-sub">
                                     IMEI: {{ scope.row.device.imei || '—' }}
                                 </div>
                             </div>
-                        </template>
-                    </el-table-column>
-                    <el-table-column label="Shop" prop="shopName" min-width="160">
-                        <template slot-scope="scope">
-                            {{ scope.row.shopName || '—' }}
                         </template>
                     </el-table-column>
                     <el-table-column label="Status" width="160" align="center">
@@ -136,95 +212,120 @@
                             </el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Created" width="150" align="center">
+                    <el-table-column v-if="showSecondaryColumns" label="Created" width="150" align="center">
                         <template slot-scope="scope">
                             {{ formatDate(scope.row.createdAt) }}
                         </template>
                     </el-table-column>
                     <el-table-column label="Action" align="center" width="220" class-name="small-padding fixed-width">
                         <template slot-scope="scope">
+                            <!--
+                                Primary action(s): only the buttons relevant to
+                                this row's current status. Change Status + Notes
+                                moved into the ⋯ dropdown so each row stays one
+                                line tall.
+                            -->
                             <el-button
-                                v-if="scope.row.status === 'pending'"
-                                v-hasPermi="['sqt:case:sendParts']"
+                                v-for="(a, i) in primaryActions(scope.row)"
+                                v-if="canDo(a)"
+                                :key="i"
                                 size="mini"
                                 type="text"
-                                icon="el-icon-box"
-                                @click="handleSendParts(scope.row)"
-                            >Send Parts</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'waiting-for-parts'"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-receiving"
-                                @click="handlePartsReceived(scope.row)"
-                            >Parts Received</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'parts-arrived'"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-bell"
-                                @click="handleCustomerNotified(scope.row)"
-                            >Customer Notified</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'waiting-for-drop-off'"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-setting"
-                                @click="handleStartRepair(scope.row)"
-                            >Start Repair</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'repairing'"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-circle-check"
-                                @click="handleMarkRepaired(scope.row)"
-                            >Mark Repaired</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'repairing'"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-warning-outline"
-                                @click="handleMarkUnrepairable(scope.row)"
-                            >Mark Unrepairable</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'repaired'"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-finished"
-                                @click="handleMarkCollected(scope.row)"
-                            >Mark Collected</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'unrepairable'"
-                                v-hasPermi="['sqt:case:markBer']"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-refresh-right"
-                                @click="handleMarkBer(scope.row)"
-                            >Mark BER</el-button>
-                            <el-button
-                                v-if="scope.row.status === 'repaired-and-collected'"
-                                v-hasPermi="['sqt:case:selectParts']"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-shopping-cart-2"
-                                @click="handleSelectParts(scope.row)"
-                            >Select Parts</el-button>
-                            <el-button
-                                v-hasPermi="['sqt:case:changeStatus']"
-                                size="mini"
-                                type="text"
-                                icon="el-icon-sort"
-                                @click="handleChangeStatus(scope.row)"
-                            >Change Status</el-button>
-                            <el-button size="mini" type="text" icon="el-icon-chat-line-square"
-                                @click="handleNotes(scope.row)">
-                                Notes
-                                <span v-if="scope.row.notes && scope.row.notes.length"
-                                    style="color: #909399">({{ scope.row.notes.length }})</span>
-                            </el-button>
+                                :icon="a.icon"
+                                @click="a.click()"
+                            >{{ a.label }}</el-button>
+
+                            <el-dropdown trigger="click" @command="(cmd) => cmd()">
+                                <el-button size="mini" type="text" icon="el-icon-more" class="more-btn" />
+                                <el-dropdown-menu slot="dropdown">
+                                    <el-dropdown-item
+                                        v-hasPermi="['sqt:case:changeStatus']"
+                                        :command="() => handleChangeStatus(scope.row)"
+                                        icon="el-icon-sort"
+                                    >Change Status</el-dropdown-item>
+                                    <el-dropdown-item
+                                        :command="() => handleNotes(scope.row)"
+                                        icon="el-icon-chat-line-square"
+                                    >
+                                        Notes<span v-if="scope.row.notes && scope.row.notes.length"
+                                            style="color: #909399"> ({{ scope.row.notes.length }})</span>
+                                    </el-dropdown-item>
+                                </el-dropdown-menu>
+                            </el-dropdown>
                         </template>
                     </el-table-column>
                 </el-table>
+
+                <!--
+                    Phone card list. Each card shows the same info as the table
+                    row, vertically stacked, with one tap target per card to
+                    open the detail dialog and the same action set as the table.
+                -->
+                <div v-if="useCardView" v-loading="loading" class="case-card-list">
+                    <div v-if="!loading && list.length === 0" class="card-empty">
+                        No cases found.
+                    </div>
+                    <div v-for="row in list" :key="row._id" class="case-card">
+                        <div class="card-head" @click="openDetail(row)">
+                            <div class="card-id">
+                                <span class="card-id-main">Case {{ row.caseId || '—' }}</span>
+                                <span class="card-id-sub">SR {{ row.serviceRequestId || '—' }}</span>
+                            </div>
+                            <el-tag size="mini" :type="badgeType(row.status)" effect="light">
+                                {{ statusLabel(row.status) }}
+                            </el-tag>
+                        </div>
+                        <div class="card-body" @click="openDetail(row)">
+                            <div class="card-line">
+                                <i class="el-icon-user" />
+                                <span>
+                                    {{ (row.customer && (row.customer.firstName || '') + ' ' + (row.customer.lastName || '')).trim() || '—' }}
+                                    <span class="card-line-sub" v-if="row.customer && row.customer.phone">
+                                        · {{ row.customer.phone }}
+                                    </span>
+                                </span>
+                            </div>
+                            <div class="card-line">
+                                <i class="el-icon-mobile-phone" />
+                                <span>{{ (row.device && row.device.description) || '—' }}</span>
+                            </div>
+                            <div class="card-line muted">
+                                <i class="el-icon-office-building" />
+                                <span>{{ row.shopName || '—' }}</span>
+                                <span class="card-line-sub">· {{ formatDate(row.createdAt) }}</span>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <el-button
+                                v-for="(a, i) in primaryActions(row)"
+                                v-if="canDo(a)"
+                                :key="i"
+                                size="mini"
+                                type="primary"
+                                plain
+                                :icon="a.icon"
+                                @click="a.click()"
+                            >{{ a.label }}</el-button>
+                            <el-dropdown trigger="click" @command="(cmd) => cmd()">
+                                <el-button size="mini" icon="el-icon-more" />
+                                <el-dropdown-menu slot="dropdown">
+                                    <el-dropdown-item
+                                        v-hasPermi="['sqt:case:changeStatus']"
+                                        :command="() => handleChangeStatus(row)"
+                                        icon="el-icon-sort"
+                                    >Change Status</el-dropdown-item>
+                                    <el-dropdown-item
+                                        :command="() => handleNotes(row)"
+                                        icon="el-icon-chat-line-square"
+                                    >
+                                        Notes<span v-if="row.notes && row.notes.length"
+                                            style="color: #909399"> ({{ row.notes.length }})</span>
+                                    </el-dropdown-item>
+                                </el-dropdown-menu>
+                            </el-dropdown>
+                        </div>
+                    </div>
+                </div>
 
                 <pagination
                     v-show="total > 0"
@@ -538,6 +639,11 @@
                             <span v-if="devicePurchasePrice > 0">AUD {{ devicePurchasePrice.toFixed(2) }}</span>
                             <span v-else>—</span>
                         </el-descriptions-item>
+                        <el-descriptions-item label="Repair Budget">
+                            <span v-if="sendPartsBudget > 0">AUD {{ sendPartsBudget.toFixed(2) }}</span>
+                            <span v-else>—</span>
+                            <span class="repair-budget-hint">(60% of purchase price)</span>
+                        </el-descriptions-item>
                         <el-descriptions-item label="Description" :span="2">
                             <div class="multiline">{{ sendPartsCase.device.description || '—' }}</div>
                         </el-descriptions-item>
@@ -554,6 +660,7 @@
                         v-model="partsSearchKeyword"
                         :fetch-suggestions="fetchProductSuggestions"
                         :debounce="400"
+                        :disabled="partsLookupLoading"
                         placeholder="Type product name, SKU, or part to search..."
                         style="width: 100%"
                         value-key="name"
@@ -585,6 +692,15 @@
                     </el-autocomplete>
                 </div>
 
+                <el-alert
+                    v-if="sendPartsWarning && selectedParts.length"
+                    type="warning"
+                    show-icon
+                    :closable="false"
+                    class="send-parts-warning"
+                    :title="`Estimated charge with GST (AUD ${sendPartsEstimated.toFixed(2)}) exceeds the repair budget of AUD ${sendPartsBudget.toFixed(2)}.`"
+                />
+
                 <el-table
                     :data="selectedParts"
                     empty-text="No parts added yet. Use the search above to add parts."
@@ -592,7 +708,7 @@
                     border
                     class="send-parts-table"
                 >
-                    <el-table-column label="Product" min-width="360">
+                    <el-table-column label="Product" min-width="320">
                         <template slot-scope="scope">
                             <a
                                 v-if="scope.row.product_id"
@@ -607,6 +723,14 @@
                             </div>
                         </template>
                     </el-table-column>
+                    <el-table-column v-if="canViewPrice" label="Wholesale Price" width="140" align="right">
+                        <template slot-scope="scope">
+                            <span v-if="scope.row.price !== null && scope.row.price !== undefined">
+                                AUD {{ Number(scope.row.price).toFixed(2) }}
+                            </span>
+                            <span v-else style="color: #c0c4cc">—</span>
+                        </template>
+                    </el-table-column>
                     <el-table-column label="Action" width="100" align="center">
                         <template slot-scope="scope">
                             <el-button
@@ -618,6 +742,19 @@
                         </template>
                     </el-table-column>
                 </el-table>
+
+                <div v-if="canViewPrice && selectedParts.length" class="send-parts-summary">
+                    <div class="summary-line">
+                        <span>Wholesale total:</span>
+                        <strong>AUD {{ sendPartsTotal.toFixed(2) }}</strong>
+                    </div>
+                    <div class="summary-line summary-line-muted">
+                        <span>With GST (×1.1):</span>
+                        <strong :class="{ 'over-threshold': sendPartsWarning }">
+                            AUD {{ sendPartsEstimated.toFixed(2) }}
+                        </strong>
+                    </div>
+                </div>
 
                 <div v-if="sendPartsExistingOrders.length" class="sent-orders-section">
                     <div class="sent-orders-title">
@@ -1143,11 +1280,11 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { listCases, getCaseCounts, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts } from '@/api/sqt/cases'
+import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts } from '@/api/sqt/cases'
 import { listShops } from '@/api/sqt/shops'
 import { listParts, createPart } from '@/api/sqt/parts'
 import { listModels } from '@/api/sqt/models'
-import { searchProducts } from '@/api/zoho/products/product'
+import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
 
 const STATUS_META = [
     { value: 'pending', label: 'Pending', tag: 'info', color: '#909399' },
@@ -1172,6 +1309,15 @@ export default {
     components: { TreePanel },
     data() {
         return {
+            // Reactive viewport width — drives the responsive switches below.
+            // Updated by a `resize` listener set up in mounted().
+            viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1200,
+            // Mobile-only off-canvas drawer for the Status filter tree.
+            mobileFilterOpen: false,
+            // User-chosen view mode (table | card). Persisted in localStorage
+            // so the preference sticks across reloads. Ignored on phone — there
+            // the card view is forced regardless.
+            viewMode: (typeof localStorage !== 'undefined' && localStorage.getItem('sqt-cases-view-mode')) || 'table',
             loading: false,
             list: [],
             total: 0,
@@ -1185,6 +1331,7 @@ export default {
             partsSearchKeyword: '',
             selectedParts: [],
             sendPartsSubmitting: false,
+            partsLookupLoading: false,
 
             partsReceivedDialogOpen: false,
             partsReceivedCase: null,
@@ -1254,6 +1401,36 @@ export default {
         }
     },
     computed: {
+        // Responsive breakpoints — mirrors Element UI's xs (<768) and md (<992).
+        // `isPhone` switches the whole table to a card list; `isCompact` is the
+        // wider "shrink everything sensibly" band (tablets / split-screen).
+        isPhone() {
+            return this.viewportWidth < 768
+        },
+        isCompact() {
+            return this.viewportWidth < 992
+        },
+        // Hide the lower-priority columns (Shop, Created) below ~1100px so the
+        // table no longer needs a horizontal scrollbar in normal use.
+        showSecondaryColumns() {
+            return this.viewportWidth >= 1100
+        },
+        // Single switch the template uses to decide between table and card
+        // markup. Anything below the desktop breakpoint (<992) is locked to
+        // cards because the 7-column table doesn't fit comfortably; ≥992
+        // honours the user's `viewMode` preference.
+        useCardView() {
+            return this.isCompact || this.viewMode === 'card'
+        },
+        // Flat list rendered inside the mobile Status drawer — mirrors the
+        // desktop tree (All Cases + every status), in the same display order.
+        mobileStatusList() {
+            const td = this.treeData[0] || { children: [] }
+            return [
+                { id: td.id, label: td.label, count: td.count },
+                ...(td.children || []).map(c => ({ id: c.id, label: c.label, count: c.count }))
+            ]
+        },
         canViewPrice() {
             const roles = this.$store.getters.roles || []
             return roles.includes('admin') || roles.includes('techelite-admin')
@@ -1261,6 +1438,19 @@ export default {
         devicePurchasePrice() {
             const p = this.sendPartsCase && this.sendPartsCase.device && this.sendPartsCase.device.purchasePrice
             return Number(p) > 0 ? Number(p) : 0
+        },
+        sendPartsBudget() {
+            return this.devicePurchasePrice * 0.6
+        },
+        sendPartsTotal() {
+            return this.selectedParts.reduce((sum, p) => sum + (Number(p.price) || 0), 0)
+        },
+        // Add 10% GST to the wholesale total for the budget check
+        sendPartsEstimated() {
+            return this.sendPartsTotal * 1.1
+        },
+        sendPartsWarning() {
+            return this.sendPartsBudget > 0 && this.sendPartsEstimated > this.sendPartsBudget
         },
         treeData() {
             const byStatus = this.counts.byStatus || {}
@@ -1399,12 +1589,108 @@ export default {
         }
     },
     created() {
-        this.refreshAll()
+        // Support deep-linking from the Home dashboard / external links:
+        //   /sqt/cases?shopId=<id>     pre-scopes the table to one shop
+        //   /sqt/cases?openCase=<id>   pops the detail dialog for that case
+        const q = this.$route.query || {}
+        if (q.shopId) this.queryParams.shopId = String(q.shopId)
+        this.refreshAll().then(() => {
+            if (q.openCase) this.openCaseById(String(q.openCase))
+        })
         this.loadShops()
     },
+    mounted() {
+        // Keep `viewportWidth` reactive so the responsive computeds re-evaluate
+        // when the user rotates / resizes their window.
+        window.addEventListener('resize', this.handleResize)
+    },
+    beforeDestroy() {
+        window.removeEventListener('resize', this.handleResize)
+    },
+    watch: {
+        // If the user navigates here again with a different openCase id while
+        // already mounted, honour it.
+        '$route.query.openCase'(id) {
+            if (id) this.openCaseById(String(id))
+        }
+    },
     methods: {
+        handleResize() {
+            this.viewportWidth = window.innerWidth
+        },
+        setViewMode(mode) {
+            if (mode !== 'table' && mode !== 'card') return
+            this.viewMode = mode
+            try { localStorage.setItem('sqt-cases-view-mode', mode) } catch (e) { /* ignore */ }
+        },
+        // Return the primary status-transition button(s) for a row. Each item:
+        //   { label, icon, type, permission?, click }
+        // `permission` is read by the template to apply v-hasPermi-style gating.
+        // Used by both the desktop action column and the mobile card list.
+        primaryActions(row) {
+            const a = []
+            switch (row.status) {
+                case 'pending':
+                    a.push({ label: 'Send Parts', icon: 'el-icon-box', permission: 'sqt:case:sendParts', click: () => this.handleSendParts(row) })
+                    break
+                case 'waiting-for-parts':
+                    a.push({ label: 'Parts Received', icon: 'el-icon-receiving', click: () => this.handlePartsReceived(row) })
+                    break
+                case 'parts-arrived':
+                    a.push({ label: 'Customer Notified', icon: 'el-icon-bell', click: () => this.handleCustomerNotified(row) })
+                    break
+                case 'waiting-for-drop-off':
+                    a.push({ label: 'Start Repair', icon: 'el-icon-setting', click: () => this.handleStartRepair(row) })
+                    break
+                case 'repairing':
+                    a.push({ label: 'Mark Repaired', icon: 'el-icon-circle-check', click: () => this.handleMarkRepaired(row) })
+                    a.push({ label: 'Mark Unrepairable', icon: 'el-icon-warning-outline', click: () => this.handleMarkUnrepairable(row) })
+                    break
+                case 'repaired':
+                    a.push({ label: 'Mark Collected', icon: 'el-icon-finished', click: () => this.handleMarkCollected(row) })
+                    break
+                case 'unrepairable':
+                    a.push({ label: 'Mark BER', icon: 'el-icon-refresh-right', permission: 'sqt:case:markBer', click: () => this.handleMarkBer(row) })
+                    break
+                case 'repaired-and-collected':
+                    a.push({ label: 'Select Parts', icon: 'el-icon-shopping-cart-2', permission: 'sqt:case:selectParts', click: () => this.handleSelectParts(row) })
+                    break
+            }
+            return a
+        },
+        // Permission helper for action items — uses $auth (same source as the
+        // v-hasPermi directive). When no `permission` is required, returns true.
+        canDo(actionItem) {
+            if (!actionItem || !actionItem.permission) return true
+            const perms = (this.$store && this.$store.getters && this.$store.getters.permissions) || []
+            // Mirror the matcher used by v-hasPermi: literal match, "*:*:*",
+            // or the per-segment wildcard form. Keeping this local avoids
+            // pulling in the directive utility for a one-off check.
+            return perms.some(p => {
+                if (p === '*:*:*' || p === actionItem.permission) return true
+                const g = p.split(':')
+                const r = actionItem.permission.split(':')
+                if (g.length !== r.length) return false
+                return g.every((seg, i) => seg === '*' || seg === r[i])
+            })
+        },
         async refreshAll() {
             await Promise.all([this.getList(), this.loadCounts()])
+        },
+        async openCaseById(id) {
+            // Prefer the row already in the loaded list to avoid a round-trip.
+            const found = this.list.find(c => c._id === id)
+            if (found) {
+                this.openDetail(found)
+                return
+            }
+            try {
+                const res = await getCase(id)
+                if (res && res.data) this.openDetail(res.data)
+            } catch (e) {
+                console.error(e)
+                this.$message.error('Could not open that case')
+            }
         },
         async getList() {
             this.loading = true
@@ -1464,6 +1750,9 @@ export default {
             this.activeStatus = data.id === 'all' ? null : data.id
             this.queryParams.page = 1
             this.getList()
+            // On mobile the tree lives inside a drawer; close it once a status
+            // is picked so the user sees the filtered table immediately.
+            if (this.isPhone) this.mobileFilterOpen = false
         },
         clearStatusFilter() {
             this.activeStatus = null
@@ -1583,25 +1872,46 @@ export default {
             // Hide broken images so the placeholder layout still works
             if (e && e.target) e.target.style.display = 'none'
         },
-        onProductSelected(item) {
+        async onProductSelected(item) {
             if (!item) return
-            const key = item.product_id || item.sku || item.name
-            const existing = this.selectedParts.find(
-                p => (p.product_id || p.sku || p.name) === key
-            )
+            // SKU is required — Commerce product_id ≠ Inventory item_id, so we
+            // translate via SKU. Without a SKU we can't resolve the real id.
+            if (!item.sku) {
+                this.$message.error(
+                    `"${item.name || 'This product'}" has no SKU — add one in Zoho before sending parts.`
+                )
+                this.partsSearchKeyword = ''
+                return
+            }
+            // Dedupe by SKU (the natural key now that we look up the inventory id)
+            const existing = this.selectedParts.find(p => p.sku === item.sku)
             if (existing) {
                 this.$message.info(`"${item.name}" is already in the list`)
                 this.partsSearchKeyword = ''
                 return
             }
-            this.selectedParts.push({
-                product_id: item.product_id || '',
-                name: item.name || '',
-                sku: item.sku || '',
-                raw: item // keep the original Zoho payload for the eventual submit
-            })
-            // Clear input so the user can search the next part
-            this.partsSearchKeyword = ''
+            this.partsLookupLoading = true
+            try {
+                const res = await lookupProductBySku(item.sku)
+                if (!res || !res.success || !res.data || !res.data.itemId) {
+                    throw new Error('No inventory item returned for this SKU')
+                }
+                this.selectedParts.push({
+                    product_id: res.data.itemId, // real Zoho Inventory item_id
+                    name: item.name || '',
+                    sku: item.sku,
+                    price: res.data.wholesalePrice, // may be null
+                    raw: item
+                })
+            } catch (e) {
+                console.error(e)
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message || 'SKU lookup failed'
+                this.$message.error(msg)
+            } finally {
+                this.partsLookupLoading = false
+                this.partsSearchKeyword = ''
+            }
         },
         removeSelectedPart(idx) {
             this.selectedParts.splice(idx, 1)
@@ -2213,6 +2523,20 @@ export default {
         text-decoration: underline;
     }
 }
+/* Secondary lines stacked under the Case ID in the Case column —
+   SR id, shop name, customer phone, IMEI. Kept consistent so the column
+   reads as one logical block per row. */
+.case-sub {
+    color: #999;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.case-shop {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    i { font-size: 12px; color: #909399; }
+}
 
 .detail-tabs {
     ::v-deep .el-tabs__content {
@@ -2315,6 +2639,27 @@ export default {
 }
 .select-parts-warning {
     margin-bottom: 10px;
+}
+.send-parts-warning {
+    margin-bottom: 10px;
+}
+.send-parts-summary {
+    margin-top: 12px;
+    .summary-line {
+        text-align: right;
+        font-size: 13px;
+        color: #606266;
+        strong {
+            margin-left: 6px;
+            color: #303133;
+            &.over-threshold {
+                color: #E6A23C;
+            }
+        }
+    }
+    .summary-line-muted {
+        color: #909399;
+    }
 }
 .send-parts-search {
     margin-bottom: 12px;
@@ -2476,5 +2821,174 @@ export default {
     i {
         margin-right: 2px;
     }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Responsive layout — filter bar, mobile Status drawer, card list.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Filter bar — flex wrap on desktop, vertical stack on phone */
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.filter-search { width: 260px; max-width: 100%; }
+.filter-shop { width: 220px; max-width: 100%; }
+.filter-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+/* Compact icon-only buttons inside the table/card view toggle */
+.view-toggle ::v-deep .el-radio-button__inner {
+    padding: 7px 11px;
+    line-height: 1;
+    i { font-size: 14px; }
+}
+.filter-bar.stacked {
+    flex-direction: column;
+    align-items: stretch;
+    .filter-search,
+    .filter-shop,
+    .filter-status-btn {
+        width: 100%;
+    }
+    .filter-actions { justify-content: flex-end; }
+}
+
+/* Phone: tighter page padding so the cards can use the full screen */
+.tree-sidebar-manage-wrap.is-phone {
+    height: auto;
+    min-height: calc(100vh - 100px);
+    .tree-sidebar-content .content-inner {
+        padding: 10px;
+    }
+}
+
+/* "More actions" button — keep it compact in the table action column */
+.more-btn {
+    padding: 4px 4px !important;
+    color: #909399;
+    &:hover { color: #409eff; }
+}
+
+/* ── Mobile status drawer (left off-canvas) ───────────────────────────── */
+::v-deep .mobile-status-drawer {
+    .el-drawer__header {
+        margin-bottom: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid #ebeef5;
+        font-weight: 600;
+    }
+    .el-drawer__body {
+        padding: 6px 0;
+        overflow-y: auto;
+    }
+}
+.drawer-status-list {
+    display: flex;
+    flex-direction: column;
+}
+.drawer-status-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #f5f7fa;
+    transition: background 0.15s ease;
+    i { font-size: 16px; flex-shrink: 0; }
+    .drawer-status-label {
+        flex: 1;
+        font-size: 14px;
+        color: #303133;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    &:hover { background: #f5f7fa; }
+    &.active {
+        background: #ecf5ff;
+        color: #409eff;
+        font-weight: 600;
+    }
+}
+
+/* ── Card list (mobile only) ──────────────────────────────────────────── */
+.case-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 12px;
+}
+.card-empty {
+    padding: 32px 0;
+    text-align: center;
+    color: #909399;
+    background: #fafafa;
+    border-radius: 8px;
+}
+.case-card {
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+.card-id { display: flex; flex-direction: column; min-width: 0; }
+.card-id-main {
+    color: #409eff;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 1.2;
+}
+.card-id-sub {
+    color: #909399;
+    font-size: 12px;
+    margin-top: 2px;
+}
+.card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+.card-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #303133;
+    font-size: 13px;
+    line-height: 1.4;
+    i { color: #909399; flex-shrink: 0; }
+    span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+    }
+    &.muted { color: #909399; font-size: 12px; }
+}
+.card-line-sub { color: #909399; }
+.card-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 8px;
+    border-top: 1px dashed #ebeef5;
+    .el-button { margin-left: 0 !important; }
 }
 </style>

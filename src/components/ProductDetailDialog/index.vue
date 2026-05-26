@@ -90,7 +90,7 @@
 
             </div>
             <h2>Sales Analize</h2>
-        <SalesLineChart :sales="product.sales" />
+        <SalesLineChart :sales="product.sales" :inflow-sales="product.inflowSales" />
         </div>
 
         <span slot="footer">

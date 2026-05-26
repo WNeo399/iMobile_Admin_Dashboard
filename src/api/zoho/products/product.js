@@ -14,3 +14,12 @@ export function searchProducts(keyword) {
     params: { keyword }
   })
 }
+
+// Resolve a Commerce SKU to the real Inventory item_id + Wholesale price
+export function lookupProductBySku(sku) {
+  return request({
+    url: '/zoho/product/skuLookup',
+    method: 'get',
+    params: { sku }
+  })
+}

@@ -27,6 +27,10 @@ export default {
       required: true,
       default: () => []
     },
+    inflowSales: {
+      type: Array,
+      default: () => []
+    },
     width: {
       type: String,
       default: '100%'
@@ -62,6 +66,12 @@ export default {
 
   watch: {
     sales: {
+      deep: true,
+      handler() {
+        this.renderChart()
+      }
+    },
+    inflowSales: {
       deep: true,
       handler() {
         this.renderChart()
@@ -131,25 +141,27 @@ export default {
       return dateStr
     },
 
-getChartData() {
+groupRows(rows) {
   const grouped = {}
-
-  // Group sales data
-  this.sales.forEach(item => {
+  ;(rows || []).forEach(item => {
+    if (!item || !item['Created Time']) return
     const key = this.getGroupKey(item['Created Time'])
     const quantity = Number(item.Quantity || 0)
-
-    if (!grouped[key]) {
-      grouped[key] = 0
-    }
-
+    if (!grouped[key]) grouped[key] = 0
     grouped[key] += quantity
   })
+  return grouped
+},
+
+getChartData() {
+  const salesGrouped = this.groupRows(this.sales)
+  const inflowGrouped = this.groupRows(this.inflowSales)
 
   // Day: last 90 days
   if (this.groupBy === 'day') {
     const labels = []
-    const values = []
+    const salesValues = []
+    const inflowValues = []
 
     for (let i = 89; i >= 0; i--) {
       const date = new Date()
@@ -158,16 +170,18 @@ getChartData() {
       const key = this.formatDate(date)
 
       labels.push(key)
-      values.push(grouped[key] || 0)
+      salesValues.push(salesGrouped[key] || 0)
+      inflowValues.push(inflowGrouped[key] || 0)
     }
 
-    return { labels, values }
+    return { labels, salesValues, inflowValues }
   }
 
   // Week: last 12 weeks
   if (this.groupBy === 'week') {
     const labels = []
-    const values = []
+    const salesValues = []
+    const inflowValues = []
 
     for (let i = 11; i >= 0; i--) {
       const date = new Date()
@@ -176,16 +190,18 @@ getChartData() {
       const key = this.getWeekStart(date)
 
       labels.push(key)
-      values.push(grouped[key] || 0)
+      salesValues.push(salesGrouped[key] || 0)
+      inflowValues.push(inflowGrouped[key] || 0)
     }
 
-    return { labels, values }
+    return { labels, salesValues, inflowValues }
   }
 
   // Month: last 3 months
   if (this.groupBy === 'month') {
     const labels = []
-    const values = []
+    const salesValues = []
+    const inflowValues = []
 
     for (let i = 2; i >= 0; i--) {
       const date = new Date()
@@ -196,61 +212,83 @@ getChartData() {
       ).padStart(2, '0')}`
 
       labels.push(key)
-      values.push(grouped[key] || 0)
+      salesValues.push(salesGrouped[key] || 0)
+      inflowValues.push(inflowGrouped[key] || 0)
     }
 
-    return { labels, values }
+    return { labels, salesValues, inflowValues }
   }
 
   return {
     labels: [],
-    values: []
+    salesValues: [],
+    inflowValues: []
   }
 },
 
     renderChart() {
       if (!this.chart) return
 
-      const { labels, values } = this.getChartData()
+      const { labels, salesValues, inflowValues } = this.getChartData()
 
-      this.chart.setOption({
-        tooltip: {
-          trigger: 'axis'
+      this.chart.setOption(
+        {
+          tooltip: {
+            trigger: 'axis'
+          },
+
+          legend: {
+            data: ['Zoho Sales', 'InFlow Sales'],
+            top: 0
+          },
+
+          grid: {
+            left: 30,
+            right: 20,
+            top: 40,
+            bottom: 30,
+            containLabel: true
+          },
+
+          xAxis: {
+            type: 'category',
+            data: labels,
+            boundaryGap: false,
+            axisTick: {
+              show: false
+            }
+          },
+
+          yAxis: {
+            type: 'value',
+            minInterval: 1
+          },
+
+          series: [
+            {
+              name: 'Zoho Sales',
+              type: 'line',
+              smooth: true,
+              data: salesValues,
+              itemStyle: { color: '#409eff' },
+              lineStyle: { color: '#409eff' },
+              areaStyle: { color: 'rgba(64, 158, 255, 0.15)' },
+              animationDuration: 1200
+            },
+            {
+              name: 'InFlow Sales',
+              type: 'line',
+              smooth: true,
+              data: inflowValues,
+              itemStyle: { color: '#f59e0b' },
+              lineStyle: { color: '#f59e0b' },
+              areaStyle: { color: 'rgba(245, 158, 11, 0.15)' },
+              animationDuration: 1200
+            }
+          ]
         },
-
-        grid: {
-          left: 30,
-          right: 20,
-          top: 40,
-          bottom: 30,
-          containLabel: true
-        },
-
-        xAxis: {
-          type: 'category',
-          data: labels,
-          boundaryGap: false,
-          axisTick: {
-            show: false
-          }
-        },
-
-        yAxis: {
-          type: 'value',
-          minInterval: 1
-        },
-
-        series: [
-          {
-            name: 'Sales Quantity',
-            type: 'line',
-            smooth: true,
-            data: values,
-            areaStyle: {},
-            animationDuration: 1200
-          }
-        ]
-      })
+        true
+      )
     },
 
     resizeChart() {

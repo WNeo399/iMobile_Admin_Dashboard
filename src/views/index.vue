@@ -1,87 +1,48 @@
 <template>
-  <div class="app-container home">
-Home
-  </div>
+    <div class="home">
+        <WelcomeBanner />
+        <component :is="roleHome" />
+    </div>
 </template>
 
 <script>
+import WelcomeBanner from './dashboard/components/WelcomeBanner'
+import AdminHome from './dashboard/AdminHome'
+import TechEliteAdminHome from './dashboard/TechEliteAdminHome'
+import IMobileAdminHome from './dashboard/IMobileAdminHome'
+import ShopOwnerHome from './dashboard/ShopOwnerHome'
+import RepairShopHome from './dashboard/RepairShopHome'
+
+// Role-aware home shell. Picks the dashboard variant that matches the user's
+// primary role; falls back to an admin-ish view for unknown roles so an
+// unexpected role doesn't render an empty page.
+const ROLE_TO_COMPONENT = {
+    admin: 'AdminHome',
+    'imobile-admin': 'IMobileAdminHome',
+    'techelite-admin': 'TechEliteAdminHome',
+    'shop-owner': 'ShopOwnerHome',
+    'repair-shop': 'RepairShopHome'
+}
+
 export default {
-  name: "Index",
-  data() {
-    return {
-      // 版本号
-      version: "3.9.2"
+    name: 'Index',
+    components: { WelcomeBanner, AdminHome, TechEliteAdminHome, IMobileAdminHome, ShopOwnerHome, RepairShopHome },
+    computed: {
+        roleHome() {
+            const roles = (this.$store.state.user.roles) || []
+            for (const r of roles) {
+                if (ROLE_TO_COMPONENT[r]) return ROLE_TO_COMPONENT[r]
+            }
+            return 'AdminHome'
+        }
     }
-  },
-  methods: {
-    goTarget(href) {
-      window.open(href, "_blank")
-    }
-  }
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .home {
-  blockquote {
-    padding: 10px 20px;
-    margin: 0 0 20px;
-    font-size: 17.5px;
-    border-left: 5px solid #eee;
-  }
-  hr {
-    margin-top: 20px;
-    margin-bottom: 20px;
-    border: 0;
-    border-top: 1px solid #eee;
-  }
-  .col-item {
-    margin-bottom: 20px;
-  }
-
-  ul {
-    padding: 0;
-    margin: 0;
-  }
-
-  font-family: "open sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 13px;
-  color: #676a6c;
-  overflow-x: hidden;
-
-  ul {
-    list-style-type: none;
-  }
-
-  h4 {
-    margin-top: 0px;
-  }
-
-  h2 {
-    margin-top: 10px;
-    font-size: 26px;
-    font-weight: 100;
-  }
-
-  p {
-    margin-top: 10px;
-
-    b {
-      font-weight: 700;
-    }
-  }
-
-  .update-log {
-    ol {
-      display: block;
-      list-style-type: decimal;
-      margin-block-start: 1em;
-      margin-block-end: 1em;
-      margin-inline-start: 0;
-      margin-inline-end: 0;
-      padding-inline-start: 40px;
-    }
-  }
+    padding: 18px 20px;
+    background: #f5f7fb;
+    min-height: 100%;
 }
 </style>
-
