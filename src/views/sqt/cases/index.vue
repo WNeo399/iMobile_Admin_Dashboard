@@ -201,7 +201,7 @@
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Status" width="160" align="center">
+                    <el-table-column label="Status" width="180" align="center">
                         <template slot-scope="scope">
                             <el-tag
                                 size="mini"
@@ -210,6 +210,19 @@
                             >
                                 {{ statusLabel(scope.row.status) }}
                             </el-tag>
+                            <!--
+                                For on-hold cases, show the reason captured in
+                                the status-history entry. Truncated with CSS;
+                                full text in the tooltip on hover.
+                            -->
+                            <div
+                                v-if="onHoldNote(scope.row)"
+                                class="on-hold-note"
+                                :title="onHoldNote(scope.row)"
+                            >
+                                <i class="el-icon-warning-outline" />
+                                {{ onHoldNote(scope.row) }}
+                            </div>
                         </template>
                     </el-table-column>
                     <el-table-column v-if="showSecondaryColumns" label="Created" width="150" align="center">
@@ -293,6 +306,11 @@
                                 <i class="el-icon-office-building" />
                                 <span>{{ row.shopName || '—' }}</span>
                                 <span class="card-line-sub">· {{ formatDate(row.createdAt) }}</span>
+                            </div>
+                            <!-- On-hold reason, wrapped so the full note is visible on cards -->
+                            <div v-if="onHoldNote(row)" class="card-line on-hold-note-card">
+                                <i class="el-icon-warning-outline" />
+                                <span>{{ onHoldNote(row) }}</span>
                             </div>
                         </div>
                         <div class="card-actions">
@@ -1287,6 +1305,9 @@ import { listModels } from '@/api/sqt/models'
 import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
 
 const STATUS_META = [
+    // First entry → first child node in the Status tree (above Pending).
+    // Sienna icon distinguishes it from the bright-orange "waiting" cluster.
+    { value: 'on-hold', label: 'On Hold', tag: 'warning', color: '#a0522d' },
     { value: 'pending', label: 'Pending', tag: 'info', color: '#909399' },
     { value: 'waiting-for-parts', label: 'Waiting for Parts', tag: 'warning', color: '#E6A23C' },
     { value: 'parts-arrived', label: 'Parts Arrived', tag: 'warning', color: '#E6A23C' },
@@ -1617,6 +1638,19 @@ export default {
     methods: {
         handleResize() {
             this.viewportWidth = window.innerWidth
+        },
+        // Return the note attached to the most recent status-history entry
+        // that put this case into On Hold. Used to surface the reason inline
+        // in both the table and the card view. Empty string if no note.
+        onHoldNote(row) {
+            if (!row || row.status !== 'on-hold') return ''
+            const history = Array.isArray(row.statusHistory) ? row.statusHistory : []
+            for (let i = history.length - 1; i >= 0; i--) {
+                if (history[i] && history[i].status === 'on-hold' && history[i].note) {
+                    return String(history[i].note)
+                }
+            }
+            return ''
         },
         setViewMode(mode) {
             if (mode !== 'table' && mode !== 'card') return
@@ -2990,5 +3024,34 @@ export default {
     padding-top: 8px;
     border-top: 1px dashed #ebeef5;
     .el-button { margin-left: 0 !important; }
+}
+
+/* On-hold note inline under the Status tag in the desktop table column.
+   Truncated to a single line; full text in the tooltip on hover. */
+.on-hold-note {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #a0522d;
+    line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+    i { flex-shrink: 0; margin-top: 2px; }
+}
+/* Card variant — same colour, but wraps so the full note shows */
+.on-hold-note-card {
+    color: #a0522d !important;
+    background: #fdf6f0;
+    border-left: 2px solid #a0522d;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+    span { white-space: normal !important; overflow: visible !important; }
+    i { color: #a0522d !important; }
 }
 </style>

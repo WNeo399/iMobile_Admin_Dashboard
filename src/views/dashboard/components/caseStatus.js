@@ -2,6 +2,7 @@
 // renders a status pill. Mirrors the backend VALID_STATUSES.
 
 export const STATUS_LABELS = {
+    'on-hold': 'On Hold',
     pending: 'Pending',
     'waiting-for-parts': 'Waiting for Parts',
     'parts-arrived': 'Parts Arrived',
@@ -18,6 +19,7 @@ export const STATUS_LABELS = {
 
 // Element UI tag types — kept narrow so the palette stays readable.
 export const STATUS_TAG_TYPES = {
+    'on-hold': 'warning',
     pending: 'info',
     'waiting-for-parts': 'warning',
     'parts-arrived': 'warning',
