@@ -14,8 +14,8 @@
                     icon="el-icon-shopping-cart-2" color="orange" />
             </el-col>
             <el-col :xs="24" :sm="12" :md="6">
-                <KpiTile label="Awaiting collection" :value="totals.byStatus['repaired'] || 0"
-                    icon="el-icon-bell" color="purple" />
+                <KpiTile label="Pending cases" :value="totals.byStatus['pending'] || 0"
+                    icon="el-icon-document" color="purple" />
             </el-col>
         </el-row>
 
