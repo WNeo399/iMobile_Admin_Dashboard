@@ -627,6 +627,7 @@
             width="880px"
             append-to-body
             top="calc(12.5vh - 50px)"
+            :close-on-click-modal="false"
             @close="resetSendParts"
         >
             <div v-if="sendPartsCase" class="send-parts-scroll">
@@ -1322,6 +1323,13 @@ const STATUS_META = [
     { value: 'cancelled', label: 'Cancelled', tag: 'info', color: '#C0C4CC' }
 ]
 
+// Statuses that only Admin / TechElite Admin should see in the tree and the
+// Change Status dropdown — they represent internal admin-side work (paused
+// or sent to Solvup) and shouldn't be visible to shop roles. The backend
+// also filters them out of /list and /counts for shop-scoped users, so
+// counts here will always be 0 for non-admins anyway.
+const ADMIN_ONLY_STATUSES = ['on-hold', 'waiting-solvup']
+
 const LABOR_COST = 70
 const GST_RATE = 0.1
 
@@ -1395,7 +1403,6 @@ export default {
             changeStatusCase: null,
             changeStatusSubmitting: false,
             changeStatusForm: { status: '', note: '' },
-            statusOptions: STATUS_META.map(s => ({ value: s.value, label: s.label })),
 
             // Select Parts (Repaired & Collected — Admin / TechElite)
             selectPartsDialogOpen: false,
@@ -1473,6 +1480,20 @@ export default {
         sendPartsWarning() {
             return this.sendPartsBudget > 0 && this.sendPartsEstimated > this.sendPartsBudget
         },
+        // Admin + TechElite Admin see the full status list (incl. On Hold &
+        // Waiting Solvup); shop roles do not.
+        canSeeAdminOnlyStatuses() {
+            const roles = (this.$store && this.$store.state.user.roles) || []
+            return roles.includes('admin') || roles.includes('techelite-admin')
+        },
+        visibleStatusMeta() {
+            return this.canSeeAdminOnlyStatuses
+                ? STATUS_META
+                : STATUS_META.filter(s => !ADMIN_ONLY_STATUSES.includes(s.value))
+        },
+        statusOptions() {
+            return this.visibleStatusMeta.map(s => ({ value: s.value, label: s.label }))
+        },
         treeData() {
             const byStatus = this.counts.byStatus || {}
             return [
@@ -1480,7 +1501,7 @@ export default {
                     id: 'all',
                     label: 'All Cases',
                     count: this.counts.total || 0,
-                    children: STATUS_META.map(s => ({
+                    children: this.visibleStatusMeta.map(s => ({
                         id: s.value,
                         label: s.label,
                         count: byStatus[s.value] || 0

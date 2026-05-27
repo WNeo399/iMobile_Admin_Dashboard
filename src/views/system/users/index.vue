@@ -87,12 +87,43 @@
                         <el-option v-for="r in roles" :key="r.value" :label="r.label" :value="r.value" />
                     </el-select>
                 </el-form-item>
-                <el-form-item v-if="selectedRoleShopScoped" label="Shops" prop="shopIds">
-                    <el-select v-model="form.shopIds" multiple filterable placeholder="Assign shops"
-                        style="width: 100%">
+                <!--
+                    Shop selector. Repair Shop is a single-shop role (one
+                    physical location, one account), so we render a single
+                    select. Repair Shop Owner can hold many shops, so they
+                    get the multi-select. The model is always an array
+                    internally — `shopIdSingle` is a getter/setter bridge.
+                -->
+                <el-form-item
+                    v-if="selectedRoleShopScoped"
+                    :label="selectedRoleIsRepairShop ? 'Shop' : 'Shops'"
+                    prop="shopIds"
+                >
+                    <el-select
+                        v-if="selectedRoleIsRepairShop"
+                        v-model="shopIdSingle"
+                        filterable
+                        clearable
+                        placeholder="Assign a shop"
+                        style="width: 100%"
+                    >
                         <el-option v-for="s in shops" :key="s._id" :label="s.storeName" :value="s._id" />
                     </el-select>
-                    <div class="form-hint">The user will only see cases for the shops assigned here.</div>
+                    <el-select
+                        v-else
+                        v-model="form.shopIds"
+                        multiple
+                        filterable
+                        placeholder="Assign shops"
+                        style="width: 100%"
+                    >
+                        <el-option v-for="s in shops" :key="s._id" :label="s.storeName" :value="s._id" />
+                    </el-select>
+                    <div class="form-hint">
+                        {{ selectedRoleIsRepairShop
+                            ? 'A Repair Shop user is tied to a single shop.'
+                            : 'The user will only see cases for the shops assigned here.' }}
+                    </div>
                 </el-form-item>
                 <el-form-item label="Active" prop="active">
                     <el-switch v-model="form.active" />
@@ -153,8 +184,9 @@ export default {
             form: emptyForm(),
             rules: {
                 username: [{ required: true, message: 'Username is required', trigger: 'blur' }],
+                // Email is optional — users can log in with their username.
+                // When provided we still enforce a valid format.
                 email: [
-                    { required: true, message: 'Email is required', trigger: 'blur' },
                     { type: 'email', message: 'Enter a valid email', trigger: 'blur' }
                 ],
                 password: [
@@ -178,6 +210,27 @@ export default {
         selectedRoleShopScoped() {
             const r = this.roles.find(x => x.value === this.form.role)
             return r ? r.shopScoped : false
+        },
+        // Repair Shop is a single-shop role; Repair Shop Owner is multi-shop.
+        selectedRoleIsRepairShop() {
+            return this.form.role === 'repair-shop'
+        },
+        // Bridges the single-shop select to the form.shopIds array so the
+        // model stays a consistent array type regardless of role.
+        shopIdSingle: {
+            get() { return (this.form.shopIds && this.form.shopIds[0]) || '' },
+            set(val) { this.form.shopIds = val ? [val] : [] }
+        }
+    },
+    watch: {
+        // Switching INTO repair-shop must trim any extra shops the user may
+        // have had from a previous shop-owner assignment, so the single-shop
+        // invariant holds before save.
+        'form.role'(newRole, oldRole) {
+            if (newRole === oldRole) return
+            if (newRole === 'repair-shop' && Array.isArray(this.form.shopIds) && this.form.shopIds.length > 1) {
+                this.form.shopIds = this.form.shopIds.slice(0, 1)
+            }
         }
     },
     created() {
