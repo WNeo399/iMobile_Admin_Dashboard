@@ -85,9 +85,86 @@
                         <el-option label="Draft" value="Draft" selected></el-option>
                     </el-select>
                 </el-form-item>
-                <div v-if="form.type == 'Selection'">
+                <!--
+                    Selection-type collections: user picks specific products
+                    from Zoho Commerce. Each pick is translated via SKU into a
+                    real Zoho Inventory item_id (Commerce id ≠ Inventory id) so
+                    downstream stock/sales lookups work.
+                -->
+                <el-form-item
+                    v-if="form.type == 'Selection'"
+                    label="Products"
+                    prop="products"
+                    :required="form.type == 'Selection'"
+                >
+                    <el-autocomplete
+                        v-model="productSearchKeyword"
+                        :fetch-suggestions="fetchProductSuggestions"
+                        :debounce="400"
+                        :disabled="productLookupLoading"
+                        placeholder="Search Zoho products by name or SKU..."
+                        style="width: 100%"
+                        value-key="name"
+                        :trigger-on-focus="false"
+                        clearable
+                        prefix-icon="el-icon-search"
+                        popper-class="collection-product-suggestions"
+                        @select="onProductSelected"
+                    >
+                        <template slot-scope="{ item }">
+                            <div class="product-suggestion">
+                                <img
+                                    v-if="item.imgUrl"
+                                    :src="item.imgUrl"
+                                    class="product-suggestion-img"
+                                    @error="onSuggestionImgError($event)"
+                                />
+                                <div v-else class="product-suggestion-img product-suggestion-img-placeholder">
+                                    <i class="el-icon-picture-outline" />
+                                </div>
+                                <div class="product-suggestion-info">
+                                    <div class="product-suggestion-name">{{ item.name }}</div>
+                                    <div class="product-suggestion-meta">
+                                        <span v-if="item.sku">SKU: {{ item.sku }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </el-autocomplete>
 
-                </div>
+                    <div class="selected-products-wrap">
+                        <div v-if="!form.products || form.products.length === 0" class="selected-empty">
+                            No products yet — use the search above to add some.
+                        </div>
+                        <ul v-else class="selected-products">
+                            <li v-for="(p, idx) in form.products" :key="p.itemId" class="selected-product">
+                                <img
+                                    v-if="p.imageUrl"
+                                    :src="p.imageUrl"
+                                    class="selected-product-img"
+                                    @error="onSuggestionImgError($event)"
+                                />
+                                <div v-else class="selected-product-img selected-product-img-placeholder">
+                                    <i class="el-icon-picture-outline" />
+                                </div>
+                                <div class="selected-product-info">
+                                    <div class="selected-product-name">{{ p.name || '(unnamed)' }}</div>
+                                    <div class="selected-product-meta">
+                                        <span v-if="p.sku">SKU: {{ p.sku }}</span>
+                                        <span class="selected-product-id">· item {{ p.itemId }}</span>
+                                    </div>
+                                </div>
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-delete"
+                                    @click="removeSelectedProduct(idx)"
+                                />
+                            </li>
+                        </ul>
+                    </div>
+                </el-form-item>
+
                 <el-form-item label="Criteria" prop="criteria" :required="form.type == 'Criteria'"
                     v-if="form.type == 'Criteria'">
                     <el-input v-model="form.criteria" type="textarea" :rows="2" placeholder="Please Enter Criteria" />
@@ -108,6 +185,7 @@
 <script>
 import CollectionGroupDialog from "./CollectionGroup/collectionGroup.vue"
 import { createCollection, getCollectionList, deleteCollection, updateCollection } from "../../../api/zoho/products/collection";
+import { searchProducts, lookupProductBySku } from "@/api/zoho/products/product";
 export default {
     components: {
         CollectionGroupDialog
@@ -116,6 +194,16 @@ export default {
         const validateCriteria = (rule, value, callback) => {
             if (this.form.type === 'Criteria' && !value) {
                 callback(new Error('Criteria can not be empty'))
+            } else {
+                callback()
+            }
+        }
+        // Selection collections must have at least one picked product —
+        // otherwise saving a "Selection" with empty products would create a
+        // silently-broken collection.
+        const validateProducts = (rule, value, callback) => {
+            if (this.form.type === 'Selection' && (!Array.isArray(value) || value.length === 0)) {
+                callback(new Error('Please add at least one product'))
             } else {
                 callback()
             }
@@ -142,8 +230,14 @@ export default {
                 type: "",
                 status: "Draft",
                 note: "",
-                criteria: ""
+                criteria: "",
+                // Each entry: { itemId, sku, name, imageUrl }. `itemId` is the
+                // Zoho Inventory product id (resolved via skuLookup).
+                products: []
             },
+            // Selection product picker state
+            productSearchKeyword: "",
+            productLookupLoading: false,
             rules: {
                 title: [
                     { required: true, message: "Title can not be empty", trigger: "blur" }
@@ -159,11 +253,14 @@ export default {
                         validator: validateCriteria,
                         trigger: "blur"
                     }
+                ],
+                products: [
+                    {
+                        validator: validateProducts,
+                        trigger: "change"
+                    }
                 ]
-            },
-            productSelectionString: "",
-            productSelected: [],
-            Criteria: ""
+            }
         }
     },
     created() {
@@ -235,21 +332,28 @@ export default {
                 type: "",
                 note: "",
                 status: "Draft",
-                criteria: " "
-            },
-                this.open = true
+                criteria: " ",
+                products: []
+            }
+            this.productSearchKeyword = ""
+            this.open = true
             this.title = "Add Collection"
         },
         handleUpdate(row) {
-            console.log(row)
             this.form = {
                 id: row._id,
                 title: row.title,
                 type: row.type,
                 note: row.note,
                 status: row.status,
-                criteria: row.type == "Criteria" ? row.rules[0].criteria.equals : ""
+                criteria: row.type == "Criteria" && row.rules && row.rules[0] && row.rules[0].criteria
+                    ? row.rules[0].criteria.equals
+                    : "",
+                // Hydrate from the stored array. Each entry already has the
+                // display metadata we need; no extra round-trip required.
+                products: Array.isArray(row.products) ? row.products.map(p => ({ ...p })) : []
             }
+            this.productSearchKeyword = ""
             this.title = "Edit Collection"
             this.open = true
         },
@@ -303,9 +407,16 @@ export default {
                         payload.rules = [{ criteria: { equals: this.form.criteria } }]
                     }
 
-                    // if (this.form.type === 'Selection') {
-                    //     payload.products = this.form.products || []
-                    // }
+                    if (this.form.type === 'Selection') {
+                        // Backend stores the full snapshot; itemId is the
+                        // canonical Zoho Inventory product id.
+                        payload.products = (this.form.products || []).map(p => ({
+                            itemId: p.itemId,
+                            sku: p.sku || '',
+                            name: p.name || '',
+                            imageUrl: p.imageUrl || ''
+                        }))
+                    }
                     if (this.form.id) {
                         await updateCollection(this.form.id, payload)
                         this.$message.success('Collection updated successfully')
@@ -342,6 +453,7 @@ export default {
                 criteria: '',
                 products: []
             }
+            this.productSearchKeyword = ""
             this.title = ""
             this.$nextTick(() => {
                 this.$refs.form && this.$refs.form.clearValidate()
@@ -350,11 +462,117 @@ export default {
         cancel() {
             this.open = false
             this.form = {
+                id: "",
                 title: "",
                 type: "",
                 status: "Draft",
-                criteria: ""
+                note: "",
+                criteria: "",
+                products: []
             }
+            this.productSearchKeyword = ""
+        },
+
+        // ── Selection product picker ────────────────────────────────────
+        // Reuses the Send Parts picker endpoints. Commerce search gives us
+        // the list to choose from; SKU lookup translates that pick into the
+        // real Zoho Inventory item_id we ultimately save.
+
+        async fetchProductSuggestions(query, cb) {
+            const q = (query || '').trim()
+            if (!q) { cb([]); return }
+            try {
+                const res = await searchProducts(q)
+                if (!res || !res.success) { cb([]); return }
+                const products = Array.isArray(res.data) ? res.data : []
+                const suggestions = products.map(p => ({
+                    ...p,
+                    name: p.name || p.product_name || p.title || '',
+                    sku: p.sku
+                        || (Array.isArray(p.skus) && p.skus[0] && p.skus[0].sku)
+                        || (p.variants && p.variants[0] && p.variants[0].sku)
+                        || '',
+                    product_id: p.product_id || p.id || '',
+                    imgUrl: this.extractProductImage(p)
+                }))
+                cb(suggestions)
+            } catch (e) {
+                console.error('Product search failed:', e)
+                cb([])
+            }
+        },
+        extractProductImage(p) {
+            const BASE = 'https://www.imobilestore.com.au'
+            const toAbsolute = (path) => {
+                if (!path) return ''
+                if (/^https?:\/\//i.test(path)) return path
+                return BASE + (path.startsWith('/') ? '' : '/') + path
+            }
+            if (Array.isArray(p.documents) && p.documents[0]) {
+                const d = p.documents[0]
+                if (d.file_name && d.document_id) {
+                    return `${BASE}/product-images/${d.file_name}/${d.document_id}/100x100`
+                }
+            }
+            if (Array.isArray(p.images) && p.images[0]) {
+                const i = p.images[0]
+                return toAbsolute(i.image_url || i.url || i.path || i.image_path || '')
+            }
+            return toAbsolute(p.image_url || p.image || p.image_path || '')
+        },
+        onSuggestionImgError(e) {
+            if (e && e.target) e.target.style.display = 'none'
+        },
+        async onProductSelected(item) {
+            if (!item) return
+            // SKU is required — Commerce product_id ≠ Inventory item_id, so we
+            // translate via SKU to get the real id we ultimately save.
+            if (!item.sku) {
+                this.$message.error(
+                    `"${item.name || 'This product'}" has no SKU — add one in Zoho before selecting.`
+                )
+                this.productSearchKeyword = ""
+                return
+            }
+            // Dedupe by SKU before the round-trip; final dedupe by itemId below.
+            if ((this.form.products || []).some(p => p.sku === item.sku)) {
+                this.$message.info(`"${item.name}" is already in this collection`)
+                this.productSearchKeyword = ""
+                return
+            }
+            this.productLookupLoading = true
+            try {
+                const res = await lookupProductBySku(item.sku)
+                if (!res || !res.success || !res.data || !res.data.itemId) {
+                    throw new Error('No inventory item returned for this SKU')
+                }
+                const itemId = String(res.data.itemId)
+                if ((this.form.products || []).some(p => p.itemId === itemId)) {
+                    this.$message.info(`"${item.name}" is already in this collection`)
+                    return
+                }
+                this.form.products.push({
+                    itemId,
+                    sku: item.sku,
+                    name: item.name,
+                    imageUrl: item.imgUrl || ''
+                })
+                // Trigger the validator so the "required" message clears once
+                // the first product is added.
+                this.$refs.form && this.$refs.form.validateField('products', () => {})
+                this.$message.success(`Added "${item.name}"`)
+            } catch (e) {
+                console.error('SKU lookup failed:', e)
+                const msg = (e.response && e.response.data && e.response.data.message) || e.message || 'Failed to add product'
+                this.$message.error(msg)
+            } finally {
+                this.productLookupLoading = false
+                this.productSearchKeyword = ""
+            }
+        },
+        removeSelectedProduct(idx) {
+            this.form.products.splice(idx, 1)
+            this.$refs.form && this.$refs.form.validateField('products', () => {})
         },
         getStatusType(status) {
             switch (status) {
@@ -372,4 +590,110 @@ export default {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+/* Selected products list inside the Selection collection picker */
+.selected-products-wrap {
+    margin-top: 10px;
+    border: 1px dashed #dcdfe6;
+    border-radius: 6px;
+    padding: 8px;
+    background: #fafbfc;
+    min-height: 56px;
+}
+.selected-empty {
+    color: #909399;
+    font-size: 13px;
+    text-align: center;
+    padding: 12px 0;
+}
+.selected-products {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.selected-product {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+.selected-product-img {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: #f5f7fa;
+}
+.selected-product-img-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c0c4cc;
+    font-size: 16px;
+}
+.selected-product-info {
+    flex: 1;
+    min-width: 0;
+}
+.selected-product-name {
+    font-weight: 500;
+    color: #303133;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.selected-product-meta {
+    color: #909399;
+    font-size: 12px;
+    margin-top: 2px;
+}
+.selected-product-id {
+    margin-left: 6px;
+    color: #c0c4cc;
+}
+</style>
+
+<style>
+/* Autocomplete suggestion popup — needs to be unscoped because the popup is
+   teleported outside the component root by Element UI. */
+.collection-product-suggestions .product-suggestion {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+}
+.collection-product-suggestions .product-suggestion-img {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: #f5f7fa;
+}
+.collection-product-suggestions .product-suggestion-img-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c0c4cc;
+    font-size: 16px;
+}
+.collection-product-suggestions .product-suggestion-info { min-width: 0; }
+.collection-product-suggestions .product-suggestion-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.collection-product-suggestions .product-suggestion-meta {
+    color: #909399;
+    font-size: 12px;
+}
+</style>
