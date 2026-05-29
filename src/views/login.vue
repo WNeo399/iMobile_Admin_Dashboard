@@ -40,24 +40,21 @@
         </div>
       </el-form-item>
     </el-form>
-    <!--  底部  -->
-    <div class="el-login-footer">
-      <span>{{ footerContent }}</span>
-    </div>
   </div>
 </template>
 
 <script>
 import Cookies from "js-cookie"
 import { encrypt, decrypt } from '@/utils/jsencrypt'
-import defaultSettings from '@/settings'
 
 export default {
   name: "Login",
   data() {
     return {
-      title: process.env.VUE_APP_TITLE,
-      footerContent: defaultSettings.footerContent,
+      // Static label — the brand title from VUE_APP_TITLE wasn't useful here
+      // (it's the build-time app name); a literal "Login" reads better above
+      // the form.
+      title: "Login",
       loginForm: {
         username: "",
         password: "",
@@ -86,6 +83,10 @@ export default {
     }
   },
   created() {
+    // The browser tab on the login screen should read "Login" — not the
+    // build-time brand. permission.js doesn't set a title for /login (no
+    // token yet), so we set it explicitly here.
+    document.title = 'Login'
     this.getCookie()
   },
   methods: {
@@ -170,18 +171,6 @@ export default {
     cursor: pointer;
     vertical-align: middle;
   }
-}
-.el-login-footer {
-  height: 40px;
-  line-height: 40px;
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  text-align: center;
-  color: #fff;
-  font-family: Arial;
-  font-size: 12px;
-  letter-spacing: 1px;
 }
 .login-code-img {
   height: 38px;

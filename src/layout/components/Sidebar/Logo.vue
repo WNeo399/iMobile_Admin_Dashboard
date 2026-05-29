@@ -34,11 +34,22 @@ export default {
     },
     navType() {
       return this.$store.state.settings.navType
+    },
+    // Role-aware sidebar title. TechElite Admin and the two shop-side
+    // roles all see the TechElite-branded title (those users effectively
+    // use the dashboard as a TechElite tool). Everyone else keeps the
+    // default build-time title.
+    title() {
+      const roles = (this.$store && this.$store.state.user.roles) || []
+      const techEliteFacing = ['techelite-admin', 'repair-shop', 'shop-owner']
+      if (roles.some(r => techEliteFacing.includes(r))) {
+        return 'TechElite Dashboard'
+      }
+      return process.env.VUE_APP_TITLE
     }
   },
   data() {
     return {
-      title: process.env.VUE_APP_TITLE,
       logo: logoImg
     }
   }

@@ -172,6 +172,29 @@ export const moduleRoutes = [
     ]
   },
   {
+    path: "/tools",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: false,
+    // Single visible child with alwaysShow:false renders as a top-level item.
+    // The child's meta carries the role gate; only Admin + iMobile Admin
+    // see the menu link and can resolve the route.
+    meta: { title: "Tools", icon: "el-icon-magic-stick" },
+    children: [
+      {
+        path: "",
+        component: (resolve) => require(["@/views/tools/index"], resolve),
+        name: "Tools",
+        meta: {
+          title: "Tools",
+          icon: "el-icon-magic-stick",
+          roles: ["admin", "imobile-admin"]
+        }
+      }
+    ]
+  },
+  {
     path: "/system",
     component: Layout,
     redirect: "noRedirect",
