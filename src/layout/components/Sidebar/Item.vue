@@ -17,7 +17,16 @@ export default {
     const vnodes = []
 
     if (icon) {
-      vnodes.push(<svg-icon icon-class={icon}/>)
+      // Element UI font icons (el-icon-*) render as a plain <i> tag so
+      // the icon font kicks in; the project's own SVG sprites (e.g.
+      // dashboard, peoples) still go through <svg-icon>. Without this
+      // split, an "el-icon-foo" value would try to load `#icon-el-icon-foo`
+      // from the sprite sheet and silently render nothing.
+      if (icon.indexOf('el-icon') === 0) {
+        vnodes.push(<i class={`${icon} sub-el-icon`} />)
+      } else {
+        vnodes.push(<svg-icon icon-class={icon}/>)
+      }
     }
 
     if (title) {

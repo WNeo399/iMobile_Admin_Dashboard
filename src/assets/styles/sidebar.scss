@@ -60,8 +60,20 @@
       overflow: hidden;
     }
 
-    .svg-icon {
+    // svg-icon: project SVG sprites (dashboard, peoples, …)
+    // sub-el-icon: Element UI font icons (el-icon-mobile-phone, …)
+    // Both share the same spacing + sizing so a sidebar built from a
+    // mix of the two stays visually consistent.
+    .svg-icon,
+    .sub-el-icon {
       margin-right: 10px !important;
+    }
+    .sub-el-icon {
+      width: 1em;
+      height: 1em;
+      font-size: 16px;
+      text-align: center;
+      vertical-align: -0.15em;
     }
 
     .el-menu {
@@ -216,8 +228,13 @@
         .el-tooltip {
           padding: 0 !important;
 
-          .svg-icon {
+          // Center the icon inside the 54px collapsed item. Both svg
+          // sprites and Element font icons need this — without it the
+          // <i> tag hugs the left edge.
+          .svg-icon,
+          .sub-el-icon {
             margin-left: 20px;
+            margin-right: 0 !important;
           }
         }
       }
@@ -229,8 +246,10 @@
       &>.el-submenu__title {
         padding: 0 !important;
 
-        .svg-icon {
+        .svg-icon,
+        .sub-el-icon {
           margin-left: 20px;
+          margin-right: 0 !important;
         }
 
       }
@@ -287,7 +306,8 @@
 // when menu collapsed
 .el-menu--vertical {
   &>.el-menu {
-    .svg-icon {
+    .svg-icon,
+    .sub-el-icon {
       margin-right: 16px;
     }
   }
