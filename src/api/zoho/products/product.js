@@ -23,3 +23,14 @@ export function lookupProductBySku(sku) {
     params: { sku }
   })
 }
+
+// Resolve a scanned code (SKU or barcode/UPC) to a Zoho Inventory item.
+// Returns { itemId, sku, name, status, scanCode, matchedBy }. Used by the
+// scan-on-Enter flow in the Create Sales Order tool.
+export function scanProductByCode(code) {
+  return request({
+    url: '/zoho/product/scanLookup',
+    method: 'get',
+    params: { code }
+  })
+}

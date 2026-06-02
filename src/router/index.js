@@ -91,32 +91,58 @@ export const constantRoutes = [
 // `meta.permissions` lists the permission(s) that grant access to a route.
 export const moduleRoutes = [
   {
-    path: "/zohoInventory",
+    // iMobile group — top-level umbrella for iMobile-specific modules.
+    // Inventory is currently the only child; new modules (Sales, Customers,
+    // etc.) can be added as siblings of `inventory` later without touching
+    // the deepest leaves.
+    //
+    // Path stays `/zohoInventory/...` for the actual pages so existing
+    // deep links and the home-page quick-action links (which reference
+    // `/zohoInventory/stockMonitoring` etc.) keep working — we just nest
+    // them inside the iMobile group at the sidebar / routing layer.
+    path: "/imobile",
     component: Layout,
     redirect: "noRedirect",
     hidden: false,
     alwaysShow: true,
-    meta: {title: "zoho Inventory", icon: "el-icon-notebook-2"},
+    meta: { title: "iMobile", icon: "el-icon-goods" },
     children: [
       {
-        path: "stockMonitoring",
-        component: (resolve)=>require(["@/views/zohoInventory/stockmonitoring"], resolve),
-        name: "StockMonitoring",
-        meta: {
-          title: "Stock Mornitoring",
-          icon: "goods",
-          permissions: ["zoho:stock:view"]
-        }
-      },
-      {
-        path: "collections",
-        component: (resolve)=>require(["@/views/products/collection"], resolve),
-        name: "Collections",
-        meta: {
-          title: "Collections",
-          icon: "goods",
-          permissions: ["zoho:collection:view"]
-        }
+        path: "inventory",
+        // ParentView is a transparent <router-view /> wrapper used by
+        // RuoYi/vue-element-admin to render nested submenu groups without
+        // adding a real page in the middle.
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Inventory", icon: "el-icon-notebook-2" },
+        children: [
+          {
+            path: "/zohoInventory/stockMonitoring",
+            component: (resolve) => require(["@/views/zohoInventory/stockmonitoring"], resolve),
+            name: "StockMonitoring",
+            meta: {
+              title: "Stock Mornitoring",
+              // Chart/line icon reads as "monitoring" at a glance — better
+              // than the previous `goods` value which had no matching SVG
+              // sprite and rendered blank.
+              icon: "el-icon-data-line",
+              permissions: ["zoho:stock:view"]
+            }
+          },
+          {
+            path: "/zohoInventory/collections",
+            component: (resolve) => require(["@/views/products/collection"], resolve),
+            name: "Collections",
+            meta: {
+              title: "Collections",
+              // Stacked files icon for a grouping of products; previously
+              // shared `goods` with Stock Monitoring and rendered blank.
+              icon: "el-icon-files",
+              permissions: ["zoho:collection:view"]
+            }
+          }
+        ]
       }
     ]
   },
@@ -154,7 +180,9 @@ export const moduleRoutes = [
         name: "SqtModels",
         meta: {
           title: "Models",
-          icon: "el-icon-mobile-phone",
+          // CPU icon reads as "device spec sheet" and keeps Models visually
+          // distinct from the iMobile parent (which uses mobile-phone).
+          icon: "el-icon-cpu",
           permissions: ["sqt:model:list"]
         }
       },
@@ -189,6 +217,20 @@ export const moduleRoutes = [
         meta: {
           title: "Tools",
           icon: "el-icon-magic-stick",
+          roles: ["admin", "imobile-admin"]
+        }
+      },
+      {
+        // Route-based tool — opens as a full page rather than a dialog.
+        // Hidden from the sidebar; the tool is launched via its card on
+        // the /tools index page.
+        path: "locationMonitoring",
+        component: (resolve) => require(["@/views/tools/locationMonitoring"], resolve),
+        name: "ToolsLocationMonitoring",
+        hidden: true,
+        meta: {
+          title: "Location Monitoring",
+          activeMenu: "/tools",
           roles: ["admin", "imobile-admin"]
         }
       }

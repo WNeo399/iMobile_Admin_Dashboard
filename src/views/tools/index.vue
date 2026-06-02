@@ -97,6 +97,8 @@
 
 <script>
 import CreateCreditNote from './components/CreateCreditNote'
+import CreateSalesOrder from './components/CreateSalesOrder'
+import BuzztechOrderImport from './components/BuzztechOrderImport'
 
 // Tools registry — single source of truth for what shows on this page.
 //
@@ -120,52 +122,35 @@ const TOOLS = [
         dialogWidth: '560px'
     },
     {
-        id: 'json-formatter',
-        name: 'JSON Formatter',
-        description: 'Format, validate and beautify your JSON.',
-        icon: 'el-icon-document',
-        color: 'blue',
-        status: 'coming-soon'
-    },
-    {
-        id: 'sku-lookup',
-        name: 'SKU Lookup',
-        description: 'Resolve a Commerce SKU to its Inventory item id and Wholesale price.',
-        icon: 'el-icon-search',
-        color: 'teal',
-        status: 'coming-soon'
-    },
-    {
-        id: 'inventory-csv-export',
-        name: 'Inventory CSV Export',
-        description: 'Export a stock snapshot for a collection as CSV.',
-        icon: 'el-icon-download',
-        color: 'green',
-        status: 'coming-soon'
-    },
-    {
-        id: 'bulk-status-change',
-        name: 'Bulk Status Change',
-        description: 'Move many SQT cases between statuses in one go.',
-        icon: 'el-icon-sort',
-        color: 'orange',
-        status: 'coming-soon'
-    },
-    {
-        id: 'password-generator',
-        name: 'Password Generator',
-        description: 'Generate a strong password for new user accounts.',
-        icon: 'el-icon-key',
+        id: 'create-sales-order',
+        name: 'Create Sales Order',
+        description: 'Search Zoho products, build a draft sales order, then re-assign the customer in Zoho.',
+        icon: 'el-icon-shopping-cart-2',
         color: 'purple',
-        status: 'coming-soon'
+        entry: 'dialog',
+        component: CreateSalesOrder,
+        dialogWidth: '720px'
     },
     {
-        id: 'repairdesk-probe',
-        name: 'RepairDesk Probe',
-        description: 'Look up a RepairDesk ticket by caseId to debug status sync.',
-        icon: 'el-icon-connection',
-        color: 'red',
-        status: 'coming-soon'
+        id: 'buzztech-order-import',
+        name: 'Buzztech Order Import',
+        description: 'Import a BuzzTech PO PDF, review the parsed line items, then create a Zoho sales order.',
+        icon: 'el-icon-tickets',
+        color: 'blue',
+        entry: 'dialog',
+        component: BuzztechOrderImport,
+        // Wider than the credit-note dialog — the review screen renders tables.
+        dialogWidth: '780px'
+    },
+    {
+        id: 'location-monitoring',
+        name: 'Location Monitoring',
+        description: 'Browse Zoho Inventory items by storage location and move items between locations.',
+        icon: 'el-icon-location',
+        color: 'teal',
+        // Route-based — opens its own page rather than a dialog.
+        entry: 'route',
+        route: '/tools/locationMonitoring'
     }
 ]
 
