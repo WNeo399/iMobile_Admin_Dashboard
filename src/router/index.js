@@ -143,6 +143,19 @@ export const moduleRoutes = [
             }
           }
         ]
+      },
+      {
+        // iMobile Repair — sibling of Inventory under the iMobile group.
+        // Visible to iMobile Admin (zoho:*:* gets repair:*:* alongside) and
+        // iMobile Repair Admin (which is named for this page).
+        path: "repair",
+        component: (resolve) => require(["@/views/imobile/repair/index"], resolve),
+        name: "ImobileRepair",
+        meta: {
+          title: "Repair",
+          icon: "el-icon-s-tools",
+          permissions: ["repair:ticket:list"]
+        }
       }
     ]
   },
