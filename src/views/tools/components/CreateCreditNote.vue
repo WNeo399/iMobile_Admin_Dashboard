@@ -4,37 +4,42 @@
             Two hidden file inputs. The first lets the user pick from their
             gallery / file system; the second uses `capture="environment"`
             which prompts mobile browsers to open the rear camera directly.
-            On desktop, "capture" is silently ignored and falls back to the
-            normal file picker — so both buttons stay useful everywhere.
+            Both have `multiple` so a single picker can add several images
+            at once — the camera one stays mostly single-shot because most
+            browsers only return one capture, but multiple is harmless.
         -->
         <input
             ref="fileInput"
             type="file"
             accept="image/*"
+            multiple
             class="hidden-input"
-            @change="onFileChosen"
+            @change="onFilesChosen"
         />
         <input
             ref="cameraInput"
             type="file"
             accept="image/*"
             capture="environment"
+            multiple
             class="hidden-input"
-            @change="onFileChosen"
+            @change="onFilesChosen"
         />
 
         <!-- Idle state — show the two source buttons -->
-        <div v-if="!file" class="picker">
+        <div v-if="files.length === 0" class="picker">
             <div class="picker-help">
-                Choose a credit note image from your device or take a photo
-                with your camera. We'll submit it for processing.
+                Choose one or more credit-note images from your device or
+                take photos with your camera. We'll combine them into a
+                single PDF — one image per page — and submit it for
+                processing.
             </div>
             <div class="picker-buttons">
                 <el-button
                     type="primary"
                     icon="el-icon-picture"
                     @click="$refs.fileInput.click()"
-                >Choose Image</el-button>
+                >Choose Images</el-button>
                 <el-button
                     icon="el-icon-camera"
                     @click="$refs.cameraInput.click()"
@@ -43,18 +48,95 @@
         </div>
 
         <!--
-            Preview state — show the selected image plus filename/size and
-            the action buttons. Submit kicks off the upload; Clear resets
-            so the user can pick a different image without closing the
+            Files state — show the grid of selected images plus the action
+            buttons. Submit kicks off the PDF build + upload; Clear resets
+            so the user can pick different images without closing the
             dialog.
         -->
-        <div v-else class="preview">
-            <div class="preview-image-wrap">
-                <img :src="previewUrl" alt="Credit note preview" class="preview-image" />
+        <div v-if="files.length > 0" class="preview">
+            <div class="files-header">
+                <span class="files-summary">
+                    <strong>{{ files.length }}</strong>
+                    image{{ files.length === 1 ? '' : 's' }}
+                    <span class="files-total-size">· {{ formatBytes(totalSize) }}</span>
+                </span>
+                <div class="files-header-actions">
+                    <el-button
+                        size="mini"
+                        icon="el-icon-plus"
+                        :disabled="submitting"
+                        @click="$refs.fileInput.click()"
+                    >Add</el-button>
+                    <el-button
+                        size="mini"
+                        icon="el-icon-camera"
+                        :disabled="submitting"
+                        @click="$refs.cameraInput.click()"
+                    >Camera</el-button>
+                    <el-button
+                        size="mini"
+                        type="text"
+                        :disabled="submitting"
+                        @click="clearAll"
+                    >Clear all</el-button>
+                </div>
             </div>
-            <div class="preview-meta">
-                <div class="meta-name" :title="file.name">{{ file.name }}</div>
-                <div class="meta-size">{{ formatBytes(file.size) }}</div>
+
+            <!--
+                Vertical list of selected images — one full-width row per
+                file. The green corner badge is purely decorative and
+                signals "added to this batch". Page order in the list IS
+                the page order in the generated PDF; the up / down arrows
+                let the user reorder without re-uploading.
+            -->
+            <div class="files-list">
+                <div
+                    v-for="(f, idx) in files"
+                    :key="f.id"
+                    class="file-row"
+                >
+                    <div class="file-row-thumb">
+                        <img :src="f.previewUrl" :alt="f.name" />
+                    </div>
+                    <div class="file-row-body">
+                        <div class="file-row-name" :title="f.name">{{ f.name }}</div>
+                        <div class="file-row-meta">
+                            <span class="file-page-tag">Page {{ idx + 1 }}</span>
+                            <span class="file-row-dot">·</span>
+                            <span class="file-row-size">{{ formatBytes(f.size) }}</span>
+                        </div>
+                    </div>
+                    <div class="file-row-actions">
+                        <el-button
+                            size="mini"
+                            type="text"
+                            icon="el-icon-top"
+                            class="file-action-btn"
+                            :disabled="submitting || idx === 0"
+                            @click="moveFile(idx, -1)"
+                        />
+                        <el-button
+                            size="mini"
+                            type="text"
+                            icon="el-icon-bottom"
+                            class="file-action-btn"
+                            :disabled="submitting || idx === files.length - 1"
+                            @click="moveFile(idx, 1)"
+                        />
+                        <el-button
+                            size="mini"
+                            type="text"
+                            icon="el-icon-delete"
+                            class="file-action-btn file-remove-btn"
+                            :disabled="submitting"
+                            @click="removeFile(idx)"
+                        />
+                    </div>
+                    <!-- Decorative "added" badge in the top-right corner. -->
+                    <span class="file-row-check" aria-hidden="true">
+                        <i class="el-icon-check" />
+                    </span>
+                </div>
             </div>
 
             <el-alert
@@ -67,164 +149,305 @@
             />
 
             <!--
-                Show the webhook response after a successful submit so admins
-                can confirm n8n actually accepted the payload (and see any
-                JSON the workflow chose to return).
+                Successful submits no longer show a response banner —
+                the success popup (raised in submit() below) is the
+                only confirmation the user needs. Error state stays
+                inline via the alert above; the user can read it,
+                adjust the batch, and resubmit.
             -->
-            <div v-if="lastResponse" class="preview-response">
-                <div class="preview-response-label">
-                    <i class="el-icon-success" /> Webhook response
-                </div>
-                <pre class="preview-response-body">{{ lastResponse }}</pre>
-            </div>
 
             <div class="preview-actions">
                 <el-button
                     :disabled="submitting"
                     icon="el-icon-refresh"
                     @click="reset"
-                >{{ lastResponse ? 'Submit another' : 'Clear' }}</el-button>
+                >Clear</el-button>
                 <el-button
-                    v-if="!lastResponse"
                     type="primary"
                     :loading="submitting"
                     icon="el-icon-upload"
                     @click="submit"
-                >{{ submitting ? 'Submitting…' : 'Submit Credit Note' }}</el-button>
+                >{{ submitButtonLabel }}</el-button>
             </div>
         </div>
     </div>
 </template>
 
 <script>
-// Direct axios import — this hits an external n8n webhook, not our own API,
-// so we bypass @/utils/request (which would attach our JWT and base URL).
-import axios from 'axios'
+// jspdf is already in deps (pinned to ^2.5.1 for the QC Generator's
+// doc.table API). Used here just for addImage / addPage; v2 or v3 would
+// both work but we stay on v2 for consistency.
+import { jsPDF } from 'jspdf'
+import { submitCreditNote } from '@/api/tools/creditNote'
 
-// n8n production webhook for credit-note ingestion. Fires whenever the
-// workflow is Active in the n8n editor. (Use the /webhook-test/ variant
-// instead while iterating on the workflow — those only fire when the
-// editor has "Listen for test event" enabled.)
-const SUBMIT_URL = 'https://exyon.app.n8n.cloud/webhook/submitCreditNote'
+// Per-image raw cap — a 25 MB photo is more than enough for a paper
+// credit note. We re-compress to JPEG before adding to the PDF, so the
+// final PDF is usually a fraction of the raw total anyway.
+const MAX_BYTES_PER_FILE = 25 * 1024 * 1024
+// Safety cap on image count so an accidental "select all" of a camera
+// roll doesn't lock the browser building a 200-page PDF.
+const MAX_FILES = 30
+// Each image is downscaled to fit inside this max edge before going
+// into the PDF. 2000px is well above what a printed page can show, but
+// keeps page weight reasonable (~200–400 KB / page vs multiple MB for
+// raw phone photos).
+const PDF_IMAGE_MAX_EDGE = 2000
+// JPEG quality for the canvas → PDF re-encode. 0.85 is a sweet spot —
+// sharper than 0.75, noticeably smaller than 0.95.
+const PDF_IMAGE_JPEG_QUALITY = 0.85
+// A4 portrait page margin in points (1pt = 1/72 inch). 24pt ≈ 8.5mm.
+const PDF_PAGE_MARGIN_PT = 24
 
-// Cap so the user doesn't accidentally try to upload a 50MB camera roll.
-// 10 MB is plenty for a phone photo of a paper credit note.
-const MAX_BYTES = 10 * 1024 * 1024
+// Monotonic id used as the v-for :key on file cards. A counter beats
+// using the filename (collisions when re-adding the same name) or an
+// object reference (Vue 2 has trouble keying on Files in some browsers).
+let nextFileId = 1
 
 export default {
     name: 'CreateCreditNote',
     data() {
         return {
-            file: null,
-            previewUrl: '',
+            // Each entry: { id, raw (File), name, size, type, previewUrl }
+            files: [],
+            // True while the canvas → jsPDF pass plus the upload to our
+            // backend are running. Used to disable the form controls
+            // and to flip the Submit button label to a progress hint.
             submitting: false,
-            lastError: '',
-            // Pretty-printed body of the last successful submit response —
-            // shown so admins can confirm n8n actually accepted the payload.
-            lastResponse: ''
+            lastError: ''
+        }
+    },
+    computed: {
+        totalSize() {
+            return this.files.reduce((sum, f) => sum + (f.size || 0), 0)
+        },
+        submitButtonLabel() {
+            if (this.submitting) return 'Submitting…'
+            const n = this.files.length
+            return `Submit (${n} page${n === 1 ? '' : 's'})`
         }
     },
     beforeDestroy() {
-        // Release the blob URL we created for the preview so it doesn't
-        // leak when the dialog is closed.
-        this.revokePreview()
+        // Release every blob URL we created for the previews so the
+        // browser can reclaim the memory when the dialog closes.
+        for (const f of this.files) this.revokePreview(f)
     },
     methods: {
-        onFileChosen(event) {
-            const f = event.target.files && event.target.files[0]
-            // Clear the input value so picking the same file again still
-            // triggers the change event next time.
-            event.target.value = ''
-            if (!f) return
+        onFilesChosen(event) {
+            // FileList → Array so we can iterate cleanly. Clear the
+            // input's value so picking the same file twice still fires
+            // change (browsers de-dupe by value otherwise).
+            const incoming = Array.from((event.target && event.target.files) || [])
+            if (event.target) event.target.value = ''
+            if (incoming.length === 0) return
 
-            if (!f.type || !f.type.startsWith('image/')) {
-                this.$message.error('Please choose an image file')
-                return
+            const accepted = []
+            const errors = []
+            for (const f of incoming) {
+                if (!f.type || !f.type.startsWith('image/')) {
+                    errors.push(`${f.name}: not an image`)
+                    continue
+                }
+                if (f.size > MAX_BYTES_PER_FILE) {
+                    errors.push(`${f.name}: too large (${this.formatBytes(f.size)})`)
+                    continue
+                }
+                accepted.push(f)
             }
-            if (f.size > MAX_BYTES) {
-                this.$message.error(
-                    `Image is ${this.formatBytes(f.size)} — please keep it under ${this.formatBytes(MAX_BYTES)}`
-                )
-                return
+            // Hard cap on total count — drop the tail and warn rather
+            // than silently truncating.
+            const room = MAX_FILES - this.files.length
+            if (accepted.length > room) {
+                errors.push(`Only the first ${room} of ${accepted.length} added (max ${MAX_FILES} per submission).`)
+                accepted.length = room
             }
 
-            this.revokePreview()
-            this.file = f
-            this.previewUrl = URL.createObjectURL(f)
+            for (const f of accepted) {
+                this.files.push({
+                    id: nextFileId++,
+                    raw: f,
+                    name: f.name,
+                    size: f.size,
+                    type: f.type,
+                    previewUrl: URL.createObjectURL(f)
+                })
+            }
+            if (errors.length > 0) {
+                this.$message.warning(errors.join('\n'))
+            }
+            // Clear any prior error banner now that the user is
+            // building a new batch.
+            this.lastError = ''
+        },
+        removeFile(idx) {
+            const [removed] = this.files.splice(idx, 1)
+            if (removed) this.revokePreview(removed)
+        },
+        moveFile(idx, delta) {
+            const target = idx + delta
+            if (target < 0 || target >= this.files.length) return
+            const [moved] = this.files.splice(idx, 1)
+            this.files.splice(target, 0, moved)
+        },
+        clearAll() {
+            for (const f of this.files) this.revokePreview(f)
+            this.files = []
             this.lastError = ''
         },
         async submit() {
-            if (!this.file || this.submitting) return
-            this.submitting = true
+            if (this.files.length === 0 || this.submitting) return
             this.lastError = ''
-            this.lastResponse = ''
-
-            const form = new FormData()
-            // n8n's Webhook node defaults to looking for binary data under
-            // the property name `data` — using a different field name here
-            // (e.g. "file") means downstream nodes that reference
-            // `$binary.data` see nothing. Stick with "data" so the upload
-            // works against a default-configured webhook.
-            form.append('data', this.file, this.file.name)
-
+            this.submitting = true
             try {
-                const res = await axios.post(SUBMIT_URL, form, {
-                    // Don't set Content-Type manually — letting the browser
-                    // set it ensures the multipart boundary is included.
-                    timeout: 60000
-                })
-                this.$message.success('Credit note submitted')
-                // Surface the response so we can confirm n8n received it
-                // and see what it returned. Most webhooks reply with
-                // `{ message: "Workflow was started" }` or similar.
-                this.lastResponse = this.formatResponse(res)
+                const blob = await this.buildPdfBlob(this.files)
+                const filename = this.makePdfFilename()
+                const form = new FormData()
+                // Backend's multer expects "data"; it renames to "file"
+                // before forwarding to HandwritingOCR. See
+                // routes/creditNoteRoutes/index.js for the rationale.
+                form.append('data', blob, filename)
+
+                const res = await submitCreditNote(form)
+                if (!res || res.success === false) {
+                    throw new Error((res && res.message) || 'Submit failed')
+                }
+                await this.showSuccessPrompt()
             } catch (e) {
                 console.error('Credit note submit failed:', e)
-                this.lastError = this.describeError(e)
+                const errData = e.response && e.response.data
+                this.lastError = (errData && errData.message)
+                    || e.message
+                    || 'Submit failed'
             } finally {
                 this.submitting = false
             }
         },
-        formatResponse(res) {
-            if (!res) return ''
-            const body = res.data
-            if (body == null || body === '') return `HTTP ${res.status} (no body)`
+        // Element UI's confirm box, themed as success. Two buttons:
+        //   - Submit another → reset the form, stay in the dialog
+        //   - Close          → ask the parent to close the el-dialog
+        // Modal interaction is mandatory (no X / Esc / backdrop) so the
+        // user has to make a deliberate choice — prevents a stray
+        // dismissal from leaving the same files queued for a duplicate
+        // submit on the next click.
+        async showSuccessPrompt() {
             try {
-                return JSON.stringify(body, null, 2)
+                await this.$confirm(
+                    'Credit note submitted successfully.',
+                    'Submitted',
+                    {
+                        confirmButtonText: 'Submit another',
+                        cancelButtonText: 'Close',
+                        type: 'success',
+                        closeOnClickModal: false,
+                        closeOnPressEscape: false,
+                        showClose: false
+                    }
+                )
+                // Confirm path → "Submit another": wipe the list and
+                // wait for the user to add the next batch.
+                this.reset()
             } catch (_) {
-                return String(body)
+                // Cancel path → "Close": tell the parent to dismiss the
+                // outer el-dialog. tools/index.vue listens for @close.
+                this.$emit('close')
             }
         },
-        reset() {
-            this.revokePreview()
-            this.file = null
-            this.previewUrl = ''
-            this.lastError = ''
-            this.lastResponse = ''
+        makePdfFilename() {
+            // Random base36 suffix avoids name collisions across the
+            // same-day downloads — the browser would otherwise append
+            // "(1)", "(2)" etc and overwrite-confirm dialogs get
+            // annoying. 6 chars (~2 billion combos) is plenty for
+            // human-scale collision risk.
+            const today = new Date().toISOString().slice(0, 10)
+            const suffix = Math.random().toString(36).slice(2, 8)
+            return `credit-note-${today}-${suffix}.pdf`
         },
-        revokePreview() {
-            if (this.previewUrl) {
-                try { URL.revokeObjectURL(this.previewUrl) } catch (_) { /* noop */ }
-                this.previewUrl = ''
-            }
-        },
-        describeError(e) {
-            if (!e) return 'Submit failed'
-            if (e.response) {
-                const status = e.response.status
-                const body = e.response.data
-                const detail = typeof body === 'string' ? body : (body && body.message) || ''
-                // n8n returns 404 with a "webhook not registered" message
-                // when the workflow isn't Active (or, if pointing at the
-                // /webhook-test/ URL, when the editor isn't listening for
-                // a test event).
-                if (status === 404 && String(detail).toLowerCase().includes('not registered')) {
-                    return 'n8n webhook is not active. Activate the workflow in n8n (or use the test URL while iterating).'
+        // ── PDF building ──────────────────────────────────────────
+        // Reads each file, downscales via a canvas, re-encodes as JPEG,
+        // and drops it onto its own A4 page in the doc. Returns a Blob
+        // suitable for upload.
+        async buildPdfBlob(files) {
+            // 'pt' units so PDF_PAGE_MARGIN_PT is meaningful; A4 portrait
+            // is 595×842 pt.
+            const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' })
+            const pageW = doc.internal.pageSize.getWidth()
+            const pageH = doc.internal.pageSize.getHeight()
+            const maxW = pageW - PDF_PAGE_MARGIN_PT * 2
+            const maxH = pageH - PDF_PAGE_MARGIN_PT * 2
+
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i]
+                const img = await this.loadImage(f.raw)
+                const { dataUrl, width, height } = this.imageToJpeg(img)
+
+                // Fit-to-page preserving aspect ratio, centred within
+                // the margins.
+                const aspect = width / height
+                let drawW = maxW
+                let drawH = maxW / aspect
+                if (drawH > maxH) {
+                    drawH = maxH
+                    drawW = maxH * aspect
                 }
-                return `Submit failed (HTTP ${status})${detail ? ': ' + detail : ''}`
+                const x = (pageW - drawW) / 2
+                const y = (pageH - drawH) / 2
+
+                if (i > 0) doc.addPage()
+                doc.addImage(dataUrl, 'JPEG', x, y, drawW, drawH)
             }
-            if (e.code === 'ECONNABORTED') return 'Upload timed out. Check your connection and try again.'
-            return e.message || 'Submit failed'
+            return doc.output('blob')
+        },
+        // Load a File into an HTMLImageElement so we can draw it to a
+        // canvas. Reading via FileReader.readAsDataURL works across
+        // browsers and lets the Image element apply any EXIF orientation
+        // metadata on its own.
+        loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const fr = new FileReader()
+                fr.onerror = () => reject(new Error(`Failed to read ${file.name}`))
+                fr.onload = () => {
+                    const img = new Image()
+                    img.onerror = () => reject(new Error(`Failed to decode ${file.name}`))
+                    img.onload = () => resolve(img)
+                    img.src = String(fr.result)
+                }
+                fr.readAsDataURL(file)
+            })
+        },
+        // Draw to a sized-down canvas, then export as JPEG. Keeps PDF
+        // weight reasonable for a multi-page batch — a raw 12MP phone
+        // photo (~6 MB) becomes a ~300 KB JPEG at quality 0.85.
+        imageToJpeg(img) {
+            const srcW = img.naturalWidth || img.width
+            const srcH = img.naturalHeight || img.height
+            const longest = Math.max(srcW, srcH)
+            const scale = longest > PDF_IMAGE_MAX_EDGE
+                ? PDF_IMAGE_MAX_EDGE / longest
+                : 1
+            const width = Math.max(1, Math.round(srcW * scale))
+            const height = Math.max(1, Math.round(srcH * scale))
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+            // Paint white so transparent PNGs don't render with the
+            // PDF's default background showing through.
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, 0, width, height)
+            ctx.drawImage(img, 0, 0, width, height)
+            const dataUrl = canvas.toDataURL('image/jpeg', PDF_IMAGE_JPEG_QUALITY)
+            return { dataUrl, width, height }
+        },
+        // ── Misc ──────────────────────────────────────────────────
+        reset() {
+            for (const f of this.files) this.revokePreview(f)
+            this.files = []
+            this.lastError = ''
+        },
+        revokePreview(file) {
+            if (file && file.previewUrl) {
+                try { URL.revokeObjectURL(file.previewUrl) } catch (_) { /* noop */ }
+                file.previewUrl = ''
+            }
         },
         formatBytes(n) {
             if (!Number.isFinite(n)) return '—'
@@ -267,77 +490,166 @@ export default {
     flex-wrap: wrap;
 }
 
-/* Preview state */
+/* Files state */
 .preview { display: flex; flex-direction: column; gap: 12px; }
-.preview-image-wrap {
-    background: #fafafa;
-    border: 1px dashed #dcdfe6;
-    border-radius: 8px;
-    padding: 8px;
-    text-align: center;
-    max-height: 360px;
-    overflow: hidden;
-}
-.preview-image {
-    max-width: 100%;
-    max-height: 340px;
-    border-radius: 4px;
-    object-fit: contain;
-}
-.preview-meta {
+
+.files-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background: #f5f7fb;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
     font-size: 13px;
     color: #606266;
-    gap: 12px;
-    padding: 0 4px;
 }
-.meta-name {
+.files-summary strong { color: #303133; font-weight: 600; }
+.files-total-size { color: #909399; }
+.files-header-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+/* Vertical list of file rows. The container has its own border/scroll
+   so a long batch scrolls inside the list instead of pushing the
+   action buttons off-screen — the dialog body already has overflow: auto
+   but a scrollable inner panel feels more controllable on long lists. */
+.files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 6px;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    background: #fafafa;
+}
+
+/* Single horizontal row. `overflow: hidden` clips the corner badge so
+   its triangle sits flush with the rounded corners; `padding-right`
+   leaves clearance so the row's action buttons don't slip under the
+   badge. */
+.file-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 38px 10px 10px;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.file-row:hover {
+    border-color: #c6cef0;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.file-row-thumb {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f5f7fa;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.file-row-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.file-row-body {
     flex: 1;
+    min-width: 0;
+}
+.file-row-name {
+    color: #303133;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #303133;
-    font-weight: 500;
 }
-.meta-size { color: #909399; flex-shrink: 0; }
+.file-row-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    color: #909399;
+    font-size: 12px;
+}
+.file-page-tag {
+    color: #2563eb;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+.file-row-dot { color: #c0c4cc; }
+.file-row-size { color: #909399; }
+
+.file-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
+}
+.file-action-btn {
+    padding: 4px !important;
+    color: #909399;
+}
+.file-action-btn:hover { color: #2563eb; }
+.file-remove-btn:hover { color: #f56c6c; }
+
+/* Green corner check — pure CSS triangle (no SVG dependency). Sits
+   above the row content so it stays visible while scrolling. The
+   `i` is offset so it lands inside the triangle. */
+.file-row-check {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 32px 32px 0;
+    border-color: transparent #67c23a transparent transparent;
+    pointer-events: none;
+}
+.file-row-check i {
+    position: absolute;
+    top: 2px;
+    left: -22px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+}
 
 .preview-alert {
     margin: 0;
 }
-.preview-response {
-    background: #f0fdf4;
-    border: 1px solid #bbf7d0;
-    border-radius: 6px;
-    padding: 10px 12px;
-}
-.preview-response-label {
-    color: #15803d;
-    font-size: 13px;
-    font-weight: 500;
+
+.preview-actions {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-}
-.preview-response-body {
-    margin: 0;
-    color: #166534;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 160px;
-    overflow: auto;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 4px;
 }
 
 /*
- * Mobile (~ phones in portrait). The dialog itself is already widened to
- * 96vw by the parent; here we just lay out the *content* better:
+ * Mobile (~ phones in portrait).
  *  - source buttons stack full-width so they're large tap targets
- *  - preview image shrinks so the actions stay visible without scrolling
+ *  - grid drops to two columns (or one on very narrow)
  *  - action buttons go full-width and stack
  */
 @media (max-width: 600px) {
@@ -347,14 +659,25 @@ export default {
     }
     .picker-buttons .el-button {
         width: 100%;
-        /* Override Element UI's default .el-button + .el-button left margin
-           which pushes the second button off-axis when the row is stacked. */
+        /* Override Element UI's default .el-button + .el-button left
+           margin which pushes the second button off-axis when the row
+           is stacked. */
         margin-left: 0 !important;
         padding: 12px 16px;
         font-size: 15px;
     }
-    .preview-image-wrap { max-height: 260px; }
-    .preview-image { max-height: 240px; }
+    .files-list {
+        max-height: 280px;
+    }
+    .file-row {
+        padding: 8px 32px 8px 8px;
+        gap: 10px;
+    }
+    .file-row-thumb {
+        width: 48px;
+        height: 48px;
+    }
+    .file-row-name { font-size: 13px; }
     .preview-actions {
         flex-direction: column-reverse;
         gap: 8px;
@@ -365,17 +688,11 @@ export default {
         padding: 12px 16px;
         font-size: 15px;
     }
-    /* The filename ellipses can swallow the size — give it more room */
-    .preview-meta {
-        flex-wrap: wrap;
-        gap: 4px 12px;
+    .files-header {
+        gap: 6px;
     }
-}
-
-.preview-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding-top: 4px;
+    .files-header-actions {
+        flex-wrap: wrap;
+    }
 }
 </style>

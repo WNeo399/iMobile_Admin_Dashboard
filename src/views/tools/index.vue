@@ -90,6 +90,7 @@
             <component
                 v-if="dialogOpen && activeTool && activeTool.component"
                 :is="activeTool.component"
+                @close="dialogOpen = false"
             />
         </el-dialog>
     </div>
