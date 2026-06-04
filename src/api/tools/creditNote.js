@@ -1,5 +1,32 @@
 import request from '@/utils/request'
 
+// Paginated list of credit-note rows for the /imobile/creditNote page.
+// `params` accepts { status, search, page, pageSize }. Returns the data
+// array plus a `counts` rollup so the tree-panel badges can render
+// without a second round trip.
+export function listCreditNotes(params) {
+    return request({
+        url: '/creditNote/list',
+        method: 'get',
+        params,
+        timeout: 30000
+    })
+}
+
+// Push the user's matched line items + edited note into the existing
+// Zoho Inventory credit note, then re-attach the S3 PDF. On success
+// the row's status flips to "completed" server-side. `data` is
+// { items: [{matchedItemId, matchedSku, matchedName, quantity}, ...], note }.
+export function submitCreditNoteToZoho(id, data) {
+    return request({
+        url: `/creditNote/${id}/submitToZoho`,
+        method: 'post',
+        data,
+        timeout: 120000
+    })
+}
+
+
 // Submit a multi-image credit-note PDF to HandwritingOCR via our own
 // backend. The frontend never sees the OCR token — the backend reads
 // HANDWRITING_OCR_TOKEN from .env and adds the bearer header. `form`

@@ -34,3 +34,17 @@ export function scanProductByCode(code) {
     params: { code }
   })
 }
+
+// Bulk LIKE-search across Zoho for every OCR SKU in one round trip.
+// Body: { skus: ['5470', 'a583', ...] }
+// Response: { success, data: { '<sku>': [{itemId, sku, name, status}, ...] } }
+// Used by the Credit Note review dialog to populate per-row Zoho-item
+// pickers so the user can disambiguate partial OCR SKUs.
+export function bulkSkuMatches(skus) {
+    return request({
+        url: '/zoho/product/skuMatches',
+        method: 'post',
+        data: { skus },
+        timeout: 30000
+    })
+}

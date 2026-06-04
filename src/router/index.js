@@ -156,6 +156,21 @@ export const moduleRoutes = [
           icon: "el-icon-s-tools",
           permissions: ["repair:ticket:list"]
         }
+      },
+      {
+        // Credit Note — browse / search the imb_credit_note collection
+        // built up by the Tools-page Create Credit Note submit flow.
+        // Reuses the zoho:salesOrder:create permission, since admin +
+        // iMobile Admin both already hold it and that's exactly who can
+        // submit a credit note in the first place.
+        path: "creditNote",
+        component: (resolve) => require(["@/views/imobile/creditNote/index"], resolve),
+        name: "ImobileCreditNote",
+        meta: {
+          title: "Credit Note",
+          icon: "el-icon-receiving",
+          permissions: ["zoho:salesOrder:create"]
+        }
       }
     ]
   },
