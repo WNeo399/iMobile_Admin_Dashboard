@@ -508,6 +508,14 @@ export default {
                 const added = this.addFilesToQueue([file])
                 if (added > 0) {
                     this.captureCount += added
+                    // Return to the main credit-note dialog after a
+                    // successful capture so the user can pick the next
+                    // step — submit, add more from the gallery, or
+                    // re-open the camera for another shot. A toast
+                    // confirms the photo was added since the count
+                    // chip is no longer visible after close.
+                    this.$message.success('Photo added')
+                    this.closeCamera()
                 }
             } catch (e) {
                 console.error('Capture failed:', e)
@@ -1072,15 +1080,28 @@ export default {
        possible. Header / footer chrome disappear — the overlay
        shutter + close X take over. The body becomes a solid black
        canvas behind the video so any letterboxing from object-fit
-       doesn't show the dialog background. */
+       doesn't show the dialog background.
+
+       Position absolute + top/right/bottom/left: 0 makes the dialog
+       fill the wrapper (which is `position: fixed; inset: 0`). Using
+       100vh here doesn't work on iOS — mobile Safari's URL bar +
+       toolbar make 100vh taller than the visible viewport, so the
+       wrapper started scrolling and the shutter button ended up
+       below the fold. The wrapper's `position: fixed` does respect
+       the visual viewport, so filling it gives us the actually-
+       visible area on every device. */
     ::v-deep .camera-dialog {
-        margin: 0 !important;
-        width: 100vw !important;
-        max-width: 100vw !important;
-        min-width: 0 !important;
+        position: absolute !important;
         top: 0 !important;
-        height: 100vh !important;
-        max-height: 100vh !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        margin: 0 !important;
+        width: auto !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        height: auto !important;
+        max-height: none !important;
         border-radius: 0 !important;
         display: flex !important;
         flex-direction: column;
