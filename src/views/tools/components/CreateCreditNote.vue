@@ -212,6 +212,31 @@
                     <i class="el-icon-circle-check" />
                     {{ captureCount }} photo{{ captureCount === 1 ? '' : 's' }} added
                 </div>
+
+                <!--
+                    Mobile-only overlay controls. Hidden on desktop via
+                    CSS — there, the el-dialog's header X handles close
+                    and the footer button handles capture. On phones we
+                    fullscreen the dialog and show these so the camera
+                    feels like the system camera app.
+                -->
+                <button
+                    v-show="!cameraError"
+                    type="button"
+                    class="camera-close"
+                    aria-label="Close camera"
+                    @click="closeCamera"
+                >
+                    <i class="el-icon-close" />
+                </button>
+                <button
+                    v-show="!cameraError && cameraReady"
+                    type="button"
+                    class="camera-shutter"
+                    :disabled="capturing"
+                    aria-label="Capture photo"
+                    @click="capturePhoto"
+                />
             </div>
             <div slot="footer">
                 <el-button @click="closeCamera">Close</el-button>
@@ -935,6 +960,64 @@ export default {
     font-weight: 500;
 }
 
+/* Mobile-only overlay controls. Hidden on desktop by default; the
+   mobile media query at the bottom of this block flips them on
+   alongside the fullscreen dialog treatment. */
+.camera-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: 0;
+    cursor: pointer;
+    font-size: 18px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    z-index: 2;
+    transition: background 0.15s ease;
+}
+.camera-close:hover { background: rgba(0, 0, 0, 0.75); }
+.camera-close:active { background: rgba(0, 0, 0, 0.85); }
+.camera-close i { font-size: 18px; line-height: 1; }
+
+.camera-shutter {
+    position: absolute;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: transparent;
+    /* Double-ring look — the outer border, an inner solid white
+       circle via ::before. Reads as "shutter" without an icon. */
+    border: 4px solid rgba(255, 255, 255, 0.92);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    z-index: 2;
+    transition: transform 0.12s ease;
+}
+.camera-shutter::before {
+    content: '';
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: #fff;
+    transition: background 0.12s ease;
+}
+.camera-shutter:active { transform: translateX(-50%) scale(0.94); }
+.camera-shutter:active::before { background: #dcdfe6; }
+.camera-shutter:disabled { opacity: 0.55; cursor: not-allowed; }
+
 /*
  * Mobile (~ phones in portrait).
  *  - source buttons stack full-width so they're large tap targets
@@ -982,6 +1065,86 @@ export default {
     }
     .files-header-actions {
         flex-wrap: wrap;
+    }
+
+    /* ── Camera dialog goes fullscreen on phones ──────────────── */
+    /* Fill the viewport edge-to-edge so the preview is as large as
+       possible. Header / footer chrome disappear — the overlay
+       shutter + close X take over. The body becomes a solid black
+       canvas behind the video so any letterboxing from object-fit
+       doesn't show the dialog background. */
+    ::v-deep .camera-dialog {
+        margin: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        min-width: 0 !important;
+        top: 0 !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
+        display: flex !important;
+        flex-direction: column;
+    }
+    ::v-deep .camera-dialog .el-dialog__header,
+    ::v-deep .camera-dialog .el-dialog__footer {
+        display: none;
+    }
+    ::v-deep .camera-dialog .el-dialog__body {
+        flex: 1;
+        padding: 0;
+        overflow: hidden;
+        min-height: 0;
+        background: #000;
+    }
+    .camera-body {
+        min-height: 0;
+        height: 100%;
+        border-radius: 0;
+    }
+    /* Cover-fit the video so it fills the viewport without letter-
+       boxing. The user can still see what they're capturing — the
+       canvas snapshot below uses the video's native frame, so
+       cropping in the preview is purely visual. */
+    .camera-video {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        object-fit: cover;
+    }
+    /* Flip the overlay controls on. */
+    .camera-close,
+    .camera-shutter {
+        display: flex;
+    }
+    /* Move the "N photos added" chip to the top so it doesn't
+       collide with the shutter button at the bottom. */
+    .camera-count {
+        top: 14px;
+        left: 14px;
+        bottom: auto;
+    }
+    /* Inset for iOS notch + home-indicator safe areas so the close
+       X and shutter button stay tappable on phones with rounded
+       corners / chin gestures. Falls back gracefully to the base
+       values on browsers that don't support env(). */
+    .camera-close {
+        top: calc(14px + env(safe-area-inset-top));
+        right: calc(14px + env(safe-area-inset-right));
+    }
+    .camera-shutter {
+        bottom: calc(28px + env(safe-area-inset-bottom));
+    }
+    .camera-count {
+        top: calc(14px + env(safe-area-inset-top));
+        left: calc(14px + env(safe-area-inset-left));
+    }
+    /* Error card stays inside the camera body but margins respect
+       the safe area too. */
+    .camera-error {
+        inset: calc(20px + env(safe-area-inset-top))
+               calc(16px + env(safe-area-inset-right))
+               calc(20px + env(safe-area-inset-bottom))
+               calc(16px + env(safe-area-inset-left));
     }
 }
 </style>
