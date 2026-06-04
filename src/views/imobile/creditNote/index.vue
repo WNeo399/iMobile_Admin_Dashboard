@@ -171,25 +171,32 @@
         >
             <div v-if="reviewRow" class="review-shell">
                 <section class="review-left">
-                    <div class="review-pane-head">
-                        <i class="el-icon-tickets" />
-                        Line items
-                        <span v-if="reviewItems.length" class="review-pane-count">
-                            {{ reviewItems.length }}
-                        </span>
-                        <span v-if="matchesLoading" class="review-pane-loading">
-                            <i class="el-icon-loading" /> Matching…
-                        </span>
-                    </div>
-                    <el-alert
-                        v-if="matchesError"
-                        :title="matchesError"
-                        type="error"
-                        show-icon
-                        :closable="false"
-                        class="review-pane-alert"
-                    />
-                    <el-table
+                    <!--
+                        Three-tab switcher across Line Items, Repair
+                        Devices, and Return Devices. Counts in each tab
+                        label come live from the underlying arrays so
+                        the user can see the breakdown at a glance and
+                        find empty buckets without clicking through.
+                    -->
+                    <el-tabs v-model="activeTab" class="review-tabs">
+                        <el-tab-pane name="items">
+                            <span slot="label">
+                                <i class="el-icon-tickets" />
+                                Line Items
+                                <span class="review-tab-count">({{ reviewItems.length }})</span>
+                                <span v-if="matchesLoading" class="review-tab-loading">
+                                    <i class="el-icon-loading" />
+                                </span>
+                            </span>
+                            <el-alert
+                                v-if="matchesError"
+                                :title="matchesError"
+                                type="error"
+                                show-icon
+                                :closable="false"
+                                class="review-pane-alert"
+                            />
+                            <el-table
                         :data="reviewItems"
                         size="small"
                         stripe
@@ -274,6 +281,123 @@
                             </template>
                         </el-table-column>
                     </el-table>
+                        </el-tab-pane>
+
+                        <!--
+                            Repair Devices tab — R9999 in the OCR
+                            payload. Each row maps to a fixed Zoho
+                            catalogue item-id with model as the line
+                            item's description.
+                        -->
+                        <el-tab-pane name="repair">
+                            <span slot="label">
+                                <i class="el-icon-set-up" />
+                                Repair Devices
+                                <span class="review-tab-count">({{ editedRepairDevices.length }})</span>
+                            </span>
+                            <div class="device-tab-head">
+                                <span class="device-section-sku">R9999</span>
+                                <span class="device-section-spacer" />
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-plus"
+                                    @click="addRepairDevice"
+                                >Add</el-button>
+                            </div>
+                            <div v-if="editedRepairDevices.length === 0" class="device-empty">
+                                No repair devices.
+                            </div>
+                            <div v-else class="device-rows">
+                                <div
+                                    v-for="(d, idx) in editedRepairDevices"
+                                    :key="`rep-${idx}`"
+                                    class="device-row"
+                                >
+                                    <el-input
+                                        v-model="d.model"
+                                        size="small"
+                                        placeholder="Model"
+                                        class="device-model"
+                                    />
+                                    <el-input-number
+                                        :value="d.quantity"
+                                        :min="0"
+                                        :max="9999"
+                                        size="small"
+                                        controls-position="right"
+                                        class="device-qty"
+                                        @change="(val) => setRepairDeviceQty(idx, val)"
+                                    />
+                                    <el-button
+                                        size="mini"
+                                        type="text"
+                                        icon="el-icon-delete"
+                                        class="device-remove"
+                                        @click="removeRepairDevice(idx)"
+                                    />
+                                </div>
+                            </div>
+                        </el-tab-pane>
+
+                        <!--
+                            Return Devices tab — A9999 in the OCR
+                            payload. Same shape as Repair Devices but
+                            points at the Return Device catalogue
+                            item-id on submit.
+                        -->
+                        <el-tab-pane name="return">
+                            <span slot="label">
+                                <i class="el-icon-refresh-left" />
+                                Return Devices
+                                <span class="review-tab-count">({{ editedReturnDevices.length }})</span>
+                            </span>
+                            <div class="device-tab-head">
+                                <span class="device-section-sku">A9999</span>
+                                <span class="device-section-spacer" />
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-plus"
+                                    @click="addReturnDevice"
+                                >Add</el-button>
+                            </div>
+                            <div v-if="editedReturnDevices.length === 0" class="device-empty">
+                                No return devices.
+                            </div>
+                            <div v-else class="device-rows">
+                                <div
+                                    v-for="(d, idx) in editedReturnDevices"
+                                    :key="`ret-${idx}`"
+                                    class="device-row"
+                                >
+                                    <el-input
+                                        v-model="d.model"
+                                        size="small"
+                                        placeholder="Model"
+                                        class="device-model"
+                                    />
+                                    <el-input-number
+                                        :value="d.quantity"
+                                        :min="0"
+                                        :max="9999"
+                                        size="small"
+                                        controls-position="right"
+                                        class="device-qty"
+                                        @change="(val) => setReturnDeviceQty(idx, val)"
+                                    />
+                                    <el-button
+                                        size="mini"
+                                        type="text"
+                                        icon="el-icon-delete"
+                                        class="device-remove"
+                                        @click="removeReturnDevice(idx)"
+                                    />
+                                </div>
+                            </div>
+                        </el-tab-pane>
+                    </el-tabs>
+
                     <!--
                         Editable note section. Seeded from the OCR's
                         returnNote (the formatted "Model x Qty (reason)"
@@ -344,9 +468,9 @@
                     type="primary"
                     icon="el-icon-upload"
                     :loading="submitting"
-                    :disabled="submittableItemCount === 0 || matchesLoading"
+                    :disabled="totalSubmittable === 0 || matchesLoading"
                     @click="submitToZoho"
-                >Submit to Zoho ({{ submittableItemCount }})</el-button>
+                >Submit to Zoho ({{ totalSubmittable }})</el-button>
             </div>
         </el-dialog>
     </div>
@@ -416,6 +540,16 @@ export default {
             // Session-only — will feed into the downstream Zoho update
             // along with selections + quantities.
             editedNote: '',
+            // Session-editable device buckets, seeded from row.returnDevice
+            // / row.repairDevice on open. Each entry is {model, quantity}.
+            // Plain arrays so the table-style v-for works with $set.
+            editedReturnDevices: [],
+            editedRepairDevices: [],
+            // Tab switcher inside the left pane: 'items' | 'repair' | 'return'.
+            // Driven by el-tabs v-model; count badges in each tab label
+            // come from the corresponding *.length live, so they update
+            // as the user adds/removes rows.
+            activeTab: 'items',
             submitting: false
         }
     },
@@ -458,13 +592,26 @@ export default {
             const base = this.reviewPdfUrl
             return base ? base + '#toolbar=0' : ''
         },
-        // Rows the user has picked a Zoho match for. Drives both the
-        // Submit button's count label and the enabled state — zero
-        // means nothing to send.
+        // Rows the user has picked a Zoho match for. Drives the
+        // matched-items count shown in the Submit button label.
         submittableItemCount() {
             if (!this.reviewRow) return 0
             const items = this.reviewRow.items || []
             return items.filter(it => it.sku && this.selections[it.sku]).length
+        },
+        // Submittable device count = entries with either a model or
+        // a positive quantity. Mirrors the backend's filter so the
+        // button label matches what actually gets sent.
+        submittableDeviceCount() {
+            const live = (d) =>
+                (d.model && String(d.model).trim()) || Number(d.quantity) > 0
+            return this.editedReturnDevices.filter(live).length
+                + this.editedRepairDevices.filter(live).length
+        },
+        // Total payload size — drives the Submit button's disabled
+        // state. Need at least one of either kind.
+        totalSubmittable() {
+            return this.submittableItemCount + this.submittableDeviceCount
         },
         // Submit only makes sense on Processed rows — already-Completed
         // rows have been pushed to Zoho already, and Queued rows have
@@ -535,6 +682,20 @@ export default {
             // string when the row never had a note so the textarea
             // shows its placeholder.
             this.editedNote = (row && row.returnNote) || ''
+            // Deep-clone the device buckets so in-place edits in the
+            // dialog don't mutate the list row's stored copy.
+            this.editedReturnDevices = ((row && row.returnDevice) || []).map(d => ({
+                model: (d && d.model) || '',
+                quantity: Number((d && d.quantity)) || 0
+            }))
+            this.editedRepairDevices = ((row && row.repairDevice) || []).map(d => ({
+                model: (d && d.model) || '',
+                quantity: Number((d && d.quantity)) || 0
+            }))
+            // Reset to the Line Items tab on every open so the user
+            // starts from the same spot regardless of where they were
+            // last.
+            this.activeTab = 'items'
             this.loadSkuMatches(row)
         },
         onReviewClose() {
@@ -547,6 +708,8 @@ export default {
             this.selections = {}
             this.quantities = []
             this.editedNote = ''
+            this.editedReturnDevices = []
+            this.editedRepairDevices = []
             this.matchesError = ''
             this.matchesLoading = false
             this.submitting = false
@@ -611,15 +774,41 @@ export default {
                     quantity: this.getQuantity(idx) || 1
                 })
             })
-            if (payloadItems.length === 0) {
-                this.$message.warning('Pick a Zoho match for at least one row before submitting.')
+            // Same liveness filter as the backend (model OR positive
+            // qty); empty rows the user added then never filled in
+            // get dropped before send.
+            const liveDevice = (d) =>
+                (d.model && String(d.model).trim()) || Number(d.quantity) > 0
+            const returnDevicePayload = this.editedReturnDevices
+                .filter(liveDevice)
+                .map(d => ({
+                    model: String(d.model || '').trim(),
+                    quantity: Number(d.quantity) || 0
+                }))
+            const repairDevicePayload = this.editedRepairDevices
+                .filter(liveDevice)
+                .map(d => ({
+                    model: String(d.model || '').trim(),
+                    quantity: Number(d.quantity) || 0
+                }))
+
+            if (
+                payloadItems.length === 0 &&
+                returnDevicePayload.length === 0 &&
+                repairDevicePayload.length === 0
+            ) {
+                this.$message.warning(
+                    'Pick a Zoho match for at least one row, or add a return/repair device, before submitting.'
+                )
                 return
             }
             this.submitting = true
             try {
                 const res = await submitCreditNoteToZoho(this.reviewRow._id, {
                     items: payloadItems,
-                    note: this.editedNote
+                    note: this.editedNote,
+                    returnDevice: returnDevicePayload,
+                    repairDevice: repairDevicePayload
                 })
                 if (!res || res.success === false) {
                     throw new Error((res && res.message) || 'Submit failed')
@@ -680,6 +869,29 @@ export default {
             // it; coerce to 0 so downstream consumers always see a
             // number.
             this.$set(this.quantities, idx, Number(val) || 0)
+        },
+        // ── Device buckets (A9999 / R9999) ────────────────────────
+        // Add starts a blank row with qty=1 so the user only needs
+        // to type the model. Remove just splices the row.
+        addReturnDevice() {
+            this.editedReturnDevices.push({ model: '', quantity: 1 })
+        },
+        removeReturnDevice(idx) {
+            this.editedReturnDevices.splice(idx, 1)
+        },
+        setReturnDeviceQty(idx, val) {
+            const row = this.editedReturnDevices[idx]
+            if (row) this.$set(row, 'quantity', Number(val) || 0)
+        },
+        addRepairDevice() {
+            this.editedRepairDevices.push({ model: '', quantity: 1 })
+        },
+        removeRepairDevice(idx) {
+            this.editedRepairDevices.splice(idx, 1)
+        },
+        setRepairDeviceQty(idx, val) {
+            const row = this.editedRepairDevices[idx]
+            if (row) this.$set(row, 'quantity', Number(val) || 0)
         },
         // ── Tree ──────────────────────────────────────────────────
         handleStatusClick(data) {
@@ -925,6 +1137,120 @@ export default {
 }
 .qty-input {
     width: 100%;
+}
+
+/* ── Tabs in the left pane ─────────────────────────────────────────
+   el-tabs needs to fill the remaining vertical space above the note
+   section and let its content scroll independently. Element UI's
+   default tabs__content has no flex; we hijack it with flex + overflow
+   so each tab pane gets the full remaining height with its own
+   scroll. */
+.review-tabs {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.review-tabs ::v-deep .el-tabs__header {
+    margin: 0;
+    flex-shrink: 0;
+    padding: 0 12px;
+    background: #f9fafb;
+    border-bottom: 1px solid #ebeef5;
+}
+.review-tabs ::v-deep .el-tabs__nav-wrap::after {
+    display: none;
+}
+.review-tabs ::v-deep .el-tabs__item {
+    font-size: 13px;
+    height: 38px;
+    line-height: 38px;
+    padding: 0 14px;
+    color: #606266;
+}
+.review-tabs ::v-deep .el-tabs__item.is-active {
+    color: #2563eb;
+    font-weight: 600;
+}
+.review-tabs ::v-deep .el-tabs__active-bar {
+    background-color: #2563eb;
+}
+.review-tabs ::v-deep .el-tabs__content {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+}
+.review-tabs ::v-deep .el-tab-pane {
+    padding: 10px 12px;
+}
+.review-tab-count {
+    color: #909399;
+    font-weight: 500;
+    margin-left: 4px;
+}
+.is-active .review-tab-count {
+    color: #2563eb;
+}
+.review-tab-loading {
+    color: #2563eb;
+    margin-left: 4px;
+}
+.review-tab-loading i {
+    font-size: 13px;
+}
+
+/* Device tab head — the chip + Add button row that sits above the
+   device list inside the Repair / Return tab content. Same idea as
+   the standalone .device-section-head used to be, just no need for
+   its own title since the tab label already plays that role. */
+.device-tab-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.device-section-sku {
+    color: #909399;
+    font-weight: 500;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #eef0f3;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+.device-section-spacer {
+    flex: 1;
+}
+.device-empty {
+    color: #909399;
+    font-size: 12px;
+    font-style: italic;
+    padding: 4px 0 2px;
+}
+.device-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.device-model {
+    flex: 1;
+    min-width: 0;
+}
+.device-qty {
+    flex: 0 0 110px;
+}
+.device-remove {
+    flex-shrink: 0;
+    padding: 4px !important;
+    color: #909399;
+}
+.device-remove:hover {
+    color: #f56c6c;
 }
 
 /* Note section sits below the items table in the left pane. The items
