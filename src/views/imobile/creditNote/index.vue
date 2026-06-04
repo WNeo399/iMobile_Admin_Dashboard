@@ -483,10 +483,14 @@ import TreePanel from '@/components/TreePanel'
 
 // Status metadata — `tag` is the el-tag / el-badge variant, `color`
 // drives the leaf icon tint in the tree. Three states match the
-// lifecycle: OCR queued → OCR processed → manually closed off.
+// lifecycle: OCR queued → OCR processed (shown as "Pending" because
+// from the user's POV the row is pending their review + submit to
+// Zoho) → completed once it's been pushed into Zoho. The internal
+// value stays "processed" so OCR's webhook payload (which uses that
+// literal string) and existing DB rows continue to match.
 const STATUS_META = [
     { value: 'queued',    label: 'Queued',    tag: 'info',    color: '#909399' },
-    { value: 'processed', label: 'Processed', tag: 'success', color: '#67C23A' },
+    { value: 'processed', label: 'Pending',   tag: 'success', color: '#67C23A' },
     { value: 'completed', label: 'Completed', tag: 'primary', color: '#409EFF' }
 ]
 
