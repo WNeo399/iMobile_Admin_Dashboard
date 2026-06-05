@@ -43,6 +43,26 @@ export function updateCreditNote(id, data) {
     })
 }
 
+// Look up the Zoho Inventory credit note tied to this row's creditNo
+// and return the fetched detail. Called on Review dialog open (and on
+// every creditNo edit) so the dialog can show customer + price list,
+// and so the submit path can skip the second Zoho fetch by passing
+// the cached detail back in. Response shape:
+//   { success, zohoCreditNoteId, customerName, customerId,
+//     pricebookId, status, detail }
+// `detail` is the full creditnote object verbatim from Zoho — the
+// frontend just holds onto it and forwards on submit.
+export function getCreditNoteZohoDetail(id) {
+    return request({
+        url: `/creditNote/${id}/zohoDetail`,
+        method: 'get',
+        // Zoho's resolve+fetch chain can be slow when Inventory misses
+        // and we fall back to Analytics. Generous timeout matches the
+        // submit endpoint's tolerance for the same chain.
+        timeout: 60000
+    })
+}
+
 
 // Submit a multi-image credit-note PDF to HandwritingOCR via our own
 // backend. The frontend never sees the OCR token — the backend reads

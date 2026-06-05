@@ -171,54 +171,104 @@
         >
             <div v-if="reviewRow" class="review-body">
                 <!--
-                    Header strip — editable credit no on the left, room
-                    for future header chips (status, attachment quick-
-                    link, etc.) on the right. The strip lives outside
-                    .review-shell so the shell's left/right panes keep
-                    their full height regardless of how tall the header
-                    grows.
+                    Header strip — two rows.
+
+                    Row 1: editable Credit No with inline edit
+                    affordance. Confirming PATCHes the field AND
+                    re-triggers the Zoho detail fetch so the customer /
+                    pricelist below match the new lookup target.
+
+                    Row 2: read-only Customer + Price List sourced from
+                    /zohoDetail. Loads in the background after the
+                    dialog opens; shows a small spinner while inflight
+                    and an inline error chip on failure.
+
+                    The strip lives outside .review-shell so the shell's
+                    left/right panes keep their full height regardless
+                    of how tall the header grows.
                 -->
                 <div class="review-header">
-                    <div class="review-header-cn">
-                        <span class="review-header-label">Credit No</span>
-                        <template v-if="editingCreditNo">
-                            <el-input
-                                v-model="editingCreditNoDraft"
-                                size="small"
-                                class="cn-edit-input"
-                                :disabled="savingCreditNo"
-                                @keyup.enter.native="confirmEditCreditNo"
-                                @keyup.esc.native="cancelEditCreditNo"
-                            />
-                            <el-button
-                                size="mini"
-                                type="text"
-                                icon="el-icon-check"
-                                class="cn-edit-action cn-edit-confirm"
-                                :loading="savingCreditNo"
-                                @click="confirmEditCreditNo"
-                            />
-                            <el-button
-                                size="mini"
-                                type="text"
-                                icon="el-icon-close"
-                                class="cn-edit-action cn-edit-cancel"
-                                :disabled="savingCreditNo"
-                                @click="cancelEditCreditNo"
-                            />
-                        </template>
-                        <template v-else>
-                            <span class="review-header-value">
-                                {{ editedCreditNo || '—' }}
+                    <div class="review-header-row">
+                        <div class="review-header-cn">
+                            <span class="review-header-label">Credit No</span>
+                            <template v-if="editingCreditNo">
+                                <el-input
+                                    v-model="editingCreditNoDraft"
+                                    size="small"
+                                    class="cn-edit-input"
+                                    :disabled="savingCreditNo"
+                                    @keyup.enter.native="confirmEditCreditNo"
+                                    @keyup.esc.native="cancelEditCreditNo"
+                                />
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-check"
+                                    class="cn-edit-action cn-edit-confirm"
+                                    :loading="savingCreditNo"
+                                    @click="confirmEditCreditNo"
+                                />
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-close"
+                                    class="cn-edit-action cn-edit-cancel"
+                                    :disabled="savingCreditNo"
+                                    @click="cancelEditCreditNo"
+                                />
+                            </template>
+                            <template v-else>
+                                <span class="review-header-value">
+                                    {{ editedCreditNo || '—' }}
+                                </span>
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-edit"
+                                    class="cn-edit-btn"
+                                    @click="startEditCreditNo"
+                                />
+                            </template>
+                        </div>
+                    </div>
+                    <div class="review-header-row review-header-meta">
+                        <div class="review-header-meta-item">
+                            <span class="review-header-label">Customer</span>
+                            <span
+                                v-if="zohoDetailLoading && !zohoCustomerName"
+                                class="review-header-loading"
+                            >
+                                <i class="el-icon-loading" />
                             </span>
-                            <el-button
+                            <span v-else-if="zohoCustomerName" class="review-header-value">
+                                {{ zohoCustomerName }}
+                            </span>
+                            <span v-else class="muted">—</span>
+                        </div>
+                        <div class="review-header-meta-item">
+                            <span class="review-header-label">Price List</span>
+                            <span
+                                v-if="zohoDetailLoading && !zohoPricebookId"
+                                class="review-header-loading"
+                            >
+                                <i class="el-icon-loading" />
+                            </span>
+                            <el-tag
+                                v-else-if="zohoPriceListLabel"
                                 size="mini"
-                                type="text"
-                                icon="el-icon-edit"
-                                class="cn-edit-btn"
-                                @click="startEditCreditNo"
-                            />
-                        </template>
+                                :type="zohoPriceListKnown ? 'success' : 'info'"
+                                effect="plain"
+                            >{{ zohoPriceListLabel }}</el-tag>
+                            <span v-else class="muted">—</span>
+                        </div>
+                        <span
+                            v-if="zohoDetailError"
+                            class="review-header-meta-error"
+                            :title="zohoDetailError"
+                        >
+                            <i class="el-icon-warning-outline" />
+                            {{ zohoDetailError }}
+                        </span>
                     </div>
                 </div>
                 <div class="review-shell">
@@ -379,7 +429,49 @@
                                 </div>
                             </template>
                         </el-table-column>
+                        <!--
+                            Per-row delete. Mirrors the device tabs'
+                            trash button — instant remove (no confirm)
+                            because the action is one-click reversible
+                            via Undo Ctrl+Z? No, there's no undo, but
+                            the cost is low (re-add + retype the sku)
+                            and matching the device-row behaviour keeps
+                            the dialog feeling consistent. Disabled
+                            while any row is mid-edit so the indices
+                            can't shift under an in-flight save.
+                        -->
+                        <el-table-column label="" width="50" align="center">
+                            <template slot-scope="scope">
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-delete"
+                                    class="line-item-remove"
+                                    :disabled="editingSkuIdx !== -1 || savingSkuIdx !== -1"
+                                    @click="removeLineItem(scope.$index)"
+                                />
+                            </template>
+                        </el-table-column>
                     </el-table>
+                            <!--
+                                Add button sits below the table so it
+                                visually anchors to "end of list" — the
+                                user scans the rows, then adds another
+                                one at the bottom (matches how Excel /
+                                most form-style item lists feel). The
+                                button disables while any row is mid-
+                                edit so the new row doesn't strand the
+                                in-flight one.
+                            -->
+                            <div class="line-items-foot">
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-plus"
+                                    :disabled="editingSkuIdx !== -1 || savingSkuIdx !== -1"
+                                    @click="addLineItem"
+                                >Add Line Item</el-button>
+                            </div>
                         </el-tab-pane>
 
                         <!--
@@ -563,22 +655,45 @@
                     the credit note. Count badge in the label shows how
                     many rows have a Zoho match selected.
                 -->
-                <el-button
+                <!--
+                    Submit button wrapped in a tooltip so the user can
+                    hover the disabled button and see exactly why it's
+                    off — most-likely cause first (zoho lookup failed
+                    → unmatched item → empty payload). Tooltip is
+                    disabled when the button is enabled so a stray
+                    hover doesn't show an empty bubble.
+                -->
+                <el-tooltip
                     v-if="canSubmitToZoho"
-                    type="primary"
-                    icon="el-icon-upload"
-                    :loading="submitting"
-                    :disabled="totalSubmittable === 0 || matchesLoading"
-                    @click="submitToZoho"
-                >Submit to Zoho ({{ totalSubmittable }})</el-button>
+                    :content="submitDisabledReason || ''"
+                    placement="top"
+                    :disabled="!submitDisabledReason || submitting"
+                >
+                    <!--
+                        wrapper span keeps el-tooltip working when the
+                        button is :disabled — Element UI's disabled
+                        buttons swallow pointer events so the tooltip
+                        wouldn't fire without it.
+                    -->
+                    <span class="submit-tooltip-anchor">
+                        <el-button
+                            type="primary"
+                            icon="el-icon-upload"
+                            :loading="submitting"
+                            :disabled="!!submitDisabledReason"
+                            @click="submitToZoho"
+                        >Submit to Zoho ({{ totalSubmittable }})</el-button>
+                    </span>
+                </el-tooltip>
             </div>
         </el-dialog>
     </div>
 </template>
 
 <script>
-import { listCreditNotes, submitCreditNoteToZoho, updateCreditNote } from '@/api/tools/creditNote'
+import { listCreditNotes, submitCreditNoteToZoho, updateCreditNote, getCreditNoteZohoDetail } from '@/api/tools/creditNote'
 import { bulkSkuMatches } from '@/api/zoho/products/product'
+import { priceListLabel, isKnownPriceList } from '@/utils/zohoPriceList'
 import TreePanel from '@/components/TreePanel'
 
 // Status metadata — `tag` is the el-tag / el-badge variant, `color`
@@ -680,6 +795,23 @@ export default {
             savingSkuIdx: -1,
             // Same idea for the credit no save round-trip.
             savingCreditNo: false,
+            // Zoho-side detail for the credit note: fetched once on
+            // dialog open via /:id/zohoDetail and refreshed whenever
+            // the creditNo is edited. Held verbatim and forwarded back
+            // to submitToZoho so the backend skips the second Zoho
+            // round trip on commit.
+            //   zohoCreditNoteId   the resolved creditnote_id (string)
+            //   zohoCustomerName   creditnote.customer_name
+            //   zohoPricebookId    line_items[0].pricebook_id (string)
+            //   zohoDetail         the entire creditnote object verbatim
+            // Each is null until the fetch lands; the header strip
+            // hides its row when both customer + pricelist are null.
+            zohoCreditNoteId: null,
+            zohoCustomerName: null,
+            zohoPricebookId: null,
+            zohoDetail: null,
+            zohoDetailLoading: false,
+            zohoDetailError: '',
             // Tab switcher inside the left pane: 'items' | 'repair' | 'return'.
             // Driven by el-tabs v-model; count badges in each tab label
             // come from the corresponding *.length live, so they update
@@ -761,6 +893,45 @@ export default {
         // no items / no PDF to send yet.
         canSubmitToZoho() {
             return !!(this.reviewRow && this.reviewRow.status === 'processed')
+        },
+        // True only when every line item has a Zoho match picked.
+        // Rows with no SKU (e.g. a freshly-added blank row the user
+        // hasn't filled in) count as missing a match, which is what
+        // we want — they'd send a row with no item_id to Zoho.
+        allItemsHaveMatch() {
+            const items = this.editedItems || []
+            return items.every(it => it.sku && this.selections[it.sku])
+        },
+        // First reason the submit can't fire, in priority order. null
+        // when the button is enabled. Used both as the disable gate
+        // and as the tooltip text so the user can see WHY it's off.
+        submitDisabledReason() {
+            if (this.zohoDetailLoading) return 'Loading credit note details from Zoho…'
+            if (this.zohoDetailError) return `Zoho lookup failed: ${this.zohoDetailError}`
+            if (!this.zohoCreditNoteId) {
+                return `Credit note "${this.editedCreditNo || ''}" was not found in Zoho.`
+            }
+            if (this.matchesLoading) return 'Loading SKU matches…'
+            if (!this.allItemsHaveMatch) {
+                return 'Pick a Zoho item match for every line item before submitting.'
+            }
+            if (this.totalSubmittable === 0) {
+                return 'Add a line item, return device, or repair device first.'
+            }
+            return null
+        },
+        // Human-readable pricelist label (VIP / SVIP / Platinum / etc.)
+        // resolved off the pricebook_id on Zoho's line_items[0]. Falls
+        // back to the raw id when we don't recognise the pricebook —
+        // see @/utils/zohoPriceList for the catalogue.
+        zohoPriceListLabel() {
+            return priceListLabel(this.zohoPricebookId)
+        },
+        // Drives a "muted" style on the chip when the pricebook id
+        // isn't in our known catalogue, so staff can spot an unfamiliar
+        // pricelist at a glance and add it to PRICE_LIST_IDS.
+        zohoPriceListKnown() {
+            return isKnownPriceList(this.zohoPricebookId)
         }
     },
     created() {
@@ -860,7 +1031,16 @@ export default {
             // starts from the same spot regardless of where they were
             // last.
             this.activeTab = 'items'
+            // Clear any stale Zoho detail before kicking off the
+            // fresh fetch so the header doesn't briefly show the
+            // previous row's customer.
+            this.zohoCreditNoteId = null
+            this.zohoCustomerName = null
+            this.zohoPricebookId = null
+            this.zohoDetail = null
+            this.zohoDetailError = ''
             this.loadSkuMatches(row)
+            this.loadZohoDetail()
         },
         onReviewClose() {
             // Drop the row reference so the PDF iframe unmounts and
@@ -885,6 +1065,12 @@ export default {
             this.matchesError = ''
             this.matchesLoading = false
             this.submitting = false
+            this.zohoCreditNoteId = null
+            this.zohoCustomerName = null
+            this.zohoPricebookId = null
+            this.zohoDetail = null
+            this.zohoDetailLoading = false
+            this.zohoDetailError = ''
         },
         // Fire the bulk LIKE-search against Zoho for every unique SKU
         // in the row's items. Auto-selects when a SKU has exactly one
@@ -983,7 +1169,20 @@ export default {
                     items: payloadItems,
                     note: this.editedNote,
                     returnDevice: returnDevicePayload,
-                    repairDevice: repairDevicePayload
+                    repairDevice: repairDevicePayload,
+                    // Pass through the Zoho-side detail we already
+                    // fetched when the dialog opened. Backend uses it
+                    // verbatim instead of re-fetching, saving a round
+                    // trip per submit. If the detail load failed (or
+                    // is still in flight) we just omit these and the
+                    // backend falls back to its own find + fetch.
+                    // pricebookId is sent separately so the backend
+                    // doesn't need to re-run the contact fallback for
+                    // empty-credit-note rows where line_items[0] has
+                    // no pricebook_id to read.
+                    zohoCreditNoteId: this.zohoCreditNoteId || undefined,
+                    pricebookId: this.zohoPricebookId || undefined,
+                    existing: this.zohoDetail || undefined
                 })
                 if (!res || res.success === false) {
                     throw new Error((res && res.message) || 'Submit failed')
@@ -1013,6 +1212,87 @@ export default {
             } finally {
                 this.submitting = false
             }
+        },
+        // ── Line item add / delete ────────────────────────────────
+        // Optimistic mutations: change editedItems locally first, then
+        // PATCH the full array. On failure the local change is rolled
+        // back so the in-dialog state always matches what's in Mongo.
+        //
+        // Quantities are indexed by row position, so add appends a 0
+        // and delete splices at the same index. The editingSkuIdx
+        // tracker also has to shift when a row before it is deleted
+        // (otherwise the input would jump to the wrong row mid-edit).
+        async addLineItem() {
+            // Block while any row is being edited or saved so the new
+            // row doesn't strand the existing one (only one inline
+            // editor at a time, see startEditSku).
+            if (this.editingSkuIdx !== -1 || this.savingSkuIdx !== -1) return
+            const newRow = { sku: '', model: null, quantity: '0' }
+            this.editedItems.push(newRow)
+            this.quantities.push(0)
+            const newIdx = this.editedItems.length - 1
+            try {
+                await updateCreditNote(this.reviewRow._id, {
+                    items: this.editedItems
+                })
+                this.syncListRowItems()
+                // Drop the user straight into edit mode on the new
+                // row so they can type the SKU without an extra click.
+                this.editingSkuIdx = newIdx
+                this.editingSkuDraft = ''
+            } catch (e) {
+                // Roll back the optimistic append so the dialog
+                // matches what's actually in Mongo.
+                this.editedItems.pop()
+                this.quantities.pop()
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Failed to add line item'
+                this.$message.error(msg)
+                console.error('Add line item failed:', e)
+            }
+        },
+        async removeLineItem(idx) {
+            // Same guard as Add — never mutate the array while an
+            // inline edit is in flight on another row.
+            if (this.editingSkuIdx !== -1 || this.savingSkuIdx !== -1) return
+            const removedItem = this.editedItems[idx]
+            if (!removedItem) return
+            const removedQty = this.quantities[idx]
+            this.editedItems.splice(idx, 1)
+            this.quantities.splice(idx, 1)
+            try {
+                await updateCreditNote(this.reviewRow._id, {
+                    items: this.editedItems
+                })
+                this.syncListRowItems()
+            } catch (e) {
+                // Re-insert at the original position so the row order
+                // doesn't visibly shuffle when persist fails.
+                this.editedItems.splice(idx, 0, removedItem)
+                this.quantities.splice(idx, 0, removedQty)
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Failed to delete line item'
+                this.$message.error(msg)
+                console.error('Delete line item failed:', e)
+            }
+        },
+        // Patch the visible list row to mirror editedItems so the
+        // table cell (status / items / itemCount) reflects in-dialog
+        // changes without a refetch. Used by every items-mutating
+        // path (SKU edit, add, delete).
+        syncListRowItems() {
+            const i = this.list.findIndex(
+                r => String(r._id) === String(this.reviewRow._id)
+            )
+            if (i === -1) return
+            const cloned = this.editedItems.map(it => ({ ...it }))
+            this.$set(this.list, i, {
+                ...this.list[i],
+                items: cloned,
+                itemCount: cloned.length
+            })
         },
         // ── Inline SKU edit ───────────────────────────────────────
         // The Zoho Item cell shows the OCR-extracted SKU plus a pencil
@@ -1070,19 +1350,8 @@ export default {
                 ])
                 // Patch the live list row so the visible table stays
                 // in sync without a full refresh — same trick we use
-                // after submitToZoho. Deep-clone editedItems so a
-                // subsequent in-dialog edit doesn't reach across.
-                const i = this.list.findIndex(
-                    r => String(r._id) === String(this.reviewRow._id)
-                )
-                if (i !== -1) {
-                    const cloned = this.editedItems.map(it => ({ ...it }))
-                    this.$set(this.list, i, {
-                        ...this.list[i],
-                        items: cloned,
-                        itemCount: cloned.length
-                    })
-                }
+                // after submitToZoho.
+                this.syncListRowItems()
             } catch (e) {
                 // Roll back the in-dialog edit so the displayed value
                 // matches what's actually in Mongo.
@@ -1094,6 +1363,56 @@ export default {
                 console.error('SKU edit persist failed:', e)
             } finally {
                 this.savingSkuIdx = -1
+            }
+        },
+        // ── Zoho credit-note detail ───────────────────────────────
+        // Fetched once on dialog open and again after every creditNo
+        // edit (the new creditNo resolves to a different Zoho record).
+        // Surfaces customer name + pricelist for the header strip AND
+        // caches the full Zoho object so submitToZoho can ship it back
+        // verbatim instead of paying for a second fetch.
+        async loadZohoDetail() {
+            if (!this.reviewRow || !this.reviewRow._id) return
+            // Skip rows that obviously won't resolve so we don't
+            // burn a Zoho call on a record OCR couldn't read a
+            // creditNo from. Backend would return 400 anyway; bail
+            // early to avoid the loading flicker.
+            if (!this.editedCreditNo) {
+                this.zohoDetailError = 'No credit no on this row yet.'
+                return
+            }
+            this.zohoDetailLoading = true
+            this.zohoDetailError = ''
+            const requestedId = this.reviewRow._id
+            try {
+                const res = await getCreditNoteZohoDetail(this.reviewRow._id)
+                // Guard against the user closing the dialog (or opening
+                // a different row) while this round trip was in flight
+                // — without the check the stale response would clobber
+                // the new row's state.
+                if (!this.reviewRow || this.reviewRow._id !== requestedId) {
+                    return
+                }
+                if (!res || res.success === false) {
+                    throw new Error((res && res.message) || 'Failed to load Zoho detail')
+                }
+                this.zohoCreditNoteId = res.zohoCreditNoteId || null
+                this.zohoCustomerName = res.customerName || null
+                this.zohoPricebookId = res.pricebookId || null
+                this.zohoDetail = res.detail || null
+            } catch (e) {
+                if (!this.reviewRow || this.reviewRow._id !== requestedId) {
+                    return
+                }
+                this.zohoDetailError =
+                    (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Failed to load Zoho detail'
+                console.error('Zoho detail load failed:', e)
+            } finally {
+                if (this.reviewRow && this.reviewRow._id === requestedId) {
+                    this.zohoDetailLoading = false
+                }
             }
         },
         // Single-SKU variant of loadSkuMatches — used after an inline
@@ -1167,6 +1486,17 @@ export default {
                 if (i !== -1) {
                     this.$set(this.list, i, { ...this.list[i], creditNo: newCn })
                 }
+                // The new creditNo resolves to a different Zoho record
+                // — clear the cached detail and re-fetch so the header
+                // strip (customer + pricelist) and the cached payload
+                // submitToZoho will send are both consistent with the
+                // new lookup.
+                this.zohoCreditNoteId = null
+                this.zohoCustomerName = null
+                this.zohoPricebookId = null
+                this.zohoDetail = null
+                this.zohoDetailError = ''
+                this.loadZohoDetail()
             } catch (e) {
                 this.editedCreditNo = oldCn
                 const msg = (e.response && e.response.data && e.response.data.message)
@@ -1364,18 +1694,25 @@ export default {
     min-height: 0;
 }
 
-/* Header strip — currently just the editable credit no, but the row
-   uses space-between so a status chip / quick-link can drop into
-   later without re-laying-out. */
+/* Header strip — stacked rows. Row 1 is the editable Credit No; Row 2
+   carries the read-only Zoho-side metadata (customer + pricelist) that
+   /zohoDetail returns. Both rows share the same padded box so they
+   read as one panel. */
 .review-header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #f9fafb;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+}
+.review-header-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 6px 10px;
-    background: #f9fafb;
-    border: 1px solid #ebeef5;
-    border-radius: 6px;
+    min-width: 0;
 }
 .review-header-cn {
     display: flex;
@@ -1383,6 +1720,45 @@ export default {
     gap: 8px;
     min-width: 0;
     flex: 1;
+}
+/* Meta row — multiple labelled values side by side. Wraps on narrow
+   widths so the row doesn't blow out the header height. */
+.review-header-meta {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    row-gap: 4px;
+    column-gap: 18px;
+}
+.review-header-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.review-header-loading {
+    color: #909399;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+}
+.review-header-meta-error {
+    color: #e6a23c;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    /* Push error pill to the end of the meta row when present. */
+    margin-left: auto;
+    /* Truncate gracefully — the full error sits on the title for
+       hover, the inline one stays a single line. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 50%;
+}
+.review-header-meta-error i {
+    font-size: 14px;
+    flex-shrink: 0;
 }
 .review-header-label {
     color: #909399;
@@ -1525,6 +1901,37 @@ export default {
 .review-items-table {
     flex: 1;
     overflow: auto;
+}
+
+/* Items tab foot — Add button anchored under the table so the user
+   reads top-down: existing rows → add. Left-aligned (the button itself
+   is short text + icon) so the click target sits at the natural
+   start-of-line where the eye lands after scanning the rows. Small
+   top margin separates it from the last row without competing with
+   the row's bottom border. */
+.line-items-foot {
+    display: flex;
+    align-items: center;
+    margin-top: 6px;
+    padding: 2px 0 4px;
+}
+.line-item-remove {
+    padding: 4px !important;
+    color: #909399;
+}
+.line-item-remove:hover {
+    color: #f56c6c;
+}
+
+/* The wrapper span keeps el-tooltip working on a disabled el-button —
+   :disabled on the button itself swallows pointer events, so the
+   tooltip needs an element with active pointer events around it.
+   margin-left replaces Element UI's `el-button + el-button` adjacent-
+   sibling spacing, which the wrapper breaks because the Close button
+   is no longer a direct sibling of the Submit button. */
+.submit-tooltip-anchor {
+    display: inline-block;
+    margin-left: 10px;
 }
 
 /* Zoho Item cell — SKU label up top, picker (or loading / no-match
