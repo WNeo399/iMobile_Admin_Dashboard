@@ -26,6 +26,23 @@ export function submitCreditNoteToZoho(id, data) {
     })
 }
 
+// Partial update for OCR-extracted fields the user can correct from
+// the Review dialog. `data` is { creditNo?, items? }; only the keys
+// you pass get touched server-side, and `items` is always sent as the
+// full array (last-write-wins). Backend returns the updated row.
+//
+// Mapped to PATCH on the backend; the shared axios helper doesn't ship
+// with an explicit `patch` shorthand, but `method: 'patch'` works the
+// same since it just lowercases the verb internally.
+export function updateCreditNote(id, data) {
+    return request({
+        url: `/creditNote/${id}`,
+        method: 'patch',
+        data,
+        timeout: 30000
+    })
+}
+
 
 // Submit a multi-image credit-note PDF to HandwritingOCR via our own
 // backend. The frontend never sees the OCR token — the backend reads

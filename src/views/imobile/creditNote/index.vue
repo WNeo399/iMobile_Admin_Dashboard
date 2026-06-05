@@ -169,7 +169,59 @@
             custom-class="credit-review-dialog"
             @close="onReviewClose"
         >
-            <div v-if="reviewRow" class="review-shell">
+            <div v-if="reviewRow" class="review-body">
+                <!--
+                    Header strip — editable credit no on the left, room
+                    for future header chips (status, attachment quick-
+                    link, etc.) on the right. The strip lives outside
+                    .review-shell so the shell's left/right panes keep
+                    their full height regardless of how tall the header
+                    grows.
+                -->
+                <div class="review-header">
+                    <div class="review-header-cn">
+                        <span class="review-header-label">Credit No</span>
+                        <template v-if="editingCreditNo">
+                            <el-input
+                                v-model="editingCreditNoDraft"
+                                size="small"
+                                class="cn-edit-input"
+                                :disabled="savingCreditNo"
+                                @keyup.enter.native="confirmEditCreditNo"
+                                @keyup.esc.native="cancelEditCreditNo"
+                            />
+                            <el-button
+                                size="mini"
+                                type="text"
+                                icon="el-icon-check"
+                                class="cn-edit-action cn-edit-confirm"
+                                :loading="savingCreditNo"
+                                @click="confirmEditCreditNo"
+                            />
+                            <el-button
+                                size="mini"
+                                type="text"
+                                icon="el-icon-close"
+                                class="cn-edit-action cn-edit-cancel"
+                                :disabled="savingCreditNo"
+                                @click="cancelEditCreditNo"
+                            />
+                        </template>
+                        <template v-else>
+                            <span class="review-header-value">
+                                {{ editedCreditNo || '—' }}
+                            </span>
+                            <el-button
+                                size="mini"
+                                type="text"
+                                icon="el-icon-edit"
+                                class="cn-edit-btn"
+                                @click="startEditCreditNo"
+                            />
+                        </template>
+                    </div>
+                </div>
+                <div class="review-shell">
                 <section class="review-left">
                     <!--
                         Three-tab switcher across Line Items, Repair
@@ -213,13 +265,60 @@
                                 <div class="zoho-item-cell">
                                     <div class="zoho-item-sku">
                                         <span class="zoho-item-sku-label">SKU</span>
-                                        <span class="zoho-item-sku-value">
-                                            {{ scope.row.sku || '—' }}
-                                        </span>
+                                        <!--
+                                            Two-state SKU display: the static
+                                            label + pencil edit button by
+                                            default, swapped for an input +
+                                            confirm/cancel pair when this
+                                            row is the one being edited. Only
+                                            one row at a time can be in edit
+                                            mode (single-row UX is simpler
+                                            and avoids confusing partial-
+                                            save state across rows).
+                                        -->
+                                        <template v-if="editingSkuIdx === scope.$index">
+                                            <el-input
+                                                v-model="editingSkuDraft"
+                                                size="mini"
+                                                class="sku-edit-input"
+                                                :disabled="savingSkuIdx === scope.$index"
+                                                @keyup.enter.native="confirmEditSku(scope.$index)"
+                                                @keyup.esc.native="cancelEditSku"
+                                            />
+                                            <el-button
+                                                size="mini"
+                                                type="text"
+                                                icon="el-icon-check"
+                                                class="sku-edit-action sku-edit-confirm"
+                                                :loading="savingSkuIdx === scope.$index"
+                                                @click="confirmEditSku(scope.$index)"
+                                            />
+                                            <el-button
+                                                size="mini"
+                                                type="text"
+                                                icon="el-icon-close"
+                                                class="sku-edit-action sku-edit-cancel"
+                                                :disabled="savingSkuIdx === scope.$index"
+                                                @click="cancelEditSku"
+                                            />
+                                        </template>
+                                        <template v-else>
+                                            <span class="zoho-item-sku-value">
+                                                {{ scope.row.sku || '—' }}
+                                            </span>
+                                            <el-button
+                                                size="mini"
+                                                type="text"
+                                                icon="el-icon-edit"
+                                                class="sku-edit-btn"
+                                                :disabled="editingSkuIdx !== -1 || savingSkuIdx !== -1"
+                                                @click="startEditSku(scope.$index)"
+                                            />
+                                        </template>
                                     </div>
                                     <div class="zoho-item-pick">
                                         <span
-                                            v-if="matchesLoading && !matchesBySku[scope.row.sku]"
+                                            v-if="(matchesLoading || savingSkuIdx === scope.$index) && !matchesBySku[scope.row.sku]"
                                             class="match-loading"
                                         >
                                             <i class="el-icon-loading" /> Loading matches…
@@ -451,6 +550,7 @@
                         <span>No PDF attached to this credit note.</span>
                     </div>
                 </section>
+                </div>
             </div>
             <div slot="footer">
                 <el-button :disabled="submitting" @click="reviewOpen = false">
@@ -477,7 +577,7 @@
 </template>
 
 <script>
-import { listCreditNotes, submitCreditNoteToZoho } from '@/api/tools/creditNote'
+import { listCreditNotes, submitCreditNoteToZoho, updateCreditNote } from '@/api/tools/creditNote'
 import { bulkSkuMatches } from '@/api/zoho/products/product'
 import TreePanel from '@/components/TreePanel'
 
@@ -549,6 +649,37 @@ export default {
             // Plain arrays so the table-style v-for works with $set.
             editedReturnDevices: [],
             editedRepairDevices: [],
+            // Editable working copy of the OCR-extracted items[]. Deep-
+            // cloned from reviewRow.items on open so the user's SKU
+            // edits don't mutate the parent list row until the PATCH
+            // round-trip succeeds (and so an unsaved edit doesn't
+            // bleed onto the list page if the dialog is closed without
+            // a confirm). Each entry mirrors the OCR shape:
+            // { sku, model, quantity }.
+            editedItems: [],
+            // Editable credit note number, seeded from row.creditNo on
+            // open. Held separately from reviewRow.creditNo for the
+            // same optimistic-update reason as editedItems.
+            editedCreditNo: '',
+            // Inline-edit state for the SKU cells. Only one row at a
+            // time can be in edit mode (-1 = none); editingSkuDraft
+            // holds the typed value before it's committed. Confirming
+            // writes back into editedItems + PATCH-persists; cancel
+            // throws the draft away.
+            editingSkuIdx: -1,
+            editingSkuDraft: '',
+            // Inline-edit state for the Credit No header. Same shape
+            // as the SKU edit (draft + flag) — separate from the
+            // editedCreditNo "current saved" value so cancel can
+            // revert to the last confirmed value.
+            editingCreditNo: false,
+            editingCreditNoDraft: '',
+            // Set to the row index whose SKU is currently being
+            // persisted (PATCH + match lookup) so the row's confirm
+            // button can show a spinner. -1 = no inflight save.
+            savingSkuIdx: -1,
+            // Same idea for the credit no save round-trip.
+            savingCreditNo: false,
             // Tab switcher inside the left pane: 'items' | 'repair' | 'return'.
             // Driven by el-tabs v-model; count badges in each tab label
             // come from the corresponding *.length live, so they update
@@ -578,12 +709,18 @@ export default {
             return meta ? meta.label : this.queryParams.status
         },
         reviewTitle() {
-            if (!this.reviewRow) return 'Credit Note'
-            const cn = this.reviewRow.creditNo
-            return cn ? `Credit Note ${cn}` : 'Credit Note'
+            // The credit note number now has its own editable header
+            // inside the dialog body, so the dialog title stays generic
+            // — the header strip is the single source of truth for the
+            // user-visible credit no value while editing.
+            return 'Credit Note'
         },
         reviewItems() {
-            return (this.reviewRow && this.reviewRow.items) || []
+            // editedItems is the session-editable working copy seeded
+            // from reviewRow.items in openReview. Reading from it (not
+            // the original row) means SKU edits flow through to the
+            // template immediately without mutating the parent list.
+            return this.editedItems || []
         },
         reviewPdfUrl() {
             return this.reviewRow ? this.s3Url(this.reviewRow.s3Key) : ''
@@ -597,10 +734,12 @@ export default {
             return base ? base + '#toolbar=0' : ''
         },
         // Rows the user has picked a Zoho match for. Drives the
-        // matched-items count shown in the Submit button label.
+        // matched-items count shown in the Submit button label. Reads
+        // from editedItems so a freshly-edited SKU's match (looked up
+        // and possibly auto-selected after the edit) counts the moment
+        // it lands, without waiting for the dialog to be re-opened.
         submittableItemCount() {
-            if (!this.reviewRow) return 0
-            const items = this.reviewRow.items || []
+            const items = this.editedItems || []
             return items.filter(it => it.sku && this.selections[it.sku]).length
         },
         // Submittable device count = entries with either a model or
@@ -676,12 +815,33 @@ export default {
             this.selections = {}
             this.matchesBySku = {}
             this.matchesError = ''
+            // Deep-clone items into the editable working copy. Shallow
+            // would alias the inner objects so a SKU edit before save
+            // mutates the parent list row — bad UX (the list cell
+            // updates to a value that may yet fail to persist).
+            this.editedItems = (row.items || []).map(it => ({
+                sku: (it && it.sku) || '',
+                model: it && it.model != null ? it.model : null,
+                quantity: it && it.quantity != null ? it.quantity : '0'
+            }))
             // Seed quantities from the parsed items[].quantity (which
             // the OCR parser stringifies); Number() so the
             // el-input-number doesn't choke on string input.
-            this.quantities = (row.items || []).map(
-                it => Number((it && it.quantity)) || 0
+            this.quantities = this.editedItems.map(
+                it => Number(it.quantity) || 0
             )
+            // Editable creditNo header strip — seeded from the row
+            // and reset back on close. Empty string is fine (the
+            // strip will show "—" until the user clicks edit).
+            this.editedCreditNo = (row && row.creditNo) || ''
+            // Reset inline-edit state so a previous dialog's "in the
+            // middle of typing" state can't bleed across opens.
+            this.editingSkuIdx = -1
+            this.editingSkuDraft = ''
+            this.editingCreditNo = false
+            this.editingCreditNoDraft = ''
+            this.savingSkuIdx = -1
+            this.savingCreditNo = false
             // Seed the editable note from the OCR-parsed text. Empty
             // string when the row never had a note so the textarea
             // shows its placeholder.
@@ -711,6 +871,14 @@ export default {
             this.matchesBySku = {}
             this.selections = {}
             this.quantities = []
+            this.editedItems = []
+            this.editedCreditNo = ''
+            this.editingSkuIdx = -1
+            this.editingSkuDraft = ''
+            this.editingCreditNo = false
+            this.editingCreditNoDraft = ''
+            this.savingSkuIdx = -1
+            this.savingCreditNo = false
             this.editedNote = ''
             this.editedReturnDevices = []
             this.editedRepairDevices = []
@@ -762,7 +930,10 @@ export default {
         // Zoho line item.
         async submitToZoho() {
             if (!this.reviewRow || this.submitting) return
-            const rowItems = this.reviewRow.items || []
+            // Iterate the editable copy so the freshly-edited SKU
+            // (and its newly-selected match) shows up in the payload
+            // even before the dialog is re-opened.
+            const rowItems = this.editedItems || []
             const payloadItems = []
             rowItems.forEach((it, idx) => {
                 const sku = it && it.sku
@@ -841,6 +1012,170 @@ export default {
                 this.$message.error(msg)
             } finally {
                 this.submitting = false
+            }
+        },
+        // ── Inline SKU edit ───────────────────────────────────────
+        // The Zoho Item cell shows the OCR-extracted SKU plus a pencil
+        // button. Clicking the pencil swaps the value for an input +
+        // confirm/cancel pair. Confirm persists via PATCH (so the
+        // correction survives dialog re-opens) AND triggers a fresh
+        // bulk-match lookup for the new SKU so the picker below
+        // refreshes without needing the user to re-open the dialog.
+        startEditSku(idx) {
+            // Bail out if another row is mid-save so we don't double-
+            // fire round-trips or strand the spinner.
+            if (this.savingSkuIdx !== -1) return
+            const row = this.editedItems[idx]
+            if (!row) return
+            this.editingSkuIdx = idx
+            this.editingSkuDraft = row.sku || ''
+        },
+        cancelEditSku() {
+            this.editingSkuIdx = -1
+            this.editingSkuDraft = ''
+        },
+        async confirmEditSku(idx) {
+            const newSku = String(this.editingSkuDraft || '').trim()
+            if (!newSku) {
+                this.$message.warning('SKU cannot be empty.')
+                return
+            }
+            const row = this.editedItems[idx]
+            if (!row) {
+                this.cancelEditSku()
+                return
+            }
+            const oldSku = row.sku || ''
+            // No-op when the user confirms the same value — saves a
+            // pointless PATCH and avoids resetting the existing match.
+            if (newSku === oldSku) {
+                this.cancelEditSku()
+                return
+            }
+            // Optimistic UI: apply the new sku locally first so the
+            // cell repaints immediately. Revert on persist failure.
+            this.$set(this.editedItems[idx], 'sku', newSku)
+            this.editingSkuIdx = -1
+            this.editingSkuDraft = ''
+            this.savingSkuIdx = idx
+            try {
+                // Persist + look up matches in parallel — the two
+                // round-trips are independent and the picker is more
+                // useful when both land together.
+                const [, ] = await Promise.all([
+                    updateCreditNote(this.reviewRow._id, {
+                        items: this.editedItems
+                    }),
+                    this.loadSingleSkuMatches(newSku)
+                ])
+                // Patch the live list row so the visible table stays
+                // in sync without a full refresh — same trick we use
+                // after submitToZoho. Deep-clone editedItems so a
+                // subsequent in-dialog edit doesn't reach across.
+                const i = this.list.findIndex(
+                    r => String(r._id) === String(this.reviewRow._id)
+                )
+                if (i !== -1) {
+                    const cloned = this.editedItems.map(it => ({ ...it }))
+                    this.$set(this.list, i, {
+                        ...this.list[i],
+                        items: cloned,
+                        itemCount: cloned.length
+                    })
+                }
+            } catch (e) {
+                // Roll back the in-dialog edit so the displayed value
+                // matches what's actually in Mongo.
+                this.$set(this.editedItems[idx], 'sku', oldSku)
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Failed to save SKU edit'
+                this.$message.error(msg)
+                console.error('SKU edit persist failed:', e)
+            } finally {
+                this.savingSkuIdx = -1
+            }
+        },
+        // Single-SKU variant of loadSkuMatches — used after an inline
+        // SKU edit so the picker refreshes for just the changed row.
+        // No-op when the SKU is already in the cache (the bulk lookup
+        // may have already covered it on first open).
+        async loadSingleSkuMatches(sku) {
+            if (!sku) return
+            if (Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)) return
+            try {
+                const res = await bulkSkuMatches([sku])
+                const data = (res && res.data) || {}
+                this.matchesBySku = { ...this.matchesBySku, ...data }
+                // Same single-match auto-select rule as the bulk path.
+                const matches = data[sku] || []
+                if (matches.length === 1 && !this.selections[sku]) {
+                    const next = { ...this.selections }
+                    next[sku] = matches[0].itemId
+                    this.selections = next
+                }
+            } catch (e) {
+                // Surface in the dialog's alert banner so the failure
+                // is visible without dismissing the user's edit.
+                this.matchesError = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'SKU match lookup failed'
+                console.error('Single SKU match lookup failed:', e)
+            }
+        },
+        // ── Inline Credit No edit ──────────────────────────────────
+        // Same pattern as the SKU editor but for the credit no shown
+        // in the dialog's header strip. Confirming PATCHes the field
+        // and updates the live list row so the table reflects the
+        // corrected number immediately.
+        startEditCreditNo() {
+            if (this.savingCreditNo) return
+            this.editingCreditNo = true
+            this.editingCreditNoDraft = this.editedCreditNo || ''
+        },
+        cancelEditCreditNo() {
+            this.editingCreditNo = false
+            this.editingCreditNoDraft = ''
+        },
+        async confirmEditCreditNo() {
+            const newCn = String(this.editingCreditNoDraft || '').trim()
+            if (!newCn) {
+                this.$message.warning('Credit No cannot be empty.')
+                return
+            }
+            const oldCn = this.editedCreditNo || ''
+            if (newCn === oldCn) {
+                this.cancelEditCreditNo()
+                return
+            }
+            this.editedCreditNo = newCn
+            this.editingCreditNo = false
+            this.editingCreditNoDraft = ''
+            this.savingCreditNo = true
+            try {
+                await updateCreditNote(this.reviewRow._id, { creditNo: newCn })
+                // Also patch the source-of-truth reference inside the
+                // dialog so submitToZoho (which reads reviewRow) and
+                // any other future readers see the new value without
+                // a re-open.
+                if (this.reviewRow) {
+                    this.$set(this.reviewRow, 'creditNo', newCn)
+                }
+                const i = this.list.findIndex(
+                    r => String(r._id) === String(this.reviewRow._id)
+                )
+                if (i !== -1) {
+                    this.$set(this.list, i, { ...this.list[i], creditNo: newCn })
+                }
+            } catch (e) {
+                this.editedCreditNo = oldCn
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Failed to save credit no'
+                this.$message.error(msg)
+                console.error('CreditNo edit persist failed:', e)
+            } finally {
+                this.savingCreditNo = false
             }
         },
         // Match candidates for a given OCR sku — returns [] if the
@@ -1011,11 +1346,112 @@ export default {
 }
 
 /* ── Review dialog ───────────────────────────────────────────────── */
+/* .review-body wraps the header strip + the two-pane shell. The
+   header is a fixed-height row; the shell flex-grows into the
+   remaining vertical space so the inner panes still get the same
+   70vh budget the previous layout assumed. */
+.review-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 70vh;
+    min-height: 480px;
+}
 .review-shell {
     display: flex;
     gap: 16px;
-    height: 70vh;
-    min-height: 480px;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Header strip — currently just the editable credit no, but the row
+   uses space-between so a status chip / quick-link can drop into
+   later without re-laying-out. */
+.review-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 10px;
+    background: #f9fafb;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+}
+.review-header-cn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+.review-header-label {
+    color: #909399;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+}
+.review-header-value {
+    color: #303133;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* Truncate gracefully if a credit no is suspiciously long rather
+       than blowing out the header row's height. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+.cn-edit-input {
+    width: 220px;
+    max-width: 60%;
+}
+.cn-edit-btn,
+.cn-edit-action {
+    padding: 4px !important;
+    color: #909399;
+}
+.cn-edit-btn:hover {
+    color: #2563eb;
+}
+.cn-edit-confirm {
+    color: #67c23a !important;
+}
+.cn-edit-cancel {
+    color: #f56c6c !important;
+}
+
+/* SKU inline-edit — input + confirm/cancel sit on the same baseline
+   as the label. mini buttons keep the cell from growing taller in
+   edit mode, which would shift the picker below. */
+.sku-edit-input {
+    width: 140px;
+    margin-left: 2px;
+}
+.sku-edit-input ::v-deep .el-input__inner {
+    height: 24px;
+    line-height: 24px;
+    padding: 0 6px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.sku-edit-btn,
+.sku-edit-action {
+    padding: 2px 4px !important;
+    margin-left: 2px;
+    color: #c0c4cc;
+    font-size: 13px;
+}
+.sku-edit-btn:hover {
+    color: #2563eb;
+}
+.sku-edit-confirm {
+    color: #67c23a !important;
+}
+.sku-edit-cancel {
+    color: #f56c6c !important;
 }
 .review-left {
     /* 3:2 split with the PDF — items + note get the wider share so
@@ -1313,11 +1749,17 @@ export default {
     i { font-size: 32px; }
 }
 
-/* Mobile: stack the two panes vertically when there isn't room. */
+/* Mobile: stack the two panes vertically when there isn't room. The
+   height container is now .review-body — release its fixed 70vh so
+   the page can scroll naturally with the editable header strip on top
+   and the two panes stacked underneath. */
 @media (max-width: 900px) {
+    .review-body {
+        height: auto;
+    }
     .review-shell {
         flex-direction: column;
-        height: auto;
+        flex: 0 0 auto;
     }
     .review-left {
         flex: 0 0 auto;
