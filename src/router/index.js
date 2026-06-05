@@ -296,6 +296,20 @@ export const moduleRoutes = [
           icon: "peoples",
           permissions: ["system:user:manage"]
         }
+      },
+      {
+        // Widget Origins — admin CRUD for the per-widget allowlist
+        // the public /widget/* endpoints consult on every submission.
+        // Same permission as Users (system:user:manage) since both
+        // control who can talk to the backend.
+        path: "widgetOrigin",
+        component: (resolve) => require(["@/views/system/widgetOrigin/index"], resolve),
+        name: "SystemWidgetOrigin",
+        meta: {
+          title: "Widget Origins",
+          icon: "el-icon-link",
+          permissions: ["system:user:manage"]
+        }
       }
     ]
   }
