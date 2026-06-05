@@ -171,6 +171,21 @@ export const moduleRoutes = [
           icon: "el-icon-receiving",
           permissions: ["zoho:salesOrder:create"]
         }
+      },
+      {
+        // Special Order — review the imb_special_orders collection
+        // populated by the embeddable Special Order widget shipped
+        // out of the iMobile_Widget repo (POST /widget/specialOrder
+        // on the backend). Same permission gate as Credit Note so
+        // the same role can triage incoming customer requests.
+        path: "specialOrder",
+        component: (resolve) => require(["@/views/imobile/specialOrder/index"], resolve),
+        name: "ImobileSpecialOrder",
+        meta: {
+          title: "Special Order",
+          icon: "el-icon-shopping-cart-2",
+          permissions: ["zoho:salesOrder:create"]
+        }
       }
     ]
   },
