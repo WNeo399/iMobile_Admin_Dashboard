@@ -298,15 +298,19 @@ export const moduleRoutes = [
         }
       },
       {
-        // Widget Origins — admin CRUD for the per-widget allowlist
+        // Widget Setting — admin CRUD for the per-widget allowlist
         // the public /widget/* endpoints consult on every submission.
         // Same permission as Users (system:user:manage) since both
         // control who can talk to the backend.
+        //
+        // Path / component name / API URL stay as "widgetOrigin"
+        // (those are internal stable identifiers); only the display
+        // title is "Widget Setting".
         path: "widgetOrigin",
         component: (resolve) => require(["@/views/system/widgetOrigin/index"], resolve),
         name: "SystemWidgetOrigin",
         meta: {
-          title: "Widget Origins",
+          title: "Widget Setting",
           icon: "el-icon-link",
           permissions: ["system:user:manage"]
         }
