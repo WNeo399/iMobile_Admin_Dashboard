@@ -1,55 +1,19 @@
 <template>
-    <div class="app-container widget-origin-page">
+    <div class="app-container widget-setting-page">
         <!--
-            Toolbar row — widget filter + search + add. Widget filter is
-            populated from the distinct widget names in the collection
-            (returned alongside the list response) so the dropdown
-            reflects reality without a separate fetch. Falls back to
-            KNOWN_WIDGETS when the collection is empty so a fresh
-            install still offers the right options.
+            Toolbar — just a refresh. No global add button anymore;
+            origins are managed inside each widget's Edit dialog so
+            you can't add an origin without picking a widget first
+            (which was the previous flow's footgun).
         -->
         <div class="filter-bar">
-            <el-select
-                v-model="queryParams.widget"
-                placeholder="All widgets"
-                clearable
-                size="small"
-                class="filter-widget"
-                @change="handleQuery"
-            >
-                <el-option
-                    v-for="w in widgetOptions"
-                    :key="w.value"
-                    :value="w.value"
-                    :label="w.label"
-                />
-            </el-select>
-            <el-input
-                v-model="queryParams.search"
-                placeholder="Search origin or label…"
-                clearable
-                size="small"
-                prefix-icon="el-icon-search"
-                class="filter-search"
-                @keyup.enter.native="handleQuery"
-                @clear="handleQuery"
-            />
-            <el-button size="small" type="primary" icon="el-icon-search" @click="handleQuery">
-                Search
-            </el-button>
+            <span class="filter-spacer" />
             <el-button
                 size="small"
                 icon="el-icon-refresh"
                 :loading="loading"
                 @click="getList"
             >Refresh</el-button>
-            <span class="filter-spacer" />
-            <el-button
-                type="primary"
-                size="small"
-                icon="el-icon-plus"
-                @click="openAdd"
-            >Add Origin</el-button>
         </div>
 
         <el-alert
@@ -60,61 +24,56 @@
         >
             <template slot="title">
                 <span>
-                    Each row is an origin allowed to submit to one widget's
-                    public endpoint. Disabled rows are kept for audit but
-                    not honoured. Changes propagate to the widget endpoints
-                    within ~60 seconds (or immediately on the next request
-                    after invalidation).
+                    Each row is a widget shipped from the iMobile_Widget
+                    repo. Click Edit to manage the origins allowed to
+                    submit to that widget's public endpoint. Changes
+                    propagate to the widget backend within ~60 seconds
+                    (or immediately on the next request after each
+                    add / toggle / delete).
                 </span>
             </template>
         </el-alert>
 
+        <!--
+            Widget catalogue. One row per known widget (see
+            KNOWN_WIDGETS below). The Allowed Origins column reflects
+            what's currently enabled; disabled-but-not-deleted rows
+            are shown in a subdued chip so it's clear the bucket
+            isn't empty if everything's been paused.
+        -->
         <el-table
             v-loading="loading"
-            :data="list"
+            :data="KNOWN_WIDGETS"
             stripe
             size="small"
-            class="origins-table"
-            row-key="_id"
+            class="widgets-table"
+            row-key="value"
         >
-            <el-table-column label="Widget" min-width="140">
+            <el-table-column label="Widget" min-width="160">
                 <template slot-scope="scope">
-                    <span class="widget-badge">{{ widgetLabel(scope.row.widget) }}</span>
+                    <span class="widget-name">{{ scope.row.label }}</span>
+                    <div class="widget-id">{{ scope.row.value }}</div>
                 </template>
             </el-table-column>
-            <el-table-column label="Origin" min-width="260">
+            <el-table-column label="Description" min-width="340">
                 <template slot-scope="scope">
-                    <code class="origin-text">{{ scope.row.origin }}</code>
+                    <span class="widget-description">{{ scope.row.description }}</span>
                 </template>
             </el-table-column>
-            <el-table-column label="Label" min-width="180">
+            <el-table-column label="Allowed Origins" width="180" align="center">
                 <template slot-scope="scope">
-                    <span v-if="scope.row.label">{{ scope.row.label }}</span>
-                    <span v-else class="muted">—</span>
+                    <span class="origin-count">
+                        <strong>{{ countEnabled(scope.row.value) }}</strong> enabled
+                        <span
+                            v-if="countDisabled(scope.row.value) > 0"
+                            class="origin-count-sub"
+                        >
+                            · {{ countDisabled(scope.row.value) }} disabled
+                        </span>
+                    </span>
                 </template>
             </el-table-column>
-            <el-table-column label="Enabled" width="100" align="center">
-                <template slot-scope="scope">
-                    <!--
-                        Switch inline so a quick disable doesn't need
-                        the edit dialog. `loading` covers the per-row
-                        toggle round trip.
-                    -->
-                    <el-switch
-                        :value="scope.row.enabled"
-                        :disabled="toggleId === scope.row._id"
-                        active-color="#67C23A"
-                        inactive-color="#909399"
-                        @change="(val) => onToggleEnabled(scope.row, val)"
-                    />
-                </template>
-            </el-table-column>
-            <el-table-column label="Updated" min-width="160">
-                <template slot-scope="scope">
-                    {{ formatDate(scope.row.updatedAt || scope.row.createdAt) || '—' }}
-                </template>
-            </el-table-column>
-            <el-table-column label="Actions" width="140" align="center">
+            <el-table-column label="Actions" width="100" align="center">
                 <template slot-scope="scope">
                     <el-button
                         size="mini"
@@ -122,98 +81,147 @@
                         icon="el-icon-edit"
                         @click="openEdit(scope.row)"
                     >Edit</el-button>
-                    <el-button
-                        size="mini"
-                        type="text"
-                        icon="el-icon-delete"
-                        class="row-delete"
-                        @click="onDelete(scope.row)"
-                    >Delete</el-button>
                 </template>
             </el-table-column>
         </el-table>
 
-        <pagination
-            v-show="total > 0"
-            :total="total"
-            :page.sync="queryParams.page"
-            :limit.sync="queryParams.pageSize"
-            @pagination="getList"
-        />
-
         <!--
-            Add / Edit dialog. Same dialog handles both modes — the
-            difference is whether `form._id` is set (edit) and whether
-            the widget select is disabled (edit can't change widget).
+            Widget detail / origin editor dialog. Scoped to one
+            widget: shows that widget's identity at the top, the
+            current origin list in the middle (with per-row enabled
+            toggle + delete), and an inline add form at the bottom.
+            All mutations route through the existing /widgetOrigin
+            endpoints and update the in-memory list directly so
+            edits feel immediate without a full refetch.
         -->
         <el-dialog
             :title="dialogTitle"
             :visible.sync="dialogOpen"
-            width="520px"
+            width="760px"
+            top="6vh"
             append-to-body
             :close-on-click-modal="false"
             @close="onDialogClose"
         >
-            <el-form ref="form" :model="form" label-width="100px" size="small">
-                <el-form-item
-                    label="Widget"
-                    :rules="[{ required: true, message: 'Pick a widget' }]"
-                    prop="widget"
-                >
-                    <el-select
-                        v-model="form.widget"
-                        placeholder="Pick a widget"
-                        :disabled="isEdit"
-                        class="form-control"
+            <div v-if="editingWidget">
+                <!-- Widget identity strip -->
+                <div class="widget-info">
+                    <div class="widget-info-id">
+                        <span class="widget-info-label">Widget</span>
+                        <code class="widget-info-name">{{ editingWidget.value }}</code>
+                    </div>
+                    <p class="widget-info-description">
+                        {{ editingWidget.description }}
+                    </p>
+                </div>
+
+                <!-- Existing origins -->
+                <div class="origins-section">
+                    <div class="origins-section-head">
+                        <span class="section-title">
+                            <i class="el-icon-link" />
+                            Allowed Origins
+                            <span class="section-title-count">
+                                ({{ currentOrigins.length }})
+                            </span>
+                        </span>
+                    </div>
+                    <div v-if="currentOrigins.length === 0" class="origins-empty">
+                        No origins configured yet. Add the first one below.
+                    </div>
+                    <el-table
+                        v-else
+                        :data="currentOrigins"
+                        size="small"
+                        class="origins-inline-table"
+                        row-key="_id"
                     >
-                        <el-option
-                            v-for="w in KNOWN_WIDGETS"
-                            :key="w.value"
-                            :value="w.value"
-                            :label="w.label"
+                        <el-table-column label="Origin" min-width="240">
+                            <template slot-scope="scope">
+                                <code class="origin-text">{{ scope.row.origin }}</code>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Label" min-width="140">
+                            <template slot-scope="scope">
+                                <span v-if="scope.row.label">{{ scope.row.label }}</span>
+                                <span v-else class="muted">—</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Enabled" width="100" align="center">
+                            <template slot-scope="scope">
+                                <el-switch
+                                    :value="scope.row.enabled"
+                                    :disabled="toggleId === scope.row._id"
+                                    active-color="#67C23A"
+                                    inactive-color="#909399"
+                                    @change="(val) => onToggleEnabled(scope.row, val)"
+                                />
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="" width="60" align="center">
+                            <template slot-scope="scope">
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-delete"
+                                    class="row-delete"
+                                    :title="`Delete ${scope.row.origin}`"
+                                    @click="onDelete(scope.row)"
+                                />
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </div>
+
+                <!--
+                    Inline add form. Pessimistic save (round trip
+                    finishes before the row appears) so server-side
+                    validation errors land back in the input that
+                    caused them rather than rolling back a row
+                    that already rendered.
+                -->
+                <div class="add-section">
+                    <div class="add-section-head">
+                        <span class="section-title">
+                            <i class="el-icon-plus" />
+                            Add Origin
+                        </span>
+                    </div>
+                    <div class="add-form">
+                        <el-input
+                            v-model="addForm.origin"
+                            size="small"
+                            placeholder="https://example.com"
+                            class="add-origin-input"
+                            :disabled="adding"
+                            @keyup.enter.native="onAdd"
                         />
-                    </el-select>
-                    <span v-if="isEdit" class="form-help">
-                        Widget is immutable — delete + recreate to move an origin.
+                        <el-input
+                            v-model="addForm.label"
+                            size="small"
+                            placeholder="Label (optional)"
+                            class="add-label-input"
+                            :disabled="adding"
+                            @keyup.enter.native="onAdd"
+                        />
+                        <el-button
+                            type="primary"
+                            size="small"
+                            icon="el-icon-plus"
+                            :loading="adding"
+                            @click="onAdd"
+                        >Add</el-button>
+                    </div>
+                    <span class="add-help">
+                        Protocol + host (+ port). No path, no trailing
+                        slash. The backend normalises whatever you paste,
+                        so https://Example.com/ and https://example.com
+                        won't double up.
                     </span>
-                </el-form-item>
-                <el-form-item
-                    label="Origin"
-                    :rules="[{ required: true, message: 'Origin is required' }]"
-                    prop="origin"
-                >
-                    <el-input
-                        v-model="form.origin"
-                        placeholder="https://example.com"
-                        class="form-control"
-                    />
-                    <span class="form-help">
-                        Protocol + host (+ port). No path, no trailing slash.
-                        The backend normalises whatever you paste.
-                    </span>
-                </el-form-item>
-                <el-form-item label="Label" prop="label">
-                    <el-input
-                        v-model="form.label"
-                        placeholder="Optional — friendly name"
-                        class="form-control"
-                    />
-                </el-form-item>
-                <el-form-item label="Enabled" prop="enabled">
-                    <el-switch
-                        v-model="form.enabled"
-                        active-color="#67C23A"
-                        inactive-color="#909399"
-                    />
-                </el-form-item>
-            </el-form>
+                </div>
+            </div>
             <div slot="footer">
-                <el-button :disabled="saving" @click="dialogOpen = false">Cancel</el-button>
-                <el-button
-                    type="primary"
-                    :loading="saving"
-                    @click="onSave"
-                >{{ isEdit ? 'Save' : 'Add' }}</el-button>
+                <el-button @click="dialogOpen = false">Close</el-button>
             </div>
         </el-dialog>
     </div>
@@ -227,13 +235,19 @@ import {
     deleteWidgetOrigin
 } from '@/api/system/widgetOrigin'
 
-// Widgets the admin can pick from in the dialog. Update this list as
-// new widgets ship. The dropdown fallback list also drives the
-// pretty-label rendering for table rows whose widget value isn't in
-// the live distinct list yet (e.g. an entry created before the
-// widget shipped).
+// Widgets the admin can manage. This is the single source of truth
+// for the page — update when new widgets ship out of the
+// iMobile_Widget repo. The `value` must match the widget folder
+// name + the WIDGET_NAME constant in the corresponding backend
+// route file (e.g. routes/widgetRoutes/specialOrder.js) — that's
+// the key the backend uses to look up the origin allowlist.
 const KNOWN_WIDGETS = [
-    { value: 'special-order', label: 'Special Order' }
+    {
+        value: 'special-order',
+        label: 'Special Order',
+        description:
+            "Embeddable form on customer-facing sites where shoppers can submit special-order requests (name, description, images). Submissions land in the imb_special_orders collection and show up under iMobile → Special Order for triage."
+    }
 ]
 
 export default {
@@ -242,52 +256,35 @@ export default {
         return {
             KNOWN_WIDGETS,
             loading: false,
-            list: [],
-            total: 0,
-            // Distinct widget names returned by the list endpoint —
-            // populates the toolbar filter select. Fallback to
-            // KNOWN_WIDGETS when empty so the filter still has options
-            // on first run.
-            distinctWidgets: [],
-            queryParams: {
-                page: 1,
-                pageSize: 50,
-                widget: '',
-                search: ''
-            },
-            // Edit/Add dialog state. _id only set in edit mode.
+            // All origins fetched in one pass and grouped client-side.
+            // Map of widget value → array of origin rows. Recalculated
+            // on every getList / mutation that needs it.
+            originsByWidget: {},
+
+            // Dialog state — single dialog scoped to one widget at
+            // a time. `currentOrigins` is a computed off
+            // originsByWidget[editingWidget.value].
             dialogOpen: false,
-            form: {
-                _id: null,
-                widget: '',
-                origin: '',
-                label: '',
-                enabled: true
-            },
-            saving: false,
-            // Per-row toggle state so a slow round trip doesn't flicker
-            // every row's switch at once.
+            editingWidget: null,
+            addForm: { origin: '', label: '' },
+            adding: false,
+            // Set to the row id whose enabled toggle is mid-flight,
+            // so other rows' switches stay responsive.
             toggleId: null
         }
     },
     computed: {
-        isEdit() {
-            return !!this.form._id
-        },
         dialogTitle() {
-            return this.isEdit ? 'Edit Widget Origin' : 'Add Widget Origin'
+            return this.editingWidget
+                ? `${this.editingWidget.label} — Origin Allowlist`
+                : 'Widget Setting'
         },
-        // Filter-dropdown options. Prefer the live distinct list so
-        // any unknown widgets in the collection still show up
-        // (defensive — should rarely happen since admins pick from
-        // KNOWN_WIDGETS in the dialog).
-        widgetOptions() {
-            const live = this.distinctWidgets || []
-            if (live.length === 0) return KNOWN_WIDGETS
-            return live.map(name => {
-                const known = KNOWN_WIDGETS.find(k => k.value === name)
-                return known || { value: name, label: name }
-            })
+        // Origins for the currently-edited widget. Reading this
+        // off the same `originsByWidget` map the table reads keeps
+        // the dialog's counts and the catalogue's counts in lockstep.
+        currentOrigins() {
+            if (!this.editingWidget) return []
+            return this.originsByWidget[this.editingWidget.value] || []
         }
     },
     created() {
@@ -297,109 +294,80 @@ export default {
         async getList() {
             this.loading = true
             try {
-                const params = {
-                    page: this.queryParams.page,
-                    pageSize: this.queryParams.pageSize
-                }
-                if (this.queryParams.widget) params.widget = this.queryParams.widget
-                if (this.queryParams.search) params.search = this.queryParams.search
-
-                const res = await listWidgetOrigins(params)
+                // Fetch every origin in one call — there will never be
+                // anywhere close to 1000 widget-origin rows across
+                // all widgets combined, so pagination is overkill.
+                // If we ever do hit that ceiling, refactor to one
+                // call per widget keyed off KNOWN_WIDGETS.
+                const res = await listWidgetOrigins({ pageSize: 1000 })
                 if (!res || res.success === false) {
                     throw new Error((res && res.message) || 'Failed to load')
                 }
-                this.list = res.data || []
-                this.total = res.total || 0
-                this.distinctWidgets = res.widgets || []
+                this.originsByWidget = groupByWidget(res.data || [])
             } catch (e) {
                 console.error('Widget origin list failed:', e)
                 this.$message.error(this.errMsg(e, 'Failed to load widget origins'))
-                this.list = []
-                this.total = 0
+                this.originsByWidget = {}
             } finally {
                 this.loading = false
             }
         },
-        handleQuery() {
-            this.queryParams.page = 1
-            this.getList()
+        // ── Catalogue helpers ─────────────────────────────────────
+        countEnabled(widgetValue) {
+            const rows = this.originsByWidget[widgetValue] || []
+            return rows.filter(r => r.enabled !== false).length
         },
-        // ── Add / Edit ─────────────────────────────────────────────
-        openAdd() {
-            // Pre-select the widget if the user is filtering by one
-            // — saves a click in the common "add another origin for
-            // the widget I'm looking at" flow.
-            this.form = {
-                _id: null,
-                widget: this.queryParams.widget || KNOWN_WIDGETS[0].value,
-                origin: '',
-                label: '',
-                enabled: true
-            }
-            this.dialogOpen = true
+        countDisabled(widgetValue) {
+            const rows = this.originsByWidget[widgetValue] || []
+            return rows.filter(r => r.enabled === false).length
         },
-        openEdit(row) {
-            this.form = {
-                _id: row._id,
-                widget: row.widget,
-                origin: row.origin,
-                label: row.label || '',
-                enabled: row.enabled !== false
-            }
+        // ── Edit dialog ───────────────────────────────────────────
+        openEdit(widget) {
+            this.editingWidget = widget
+            this.addForm = { origin: '', label: '' }
             this.dialogOpen = true
         },
         onDialogClose() {
-            this.form = {
-                _id: null, widget: '', origin: '', label: '', enabled: true
-            }
-            this.saving = false
+            this.editingWidget = null
+            this.addForm = { origin: '', label: '' }
+            this.adding = false
+            this.toggleId = null
         },
-        async onSave() {
-            if (!this.form.widget) {
-                this.$message.warning('Pick a widget.')
-                return
-            }
-            if (!this.form.origin || !String(this.form.origin).trim()) {
+        // ── Add ────────────────────────────────────────────────────
+        async onAdd() {
+            if (this.adding) return
+            if (!this.editingWidget) return
+            const origin = String(this.addForm.origin || '').trim()
+            if (!origin) {
                 this.$message.warning('Origin is required.')
                 return
             }
-            this.saving = true
+            this.adding = true
             try {
-                if (this.isEdit) {
-                    // Edit: send only the mutable fields. Widget is
-                    // server-side immutable so don't bother.
-                    const res = await updateWidgetOrigin(this.form._id, {
-                        origin: this.form.origin,
-                        label: this.form.label,
-                        enabled: this.form.enabled
-                    })
-                    if (!res || res.success === false) {
-                        throw new Error((res && res.message) || 'Save failed')
-                    }
-                    this.patchListRow(res.data)
-                    this.$message.success('Origin updated.')
-                } else {
-                    const res = await createWidgetOrigin({
-                        widget: this.form.widget,
-                        origin: this.form.origin,
-                        label: this.form.label,
-                        enabled: this.form.enabled
-                    })
-                    if (!res || res.success === false) {
-                        throw new Error((res && res.message) || 'Save failed')
-                    }
-                    // Reload to surface the new row in the correct
-                    // sort position and update the distinct widgets
-                    // list for the filter dropdown.
-                    await this.getList()
-                    this.$message.success('Origin added.')
+                const res = await createWidgetOrigin({
+                    widget: this.editingWidget.value,
+                    origin,
+                    label: this.addForm.label,
+                    enabled: true
+                })
+                if (!res || res.success === false) {
+                    throw new Error((res && res.message) || 'Add failed')
                 }
-                this.dialogOpen = false
+                // Insert into the local map so the dialog's table
+                // and the catalogue's count both pick it up.
+                const w = this.editingWidget.value
+                const list = this.originsByWidget[w] || []
+                const next = list.concat(res.data)
+                this.$set(this.originsByWidget, w, next)
+                // Reset the form so the user can paste the next
+                // origin without clearing manually.
+                this.addForm = { origin: '', label: '' }
+                this.$message.success('Origin added.')
             } catch (e) {
-                console.error('Widget origin save failed:', e)
-                this.$message.error(this.errMsg(e, 'Save failed'))
+                console.error('Add origin failed:', e)
+                this.$message.error(this.errMsg(e, 'Add failed'))
             } finally {
-                this.saving = false
+                this.adding = false
             }
         },
         // ── Toggle enabled ─────────────────────────────────────────
@@ -411,13 +379,13 @@ export default {
                 if (!res || res.success === false) {
                     throw new Error((res && res.message) || 'Toggle failed')
                 }
-                this.patchListRow(res.data)
+                this.patchLocalRow(row.widget, res.data)
             } catch (e) {
                 console.error('Toggle failed:', e)
                 this.$message.error(this.errMsg(e, 'Toggle failed'))
-                // No rollback needed — el-switch's `:value` is bound
-                // to row.enabled, which we haven't mutated yet, so
-                // the visual state stays in sync with the DB.
+                // No manual revert: el-switch's :value reads
+                // row.enabled, which we haven't mutated yet, so the
+                // visual state stays in sync with the DB.
             } finally {
                 this.toggleId = null
             }
@@ -426,7 +394,7 @@ export default {
         async onDelete(row) {
             try {
                 await this.$confirm(
-                    `Delete the allowlist entry for "${row.origin}" on widget "${this.widgetLabel(row.widget)}"?`,
+                    `Delete the allowlist entry for "${row.origin}"?`,
                     'Confirm delete',
                     {
                         confirmButtonText: 'Delete',
@@ -443,15 +411,10 @@ export default {
                 if (!res || res.success === false) {
                     throw new Error((res && res.message) || 'Delete failed')
                 }
-                // Remove locally rather than refetch — the page stays
-                // on the same page number even if the deletion empties
-                // it (pagination will sort itself out on the next
-                // user-initiated paginate).
-                const idx = this.list.findIndex(r => String(r._id) === String(row._id))
-                if (idx !== -1) {
-                    this.list.splice(idx, 1)
-                    this.total = Math.max(0, this.total - 1)
-                }
+                const w = row.widget
+                const list = this.originsByWidget[w] || []
+                const next = list.filter(r => String(r._id) !== String(row._id))
+                this.$set(this.originsByWidget, w, next)
                 this.$message.success('Origin deleted.')
             } catch (e) {
                 console.error('Delete failed:', e)
@@ -459,15 +422,14 @@ export default {
             }
         },
         // ── Helpers ────────────────────────────────────────────────
-        patchListRow(updated) {
+        patchLocalRow(widgetValue, updated) {
             if (!updated || !updated._id) return
-            const i = this.list.findIndex(r => String(r._id) === String(updated._id))
-            if (i !== -1) this.$set(this.list, i, updated)
-        },
-        widgetLabel(value) {
-            if (!value) return ''
-            const known = KNOWN_WIDGETS.find(k => k.value === value)
-            return known ? known.label : value
+            const list = this.originsByWidget[widgetValue] || []
+            const i = list.findIndex(r => String(r._id) === String(updated._id))
+            if (i === -1) return
+            const next = list.slice()
+            next[i] = updated
+            this.$set(this.originsByWidget, widgetValue, next)
         },
         errMsg(e, fallback) {
             return (
@@ -475,14 +437,21 @@ export default {
                 e.message ||
                 fallback
             )
-        },
-        formatDate(value) {
-            if (!value) return ''
-            const d = new Date(value)
-            if (isNaN(d.getTime())) return ''
-            return d.toLocaleString('en-AU', { timeZone: 'Australia/Melbourne' })
         }
     }
+}
+
+// Group an array of origin rows by their widget value. Used by
+// getList() to build the originsByWidget map in one pass; pulled
+// out of the component so it's testable independently.
+function groupByWidget(rows) {
+    const out = {}
+    for (const r of rows || []) {
+        if (!r || !r.widget) continue
+        if (!out[r.widget]) out[r.widget] = []
+        out[r.widget].push(r)
+    }
+    return out
 }
 </script>
 
@@ -494,22 +463,126 @@ export default {
     gap: 8px;
     margin-bottom: 10px;
 }
-.filter-widget { width: 200px; }
-.filter-search { width: 260px; max-width: 100%; }
 .filter-spacer { flex: 1; }
 .page-help {
     margin-bottom: 12px;
 }
 
-.origins-table {
+/* Widget catalogue */
+.widgets-table {
     border: 1px solid #ebeef5;
     border-radius: 8px;
     overflow: hidden;
 }
-.widget-badge {
-    color: #2563eb;
+.widget-name {
+    color: #303133;
     font-weight: 600;
+    font-size: 14px;
+}
+.widget-id {
+    color: #909399;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    margin-top: 2px;
+}
+.widget-description {
+    color: #606266;
     font-size: 13px;
+    line-height: 1.5;
+}
+.origin-count {
+    color: #303133;
+    font-size: 13px;
+    strong {
+        color: #2563eb;
+        font-size: 16px;
+        font-weight: 600;
+    }
+}
+.origin-count-sub {
+    color: #909399;
+    font-size: 11px;
+    margin-left: 2px;
+}
+
+/* ── Dialog ──────────────────────────────────────────────────────── */
+.widget-info {
+    padding: 10px 12px;
+    background: #f9fafb;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+.widget-info-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.widget-info-label {
+    color: #909399;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.widget-info-name {
+    background: #eef0f3;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #303133;
+}
+.widget-info-description {
+    margin: 0;
+    color: #606266;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.origins-section,
+.add-section {
+    margin-bottom: 16px;
+}
+.origins-section-head,
+.add-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+.section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #303133;
+    font-size: 13px;
+    font-weight: 600;
+}
+.section-title i {
+    color: #2563eb;
+    font-size: 14px;
+}
+.section-title-count {
+    color: #909399;
+    font-weight: 500;
+    margin-left: 2px;
+}
+
+.origins-empty {
+    padding: 16px;
+    color: #909399;
+    font-style: italic;
+    font-size: 13px;
+    text-align: center;
+    border: 1px dashed #ebeef5;
+    border-radius: 6px;
+}
+.origins-inline-table {
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    overflow: hidden;
 }
 .origin-text {
     background: #f3f4f6;
@@ -525,18 +598,35 @@ export default {
     font-style: italic;
 }
 .row-delete {
-    color: #f56c6c;
+    padding: 4px !important;
+    color: #909399;
 }
 .row-delete:hover {
-    color: #c45656;
+    color: #f56c6c;
 }
 
-.form-control { width: 100%; }
-.form-help {
+/* Inline add form — origin input grows, label is fixed width,
+   button is at the end. Wraps onto two lines on narrow dialogs
+   so the inputs don't get squeezed too small to type into. */
+.add-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.add-origin-input {
+    flex: 2 1 220px;
+    min-width: 180px;
+}
+.add-label-input {
+    flex: 1 1 160px;
+    min-width: 140px;
+}
+.add-help {
     display: block;
-    margin-top: 4px;
+    margin-top: 6px;
     color: #909399;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.4;
 }
 </style>
