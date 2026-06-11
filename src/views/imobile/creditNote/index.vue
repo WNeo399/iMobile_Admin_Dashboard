@@ -420,11 +420,52 @@
                                                 :label="m.name"
                                             >
                                                 <div class="match-option">
-                                                    <div class="match-option-name">{{ m.name }}</div>
+                                                    <div class="match-option-name">
+                                                        {{ m.name }}
+                                                        <!--
+                                                            Inline chip on dropdown options
+                                                            already present in the Zoho credit
+                                                            note. Doesn't disable the option —
+                                                            staff sometimes intentionally add a
+                                                            second line of the same item — but
+                                                            makes the duplicate obvious before
+                                                            the click commits.
+                                                        -->
+                                                        <span
+                                                            v-if="existingForItemId(m.itemId)"
+                                                            class="match-option-existing"
+                                                            :title="`Already in this credit note (qty ${existingForItemId(m.itemId).quantity})`"
+                                                        >already added</span>
+                                                    </div>
                                                     <div class="match-option-sku">{{ m.sku }}</div>
                                                 </div>
                                             </el-option>
                                         </el-select>
+                                    </div>
+                                    <!--
+                                        Per-row badge under the picker — only
+                                        renders when the row's currently-
+                                        selected match is already in the Zoho
+                                        credit note. Stays inline (no popup)
+                                        so the duplicate stays visible while
+                                        the user decides whether to clear or
+                                        commit. Quantity comes from the
+                                        existing line(s) so the user sees how
+                                        much is already on the credit note.
+                                    -->
+                                    <div
+                                        v-if="existingForSku(scope.row.sku)"
+                                        class="zoho-item-existing"
+                                    >
+                                        <i class="el-icon-warning-outline" />
+                                        Already in credit note · qty
+                                        {{ existingForSku(scope.row.sku).quantity }}
+                                        <span
+                                            v-if="existingForSku(scope.row.sku).count > 1"
+                                            class="zoho-item-existing-detail"
+                                        >
+                                            across {{ existingForSku(scope.row.sku).count }} lines
+                                        </span>
                                     </div>
                                 </div>
                             </template>
@@ -903,6 +944,39 @@ export default {
         submittableItemCount() {
             const items = this.editedItems || []
             return items.filter(it => it.sku && this.selections[it.sku]).length
+        },
+        // Map of itemId → { name, quantity, count } from the existing
+        // Zoho credit note's line items. Powers the "Already in credit
+        // note" badges on Line Items rows and inside the picker
+        // dropdown so staff can spot a duplicate before they commit.
+        //
+        // When the same itemId appears on multiple existing lines (it
+        // can — Zoho doesn't dedupe them either), quantity is summed
+        // and `count` records how many lines contributed, so the
+        // badge can say "qty 5 across 2 lines" if it ever matters.
+        existingItemIdMap() {
+            const map = new Map()
+            if (!this.zohoDetail || !Array.isArray(this.zohoDetail.line_items)) {
+                return map
+            }
+            for (const li of this.zohoDetail.line_items) {
+                if (!li || !li.item_id) continue
+                const id = String(li.item_id)
+                const qty = Number(li.quantity) || 0
+                const prev = map.get(id)
+                if (prev) {
+                    prev.quantity += qty
+                    prev.count += 1
+                } else {
+                    map.set(id, {
+                        itemId: id,
+                        name: li.name || li.product_name || '',
+                        quantity: qty,
+                        count: 1
+                    })
+                }
+            }
+            return map
         },
         // Submittable device count = entries with either a model or
         // a positive quantity. Mirrors the backend's filter so the
@@ -1602,6 +1676,26 @@ export default {
             if (!sku) return []
             return this.matchesBySku[sku] || []
         },
+        // ── Duplicate-check helpers ──────────────────────────────
+        // Look up the existing Zoho line item info for a given
+        // itemId. Used by both the picker dropdown (per-option chip
+        // saying "already added") and the per-row badge below the
+        // picker. Returns null when the item isn't in the existing
+        // credit note OR when zohoDetail hasn't loaded yet — both
+        // cases mean "don't show anything".
+        existingForItemId(itemId) {
+            if (!itemId) return null
+            return this.existingItemIdMap.get(String(itemId)) || null
+        },
+        // Same lookup but keyed by the OCR sku — convenience for the
+        // row badge which already knows its sku but has to resolve
+        // selections[sku] to get the matched itemId.
+        existingForSku(sku) {
+            if (!sku) return null
+            const itemId = this.selections[sku]
+            if (!itemId) return null
+            return this.existingForItemId(itemId)
+        },
         // Element UI's el-select is :value + @change so we can swap
         // entries on the selections map without two-way binding to a
         // nested path. Empty string is treated as "clear".
@@ -2062,6 +2156,33 @@ export default {
 .match-select {
     width: 100%;
 }
+/* Per-row "already in credit note" badge under the picker. Amber
+   tint so it reads as informational/warning (not a hard error —
+   the duplicate is still submittable). Truncates rather than
+   wraps so the row height doesn't jump when it appears. */
+.zoho-item-existing {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #fdf6ec;
+    color: #b88230;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.zoho-item-existing i { font-size: 12px; flex-shrink: 0; }
+.zoho-item-existing-detail {
+    color: #c09865;
+    font-weight: 400;
+    margin-left: 2px;
+}
 /* Quantity cell mirrors the Zoho Item cell's stacked layout so the
    input bottom-aligns with the el-select. The spacer matches the SKU
    label row's visible height — match font-size and line-height to
@@ -2341,5 +2462,22 @@ export default {
 .match-select-popper .el-select-dropdown__item.hover .match-option-sku,
 .match-select-popper .el-select-dropdown__item:hover .match-option-sku {
     color: #909399;
+}
+/* "already added" chip on dropdown options that match an item id
+   already on the Zoho credit note. Amber to match the in-row badge.
+   Lives in the unscoped block because the popper is body-appended
+   and would otherwise miss the scoped-style hash. */
+.match-select-popper .match-option-existing {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: #fdf6ec;
+    color: #b88230;
+    font-size: 10px;
+    font-weight: 500;
+    vertical-align: middle;
+    line-height: 1.4;
+    white-space: nowrap;
 }
 </style>
