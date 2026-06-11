@@ -123,7 +123,7 @@
                             <span v-else class="muted">—</span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Action" width="160" align="center">
+                    <el-table-column label="Action" width="140" align="center">
                         <template slot-scope="scope">
                             <!-- Review is only meaningful once OCR has
                                  extracted line items + we have the
@@ -138,22 +138,31 @@
                                 @click="openReview(scope.row)"
                             >Review</el-button>
                             <!--
-                                Delete drops the row from Mongo AND
-                                best-effort removes the S3 PDF. Always
-                                available regardless of status — the
-                                use case is "we got this in by mistake,
-                                throw it away". Confirm dialog has
-                                explicit warning copy because the
-                                action is irreversible.
+                                Secondary actions live in a "..." dropdown
+                                so they stay out of the primary scan but
+                                are still one click away. Same pattern as
+                                the SQT Cases row (Change Status / Notes).
+                                Right now there's only Delete in here;
+                                future items (re-attach PDF, re-run OCR,
+                                etc.) can slot in without re-flowing the
+                                column.
                             -->
-                            <el-button
-                                size="mini"
-                                type="text"
-                                icon="el-icon-delete"
-                                class="row-delete"
-                                :loading="deletingId === scope.row._id"
-                                @click="confirmDelete(scope.row)"
-                            >Delete</el-button>
+                            <el-dropdown trigger="click" @command="(cmd) => cmd()">
+                                <el-button
+                                    size="mini"
+                                    type="text"
+                                    icon="el-icon-more"
+                                    class="more-btn"
+                                    :loading="deletingId === scope.row._id"
+                                />
+                                <el-dropdown-menu slot="dropdown">
+                                    <el-dropdown-item
+                                        :command="() => confirmDelete(scope.row)"
+                                        icon="el-icon-delete"
+                                        class="dropdown-delete"
+                                    >Delete</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </el-dropdown>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -1753,15 +1762,13 @@ export default {
     color: #c0c4cc;
     font-style: italic;
 }
-/* Delete button in the table's Action column. Subdued by default
-   (so it doesn't compete visually with the primary Review action)
-   and shifts to the danger red on hover so the irreversible
-   action is clearly signalled at the moment of intent. */
-.row-delete {
+/* Compact "..." button matching the SQT Cases more-actions pattern.
+   Subdued by default so it doesn't compete with the primary Review
+   action; tints blue on hover. */
+.more-btn {
+    padding: 4px 4px !important;
     color: #909399;
-}
-.row-delete:hover {
-    color: #f56c6c;
+    &:hover { color: #409eff; }
 }
 
 /* ── Review dialog ───────────────────────────────────────────────── */
@@ -2269,6 +2276,19 @@ export default {
 </style>
 
 <style>
+/* el-dropdown's menu is appended to <body>, so its rules need to be
+   unscoped to survive scoped-style hashing. Tint the Delete item
+   red so the destructive action is clearly signalled the moment the
+   menu opens. */
+.dropdown-delete {
+    color: #f56c6c !important;
+}
+.dropdown-delete:hover,
+.dropdown-delete:focus {
+    background-color: #fef0f0 !important;
+    color: #f56c6c !important;
+}
+
 /* Unscoped so it reaches the body-appended dialog wrapper. */
 .credit-review-dialog .el-dialog__body {
     padding: 12px 20px 4px;
