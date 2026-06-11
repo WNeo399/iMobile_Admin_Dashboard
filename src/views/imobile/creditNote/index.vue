@@ -6,6 +6,7 @@
             behaviour stays consistent. One root + three status leaves.
         -->
         <tree-panel
+            ref="statusTree"
             title="Status"
             title-icon-class="el-icon-s-flag"
             :tree-data="treeData"
@@ -798,7 +799,11 @@ export default {
                 pageSize: 20,
                 search: '',
                 // '' means "all statuses" — tree's All node click clears this.
-                status: ''
+                // Default to 'processed' (shown as "Pending" — the relabel
+                // STATUS_META does on display) since that's the queue staff
+                // actually need to action on page open. Completed rows are
+                // already through Zoho and queued rows are still upstream.
+                status: 'processed'
             },
 
             // Review dialog state. `reviewRow` carries the whole row
@@ -1043,6 +1048,21 @@ export default {
     },
     created() {
         this.getList()
+    },
+    mounted() {
+        // Sync the tree's visual highlight with the default
+        // queryParams.status so the Pending node looks selected when
+        // the page first renders. Reach through TreePanel into the
+        // wrapped el-tree because TreePanel doesn't expose a
+        // default-selected prop. nextTick gives the underlying tree
+        // a beat to render its nodes before setCurrentKey runs.
+        this.$nextTick(() => {
+            const tp = this.$refs.statusTree
+            const tree = tp && tp.$refs && tp.$refs.treeRef
+            if (tree && this.queryParams.status) {
+                tree.setCurrentKey(this.queryParams.status)
+            }
+        })
     },
     methods: {
         async getList() {
@@ -1827,6 +1847,17 @@ export default {
 .status-node-badge {
     flex-shrink: 0;
     margin-left: 4px;
+}
+/* Paint the el-tree's currently-selected node so the sidebar matches
+   the active queryParams.status. TreePanel doesn't pass
+   highlight-current down to its wrapped el-tree, but the `is-current`
+   class still lands on the node — we just need to give it a visible
+   background. ::v-deep crosses TreePanel's scoped-style boundary. */
+::v-deep .el-tree-node.is-current > .el-tree-node__content {
+    background-color: #ecf5ff;
+}
+::v-deep .el-tree-node.is-current > .el-tree-node__content:hover {
+    background-color: #e1efff;
 }
 
 /* Table */
