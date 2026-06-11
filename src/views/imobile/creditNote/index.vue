@@ -123,7 +123,7 @@
                             <span v-else class="muted">—</span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Action" width="110" align="center">
+                    <el-table-column label="Action" width="160" align="center">
                         <template slot-scope="scope">
                             <!-- Review is only meaningful once OCR has
                                  extracted line items + we have the
@@ -137,7 +137,23 @@
                                 icon="el-icon-view"
                                 @click="openReview(scope.row)"
                             >Review</el-button>
-                            <span v-else class="muted">—</span>
+                            <!--
+                                Delete drops the row from Mongo AND
+                                best-effort removes the S3 PDF. Always
+                                available regardless of status — the
+                                use case is "we got this in by mistake,
+                                throw it away". Confirm dialog has
+                                explicit warning copy because the
+                                action is irreversible.
+                            -->
+                            <el-button
+                                size="mini"
+                                type="text"
+                                icon="el-icon-delete"
+                                class="row-delete"
+                                :loading="deletingId === scope.row._id"
+                                @click="confirmDelete(scope.row)"
+                            >Delete</el-button>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -682,7 +698,7 @@
                             :loading="submitting"
                             :disabled="!!submitDisabledReason"
                             @click="submitToZoho"
-                        >Submit to Zoho ({{ totalSubmittable }})</el-button>
+                        >Submit to Zoho{{ totalSubmittable > 0 ? ` (${totalSubmittable})` : '' }}</el-button>
                     </span>
                 </el-tooltip>
             </div>
@@ -691,7 +707,7 @@
 </template>
 
 <script>
-import { listCreditNotes, submitCreditNoteToZoho, updateCreditNote, getCreditNoteZohoDetail } from '@/api/tools/creditNote'
+import { listCreditNotes, submitCreditNoteToZoho, updateCreditNote, getCreditNoteZohoDetail, deleteCreditNote } from '@/api/tools/creditNote'
 import { bulkSkuMatches } from '@/api/zoho/products/product'
 import { priceListLabel, isKnownPriceList } from '@/utils/zohoPriceList'
 import TreePanel from '@/components/TreePanel'
@@ -795,6 +811,11 @@ export default {
             savingSkuIdx: -1,
             // Same idea for the credit no save round-trip.
             savingCreditNo: false,
+            // Row id currently being deleted, so the table's per-row
+            // button can spin without blocking sibling rows. -1 / null
+            // both work as "no delete in flight"; null kept for
+            // consistency with how other ids are stored on this page.
+            deletingId: null,
             // Zoho-side detail for the credit note: fetched once on
             // dialog open via /:id/zohoDetail and refreshed whenever
             // the creditNo is edited. Held verbatim and forwarded back
@@ -915,9 +936,11 @@ export default {
             if (!this.allItemsHaveMatch) {
                 return 'Pick a Zoho item match for every line item before submitting.'
             }
-            if (this.totalSubmittable === 0) {
-                return 'Add a line item, return device, or repair device first.'
-            }
+            // An empty payload (no items, no devices) is intentionally
+            // allowed — the submit still updates the note, attaches
+            // the PDF, and marks the row completed against the Zoho
+            // credit note. See the backend `submitToZoho` comment for
+            // the matching server-side decision.
             return null
         },
         // Human-readable pricelist label (VIP / SVIP / Platinum / etc.)
@@ -973,6 +996,69 @@ export default {
         handleQuery() {
             this.queryParams.page = 1
             this.getList()
+        },
+        // ── Delete ────────────────────────────────────────────────
+        // Two-step delete: confirm dialog (irreversible action — no
+        // undo) → backend call → splice the row from the local list
+        // + adjust counts in-place so the tree badges update without
+        // a full refetch.
+        async confirmDelete(row) {
+            if (!row || !row._id || this.deletingId) return
+            const label = row.creditNo ? `Credit Note ${row.creditNo}` : 'this credit note'
+            try {
+                await this.$confirm(
+                    `Delete ${label}? The Mongo row will be removed and the archived PDF will be deleted from S3. This cannot be undone.`,
+                    'Confirm delete',
+                    {
+                        confirmButtonText: 'Delete',
+                        cancelButtonText: 'Cancel',
+                        type: 'warning'
+                    }
+                )
+            } catch {
+                // User cancelled — $confirm rejects on Cancel.
+                return
+            }
+            this.deletingId = row._id
+            try {
+                const res = await deleteCreditNote(row._id)
+                if (!res || res.success === false) {
+                    throw new Error((res && res.message) || 'Delete failed')
+                }
+                // Splice the row out of the visible list + decrement
+                // the relevant tree-panel counts so badges reflect
+                // the change without a refetch.
+                const idx = this.list.findIndex(
+                    r => String(r._id) === String(row._id)
+                )
+                if (idx !== -1) this.list.splice(idx, 1)
+                this.total = Math.max(0, this.total - 1)
+                const next = { ...this.counts, all: Math.max(0, (this.counts.all || 0) - 1) }
+                if (row.status && Object.prototype.hasOwnProperty.call(next, row.status)) {
+                    next[row.status] = Math.max(0, (next[row.status] || 0) - 1)
+                }
+                this.counts = next
+                // If the row being reviewed was the one deleted, close
+                // the dialog — its data no longer exists.
+                if (this.reviewRow && String(this.reviewRow._id) === String(row._id)) {
+                    this.reviewOpen = false
+                }
+                if (res.s3 && res.s3.ok === false) {
+                    this.$message.warning(
+                        `Row deleted, but the S3 PDF cleanup failed: ${res.s3.message || 'unknown error'}.`
+                    )
+                } else {
+                    this.$message.success('Credit note deleted.')
+                }
+            } catch (e) {
+                console.error('Delete credit note failed:', e)
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Delete failed'
+                this.$message.error(msg)
+            } finally {
+                this.deletingId = null
+            }
         },
         // ── Review dialog ─────────────────────────────────────────
         openReview(row) {
@@ -1153,16 +1239,9 @@ export default {
                     quantity: Number(d.quantity) || 0
                 }))
 
-            if (
-                payloadItems.length === 0 &&
-                returnDevicePayload.length === 0 &&
-                repairDevicePayload.length === 0
-            ) {
-                this.$message.warning(
-                    'Pick a Zoho match for at least one row, or add a return/repair device, before submitting.'
-                )
-                return
-            }
+            // Empty payload is intentionally allowed — see comment in
+            // submitDisabledReason. The submit still mutates the
+            // credit note (note text, PDF attach, status flip).
             this.submitting = true
             try {
                 const res = await submitCreditNoteToZoho(this.reviewRow._id, {
@@ -1673,6 +1752,16 @@ export default {
 .muted {
     color: #c0c4cc;
     font-style: italic;
+}
+/* Delete button in the table's Action column. Subdued by default
+   (so it doesn't compete visually with the primary Review action)
+   and shifts to the danger red on hover so the irreversible
+   action is clearly signalled at the moment of intent. */
+.row-delete {
+    color: #909399;
+}
+.row-delete:hover {
+    color: #f56c6c;
 }
 
 /* ── Review dialog ───────────────────────────────────────────────── */

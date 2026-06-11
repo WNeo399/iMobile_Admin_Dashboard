@@ -43,6 +43,20 @@ export function updateCreditNote(id, data) {
     })
 }
 
+// Delete a credit-note row from imb_credit_note and best-effort
+// remove the associated PDF from S3. Backend returns
+// { success: true, s3: { ok, message?, skipped? } } so the caller
+// can warn the user if the S3 cleanup didn't land while still
+// treating the overall delete as successful (the DB row is the
+// primary index — leaving the PDF in S3 is recoverable).
+export function deleteCreditNote(id) {
+    return request({
+        url: `/creditNote/${id}`,
+        method: 'delete',
+        timeout: 30000
+    })
+}
+
 // Look up the Zoho Inventory credit note tied to this row's creditNo
 // and return the fetched detail. Called on Review dialog open (and on
 // every creditNo edit) so the dialog can show customer + price list,
