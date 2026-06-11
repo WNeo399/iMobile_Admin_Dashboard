@@ -434,8 +434,8 @@
                                                         <span
                                                             v-if="existingForItemId(m.itemId)"
                                                             class="match-option-existing"
-                                                            :title="`Already in this credit note (qty ${existingForItemId(m.itemId).quantity})`"
-                                                        >already added</span>
+                                                            :title="`Picking this will replace the existing Zoho line(s) (was qty ${existingForItemId(m.itemId).quantity}) with the quantity you set here.`"
+                                                        >on credit note · qty {{ existingForItemId(m.itemId).quantity }}</span>
                                                     </div>
                                                     <div class="match-option-sku">{{ m.sku }}</div>
                                                 </div>
@@ -456,15 +456,16 @@
                                     <div
                                         v-if="existingForSku(scope.row.sku)"
                                         class="zoho-item-existing"
+                                        :title="`The existing Zoho line(s) for this item will be replaced by your quantity (was ${existingForSku(scope.row.sku).quantity}${existingForSku(scope.row.sku).count > 1 ? ` across ${existingForSku(scope.row.sku).count} lines` : ''}).`"
                                     >
-                                        <i class="el-icon-warning-outline" />
-                                        Already in credit note · qty
+                                        <i class="el-icon-refresh" />
+                                        Will replace existing · was qty
                                         {{ existingForSku(scope.row.sku).quantity }}
                                         <span
                                             v-if="existingForSku(scope.row.sku).count > 1"
                                             class="zoho-item-existing-detail"
                                         >
-                                            across {{ existingForSku(scope.row.sku).count }} lines
+                                            ({{ existingForSku(scope.row.sku).count }} lines)
                                         </span>
                                     </div>
                                 </div>
