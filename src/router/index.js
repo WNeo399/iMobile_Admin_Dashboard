@@ -122,7 +122,7 @@ export const moduleRoutes = [
             component: (resolve) => require(["@/views/zohoInventory/stockmonitoring"], resolve),
             name: "StockMonitoring",
             meta: {
-              title: "Stock Mornitoring",
+              title: "Stock Monitoring",
               // Chart/line icon reads as "monitoring" at a glance — better
               // than the previous `goods` value which had no matching SVG
               // sprite and rendered blank.

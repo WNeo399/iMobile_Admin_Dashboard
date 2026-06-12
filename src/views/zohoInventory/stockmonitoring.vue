@@ -43,6 +43,26 @@
                                 multipleSelection.length > 0 ? `${multipleSelection.length} Selection` : 'Full List'
                             }}</el-button>
                     </el-col>
+                    <el-col :span="1.5">
+                        <!--
+                            In-place edit for the currently selected
+                            collection — opens the same shared dialog the
+                            Collections page uses, so criteria / picked
+                            products / status can be adjusted without
+                            leaving Stock Monitoring. Gated on the same
+                            permission as the Collections page route.
+                        -->
+                        <el-button
+                            v-hasPermi="['zoho:collection:view']"
+                            type="primary"
+                            plain
+                            icon="el-icon-plus"
+                            size="mini"
+                            :loading="collectionDetailLoading"
+                            :disabled="!currentCollection"
+                            @click="handleEditCollection"
+                        >Add Product</el-button>
+                    </el-col>
                     <el-col :span="1.5" v-show="multipleSelection.length > 0">
                         <el-button type="info" plain icon="el-icon-close" size="mini"
                             @click="() => { $refs.table.clearSelection() }">Clear Selection</el-button>
@@ -115,6 +135,18 @@
             </div>
         </div>
         <ProductDetailDialog :open.sync="open" :product="product"></ProductDetailDialog>
+        <!--
+            Shared collection create/edit dialog (same component the
+            Collections page uses). Only ever opened in Edit mode here —
+            `editingCollection` is hydrated by handleEditCollection from
+            the detail endpoint before the dialog opens.
+        -->
+        <collection-form-dialog
+            :visible.sync="collectionDialogVisible"
+            :collection="editingCollection"
+            products-only
+            @saved="onCollectionSaved"
+        />
     </div>
 </template>
 
@@ -122,12 +154,13 @@
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
 import { getCurrentStock, getSalesTotal } from "../../api/zoho/stockMonitoring";
-import { getCollectionGroups } from "../../api/zoho/products/collection";
+import { getCollectionGroups, getCollectionDetail } from "../../api/zoho/products/collection";
 import { getProductDetail } from "../../api/zoho/products/product";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
+import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
 export default {
     name: "StockMonitoring",
-    components: { TreePanel, ProductDetailDialog },
+    components: { TreePanel, ProductDetailDialog, CollectionFormDialog },
     data() {
         return {
 
@@ -142,6 +175,13 @@ export default {
             duration: 30,
             treeData: [],
             currentCollection: "",
+            // Edit Collection dialog state. `editingCollection` is the
+            // full collection document (from /detail/:id) — the tree
+            // nodes only carry {label, value} so a fetch is required
+            // before the dialog can hydrate.
+            collectionDialogVisible: false,
+            editingCollection: null,
+            collectionDetailLoading: false,
             queryParams: {
                 pageNum: 1,
                 pageSize: 20,
@@ -172,6 +212,41 @@ export default {
                 that.open = true
                 that.loading = false
             })
+        },
+        // ── Edit Collection (in place) ─────────────────────────────
+        // Tree nodes only carry {label, value}; the shared dialog needs
+        // the full document (rules / products / status / note), so
+        // fetch the detail first, then open.
+        async handleEditCollection() {
+            if (!this.currentCollection || this.collectionDetailLoading) return
+            this.collectionDetailLoading = true
+            try {
+                const res = await getCollectionDetail(this.currentCollection)
+                if (!res || res.success === false || !res.data) {
+                    throw new Error((res && res.message) || 'Failed to load collection')
+                }
+                this.editingCollection = res.data
+                this.collectionDialogVisible = true
+            } catch (e) {
+                console.error('Load collection detail failed:', e)
+                const msg = (e.response && e.response.data && e.response.data.message)
+                    || e.message
+                    || 'Failed to load collection'
+                this.$message.error(msg)
+            } finally {
+                this.collectionDetailLoading = false
+            }
+        },
+        onCollectionSaved(saved) {
+            // Title may have changed — refresh the sidebar tree, which
+            // re-reads the groups, keeps the current collection id from
+            // the route query, and re-fetches the stock list in its
+            // nextTick. That re-fetch also picks up any criteria /
+            // product changes, so one call covers everything.
+            if (saved && saved.title) {
+                this.currentTab = saved.title
+            }
+            this.getCollectionGroup()
         },
         getCollectionGroup() {
             getCollectionGroups().then(res => {
