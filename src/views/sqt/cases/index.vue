@@ -124,6 +124,20 @@
                         <el-button plain icon="el-icon-refresh-right" size="small" @click="refreshAll">
                             Refresh
                         </el-button>
+                        <!--
+                            Export the full current-status list to Excel.
+                            Fetches every page for the active filters (not
+                            just the page on screen), so the download is the
+                            complete set the user is looking at.
+                        -->
+                        <el-button
+                            type="success"
+                            plain
+                            icon="el-icon-download"
+                            size="small"
+                            :loading="exporting"
+                            @click="exportExcel"
+                        >Export</el-button>
 
                         <!--
                             Table / card view toggle. Only shown on desktop
@@ -1304,6 +1318,9 @@ import { listShops } from '@/api/sqt/shops'
 import { listParts, createPart } from '@/api/sqt/parts'
 import { listModels } from '@/api/sqt/models'
 import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
+// xlsx-js-style — same styled SheetJS fork the Repair + Stock Monitoring
+// exports use, so the downloads look consistent across the dashboard.
+import * as XLSX from 'xlsx-js-style'
 
 const STATUS_META = [
     // First entry → first child node in the Status tree (above Pending).
@@ -1348,6 +1365,7 @@ export default {
             // the card view is forced regardless.
             viewMode: (typeof localStorage !== 'undefined' && localStorage.getItem('sqt-cases-view-mode')) || 'table',
             loading: false,
+            exporting: false,
             list: [],
             total: 0,
             counts: { total: 0, byStatus: {} },
@@ -1778,6 +1796,110 @@ export default {
                 this.counts = res.data || { total: 0, byStatus: {} }
             } catch (e) {
                 console.error(e)
+            }
+        },
+        // Download the full current-status list as a styled .xlsx.
+        // Respects the active filters (status + shop + search) but pulls
+        // EVERY page, not just the one on screen, so the file is the
+        // complete set the user is viewing.
+        async exportExcel() {
+            if (this.exporting) return
+            this.exporting = true
+            try {
+                // Page through the list with the active filters until we've
+                // collected every row. Fixed page size keeps each request
+                // sane regardless of how big the status bucket is.
+                const baseParams = {}
+                if (this.queryParams.search) baseParams.search = this.queryParams.search
+                if (this.queryParams.shopId) baseParams.shopId = this.queryParams.shopId
+                if (this.activeStatus) baseParams.status = this.activeStatus
+
+                const PAGE = 500
+                let page = 1
+                let collected = []
+                let totalDocs = 0
+                // Safety bound — stop after 200 pages (100k rows) so a
+                // backend that ignored paging can't spin forever.
+                for (let guard = 0; guard < 200; guard++) {
+                    const res = await listCases({ ...baseParams, page, pageSize: PAGE })
+                    const batch = (res && res.data) || []
+                    totalDocs = (res && res.totalDocs) || 0
+                    collected = collected.concat(batch)
+                    if (batch.length < PAGE || collected.length >= totalDocs) break
+                    page += 1
+                }
+
+                if (collected.length === 0) {
+                    this.$message.warning('Nothing to export — the list is empty.')
+                    return
+                }
+
+                const rows = collected.map(c => this.caseToRow(c))
+                const worksheet = XLSX.utils.json_to_sheet(rows, {
+                    header: [
+                        'Case ID', 'Service Request ID', 'Status', 'Assigned To',
+                        'Created Date', 'Customer', 'Mobile', 'Email'
+                    ]
+                })
+
+                // Primary-blue header band — same look as the Repair /
+                // Stock Monitoring exports.
+                const headerStyle = {
+                    font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+                    fill: { fgColor: { rgb: '409EFF' } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: {
+                        top: { style: 'thin', color: { rgb: 'DCDCDC' } },
+                        bottom: { style: 'thin', color: { rgb: 'DCDCDC' } },
+                        left: { style: 'thin', color: { rgb: 'DCDCDC' } },
+                        right: { style: 'thin', color: { rgb: 'DCDCDC' } }
+                    }
+                }
+                const range = XLSX.utils.decode_range(worksheet['!ref'])
+                for (let col = range.s.c; col <= range.e.c; col++) {
+                    const addr = XLSX.utils.encode_cell({ r: 0, c: col })
+                    if (worksheet[addr]) worksheet[addr].s = headerStyle
+                }
+                worksheet['!cols'] = [
+                    { wch: 14 }, // Case ID
+                    { wch: 20 }, // Service Request ID
+                    { wch: 22 }, // Status
+                    { wch: 24 }, // Assigned To
+                    { wch: 22 }, // Created Date
+                    { wch: 24 }, // Customer
+                    { wch: 18 }, // Mobile
+                    { wch: 28 }  // Email
+                ]
+
+                const label = this.activeStatus ? this.statusLabel(this.activeStatus) : 'All Cases'
+                const sheetName = String(label).slice(0, 31)
+                const workbook = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+
+                const today = new Date().toISOString().split('T')[0]
+                const scopeSlug = (this.activeStatus || 'all').replace(/[^a-z0-9-]/gi, '').toLowerCase() || 'all'
+                XLSX.writeFile(workbook, `sqt-cases_${scopeSlug}_${today}.xlsx`)
+            } catch (e) {
+                console.error('Export failed:', e)
+                this.$message.error('Failed to export cases')
+            } finally {
+                this.exporting = false
+            }
+        },
+        // Map a case document → the export row. Column keys here become
+        // the Excel headers (in the order given to json_to_sheet).
+        caseToRow(c) {
+            const cust = c.customer || {}
+            const fullName = [cust.firstName, cust.lastName].filter(Boolean).join(' ').trim()
+            return {
+                'Case ID': c.caseId || '',
+                'Service Request ID': c.serviceRequestId || '',
+                'Status': this.statusLabel(c.status),
+                'Assigned To': c.shopName || '',
+                'Created Date': this.formatDateTime ? this.formatDateTime(c.createdAt) : this.formatDate(c.createdAt),
+                'Customer': fullName,
+                'Mobile': cust.phone || '',
+                'Email': cust.email || ''
             }
         },
         handleShopChange() {
