@@ -100,6 +100,7 @@
 import CreateCreditNote from './components/CreateCreditNote'
 import CreateSalesOrder from './components/CreateSalesOrder'
 import BuzztechOrderImport from './components/BuzztechOrderImport'
+import CreateOzOrder from './components/CreateOzOrder'
 
 // Tools registry — single source of truth for what shows on this page.
 //
@@ -142,6 +143,17 @@ const TOOLS = [
         component: BuzztechOrderImport,
         // Wider than the credit-note dialog — the review screen renders tables.
         dialogWidth: '780px'
+    },
+    {
+        id: 'create-oz-order',
+        name: 'Create Oz Order',
+        description: 'Upload an OZ order sheet, match each line to a catalogue SKU, then create a draft Zoho sales order.',
+        icon: 'el-icon-document-checked',
+        color: 'orange',
+        entry: 'dialog',
+        component: CreateOzOrder,
+        // Wide — the match results table needs room for the re-pick dropdowns.
+        dialogWidth: '860px'
     },
     {
         id: 'location-monitoring',
