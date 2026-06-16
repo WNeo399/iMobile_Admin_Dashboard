@@ -1,10 +1,10 @@
 // "URGENT!" case label for the SQT Send Parts flow.
 //
 // 100mm (w) × 150mm (h) portrait page, single label. Content is
-// rotated 90° (reads bottom-to-top) to match the printed label — the
-// right-most column (URGENT!) prints at the top when the label is
-// turned upright, then shop name / Case ID / Service ID below, inside
-// a border box.
+// rotated 90° (reads bottom-to-top). URGENT! sits in the LEFT-most
+// column of the PDF (= the top of the label once it's turned upright),
+// then shop name / Case ID / Service ID to its right, inside a border
+// box.
 //
 // jsPDF's `align`/`baseline` options are NOT honoured together with
 // `angle`, so we centre each rotated line manually: measure its width
@@ -23,18 +23,18 @@ const MAX_LINE_MM = 132            // shrink a line that would overflow the heig
 export function buildCaseLabelDoc({ shopName, caseId, serviceRequestId } = {}) {
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: PAGE })
 
-    // Columns by anchor-x, right → left (URGENT! highest x = top when
-    // upright). Sizes in pt.
+    // Columns by anchor-x, left → right (URGENT! lowest x = left of the
+    // PDF = top when the label is upright). Sizes in pt.
     const lines = [
-        { text: 'URGENT!', x: 82, size: 34 },
-        { text: shopName || '', x: 60, size: 13 },
-        { text: `Case ID: ${caseId || ''}`, x: 49, size: 13 },
-        { text: `Service ID: ${serviceRequestId || ''}`, x: 38, size: 13 }
+        { text: 'URGENT!', x: 46, size: 34 },
+        { text: shopName || '', x: 58, size: 13 },
+        { text: `Case ID: ${caseId || ''}`, x: 68, size: 13 },
+        { text: `Service ID: ${serviceRequestId || ''}`, x: 78, size: 13 }
     ]
 
     // Border box framing the columns.
     doc.setLineWidth(0.6)
-    doc.rect(26, 32, 58, 86)
+    doc.rect(30, 32, 54, 86)
 
     doc.setFont('helvetica', 'bold')
     for (const ln of lines) {
