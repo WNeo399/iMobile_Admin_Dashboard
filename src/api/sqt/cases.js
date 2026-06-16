@@ -8,6 +8,21 @@ export function listCases(query) {
   });
 }
 
+// Attach a file (the generated URGENT label PDF) to a Zoho sales
+// order created by Send Parts. `formData` carries `salesOrderId` +
+// `file`. Same endpoint the Buzztech / Oz tools use; Content-Type is
+// overridden so the shared JSON default doesn't clobber the multipart
+// boundary.
+export function attachCaseOrderFile(formData) {
+  return request({
+    url: "/zoho/salesOrder/attach",
+    method: "post",
+    data: formData,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 60000,
+  });
+}
+
 export function getCaseCounts(query) {
   return request({
     url: "/sqt/cases/counts",

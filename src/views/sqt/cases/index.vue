@@ -854,6 +854,41 @@
             </div>
         </el-dialog>
 
+        <!--
+            Send Parts success popup — confirms the order, shows whether
+            the URGENT label PDF was attached, and offers a Preview.
+        -->
+        <el-dialog
+            title="Parts Sent"
+            :visible.sync="sendPartsSuccessOpen"
+            width="420px"
+            append-to-body
+        >
+            <div class="send-success">
+                <i class="el-icon-circle-check send-success-icon" />
+                <div class="send-success-title">
+                    <span v-if="sendPartsSuccessInfo.soNumber">
+                        Sales order {{ sendPartsSuccessInfo.soNumber }} created
+                    </span>
+                    <span v-else>Order created</span>
+                </div>
+                <div class="send-success-sub">Case moved to Waiting for Parts.</div>
+
+                <div
+                    v-if="labelAttachResult"
+                    :class="['send-success-attach', labelAttachResult.ok ? 'ok' : 'fail']"
+                >
+                    <i :class="labelAttachResult.ok ? 'el-icon-document-checked' : 'el-icon-warning-outline'" />
+                    <span v-if="labelAttachResult.ok">URGENT label attached to the order.</span>
+                    <span v-else>Couldn't attach the label: {{ labelAttachResult.message }}. You can still preview + print it.</span>
+                </div>
+            </div>
+            <div slot="footer">
+                <el-button icon="el-icon-view" @click="previewCaseLabel">Preview Label</el-button>
+                <el-button type="primary" @click="sendPartsSuccessOpen = false">Done</el-button>
+            </div>
+        </el-dialog>
+
         <!-- Parts Received dialog (Waiting-for-parts action) -->
         <el-dialog
             :title="partsReceivedDialogTitle"
@@ -1313,7 +1348,8 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts } from '@/api/sqt/cases'
+import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile } from '@/api/sqt/cases'
+import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
 import { listShops } from '@/api/sqt/shops'
 import { listParts, createPart } from '@/api/sqt/parts'
 import { listModels } from '@/api/sqt/models'
@@ -1375,6 +1411,13 @@ export default {
 
             sendPartsDialogOpen: false,
             sendPartsCase: null,
+            // Send Parts success popup — shows the created SO number, the
+            // label-attach outcome, and a Preview button for the URGENT
+            // label PDF (kept on caseLabelDoc so Preview can open it).
+            sendPartsSuccessOpen: false,
+            sendPartsSuccessInfo: { soNumber: '' },
+            caseLabelDoc: null,
+            labelAttachResult: null,
             partsSearchKeyword: '',
             selectedParts: [],
             sendPartsSubmitting: false,
@@ -2104,13 +2147,12 @@ export default {
                         sku: p.sku
                     }))
                 }
+                // Snapshot the case for the label before any refresh
+                // swaps sendPartsCase out from under us.
+                const labelCase = this.sendPartsCase
                 const res = await sendCaseParts(this.sendPartsCase._id, payload)
                 const soNumber = res && res.data && res.data.salesOrderNumber
-                this.$message.success(
-                    soNumber
-                        ? `Sales order ${soNumber} created — case moved to Waiting for Parts`
-                        : 'Order created — case updated'
-                )
+                const soId = res && res.data && res.data.salesOrderId
                 // RepairDesk status mirror is best-effort — warn if it didn't take
                 const rd = res && res.data && res.data.repairDesk
                 if (rd && rd.success === false) {
@@ -2125,7 +2167,23 @@ export default {
                     const idx = this.list.findIndex(c => c._id === updatedCase._id)
                     if (idx !== -1) this.$set(this.list, idx, updatedCase)
                 }
+
+                // Generate the URGENT label PDF from the case, attach it
+                // to the new Zoho order (best-effort), and surface a
+                // success popup with a Preview button.
+                const src = updatedCase || labelCase || {}
+                this.caseLabelDoc = buildCaseLabelDoc({
+                    shopName: src.shopName || '',
+                    caseId: src.caseId || '',
+                    serviceRequestId: src.serviceRequestId || ''
+                })
+                this.labelAttachResult = soId
+                    ? await this.attachCaseLabel(soId)
+                    : { ok: false, message: 'No sales order id returned' }
+                this.sendPartsSuccessInfo = { soNumber: soNumber || '' }
+
                 this.sendPartsDialogOpen = false
+                this.sendPartsSuccessOpen = true
                 this.refreshAll()
             } catch (e) {
                 console.error(e)
@@ -2134,6 +2192,37 @@ export default {
             } finally {
                 this.sendPartsSubmitting = false
             }
+        },
+        // Attach the generated label PDF to the Zoho sales order.
+        // Best-effort — failure doesn't undo the order; the outcome is
+        // shown on the success popup and the user can still preview /
+        // attach manually.
+        async attachCaseLabel(salesOrderId) {
+            if (!this.caseLabelDoc) return { ok: false, message: 'No label generated' }
+            try {
+                const blob = this.caseLabelDoc.output('blob')
+                const form = new FormData()
+                form.append('salesOrderId', String(salesOrderId))
+                form.append('file', blob, 'urgent-label.pdf')
+                const res = await attachCaseOrderFile(form)
+                if (res && res.success) return { ok: true }
+                return { ok: false, message: (res && res.message) || 'Attach failed' }
+            } catch (e) {
+                console.error('Label attach failed:', e)
+                return {
+                    ok: false,
+                    message: (e.response && e.response.data && e.response.data.message) || e.message || 'Attach failed'
+                }
+            }
+        },
+        // Open the generated label in a new tab. bloburl is created on
+        // demand (user gesture) so popup blockers leave it alone.
+        previewCaseLabel() {
+            if (!this.caseLabelDoc) {
+                this.$message.warning('No label to preview.')
+                return
+            }
+            window.open(this.caseLabelDoc.output('bloburl'), '_blank', 'noopener,noreferrer')
         },
         handleCustomerNotified(row) {
             this.customerNotifiedCase = row
@@ -2624,6 +2713,29 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+/* Send Parts success popup */
+.send-success {
+    text-align: center;
+    padding: 8px 0 4px;
+}
+.send-success-icon { color: #67C23A; font-size: 44px; }
+.send-success-title { font-size: 16px; font-weight: 600; color: #111827; margin-top: 8px; }
+.send-success-sub { color: #606266; font-size: 13px; margin-top: 4px; }
+.send-success-attach {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+    text-align: left;
+    margin-top: 14px;
+    max-width: 360px;
+    i { font-size: 16px; flex-shrink: 0; }
+    &.ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    &.fail { background: #fffaf0; border: 1px solid #fde68a; color: #92400e; }
+}
 .active-filter {
     margin: 0 0 8px 4px;
 }
