@@ -145,6 +145,40 @@ export const moduleRoutes = [
         ]
       },
       {
+        // Catalogue — the IMB parts catalogue (imb_products + its
+        // brand/category/model/quality reference data). Sibling of
+        // Inventory under iMobile, using the same ParentView submenu
+        // wrapper. Reuses the collection permissions since the same
+        // iMobile Admin role manages this product data.
+        path: "catalogue",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Catalogue", icon: "el-icon-collection" },
+        children: [
+          {
+            path: "/imobile/catalogue/products",
+            component: (resolve) => require(["@/views/imobile/catalogue/products"], resolve),
+            name: "CatalogueProducts",
+            meta: {
+              title: "Products",
+              icon: "el-icon-goods",
+              permissions: ["zoho:collection:view"]
+            }
+          },
+          {
+            path: "/imobile/catalogue/reference",
+            component: (resolve) => require(["@/views/imobile/catalogue/reference"], resolve),
+            name: "CatalogueReference",
+            meta: {
+              title: "Reference Data",
+              icon: "el-icon-s-operation",
+              permissions: ["zoho:collection:view"]
+            }
+          }
+        ]
+      },
+      {
         // iMobile Repair — sibling of Inventory under the iMobile group.
         // Visible to iMobile Admin (zoho:*:* gets repair:*:* alongside) and
         // iMobile Repair Admin (which is named for this page).
