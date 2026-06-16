@@ -1,45 +1,56 @@
 // "URGENT!" case label for the SQT Send Parts flow.
 //
-// 100mm (w) × 150mm (h) portrait page, single label. The content is
-// rotated 90° (reads bottom-to-top) to match the printed label the
-// shop uses — URGENT! header, shop name, Case ID, Service ID, inside
+// 100mm (w) × 150mm (h) portrait page, single label. Content is
+// rotated 90° (reads bottom-to-top) to match the printed label — the
+// right-most column (URGENT!) prints at the top when the label is
+// turned upright, then shop name / Case ID / Service ID below, inside
 // a border box.
+//
+// jsPDF's `align`/`baseline` options are NOT honoured together with
+// `angle`, so we centre each rotated line manually: measure its width
+// and anchor it at CENTER_Y + width/2 (angle-90 text is drawn from the
+// anchor upward, so anchoring at the bottom centres it on the midline).
 //
 // Returns the jsPDF doc so the caller can both attach it to the Zoho
 // sales order (.output('blob')) and preview it (.output('bloburl')).
 
 import { jsPDF } from 'jspdf'
 
-const PAGE = [100, 150] // mm — label stock (portrait)
-const CENTER_Y = PAGE[1] / 2 // 75mm — vertical midline the rotated text centres on
+const PAGE = [100, 150]            // mm — label stock (portrait)
+const CENTER_Y = PAGE[1] / 2       // 75mm — vertical midline
+const MAX_LINE_MM = 132            // shrink a line that would overflow the height
 
 export function buildCaseLabelDoc({ shopName, caseId, serviceRequestId } = {}) {
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: PAGE })
 
-    // Border box framing the text (cosmetic, matches the printed label).
+    // Columns by anchor-x, right → left (URGENT! highest x = top when
+    // upright). Sizes in pt.
+    const lines = [
+        { text: 'URGENT!', x: 82, size: 34 },
+        { text: shopName || '', x: 60, size: 13 },
+        { text: `Case ID: ${caseId || ''}`, x: 49, size: 13 },
+        { text: `Service ID: ${serviceRequestId || ''}`, x: 38, size: 13 }
+    ]
+
+    // Border box framing the columns.
     doc.setLineWidth(0.6)
-    doc.rect(12, 26, 76, 98)
+    doc.rect(26, 32, 58, 86)
 
-    // Columns laid out right-to-left across the page width; because the
-    // text is rotated 90° CCW, the right-most column (highest x) prints
-    // at the TOP when the label is turned upright. So URGENT! sits
-    // highest, Service ID lowest. align:center + baseline:middle let us
-    // anchor each line by its centre at (x, CENTER_Y) so the block is
-    // vertically centred without measuring text widths.
-    rotatedLine(doc, 'URGENT!', 72, 38, true)
-    rotatedLine(doc, shopName || '', 54, 15, true)
-    rotatedLine(doc, `Case ID: ${caseId || ''}`, 44, 15, true)
-    rotatedLine(doc, `Service ID: ${serviceRequestId || ''}`, 34, 15, true)
-
+    doc.setFont('helvetica', 'bold')
+    for (const ln of lines) {
+        let size = ln.size
+        doc.setFontSize(size)
+        let w = doc.getTextWidth(ln.text)
+        // Auto-shrink an over-long line (e.g. a long shop name) so it
+        // stays within the label height.
+        while (w > MAX_LINE_MM && size > 8) {
+            size -= 1
+            doc.setFontSize(size)
+            w = doc.getTextWidth(ln.text)
+        }
+        // angle-90 text draws upward from the anchor, so anchor at the
+        // bottom (CENTER_Y + w/2) to centre it on the midline.
+        doc.text(String(ln.text == null ? '' : ln.text), ln.x, CENTER_Y + w / 2, { angle: 90 })
+    }
     return doc
-}
-
-function rotatedLine(doc, text, x, size, bold) {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.setFontSize(size)
-    doc.text(String(text == null ? '' : text), x, CENTER_Y, {
-        angle: 90,
-        align: 'center',
-        baseline: 'middle'
-    })
 }
