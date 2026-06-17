@@ -242,6 +242,19 @@ export const moduleRoutes = [
         }
       },
       {
+        // Return tracking dashboard — outstanding parts/devices to recover
+        // from shops on terminal cases. HQ-only (sqt:case:trackReturn), so the
+        // menu link is hidden from shop roles.
+        path: "returns",
+        component: (resolve) => require(["@/views/sqt/returns/index"], resolve),
+        name: "SqtReturns",
+        meta: {
+          title: "Returns",
+          icon: "el-icon-refresh-left",
+          permissions: ["sqt:case:trackReturn"]
+        }
+      },
+      {
         path: "shops",
         component: (resolve) => require(["@/views/sqt/shops/index"], resolve),
         name: "SqtShops",

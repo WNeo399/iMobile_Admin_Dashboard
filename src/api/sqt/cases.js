@@ -93,3 +93,25 @@ export function selectCaseParts(id, data) {
     data,
   });
 }
+
+// ── Return tracking (terminal cases) ──────────────────────────────────────
+// Mark parts and/or the customer's device received back at HQ. Body:
+//   { parts: [{ zohoSalesOrderId, lineItemIdx, quantityReceived?, received?, note? }],
+//     device: { expected?, received?, note? } }
+export function markCaseReturns(id, data) {
+  return request({
+    url: `/sqt/cases/${id}/returns`,
+    method: "post",
+    data,
+  });
+}
+
+// HQ dashboard feed — cases with active return tracking.
+//   query: { status: 'pending'|'complete'|'all', shopId, reason, search, page, pageSize }
+export function listReturns(query) {
+  return request({
+    url: "/sqt/cases/returns",
+    method: "get",
+    params: query,
+  });
+}

@@ -1041,11 +1041,29 @@
         <el-dialog
             :title="markUnrepairableDialogTitle"
             :visible.sync="markUnrepairableDialogOpen"
-            width="460px"
+            width="560px"
             append-to-body
         >
             <div class="parts-received-question">
                 Mark this case as <b>Unrepairable</b>?
+            </div>
+
+            <el-alert
+                type="warning"
+                :closable="false"
+                show-icon
+                class="device-return-alert"
+                title="If possible, keep the customer's device so it can be returned to us."
+            />
+
+            <div class="device-return-prompt">
+                <div class="device-return-label">
+                    Do you have the customer's device on hand for return?
+                </div>
+                <el-radio-group v-model="markUnrepairableForm.deviceExpected">
+                    <el-radio :label="true">Yes — I have the device for return</el-radio>
+                    <el-radio :label="false">No — Customer took the device</el-radio>
+                </el-radio-group>
             </div>
 
             <div slot="footer">
@@ -1283,6 +1301,134 @@
                     </div>
                 </el-tab-pane>
 
+                <!--
+                    Returns tab — only present on terminal cases (unrepairable /
+                    ber / cancelled) where items need to come back to HQ. Shows
+                    the parts checklist and, for ber/unrepairable, the device
+                    return. Editable controls are gated by sqt:case:trackReturn;
+                    everyone else sees a read-only view.
+                -->
+                <el-tab-pane
+                    v-if="detailReturnTracking && detailReturnTracking.active"
+                    name="returns"
+                >
+                    <span slot="label">
+                        Returns
+                        <span v-if="returnsOutstandingCount" class="tab-count returns-tab-count">
+                            ({{ returnsOutstandingCount }})
+                        </span>
+                    </span>
+
+                    <div class="returns-pane">
+                        <el-alert
+                            :type="returnsSummaryAlert.type"
+                            :title="returnsSummaryAlert.text"
+                            :closable="false"
+                            show-icon
+                            class="returns-summary-alert"
+                        />
+
+                        <div class="returns-section-title">
+                            <i class="el-icon-box" /> Parts to return
+                        </div>
+                        <el-table
+                            v-if="returnsForm.parts.length"
+                            :data="returnsForm.parts"
+                            size="mini"
+                            border
+                            class="returns-table"
+                        >
+                            <el-table-column label="Part" min-width="160">
+                                <template slot-scope="scope">
+                                    {{ scope.row.partName || '—' }}
+                                    <span v-if="scope.row.zohoSalesOrderNumber" class="returns-so">
+                                        · {{ scope.row.zohoSalesOrderNumber }}
+                                    </span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="SKU" width="120">
+                                <template slot-scope="scope">{{ scope.row.sku || '—' }}</template>
+                            </el-table-column>
+                            <el-table-column label="To return" prop="quantityToReturn" width="90" align="center" />
+                            <el-table-column label="Received" width="130" align="center">
+                                <template slot-scope="scope">
+                                    <el-input-number
+                                        v-if="canTrackReturn"
+                                        :value="scope.row.quantityReceived"
+                                        :min="0"
+                                        :max="scope.row.quantityToReturn"
+                                        size="mini"
+                                        controls-position="right"
+                                        class="returns-qty"
+                                        @change="(v) => setPartReceivedQty(scope.$index, v)"
+                                    />
+                                    <span v-else>{{ scope.row.quantityReceived }} / {{ scope.row.quantityToReturn }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="Status" width="100" align="center">
+                                <template slot-scope="scope">
+                                    <el-tag
+                                        size="mini"
+                                        :type="scope.row.received ? 'success' : 'info'"
+                                        effect="plain"
+                                    >{{ scope.row.received ? 'Received' : 'Pending' }}</el-tag>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                        <div v-else class="empty-block">
+                            <i class="el-icon-box" /> No parts to return.
+                        </div>
+
+                        <template v-if="returnsForm.device && returnsForm.device.applicable">
+                            <div class="returns-section-title">
+                                <i class="el-icon-mobile-phone" /> Customer device
+                            </div>
+                            <div class="returns-device-card">
+                                <div class="returns-device-row">
+                                    <span class="returns-device-label">Device to return?</span>
+                                    <el-switch
+                                        v-if="canTrackReturn"
+                                        :value="returnsForm.device.expected"
+                                        active-text="Yes"
+                                        inactive-text="No"
+                                        @change="(v) => onDeviceExpectedChange(v)"
+                                    />
+                                    <el-tag v-else size="mini" effect="plain">
+                                        {{ returnsForm.device.expected ? 'Yes' : 'No' }}
+                                    </el-tag>
+                                </div>
+                                <div v-if="returnsForm.device.expected" class="returns-device-row">
+                                    <span class="returns-device-label">Status</span>
+                                    <el-tag
+                                        size="mini"
+                                        :type="returnsForm.device.received ? 'success' : 'info'"
+                                        effect="plain"
+                                    >{{ returnsForm.device.received ? 'Received' : 'Pending' }}</el-tag>
+                                    <el-checkbox
+                                        v-if="canTrackReturn"
+                                        :value="returnsForm.device.received"
+                                        class="returns-device-check"
+                                        @change="(v) => returnsForm.device.received = v"
+                                    >Mark received</el-checkbox>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div v-if="canTrackReturn" class="returns-actions">
+                            <el-button size="small" :disabled="savingReturns" @click="seedReturnsForm">
+                                Reset
+                            </el-button>
+                            <el-button
+                                type="primary"
+                                size="small"
+                                icon="el-icon-check"
+                                :loading="savingReturns"
+                                @click="saveReturns"
+                            >Save returns</el-button>
+                        </div>
+                    </div>
+                </el-tab-pane>
+
                 <el-tab-pane name="status">
                     <span slot="label">
                         Status History
@@ -1348,7 +1494,8 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile } from '@/api/sqt/cases'
+import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile, markCaseReturns } from '@/api/sqt/cases'
+import { checkPermi } from '@/utils/permission'
 import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
 import { listShops } from '@/api/sqt/shops'
 import { listParts, createPart } from '@/api/sqt/parts'
@@ -1448,6 +1595,9 @@ export default {
             markUnrepairableDialogOpen: false,
             markUnrepairableCase: null,
             markUnrepairableSubmitting: false,
+            // deviceExpected → whether the shop has the customer's device on
+            // hand for return; seeds returnTracking.device.expected.
+            markUnrepairableForm: { deviceExpected: true },
 
             markBerDialogOpen: false,
             markBerCase: null,
@@ -1486,7 +1636,14 @@ export default {
             detailCase: null,
             detailActiveTab: 'basic',
             deviceEdit: { description: '', imei: '' },
-            deviceSubmitting: false
+            deviceSubmitting: false,
+
+            // Return tracking — editable working copy of the open case's
+            // returnTracking, seeded on dialog open. parts: [{...received}],
+            // device: {applicable, expected, received, ...}. Saved as one PATCH
+            // via the Returns tab's "Save returns" button.
+            returnsForm: { parts: [], device: null },
+            savingReturns: false
         }
     },
     computed: {
@@ -1674,6 +1831,37 @@ export default {
             // newest first
             return [...this.detailCase.zohoOrders].reverse()
         },
+        // ── Return tracking (Returns tab) ──────────────────────────────
+        detailReturnTracking() {
+            return (this.detailCase && this.detailCase.returnTracking) || null
+        },
+        // Whether the current user may mark returns received (HQ-only). Drives
+        // the editable controls; everyone else sees a read-only view.
+        canTrackReturn() {
+            return checkPermi(['sqt:case:trackReturn'])
+        },
+        // Outstanding count across the working copy — parts not yet fully
+        // received + the device if it's expected and not received. Powers the
+        // tab badge and summary alert.
+        returnsOutstandingCount() {
+            const f = this.returnsForm || {}
+            let n = (f.parts || []).filter(p => !p.received).length
+            if (f.device && f.device.applicable && f.device.expected && !f.device.received) {
+                n += 1
+            }
+            return n
+        },
+        returnsSummaryAlert() {
+            const n = this.returnsOutstandingCount
+            const anyExpected =
+                (this.returnsForm.parts || []).length > 0 ||
+                !!(this.returnsForm.device &&
+                   this.returnsForm.device.applicable &&
+                   this.returnsForm.device.expected)
+            if (!anyExpected) return { type: 'info', text: 'Nothing to return for this case.' }
+            if (n === 0) return { type: 'success', text: 'All expected items have been received.' }
+            return { type: 'warning', text: `${n} item${n === 1 ? '' : 's'} still to come back.` }
+        },
         sendPartsExistingOrders() {
             if (!this.sendPartsCase || !Array.isArray(this.sendPartsCase.zohoOrders)) return []
             // newest first
@@ -1698,7 +1886,7 @@ export default {
         const q = this.$route.query || {}
         if (q.shopId) this.queryParams.shopId = String(q.shopId)
         this.refreshAll().then(() => {
-            if (q.openCase) this.openCaseById(String(q.openCase))
+            if (q.openCase) this.openCaseById(String(q.openCase), q.tab ? String(q.tab) : 'basic')
         })
         this.loadShops()
     },
@@ -1793,16 +1981,16 @@ export default {
         async refreshAll() {
             await Promise.all([this.getList(), this.loadCounts()])
         },
-        async openCaseById(id) {
+        async openCaseById(id, tab) {
             // Prefer the row already in the loaded list to avoid a round-trip.
             const found = this.list.find(c => c._id === id)
             if (found) {
-                this.openDetail(found)
+                this.openDetail(found, tab)
                 return
             }
             try {
                 const res = await getCase(id)
-                if (res && res.data) this.openDetail(res.data)
+                if (res && res.data) this.openDetail(res.data, tab)
             } catch (e) {
                 console.error(e)
                 this.$message.error('Could not open that case')
@@ -1993,10 +2181,16 @@ export default {
             this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
             this.getList()
         },
-        openDetail(row) {
+        openDetail(row, tab) {
             this.detailCase = row
-            this.detailActiveTab = 'basic'
+            // Default to Basic Info; callers (e.g. the Returns dashboard
+            // deep-link) can request a specific tab. Fall back to 'basic' if
+            // the requested tab isn't available for this case.
+            const requested = tab || 'basic'
+            const hasReturns = !!(row && row.returnTracking && row.returnTracking.active)
+            this.detailActiveTab = requested === 'returns' && !hasReturns ? 'basic' : requested
             this.resetDeviceEdits()
+            this.seedReturnsForm()
             this.detailDialogOpen = true
         },
         resetDeviceEdits() {
@@ -2027,6 +2221,91 @@ export default {
                 this.$message.error(msg)
             } finally {
                 this.deviceSubmitting = false
+            }
+        },
+        // ── Return tracking (Returns tab) ──────────────────────────────
+        // Seed the editable working copy from the open case's returnTracking.
+        // Deep-clone so edits don't mutate detailCase until a save round-trips.
+        seedReturnsForm() {
+            const rt = (this.detailCase && this.detailCase.returnTracking) || null
+            if (!rt) {
+                this.returnsForm = { parts: [], device: null }
+                return
+            }
+            this.returnsForm = {
+                parts: (rt.parts || []).map(p => ({
+                    zohoSalesOrderId: p.zohoSalesOrderId || null,
+                    zohoSalesOrderNumber: p.zohoSalesOrderNumber || null,
+                    lineItemIdx: p.lineItemIdx,
+                    partName: p.partName || '',
+                    sku: p.sku || '',
+                    quantityToReturn: Number(p.quantityToReturn) || 0,
+                    quantityReceived: Number(p.quantityReceived) || 0,
+                    received: !!p.received
+                })),
+                device: rt.device
+                    ? {
+                        applicable: !!rt.device.applicable,
+                        expected: !!rt.device.expected,
+                        received: !!rt.device.received,
+                        note: rt.device.note || ''
+                    }
+                    : null
+            }
+        },
+        // Quantity received is the source of truth; `received` is derived so the
+        // row's status tag flips as soon as the full quantity is entered.
+        setPartReceivedQty(idx, val) {
+            const p = this.returnsForm.parts[idx]
+            if (!p) return
+            const qty = Math.max(0, Math.min(Number(val) || 0, p.quantityToReturn))
+            this.$set(this.returnsForm.parts, idx, {
+                ...p,
+                quantityReceived: qty,
+                received: p.quantityToReturn > 0 && qty >= p.quantityToReturn
+            })
+        },
+        // Toggling "device to return?" off clears any received state so the
+        // summary doesn't count a not-expected device.
+        onDeviceExpectedChange(v) {
+            if (!this.returnsForm.device) return
+            this.returnsForm.device.expected = !!v
+            if (!v) this.returnsForm.device.received = false
+        },
+        async saveReturns() {
+            if (!this.detailCase || this.savingReturns) return
+            const payload = {
+                parts: this.returnsForm.parts.map(p => ({
+                    zohoSalesOrderId: p.zohoSalesOrderId,
+                    lineItemIdx: p.lineItemIdx,
+                    quantityReceived: p.quantityReceived
+                }))
+            }
+            if (this.returnsForm.device && this.returnsForm.device.applicable) {
+                payload.device = {
+                    expected: this.returnsForm.device.expected,
+                    received: this.returnsForm.device.received,
+                    note: this.returnsForm.device.note || ''
+                }
+            }
+            this.savingReturns = true
+            try {
+                const res = await markCaseReturns(this.detailCase._id, payload)
+                const updated = res && res.data
+                if (!updated) throw new Error((res && res.message) || 'Save failed')
+                // Sync the list row + dialog binding, then re-seed from the
+                // authoritative server copy.
+                const idx = this.list.findIndex(c => c._id === this.detailCase._id)
+                if (idx !== -1) this.$set(this.list, idx, updated)
+                this.detailCase = updated
+                this.seedReturnsForm()
+                this.$message.success('Return tracking updated')
+            } catch (e) {
+                console.error('Save returns failed:', e)
+                const msg = (e.response && e.response.data && e.response.data.message) || e.message || 'Save failed'
+                this.$message.error(msg)
+            } finally {
+                this.savingReturns = false
             }
         },
         handleSendParts(row) {
@@ -2251,8 +2530,10 @@ export default {
                         partName: li.partName || '',
                         sku: li.sku || '',
                         quantitySent: Number(li.quantitySent) || 1,
-                        // Pre-tick if it was already marked used previously
-                        used: Number(li.quantityUsed) > 0
+                        // Default every part to "used" — the common case is the
+                        // whole order went into the repair. The shop unticks any
+                        // part that's being returned instead.
+                        used: true
                     })
                 }
             }
@@ -2297,16 +2578,23 @@ export default {
         },
         handleMarkUnrepairable(row) {
             this.markUnrepairableCase = row
+            // Default to "have the device for return" — the if-possible path.
+            this.markUnrepairableForm = { deviceExpected: true }
             this.markUnrepairableDialogOpen = true
         },
         async submitMarkUnrepairable() {
             if (!this.markUnrepairableCase) return
             this.markUnrepairableSubmitting = true
             try {
+                const deviceExpected = this.markUnrepairableForm.deviceExpected
                 const res = await changeCaseStatus(this.markUnrepairableCase._id, {
                     status: 'unrepairable',
-                    note: 'Shop marked the device as unrepairable',
-                    updatedBy: 'Admin'
+                    note: deviceExpected
+                        ? 'Shop marked the device as unrepairable — customer device held for return'
+                        : 'Shop marked the device as unrepairable — customer device not available for return',
+                    updatedBy: 'Admin',
+                    // Seeds returnTracking.device.expected on the backend.
+                    deviceExpected
                 })
                 this.$message.success('Moved to Unrepairable')
                 const updated = res && res.data
@@ -2855,6 +3143,53 @@ export default {
     border-radius: 4px;
 }
 
+/* ── Returns tab ─────────────────────────────────────────────────────── */
+.returns-tab-count { color: #e6a23c !important; font-weight: 600 !important; }
+.returns-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.returns-summary-alert { padding: 8px 12px; }
+.returns-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #303133;
+    i { color: #409eff; }
+}
+.returns-so { color: #909399; font-size: 12px; }
+.returns-qty { width: 110px; }
+.returns-device-card {
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #fafbfc;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.returns-device-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.returns-device-label {
+    color: #606266;
+    font-size: 13px;
+    min-width: 120px;
+}
+.returns-device-check { margin-left: 4px; }
+.returns-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 4px;
+    border-top: 1px dashed #ebeef5;
+}
+
 .history-card {
     .history-by {
         margin-left: 10px;
@@ -3102,6 +3437,24 @@ export default {
     color: #303133;
     font-size: 14px;
     margin-bottom: 14px;
+}
+
+/* Mark Unrepairable — customer-device return prompt */
+.device-return-alert {
+    margin-bottom: 14px;
+}
+.device-return-prompt {
+    .device-return-label {
+        color: #303133;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+    ::v-deep .el-radio {
+        display: block;
+        margin: 0 0 8px 0;
+        white-space: normal;
+    }
 }
 
 .repaired-items-table {
