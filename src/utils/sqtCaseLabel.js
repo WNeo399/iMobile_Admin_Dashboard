@@ -24,17 +24,18 @@ export function buildCaseLabelDoc({ shopName, caseId, serviceRequestId } = {}) {
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: PAGE })
 
     // Columns by anchor-x, left → right (URGENT! lowest x = left of the
-    // PDF = top when the label is upright). Sizes in pt.
+    // PDF = top when the label is upright). Sizes in pt. Positions
+    // chosen so the block centres on the 50mm page midline.
     const lines = [
-        { text: 'URGENT!', x: 46, size: 34 },
-        { text: shopName || '', x: 58, size: 13 },
-        { text: `Case ID: ${caseId || ''}`, x: 68, size: 13 },
-        { text: `Service ID: ${serviceRequestId || ''}`, x: 78, size: 13 }
+        { text: 'URGENT!', x: 39, size: 34 },
+        { text: shopName || '', x: 51, size: 13 },
+        { text: `Case ID: ${caseId || ''}`, x: 61, size: 13 },
+        { text: `Service ID: ${serviceRequestId || ''}`, x: 71, size: 13 }
     ]
 
-    // Border box framing the columns.
+    // Border box framing the columns, centred on the page (x 23–77).
     doc.setLineWidth(0.6)
-    doc.rect(30, 32, 54, 86)
+    doc.rect(23, 32, 54, 86)
 
     doc.setFont('helvetica', 'bold')
     for (const ln of lines) {
