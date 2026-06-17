@@ -1,17 +1,24 @@
 <template>
-    <div class="app-container tree-sidebar-manage-wrap credit-note-page">
+    <div :class="['app-container tree-sidebar-manage-wrap credit-note-page', { 'is-phone': isPhone, 'is-compact': isCompact }]">
         <!--
             Left: shared TreePanel — same component the SQT Cases /
             Repair / Users pages use, so the look + collapse/resize
             behaviour stays consistent. One root + three status leaves.
+
+            Desktop / tablet: the tree is inline. Phone: it's moved into
+            an off-canvas drawer (below) opened by the "Status" button in
+            the toolbar, so the card list gets the full screen width.
+            Mirrors the SQT Cases responsive layout.
         -->
         <tree-panel
+            v-if="!isPhone"
             ref="statusTree"
             title="Status"
             title-icon-class="el-icon-s-flag"
             :tree-data="treeData"
             :default-expand-all="true"
             :show-search="false"
+            :default-collapsed="isCompact"
             storage-key="credit-note-status-sidebar-width"
             @node-click="handleStatusClick"
         >
@@ -34,10 +41,56 @@
             </template>
         </tree-panel>
 
+        <!-- Mobile-only off-canvas Status drawer (left side). Flat list
+             mirrors the desktop tree: All Credit Notes + every status. -->
+        <el-drawer
+            v-if="isPhone"
+            title="Status"
+            :visible.sync="mobileFilterOpen"
+            direction="ltr"
+            size="80%"
+            :wrapper-closable="true"
+            custom-class="mobile-status-drawer"
+        >
+            <div class="drawer-status-list">
+                <div
+                    v-for="node in mobileStatusList"
+                    :key="node.id"
+                    :class="['drawer-status-item', { active: (node.id === 'all' && !queryParams.status) || node.id === queryParams.status }]"
+                    @click="handleStatusClick(node)"
+                >
+                    <i
+                        :class="node.id === 'all' ? 'el-icon-files' : 'el-icon-collection-tag'"
+                        :style="{ color: statusColor(node.id) }"
+                    />
+                    <span class="drawer-status-label">{{ node.label }}</span>
+                    <el-badge
+                        v-if="node.count !== undefined"
+                        :value="node.count"
+                        :max="999"
+                        :type="node.id === 'all' ? 'primary' : badgeType(node.id)"
+                    />
+                </div>
+            </div>
+        </el-drawer>
+
         <div class="tree-sidebar-content">
             <div class="content-inner">
-                <!-- Search row -->
-                <div class="filter-bar">
+                <!-- Search row. Inline on desktop, stacked full-width on
+                     phones. The "Status" button only appears on phone (it
+                     opens the drawer above); on desktop the tree is always
+                     visible. Same pattern as SQT Cases. -->
+                <div :class="['filter-bar', { stacked: isPhone }]">
+                    <el-button
+                        v-if="isPhone"
+                        size="small"
+                        icon="el-icon-s-flag"
+                        class="filter-status-btn"
+                        @click="mobileFilterOpen = true"
+                    >
+                        Status<span v-if="queryParams.status">: {{ currentStatusLabel }}</span>
+                    </el-button>
+
                     <el-input
                         v-model="queryParams.search"
                         placeholder="Search by credit no…"
@@ -48,15 +101,17 @@
                         @keyup.enter.native="handleQuery"
                         @clear="handleQuery"
                     />
-                    <el-button size="small" type="primary" icon="el-icon-search" @click="handleQuery">
-                        Search
-                    </el-button>
-                    <el-button
-                        size="small"
-                        icon="el-icon-refresh"
-                        :loading="loading"
-                        @click="getList"
-                    >Refresh</el-button>
+                    <div class="filter-actions">
+                        <el-button size="small" type="primary" icon="el-icon-search" @click="handleQuery">
+                            Search
+                        </el-button>
+                        <el-button
+                            size="small"
+                            icon="el-icon-refresh"
+                            :loading="loading"
+                            @click="getList"
+                        >Refresh</el-button>
+                    </div>
 
                     <span class="filter-spacer" />
                     <span class="filter-summary">
@@ -69,6 +124,7 @@
                 </div>
 
                 <el-table
+                    v-if="!useCardView"
                     v-loading="loading"
                     :data="list"
                     stripe
@@ -84,7 +140,7 @@
                             <span v-else class="muted">—</span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Items" prop="itemCount" width="90" align="center">
+                    <el-table-column v-if="showSecondaryColumns" label="Items" prop="itemCount" width="90" align="center">
                         <template slot-scope="scope">
                             {{ scope.row.itemCount || 0 }}
                         </template>
@@ -98,12 +154,12 @@
                             >{{ statusLabel(scope.row.status) }}</el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Submitted" min-width="170">
+                    <el-table-column v-if="showSecondaryColumns" label="Submitted" min-width="170">
                         <template slot-scope="scope">
                             {{ formatDate(scope.row.createdAt) || '—' }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="OCR Processed" min-width="170">
+                    <el-table-column v-if="showSecondaryColumns" label="OCR Processed" min-width="170">
                         <template slot-scope="scope">
                             {{ formatDate(scope.row.ocrProcessedAt) || '—' }}
                         </template>
@@ -167,6 +223,79 @@
                         </template>
                     </el-table-column>
                 </el-table>
+
+                <!--
+                    Phone / compact card list. Same info as the table row,
+                    vertically stacked, with the primary Credit No + Status
+                    up top and Review / Delete in the action row. Mirrors the
+                    SQT Cases card view. The card head opens the review dialog
+                    when the row is actionable (Pending / processed).
+                -->
+                <div v-if="useCardView" v-loading="loading" class="credit-card-list">
+                    <div v-if="!loading && list.length === 0" class="card-empty">
+                        No credit notes found.
+                    </div>
+                    <div v-for="row in list" :key="row._id" class="credit-card">
+                        <div
+                            :class="['card-head', { clickable: row.status === 'processed' }]"
+                            @click="row.status === 'processed' && openReview(row)"
+                        >
+                            <div class="card-id">
+                                <span class="card-id-main">{{ row.creditNo || '—' }}</span>
+                                <span class="card-id-sub">
+                                    {{ row.itemCount || 0 }} {{ (row.itemCount || 0) === 1 ? 'item' : 'items' }}
+                                </span>
+                            </div>
+                            <el-tag size="mini" :type="badgeType(row.status)" effect="light">
+                                {{ statusLabel(row.status) }}
+                            </el-tag>
+                        </div>
+                        <div class="card-body">
+                            <div class="card-line muted">
+                                <i class="el-icon-time" />
+                                <span>Submitted {{ formatDate(row.createdAt) || '—' }}</span>
+                            </div>
+                            <div v-if="row.ocrProcessedAt" class="card-line muted">
+                                <i class="el-icon-cpu" />
+                                <span>OCR {{ formatDate(row.ocrProcessedAt) }}</span>
+                            </div>
+                            <div v-if="row.s3Key" class="card-line">
+                                <i class="el-icon-paperclip" />
+                                <a
+                                    :href="s3Url(row.s3Key)"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="attachment-link"
+                                    :title="row.s3Key"
+                                >Open attachment</a>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <el-button
+                                v-if="row.status === 'processed'"
+                                size="mini"
+                                type="primary"
+                                plain
+                                icon="el-icon-view"
+                                @click="openReview(row)"
+                            >Review</el-button>
+                            <el-dropdown trigger="click" @command="(cmd) => cmd()">
+                                <el-button
+                                    size="mini"
+                                    icon="el-icon-more"
+                                    :loading="deletingId === row._id"
+                                />
+                                <el-dropdown-menu slot="dropdown">
+                                    <el-dropdown-item
+                                        :command="() => confirmDelete(row)"
+                                        icon="el-icon-delete"
+                                        class="dropdown-delete"
+                                    >Delete</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </el-dropdown>
+                        </div>
+                    </div>
+                </div>
 
                 <pagination
                     v-show="total > 0"
@@ -790,6 +919,14 @@ export default {
     components: { TreePanel },
     data() {
         return {
+            // Reactive viewport width — kept in sync by a window resize
+            // listener (see mounted/handleResize). Drives the isPhone /
+            // isCompact / showSecondaryColumns computeds that switch the
+            // page between the inline-tree + table desktop layout and the
+            // drawer + card-list phone layout. Same approach as SQT Cases.
+            viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1200,
+            // Phone-only: whether the off-canvas Status drawer is open.
+            mobileFilterOpen: false,
             loading: false,
             list: [],
             total: 0,
@@ -916,6 +1053,37 @@ export default {
             if (!this.queryParams.status) return 'All'
             const meta = STATUS_META.find(s => s.value === this.queryParams.status)
             return meta ? meta.label : this.queryParams.status
+        },
+        // ── Responsive layout (mirrors SQT Cases) ─────────────────
+        // `isPhone` (<768) swaps the inline tree for an off-canvas drawer
+        // and forces the card list; `isCompact` (<992) is the wider
+        // "shrink sensibly" band — it collapses the tree by default and
+        // also switches to cards (the table is too wide to be useful).
+        isPhone() {
+            return this.viewportWidth < 768
+        },
+        isCompact() {
+            return this.viewportWidth < 992
+        },
+        // Hide the lower-priority table columns (Items, Submitted, OCR
+        // Processed) below ~1100px so the table doesn't need a horizontal
+        // scrollbar; the same data is still in each card / the dialog.
+        showSecondaryColumns() {
+            return this.viewportWidth >= 1100
+        },
+        // Single switch the template uses to choose table vs card markup.
+        // Anything below the desktop breakpoint (<992) is locked to cards.
+        useCardView() {
+            return this.isCompact
+        },
+        // Flat list rendered inside the mobile Status drawer — mirrors the
+        // desktop tree (All Credit Notes + every status), same order.
+        mobileStatusList() {
+            const td = this.treeData[0] || { children: [] }
+            return [
+                { id: td.id, label: td.label, count: td.count },
+                ...(td.children || []).map(c => ({ id: c.id, label: c.label, count: c.count }))
+            ]
         },
         reviewTitle() {
             // The credit note number now has its own editable header
@@ -1050,12 +1218,17 @@ export default {
         this.getList()
     },
     mounted() {
+        // Keep `viewportWidth` reactive so the responsive computeds
+        // (isPhone / isCompact / showSecondaryColumns) re-evaluate as the
+        // window resizes or the device rotates.
+        window.addEventListener('resize', this.handleResize)
         // Sync the tree's visual highlight with the default
         // queryParams.status so the Pending node looks selected when
         // the page first renders. Reach through TreePanel into the
         // wrapped el-tree because TreePanel doesn't expose a
         // default-selected prop. nextTick gives the underlying tree
-        // a beat to render its nodes before setCurrentKey runs.
+        // a beat to render its nodes before setCurrentKey runs. (No-op
+        // on phone where the tree lives in the drawer instead.)
         this.$nextTick(() => {
             const tp = this.$refs.statusTree
             const tree = tp && tp.$refs && tp.$refs.treeRef
@@ -1064,7 +1237,13 @@ export default {
             }
         })
     },
+    beforeDestroy() {
+        window.removeEventListener('resize', this.handleResize)
+    },
     methods: {
+        handleResize() {
+            this.viewportWidth = window.innerWidth
+        },
         async getList() {
             this.loading = true
             try {
@@ -1770,6 +1949,9 @@ export default {
             if (!data) return
             this.queryParams.status = data.id === 'all' ? '' : data.id
             this.queryParams.page = 1
+            // On phone the status is picked from the off-canvas drawer —
+            // close it once a choice is made so the list comes back into view.
+            if (this.isPhone) this.mobileFilterOpen = false
             this.getList()
         },
         // ── Tree helpers (parity with SQT Cases / Repair) ─────────
@@ -1816,6 +1998,12 @@ export default {
     margin-bottom: 10px;
 }
 .filter-search { width: 280px; max-width: 100%; }
+.filter-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
 .filter-spacer { flex: 1; }
 .filter-summary {
     color: #606266;
@@ -1823,6 +2011,148 @@ export default {
 }
 .filter-summary strong { color: #303133; font-weight: 600; }
 .filter-summary-scope { color: #909399; }
+
+/* Phone: the filter bar stacks full-width. The Status button + search
+   span the row; the action buttons stay grouped and right-aligned. The
+   summary spacer collapses (no need to push anything when stacked). */
+.filter-bar.stacked {
+    flex-direction: column;
+    align-items: stretch;
+    .filter-search,
+    .filter-status-btn {
+        width: 100%;
+    }
+    .filter-actions { justify-content: flex-end; }
+    .filter-spacer { display: none; }
+    .filter-summary { width: 100%; }
+}
+
+/* Phone: tighter page padding so the cards can use the full screen. */
+.tree-sidebar-manage-wrap.is-phone {
+    height: auto;
+    min-height: calc(100vh - 100px);
+    .tree-sidebar-content .content-inner {
+        padding: 10px 8px;
+    }
+}
+
+/* ── Mobile status drawer (left off-canvas) ───────────────────────── */
+::v-deep .mobile-status-drawer {
+    .el-drawer__header {
+        margin-bottom: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid #ebeef5;
+        font-weight: 600;
+    }
+    .el-drawer__body {
+        padding: 6px 0;
+        overflow-y: auto;
+    }
+}
+.drawer-status-list {
+    display: flex;
+    flex-direction: column;
+}
+.drawer-status-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #f5f7fa;
+    transition: background 0.15s ease;
+    i { font-size: 16px; flex-shrink: 0; }
+    .drawer-status-label {
+        flex: 1;
+        font-size: 14px;
+        color: #303133;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    &:hover { background: #f5f7fa; }
+    &.active {
+        background: #ecf5ff;
+        color: #409eff;
+        font-weight: 600;
+    }
+}
+
+/* ── Card list (phone / compact) ──────────────────────────────────── */
+.credit-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 12px;
+}
+.card-empty {
+    padding: 32px 0;
+    text-align: center;
+    color: #909399;
+    background: #fafafa;
+    border-radius: 8px;
+}
+.credit-card {
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    &.clickable { cursor: pointer; }
+}
+.card-id { display: flex; flex-direction: column; min-width: 0; }
+.card-id-main {
+    color: #409eff;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 1.2;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.card-id-sub {
+    color: #909399;
+    font-size: 12px;
+    margin-top: 2px;
+}
+.card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 10px;
+}
+.card-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #303133;
+    font-size: 13px;
+    line-height: 1.4;
+    i { color: #909399; flex-shrink: 0; }
+    span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+    }
+    &.muted { color: #909399; font-size: 12px; }
+}
+.card-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 8px;
+    border-top: 1px dashed #ebeef5;
+    .el-button { margin-left: 0 !important; }
+}
 
 /* Tree node template (same shape as SQT Cases / Repair) */
 .status-node {
@@ -2453,6 +2783,16 @@ export default {
     .credit-review-dialog {
         width: 92vw !important;
     }
+}
+/* Phones: near-full-width dialog, pinned near the top, tighter body
+   padding. The review-shell panes already stack at ≤900px (scoped). */
+@media (max-width: 768px) {
+    .credit-review-dialog {
+        width: 96vw !important;
+        margin-top: 3vh !important;
+    }
+    .credit-review-dialog .el-dialog__body { padding: 10px 12px 4px; }
+    .credit-review-dialog .el-dialog__footer { padding: 8px 12px 12px; }
 }
 /* Match-select popper. Element UI's el-select default option height
    (34px) clips two-line content — bump to auto with a min-height +
