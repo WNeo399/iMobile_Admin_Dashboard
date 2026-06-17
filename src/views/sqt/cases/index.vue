@@ -1968,6 +1968,9 @@ export default {
         handleStatusClick(data) {
             if (!data) return
             this.activeStatus = data.id === 'all' ? null : data.id
+            // Clear the search box when switching status so a leftover
+            // term doesn't silently keep the new status's list filtered.
+            this.queryParams.search = ''
             this.queryParams.page = 1
             this.getList()
             // On mobile the tree lives inside a drawer; close it once a status
