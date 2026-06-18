@@ -138,6 +138,15 @@
                     <span v-else class="muted-inline">—</span>
                 </template>
             </el-table-column>
+            <el-table-column label="Opened" width="140" align="center">
+                <template slot-scope="scope">
+                    <div>{{ fmtDate(returnOpenedAt(scope.row)) }}</div>
+                    <div
+                        v-if="returnAgeLabel(scope.row)"
+                        :class="['return-age', returnAgeClass(scope.row)]"
+                    >{{ returnAgeLabel(scope.row) }}</div>
+                </template>
+            </el-table-column>
             <el-table-column label="" width="110" align="center">
                 <template slot-scope="scope">
                     <el-tag size="mini" :type="summaryType(scope.row)" effect="dark">
@@ -531,6 +540,40 @@ export default {
         reasonLabel(reason) {
             const m = REASON_META.find(r => r.value === reason)
             return m ? m.label : (reason || '—')
+        },
+        // ── Ageing ─────────────────────────────────────────────────────
+        // When the return was opened (returnTracking initialised on the
+        // terminal transition).
+        returnOpenedAt(row) {
+            return row.returnTracking && row.returnTracking.initializedAt
+        },
+        // Whole days since the return was opened — null if unknown.
+        returnAgeDays(row) {
+            const v = this.returnOpenedAt(row)
+            if (!v) return null
+            const d = new Date(v)
+            if (isNaN(d.getTime())) return null
+            return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000))
+        },
+        returnAgeLabel(row) {
+            const days = this.returnAgeDays(row)
+            if (days === null) return ''
+            if (days === 0) return 'Today'
+            return days === 1 ? '1 day open' : `${days} days open`
+        },
+        // Colour-code the age so stale returns stand out: >14d red, >7d amber.
+        returnAgeClass(row) {
+            const days = this.returnAgeDays(row)
+            if (days === null) return ''
+            if (days > 14) return 'age-old'
+            if (days > 7) return 'age-mid'
+            return 'age-new'
+        },
+        fmtDate(value) {
+            if (!value) return '—'
+            const d = new Date(value)
+            if (isNaN(d.getTime())) return '—'
+            return d.toLocaleDateString('en-AU', { timeZone: 'Australia/Melbourne' })
         }
     }
 }
@@ -570,6 +613,13 @@ export default {
 }
 .muted-inline { color: #909399; font-size: 12px; }
 .all-in { color: #67c23a; font-weight: 600; }
+.return-age {
+    font-size: 12px;
+    margin-top: 2px;
+}
+.return-age.age-new { color: #909399; }
+.return-age.age-mid { color: #e6a23c; font-weight: 600; }
+.return-age.age-old { color: #f56c6c; font-weight: 600; }
 
 /* Update-returns dialog */
 .returns-dialog-body {

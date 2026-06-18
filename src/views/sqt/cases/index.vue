@@ -645,6 +645,24 @@
             @close="resetSendParts"
         >
             <div v-if="sendPartsCase" class="send-parts-scroll">
+                <!-- Shop's "extra parts" request note — only shown when this
+                     case came in via Require Extra Parts, so the admin can see
+                     exactly what was asked for before picking products. -->
+                <el-alert
+                    v-if="sendPartsRequestNote"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                    class="extra-parts-request-alert"
+                >
+                    <template slot="title">
+                        <div class="extra-parts-request-label">
+                            <i class="el-icon-circle-plus-outline" /> Extra parts requested by shop
+                        </div>
+                        <div class="extra-parts-request-note">{{ sendPartsRequestNote }}</div>
+                    </template>
+                </el-alert>
+
                 <el-card shadow="never" class="send-parts-device">
                     <div slot="header" class="send-parts-card-header">
                         <i class="el-icon-mobile-phone" /> Device Info
@@ -1097,6 +1115,40 @@
             </div>
         </el-dialog>
 
+        <!-- Require Extra Parts dialog (Parts Arrived / Waiting for Drop-off / Repairing) -->
+        <el-dialog
+            :title="requireExtraPartsDialogTitle"
+            :visible.sync="requireExtraPartsDialogOpen"
+            width="520px"
+            append-to-body
+        >
+            <div class="parts-received-question">
+                Request <b>extra parts</b> for this case? It will move to
+                <b>Require Extra Parts</b> so the team can send more parts.
+            </div>
+            <el-form :model="requireExtraPartsForm" size="small">
+                <el-form-item label="Note" required>
+                    <el-input
+                        v-model="requireExtraPartsForm.note"
+                        type="textarea"
+                        :rows="4"
+                        maxlength="1000"
+                        show-word-limit
+                        placeholder="Describe the extra parts needed (required)…"
+                    />
+                </el-form-item>
+            </el-form>
+
+            <div slot="footer">
+                <el-button
+                    type="primary"
+                    :loading="requireExtraPartsSubmitting"
+                    @click="submitRequireExtraParts"
+                >Submit Request</el-button>
+                <el-button @click="requireExtraPartsDialogOpen = false">Cancel</el-button>
+            </div>
+        </el-dialog>
+
         <!-- Case detail dialog -->
         <el-dialog
             :title="detailDialogTitle"
@@ -1506,7 +1558,10 @@ import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
 import * as XLSX from 'xlsx-js-style'
 
 const STATUS_META = [
-    // First entry → first child node in the Status tree (above Pending).
+    // Top of the tree — a shop has asked for more parts on an in-progress
+    // case. Behaves like Pending (admin sends parts from here). Purple icon
+    // keeps it distinct from the orange "waiting" cluster and the sienna On Hold.
+    { value: 'require-extra-parts', label: 'Require Extra Parts', tag: 'warning', color: '#9B59B6' },
     // Sienna icon distinguishes it from the bright-orange "waiting" cluster.
     { value: 'on-hold', label: 'On Hold', tag: 'warning', color: '#a0522d' },
     { value: 'pending', label: 'Pending', tag: 'info', color: '#909399' },
@@ -1602,6 +1657,13 @@ export default {
             markBerDialogOpen: false,
             markBerCase: null,
             markBerSubmitting: false,
+
+            // Require Extra Parts — shop-raised request for more parts on an
+            // in-progress case. Note is mandatory.
+            requireExtraPartsDialogOpen: false,
+            requireExtraPartsCase: null,
+            requireExtraPartsSubmitting: false,
+            requireExtraPartsForm: { note: '' },
 
             notesDialogOpen: false,
             notesCaseRef: null,
@@ -1784,6 +1846,20 @@ export default {
             if (!this.sendPartsCase) return 'Send Parts'
             return `Send Parts — ${this.caseLabel(this.sendPartsCase)}`
         },
+        // The shop's note from the most recent Require Extra Parts request, so
+        // the admin sending parts can see what was asked for. Empty unless the
+        // case is currently in require-extra-parts.
+        sendPartsRequestNote() {
+            const row = this.sendPartsCase
+            if (!row || row.status !== 'require-extra-parts') return ''
+            const history = Array.isArray(row.statusHistory) ? row.statusHistory : []
+            for (let i = history.length - 1; i >= 0; i--) {
+                if (history[i] && history[i].status === 'require-extra-parts' && history[i].note) {
+                    return String(history[i].note)
+                }
+            }
+            return ''
+        },
         partsReceivedDialogTitle() {
             if (!this.partsReceivedCase) return 'Parts Received'
             return `Parts Received — ${this.caseLabel(this.partsReceivedCase)}`
@@ -1811,6 +1887,10 @@ export default {
         markBerDialogTitle() {
             if (!this.markBerCase) return 'Mark BER'
             return `Mark BER — ${this.caseLabel(this.markBerCase)}`
+        },
+        requireExtraPartsDialogTitle() {
+            if (!this.requireExtraPartsCase) return 'Require Extra Parts'
+            return `Require Extra Parts — ${this.caseLabel(this.requireExtraPartsCase)}`
         },
         detailDialogTitle() {
             if (!this.detailCase) return 'Case Detail'
@@ -1933,8 +2013,21 @@ export default {
         // Used by both the desktop action column and the mobile card list.
         primaryActions(row) {
             const a = []
+            // Shop-raised "Require Extra Parts" — available on the three
+            // in-progress states. Requires a note; moves the case to
+            // require-extra-parts so admins can send more parts.
+            const requireExtraParts = {
+                label: 'Require Extra Parts',
+                icon: 'el-icon-circle-plus-outline',
+                permission: 'sqt:case:requireExtraParts',
+                click: () => this.handleRequireExtraParts(row)
+            }
             switch (row.status) {
                 case 'pending':
+                    a.push({ label: 'Send Parts', icon: 'el-icon-box', permission: 'sqt:case:sendParts', click: () => this.handleSendParts(row) })
+                    break
+                case 'require-extra-parts':
+                    // Behaves like pending — admin sends more parts from here.
                     a.push({ label: 'Send Parts', icon: 'el-icon-box', permission: 'sqt:case:sendParts', click: () => this.handleSendParts(row) })
                     break
                 case 'waiting-for-parts':
@@ -1942,13 +2035,16 @@ export default {
                     break
                 case 'parts-arrived':
                     a.push({ label: 'Customer Notified', icon: 'el-icon-bell', click: () => this.handleCustomerNotified(row) })
+                    a.push(requireExtraParts)
                     break
                 case 'waiting-for-drop-off':
                     a.push({ label: 'Start Repair', icon: 'el-icon-setting', click: () => this.handleStartRepair(row) })
+                    a.push(requireExtraParts)
                     break
                 case 'repairing':
                     a.push({ label: 'Mark Repaired', icon: 'el-icon-circle-check', click: () => this.handleMarkRepaired(row) })
                     a.push({ label: 'Mark Unrepairable', icon: 'el-icon-warning-outline', click: () => this.handleMarkUnrepairable(row) })
+                    a.push(requireExtraParts)
                     break
                 case 'repaired':
                     a.push({ label: 'Mark Collected', icon: 'el-icon-finished', click: () => this.handleMarkCollected(row) })
@@ -2641,6 +2737,40 @@ export default {
                 this.markBerSubmitting = false
             }
         },
+        handleRequireExtraParts(row) {
+            this.requireExtraPartsCase = row
+            this.requireExtraPartsForm = { note: '' }
+            this.requireExtraPartsDialogOpen = true
+        },
+        async submitRequireExtraParts() {
+            if (!this.requireExtraPartsCase) return
+            const note = this.requireExtraPartsForm.note.trim()
+            if (!note) {
+                this.$message.warning('Please leave a note describing the extra parts needed.')
+                return
+            }
+            this.requireExtraPartsSubmitting = true
+            try {
+                const res = await changeCaseStatus(this.requireExtraPartsCase._id, {
+                    status: 'require-extra-parts',
+                    note
+                })
+                this.$message.success('Moved to Require Extra Parts')
+                const updated = res && res.data
+                if (updated) {
+                    const idx = this.list.findIndex(c => c._id === updated._id)
+                    if (idx !== -1) this.$set(this.list, idx, updated)
+                }
+                this.requireExtraPartsDialogOpen = false
+                this.refreshAll()
+            } catch (e) {
+                console.error(e)
+                const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to submit request'
+                this.$message.error(msg)
+            } finally {
+                this.requireExtraPartsSubmitting = false
+            }
+        },
         handleSelectParts(row) {
             this.selectPartsCase = row
             this.availableParts = []
@@ -3214,6 +3344,21 @@ export default {
     font-size: 12px;
 }
 
+.extra-parts-request-alert {
+    margin-bottom: 14px;
+    align-items: flex-start;
+}
+.extra-parts-request-label {
+    font-weight: 600;
+    i { margin-right: 4px; }
+}
+.extra-parts-request-note {
+    margin-top: 4px;
+    font-weight: 400;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+}
 .send-parts-device {
     margin-bottom: 18px;
 }
