@@ -13,11 +13,14 @@
                         @click="openAdd('model')">Add Model</el-button>
                 </div>
                 <el-table v-loading="loading.models" :data="models" stripe size="small" class="ref-table">
-                    <el-table-column label="Name" prop="name" min-width="200" />
-                    <el-table-column label="Brand" min-width="120">
+                    <el-table-column label="Name" prop="name" min-width="180" />
+                    <el-table-column label="Brand" min-width="100">
                         <template slot-scope="scope">{{ brandName(scope.row.brand_id) }}</template>
                     </el-table-column>
-                    <el-table-column label="ID (slug)" min-width="180">
+                    <el-table-column label="Series" min-width="110">
+                        <template slot-scope="scope">{{ scope.row.series || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="ID (slug)" min-width="160">
                         <template slot-scope="scope"><span class="mono">{{ scope.row._id }}</span></template>
                     </el-table-column>
                     <el-table-column label="Action" width="120" align="center">
@@ -110,6 +113,14 @@
                         <el-option v-for="b in brands" :key="b._id" :value="b._id" :label="b.name" />
                     </el-select>
                 </el-form-item>
+                <el-form-item v-if="refType === 'model'" label="Series" prop="series">
+                    <!-- Pick an existing series for the brand, or type a new one
+                         (allow-create). Groups models in the catalogue selectors. -->
+                    <el-select v-model="form.series" placeholder="Pick or type a series" filterable allow-create
+                        default-first-option class="form-control">
+                        <el-option v-for="s in modelSeriesOptions" :key="s" :value="s" :label="s" />
+                    </el-select>
+                </el-form-item>
                 <el-form-item v-if="refType === 'quality'" label="Category" prop="category_id">
                     <el-select v-model="form.category_id" placeholder="Select a category" class="form-control"
                         :disabled="isEdit">
@@ -153,11 +164,21 @@ export default {
             dialogOpen: false,
             saving: false,
             refType: 'model',     // 'model' | 'quality' | 'brand'
-            form: { id: '', name: '', brand_id: '', category_id: '' }
+            form: { id: '', name: '', brand_id: '', category_id: '', series: '' }
         }
     },
     computed: {
         isEdit() { return !!this.form.id },
+        // Distinct series already used by the selected brand's models, to seed
+        // the model dialog's series picker (allow-create lets you add a new one).
+        modelSeriesOptions() {
+            const bid = this.form.brand_id
+            const set = new Set()
+            for (const m of this.models) {
+                if ((!bid || m.brand_id === bid) && m.series) set.add(m.series)
+            }
+            return [...set].sort()
+        },
         dialogTitle() {
             const label = { model: 'Model', quality: 'Quality', brand: 'Brand' }[this.refType] || ''
             return `${this.isEdit ? 'Edit' : 'Add'} ${label}`
@@ -168,6 +189,7 @@ export default {
             const r = { name: [{ required: true, message: 'Name is required', trigger: 'blur' }] }
             if (this.refType === 'model') {
                 r.brand_id = [{ required: true, message: 'Pick a brand', trigger: 'change' }]
+                r.series = [{ required: true, message: 'Pick or enter a series', trigger: 'change' }]
             }
             if (this.refType === 'quality') {
                 r.category_id = [{ required: true, message: 'Pick a category', trigger: 'change' }]
@@ -227,7 +249,8 @@ export default {
             this.form = {
                 id: '', name: '',
                 brand_id: type === 'model' && this.brands.length === 1 ? this.brands[0]._id : '',
-                category_id: ''
+                category_id: '',
+                series: ''
             }
             this.dialogOpen = true
             this.$nextTick(() => this.$refs.form && this.$refs.form.clearValidate())
@@ -238,7 +261,8 @@ export default {
                 id: row._id,
                 name: row.name || '',
                 brand_id: row.brand_id || '',
-                category_id: row.category_id || ''
+                category_id: row.category_id || '',
+                series: row.series || ''
             }
             this.dialogOpen = true
             this.$nextTick(() => this.$refs.form && this.$refs.form.clearValidate())
@@ -262,10 +286,10 @@ export default {
         },
         async saveModel() {
             if (this.isEdit) {
-                await updateModel(this.form.id, { name: this.form.name })
+                await updateModel(this.form.id, { name: this.form.name, series: this.form.series })
                 this.$message.success('Model updated')
             } else {
-                await createModel({ name: this.form.name, brand_id: this.form.brand_id })
+                await createModel({ name: this.form.name, brand_id: this.form.brand_id, series: this.form.series })
                 this.$message.success('Model added')
             }
             this.loadModels()

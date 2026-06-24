@@ -237,12 +237,18 @@
             placeholder="Pick one or more models"
             class="form-control"
           >
-            <el-option
-              v-for="m in models"
-              :key="m._id"
-              :value="m._id"
-              :label="m.name"
-            />
+            <el-option-group
+              v-for="g in groupedModelOptions"
+              :key="g.label"
+              :label="g.label"
+            >
+              <el-option
+                v-for="m in g.options"
+                :key="m.value"
+                :value="m.value"
+                :label="m.label"
+              />
+            </el-option-group>
           </el-select>
         </el-form-item>
         <el-form-item label="Color" prop="color">
@@ -361,21 +367,65 @@ export default {
     dialogTitle() {
       return this.isEdit ? "Edit Product" : "Add Product";
     },
-    // Brand → Model cascader options. Each brand's children are an
-    // "All" entry (filter by the whole brand) followed by that brand's
-    // models. Brands with no models stay leaves (selecting the brand
-    // already means "the whole brand").
+    // Brand → Series → Model cascader options. Each level carries an "All"
+    // entry to filter by the whole brand / whole series. Models are grouped
+    // under their series (series_id + series name on the model doc).
     brandModelOptions() {
       return this.brands.map((b) => {
-        const models = this.models
-          .filter((m) => m.brand_id === b._id)
-          .map((m) => ({ value: m._id, label: m.name }));
+        const brandModels = this.models.filter((m) => m.brand_id === b._id);
         const node = { value: b._id, label: b.name };
-        if (models.length) {
-          node.children = [{ value: ALL_VALUE, label: "All" }, ...models];
+        if (!brandModels.length) return node;
+
+        // Group this brand's models by series, preserving first-seen order.
+        const order = [];
+        const groups = {};
+        for (const m of brandModels) {
+          const sid = m.series_id || "__none__";
+          if (!groups[sid]) {
+            groups[sid] = { id: sid, name: m.series || "Other", models: [] };
+            order.push(sid);
+          }
+          groups[sid].models.push(m);
         }
+        const seriesNodes = order.map((sid) => {
+          const g = groups[sid];
+          const modelOpts = g.models.map((m) => ({ value: m._id, label: m.name }));
+          return {
+            value: g.id,
+            label: g.name,
+            children: [{ value: ALL_VALUE, label: "All" }, ...modelOpts],
+          };
+        });
+        node.children = [{ value: ALL_VALUE, label: "All" }, ...seriesNodes];
         return node;
       });
+    },
+    // Models grouped by "Brand · Series" for the Add/Edit Product dialog's
+    // Compatible Models multi-select (el-option-group). modelIds stays a flat
+    // array; this only groups the options visually.
+    groupedModelOptions() {
+      const result = [];
+      for (const b of this.brands) {
+        const brandModels = this.models.filter((m) => m.brand_id === b._id);
+        const order = [];
+        const groups = {};
+        for (const m of brandModels) {
+          const sid = m.series_id || "__none__";
+          if (!groups[sid]) {
+            groups[sid] = { name: m.series || "Other", models: [] };
+            order.push(sid);
+          }
+          groups[sid].models.push(m);
+        }
+        for (const sid of order) {
+          const g = groups[sid];
+          result.push({
+            label: `${b.name} · ${g.name}`,
+            options: g.models.map((m) => ({ value: m._id, label: m.name })),
+          });
+        }
+      }
+      return result;
     },
     // Category → Quality cascader options. Same "All" entry on top of
     // each category's qualities.
@@ -449,10 +499,32 @@ export default {
     // a brand with no models, [brandId, ALL_VALUE] the whole brand, or
     // [brandId, modelId] a specific model. The "All" leaf maps to
     // brand-only (no model filter).
+    // Cascader path shapes (ALL = the "All" sentinel):
+    //   []                              → no brand/model filter
+    //   [brand]                         → whole brand (brand has no series)
+    //   [brand, ALL]                    → whole brand
+    //   [brand, series, ALL]            → whole series (→ expand to its model ids)
+    //   [brand, series, model]          → one model
     onBrandModelChange(path) {
       const p = Array.isArray(path) ? path : [];
       this.queryParams.brand = p[0] || "";
-      this.queryParams.model = p[1] && p[1] !== ALL_VALUE ? p[1] : "";
+      this.queryParams.model = "";
+      if (p.length >= 2 && p[1] !== ALL_VALUE) {
+        const seriesId = p[1];
+        if (p.length >= 3 && p[2] !== ALL_VALUE) {
+          // Specific model.
+          this.queryParams.model = p[2];
+        } else {
+          // Whole series → every model id in it (backend treats a
+          // comma-separated list as an $in over compatible_models).
+          this.queryParams.model = this.models
+            .filter(
+              (m) => m.brand_id === p[0] && (m.series_id || "") === seriesId,
+            )
+            .map((m) => m._id)
+            .join(",");
+        }
+      }
       this.handleQuery();
     },
     onCategoryQualityChange(path) {
