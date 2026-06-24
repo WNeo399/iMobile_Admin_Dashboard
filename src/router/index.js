@@ -220,6 +220,19 @@ export const moduleRoutes = [
           icon: "el-icon-shopping-cart-2",
           permissions: ["zoho:salesOrder:create"]
         }
+      },
+      {
+        // Apple SVP Lookup — customer enquiries (imb_svp_enquiry) raised by the
+        // public genuine-parts lookup site when a serial isn't on record and
+        // the customer asks us to confirm with the supplier.
+        path: "svpEnquiry",
+        component: (resolve) => require(["@/views/imobile/svp/enquiries"], resolve),
+        name: "ImobileSvpEnquiry",
+        meta: {
+          title: "SVP Enquiries",
+          icon: "el-icon-search",
+          permissions: ["svp:enquiry:view"]
+        }
       }
     ]
   },
