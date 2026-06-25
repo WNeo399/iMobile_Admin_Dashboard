@@ -70,25 +70,34 @@
                 <div class="add-product-row">
                     <el-autocomplete
                         v-model="addKeyword"
-                        :fetch-suggestions="searchCatalogueProducts"
+                        :fetch-suggestions="searchZohoProducts"
                         :debounce="400"
                         :disabled="addingProduct"
-                        placeholder="Search the catalogue by SKU or name to add an item…"
+                        placeholder="Search Zoho products by name or SKU to add an item…"
                         style="width: 100%"
                         :trigger-on-focus="false"
-                        value-key="value"
+                        value-key="name"
                         clearable
                         prefix-icon="el-icon-search"
                         popper-class="oz-add-suggestions"
-                        @select="onCatalogueProductSelected"
+                        @select="onZohoProductSelected"
                     >
                         <template slot-scope="{ item }">
                             <div class="add-suggestion">
-                                <div class="add-suggestion-name">{{ item.productName }}</div>
-                                <div class="add-suggestion-meta">
-                                    <span class="mono">{{ item.sku }}</span>
-                                    <span v-if="item.quality && item.quality.name"> · {{ item.quality.name }}</span>
-                                    <span v-if="item.color"> · {{ item.color }}</span>
+                                <img
+                                    v-if="item.imgUrl"
+                                    :src="item.imgUrl"
+                                    class="add-suggestion-img"
+                                    @error="onSuggestionImgError($event)"
+                                />
+                                <div v-else class="add-suggestion-img add-suggestion-img-ph">
+                                    <i class="el-icon-picture-outline" />
+                                </div>
+                                <div class="add-suggestion-info">
+                                    <div class="add-suggestion-name">{{ item.name }}</div>
+                                    <div v-if="item.sku" class="add-suggestion-meta">
+                                        <span class="mono">{{ item.sku }}</span>
+                                    </div>
                                 </div>
                             </div>
                         </template>
@@ -127,12 +136,26 @@
                                         <span v-if="scope.row.status === 'MATCHED_FALLBACK'" class="fallback-badge">
                                             {{ scope.row.usedQuality }} substituted
                                         </span>
+                                        <!-- Re-pick a different product for this line via the search dialog. -->
+                                        <el-button type="text" size="mini" icon="el-icon-edit"
+                                            class="change-match-btn" @click="openMapDialog(scope.row)">Change</el-button>
                                     </template>
                                     <template v-else>
                                         <el-tag :type="statusTag(scope.row.status)" size="mini" effect="plain">
                                             {{ statusLabel(scope.row.status) }}
                                         </el-tag>
-                                        <el-select v-if="scope.row.status === 'NO_QUALITY'"
+                                        <!-- "Other" (free-text) parts resolve by picking the actual
+                                             product (full name), since their category may not map to
+                                             stocked grades/colours cleanly. -->
+                                        <el-select v-if="isOtherPart(scope.row) && (scope.row.candidates || []).length"
+                                            v-model="scope.row.selectedSku" size="mini" placeholder="Pick a product"
+                                            class="repick repick-wide" filterable>
+                                            <el-option v-for="s in scope.row.candidates" :key="s.sku" :value="s.sku"
+                                                :label="skuOptionLabel(s)" />
+                                        </el-select>
+                                        <!-- Standard parts: re-pick grade / colour (re-matches), or
+                                             pick the product when several variants match. -->
+                                        <el-select v-else-if="scope.row.status === 'NO_QUALITY'"
                                             v-model="scope.row.repickQuality" size="mini" placeholder="Pick a quality"
                                             class="repick" :loading="scope.row.rematching"
                                             @change="(v) => repickQuality(scope.row, v)">
@@ -145,10 +168,10 @@
                                             <el-option v-for="c in scope.row.availableColours" :key="c" :value="c" :label="c" />
                                         </el-select>
                                         <el-select v-else-if="scope.row.status === 'MULTIPLE'"
-                                            v-model="scope.row.selectedSku" size="mini" placeholder="Pick a SKU"
-                                            class="repick">
+                                            v-model="scope.row.selectedSku" size="mini" placeholder="Pick a product"
+                                            class="repick repick-wide" filterable>
                                             <el-option v-for="s in scope.row.skus" :key="s.sku" :value="s.sku"
-                                                :label="`${s.sku} — ${s.color || 'no colour'}`" />
+                                                :label="skuOptionLabel(s)" />
                                         </el-select>
                                     </template>
                                 </div>
@@ -175,17 +198,23 @@
                 <div class="review-section-title warn">
                     <i class="el-icon-warning-outline" />
                     Not catalogued ({{ notCataloguedRows.length }})
-                    <span class="review-section-note">— this model/part isn't in the catalogue, so it's left out</span>
+                    <span class="review-section-note">— not in the catalogue. Use "Find product" to map one, or it's left out.</span>
                 </div>
-                <el-table :data="notCataloguedRows" size="small" max-height="180">
+                <el-table :data="notCataloguedRows" size="small" max-height="220">
                     <el-table-column label="Model" min-width="140">
                         <template slot-scope="scope">{{ scope.row.line._display.model }}</template>
                     </el-table-column>
                     <el-table-column label="Part" width="120">
                         <template slot-scope="scope">{{ scope.row.line._display.part }}</template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="120">
+                    <el-table-column label="Grade" width="110">
                         <template slot-scope="scope">{{ scope.row.line.requestedQuality }}</template>
+                    </el-table-column>
+                    <el-table-column label="" width="140" align="center">
+                        <template slot-scope="scope">
+                            <el-button size="mini" type="primary" plain icon="el-icon-search"
+                                @click="openMapDialog(scope.row)">Find product</el-button>
+                        </template>
                     </el-table-column>
                 </el-table>
             </div>
@@ -234,13 +263,70 @@
                 <el-button type="primary" icon="el-icon-link" @click="openInZoho">Open in Zoho</el-button>
             </div>
         </div>
+
+        <!-- ── Map a not-catalogued line to a Zoho product ───────────────── -->
+        <el-dialog
+            :title="mapDialogTitle"
+            :visible.sync="mapDialogOpen"
+            width="520px"
+            append-to-body
+            :close-on-click-modal="false"
+            @closed="onMapDialogClosed"
+        >
+            <div v-if="mapTargetRow" class="map-dialog-body">
+                <div class="map-request">
+                    <span class="desc-tag oz-tag">OZ</span>
+                    <span class="desc-text">{{ requestText(mapTargetRow) }}</span>
+                </div>
+                <el-autocomplete
+                    v-model="mapKeyword"
+                    :fetch-suggestions="searchZohoProducts"
+                    :debounce="400"
+                    placeholder="Search Zoho products by name or SKU…"
+                    style="width: 100%"
+                    :trigger-on-focus="false"
+                    value-key="name"
+                    clearable
+                    prefix-icon="el-icon-search"
+                    popper-class="oz-add-suggestions"
+                    @select="onMapProductSelected"
+                >
+                    <template slot-scope="{ item }">
+                        <div class="add-suggestion">
+                            <img
+                                v-if="item.imgUrl"
+                                :src="item.imgUrl"
+                                class="add-suggestion-img"
+                                @error="onSuggestionImgError($event)"
+                            />
+                            <div v-else class="add-suggestion-img add-suggestion-img-ph">
+                                <i class="el-icon-picture-outline" />
+                            </div>
+                            <div class="add-suggestion-info">
+                                <div class="add-suggestion-name">{{ item.name }}</div>
+                                <div v-if="item.sku" class="add-suggestion-meta">
+                                    <span class="mono">{{ item.sku }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </el-autocomplete>
+                <div class="map-hint">
+                    Pick the Zoho product to map this line to. Its job number is kept on the order.
+                </div>
+            </div>
+            <div slot="footer">
+                <el-button @click="mapDialogOpen = false">Cancel</el-button>
+            </div>
+        </el-dialog>
     </div>
 </template>
 
 <script>
 import { parseWorkbook, resolveRows } from '@/utils/ozMatcher'
 import { buildOzLabelDoc } from '@/utils/ozLabels'
-import { matchOzLines, listProducts } from '@/api/catalogue'
+import { matchOzLines } from '@/api/catalogue'
+import { searchProducts } from '@/api/zoho/products/product'
 import { bulkSkuLookup, createSalesOrder, attachToSalesOrder } from '@/api/tools/ozOrder'
 
 // Fixed OZ customer + pricebook (provided by the business). Every Oz
@@ -274,6 +360,10 @@ export default {
             // Add-product autocomplete (review step)
             addKeyword: '',
             addingProduct: false,
+            // Map-a-not-catalogued-line dialog
+            mapDialogOpen: false,
+            mapTargetRow: null,
+            mapKeyword: '',
             submitting: false,
             submitError: '',
 
@@ -297,6 +387,12 @@ export default {
         matchableRows() { return this.rows.filter(r => r.status !== 'NO_PART') },
         attentionRows() {
             return this.rows.filter(r => !r.selectedSku && r.status !== 'NO_PART')
+        },
+        mapDialogTitle() {
+            if (!this.mapTargetRow) return 'Find product'
+            const d = (this.mapTargetRow.line && this.mapTargetRow.line._display) || {}
+            const label = [d.model, d.part].filter(Boolean).join(' · ')
+            return label ? `Find product — ${label}` : 'Find product'
         }
     },
     methods: {
@@ -353,13 +449,17 @@ export default {
                 line: result.line,
                 status: result.status,
                 skus: result.skus || [],
+                // For "Other" parts: products the user can pick directly
+                // (MULTIPLE → the matches; NO_QUALITY / NO_COLOUR → the full
+                // model+part pool).
+                candidates: result.candidates || result.skus || [],
+                // For standard parts: grade / colour re-pick options.
                 availableQualities: result.availableQualities || [],
                 availableColours: result.availableColours || [],
                 usedQuality: result.usedQuality || '',
                 selectedSku: '',
                 // Editable per-row quantity (like the Buzztech import).
-                // Defaults to 1; preserved across a re-match so the user
-                // doesn't lose an edited qty when they re-pick a grade.
+                // Preserved across a re-match so an edited qty isn't lost.
                 qty: prevQty && prevQty > 0 ? prevQty : 1,
                 repickQuality: '',
                 repickColour: '',
@@ -371,7 +471,17 @@ export default {
             return row
         },
 
-        // ── Re-pick (single-line re-match) ─────────────────────────
+        // "Other" parts come from the sheet's free-text Other column; ozMatcher
+        // tags them with a source like "other:Sim Tray". They're resolved by
+        // picking the product directly; standard part columns (Frame / Screen /
+        // Battery / Charging Port) re-pick grade / colour and re-match.
+        isOtherPart(row) {
+            return String((row && row.line && row.line.source) || '')
+                .toLowerCase()
+                .startsWith('other')
+        },
+
+        // ── Re-pick (single-line re-match, standard parts) ─────────
         async repickQuality(row, quality) {
             await this.rematchLine(row, { ...row.line, requestedQuality: quality })
         },
@@ -402,14 +512,8 @@ export default {
             this.submitting = true
             this.submitError = ''
             try {
-                // Aggregate by SKU → quantity (duplicate SKUs combine,
-                // summing each row's editable qty).
-                const qtyBySku = {}
-                for (const r of this.readyRows) {
-                    const q = Number(r.qty) > 0 ? Number(r.qty) : 1
-                    qtyBySku[r.selectedSku] = (qtyBySku[r.selectedSku] || 0) + q
-                }
-                const skus = Object.keys(qtyBySku)
+                // Resolve every distinct SKU to a Zoho item id in one round trip.
+                const skus = [...new Set(this.readyRows.map(r => r.selectedSku))]
 
                 const lookupRes = await bulkSkuLookup(skus)
                 if (!lookupRes || lookupRes.success === false) {
@@ -417,15 +521,22 @@ export default {
                 }
                 const map = lookupRes.data || {}
 
+                // One line item per row so each carries its own job number as
+                // the Zoho line description — lets staff trace a line back to
+                // the job it's for. (Duplicate SKUs across different jobs become
+                // separate lines.) Rows whose SKU doesn't resolve are excluded.
                 const lineItems = []
                 let excluded = 0
-                for (const sku of skus) {
-                    const hit = map[sku]
-                    if (hit && hit.itemId) {
-                        lineItems.push({ itemId: hit.itemId, quantity: qtyBySku[sku] })
-                    } else {
-                        excluded += 1
+                for (const r of this.readyRows) {
+                    const hit = map[r.selectedSku]
+                    if (!hit || !hit.itemId) { excluded += 1; continue }
+                    const line = {
+                        itemId: hit.itemId,
+                        quantity: Number(r.qty) > 0 ? Number(r.qty) : 1
                     }
+                    const jobNumber = r.line && r.line._label && r.line._label.jobNumber
+                    if (jobNumber) line.description = `Job Number: ${jobNumber}`
+                    lineItems.push(line)
                 }
                 if (lineItems.length === 0) {
                     throw new Error('None of the matched SKUs resolved to a Zoho item. Order not created.')
@@ -475,8 +586,17 @@ export default {
         // Bottom line — the matched Zoho product name for the selected
         // SKU.
         matchedName(row) {
-            const hit = (row.skus || []).find(s => s.sku === row.selectedSku)
+            // The selected SKU can come from skus (MATCHED / MULTIPLE) or from
+            // candidates (the "Other" product picker), so search both.
+            const pool = [...(row.skus || []), ...(row.candidates || [])]
+            const hit = pool.find(s => s.sku === row.selectedSku)
             return (hit && hit.productName) || ''
+        },
+        // Option label for the "pick a product" dropdown on MULTIPLE rows —
+        // the full Zoho product name, falling back to SKU · colour.
+        skuOptionLabel(s) {
+            if (s && s.productName) return s.productName
+            return `${(s && s.sku) || ''} — ${(s && s.color) || 'no colour'}`
         },
         removeRow(row) {
             const idx = this.rows.indexOf(row)
@@ -532,70 +652,126 @@ export default {
             const mm = String(d.getMonth() + 1).padStart(2, '0')
             return `${dd}/${mm}/${d.getFullYear()}`
         },
-        // ── Add a catalogue product manually ───────────────────────
-        async searchCatalogueProducts(query, cb) {
+        // ── Add a product manually (Zoho Commerce search) ──────────
+        // Same source as the Create Sales Order tool — searches Zoho Commerce
+        // by name / SKU. The picked product's SKU flows through createOrder's
+        // bulkSkuLookup at submit time, exactly like a matched OZ line.
+        async searchZohoProducts(query, cb) {
             const q = (query || '').trim()
             if (!q) { cb([]); return }
             try {
-                const res = await listProducts({ search: q, page: 1, pageSize: 20 })
+                const res = await searchProducts(q)
                 if (!res || res.success === false) { cb([]); return }
-                const items = (res.data || []).map(p => ({
+                const products = Array.isArray(res.data) ? res.data : []
+                cb(products.map(p => ({
                     ...p,
-                    // el-autocomplete writes value-key back into the input
-                    // on select — show the product name there.
-                    value: p.productName
-                }))
-                cb(items)
+                    name: p.name || p.product_name || p.title || '',
+                    sku: p.sku
+                        || (Array.isArray(p.skus) && p.skus[0] && p.skus[0].sku)
+                        || (p.variants && p.variants[0] && p.variants[0].sku)
+                        || '',
+                    imgUrl: this.extractProductImage(p)
+                // OZ orders must never use secondhand stock — drop it here too.
+                })).filter(p => !/second\s*hand/i.test(p.name)))
             } catch (e) {
-                console.error('Catalogue search failed:', e)
+                console.error('Zoho product search failed:', e)
                 cb([])
             }
         },
-        onCatalogueProductSelected(item) {
-            if (!item || !item.sku) { this.addKeyword = ''; return }
-            // Dedupe by SKU — if it's already on the list, just bump its
-            // qty rather than adding a duplicate row.
-            const existing = this.rows.find(r => r.selectedSku === item.sku)
-            if (existing) {
-                existing.qty = (Number(existing.qty) || 1) + 1
-                this.$message.info(`"${item.productName}" is already in the list — qty bumped to ${existing.qty}.`)
+        // Resolve a product thumbnail from the Commerce payload — same logic as
+        // the Create Sales Order tool.
+        extractProductImage(p) {
+            const BASE = 'https://www.imobilestore.com.au'
+            const toAbsolute = (path) => {
+                if (!path) return ''
+                if (/^https?:\/\//i.test(path)) return path
+                return BASE + (path.startsWith('/') ? '' : '/') + path
+            }
+            if (Array.isArray(p.documents) && p.documents[0]) {
+                const d = p.documents[0]
+                if (d.file_name && d.document_id) {
+                    return `${BASE}/product-images/${d.file_name}/${d.document_id}/100x100`
+                }
+            }
+            if (Array.isArray(p.images) && p.images[0]) {
+                const i = p.images[0]
+                return toAbsolute(i.image_url || i.url || i.path || i.image_path || '')
+            }
+            return toAbsolute(p.image_url || p.image || p.image_path || '')
+        },
+        onSuggestionImgError(e) {
+            if (e && e.target) e.target.style.display = 'none'
+        },
+        onZohoProductSelected(item) {
+            if (!item) { this.addKeyword = ''; return }
+            if (!item.sku) {
+                this.$message.error(
+                    `"${item.name || 'This product'}" has no SKU — add one in Zoho before adding it here.`
+                )
                 this.addKeyword = ''
                 return
             }
-            // Build a synthetic, already-resolved row so it flows through
-            // readyRows + createOrder exactly like a matched line. `manual`
-            // flags it so the cell shows an "ADD" tag instead of "OZ".
-            const modelNames = (item.compatible_models || []).map(m => m.name).join(', ')
+            // Dedupe by SKU — bump qty if it's already on the list.
+            const existing = this.rows.find(r => r.selectedSku === item.sku)
+            if (existing) {
+                existing.qty = (Number(existing.qty) || 1) + 1
+                this.$message.info(`"${item.name}" is already in the list — qty bumped to ${existing.qty}.`)
+                this.addKeyword = ''
+                return
+            }
+            // Synthetic, already-resolved row so it flows through readyRows +
+            // createOrder like a matched line. `manual` flags it so the cell
+            // shows an "ADD" tag instead of "OZ".
             this.rows.push({
                 line: {
                     model_id: '',
-                    color: item.color || null,
-                    category: (item.category && item.category.id) || '',
-                    requestedQuality: (item.quality && item.quality.name) || '',
-                    _display: {
-                        model: modelNames || '—',
-                        part: (item.category && item.category.name) || ''
-                    }
+                    color: null,
+                    category: '',
+                    requestedQuality: '',
+                    _display: { model: item.name, part: '' }
                 },
                 manual: true,
                 status: 'MATCHED',
-                skus: [{
-                    sku: item.sku,
-                    productName: item.productName,
-                    quality: (item.quality && item.quality.name) || '',
-                    color: item.color || null
-                }],
-                availableQualities: [],
-                availableColours: [],
+                skus: [{ sku: item.sku, productName: item.name }],
+                candidates: [],
                 usedQuality: '',
                 selectedSku: item.sku,
-                qty: 1,
-                repickQuality: '',
-                repickColour: '',
-                rematching: false
+                qty: 1
             })
-            this.$message.success(`Added "${item.productName}"`)
+            this.$message.success(`Added "${item.name}"`)
             this.addKeyword = ''
+        },
+        // ── Map a not-catalogued line to a Zoho product ────────────
+        openMapDialog(row) {
+            this.mapTargetRow = row
+            this.mapKeyword = ''
+            this.mapDialogOpen = true
+        },
+        onMapDialogClosed() {
+            this.mapTargetRow = null
+            this.mapKeyword = ''
+        },
+        onMapProductSelected(item) {
+            const row = this.mapTargetRow
+            if (!row) { this.mapKeyword = ''; return }
+            if (!item || !item.sku) {
+                this.$message.error(
+                    `"${(item && item.name) || 'This product'}" has no SKU — add one in Zoho first.`
+                )
+                this.mapKeyword = ''
+                return
+            }
+            // Map the not-catalogued line onto the chosen product. Mutating
+            // status/selectedSku moves it out of "Not catalogued" into the
+            // matchable list as a ready line, keeping its job number so the
+            // created Zoho line item still carries it as the description.
+            this.$set(row, 'skus', [{ sku: item.sku, productName: item.name }])
+            this.$set(row, 'candidates', [])
+            this.$set(row, 'selectedSku', item.sku)
+            this.$set(row, 'status', 'MATCHED')
+            this.$message.success(`Mapped to "${item.name}"`)
+            this.mapDialogOpen = false
+            this.mapKeyword = ''
         },
         // ── Navigation / misc ──────────────────────────────────────
         backToPick() {
@@ -715,7 +891,25 @@ export default {
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .muted { color: #c0c4cc; font-style: italic; }
 .fallback-badge { margin-left: 6px; font-size: 11px; color: #e6a23c; }
+.change-match-btn { margin-left: 6px; padding: 0 !important; font-size: 12px; }
 .repick { margin-left: 6px; width: 160px; }
+/* Product-pick dropdown carries full product names — give it more room. */
+.repick-wide { width: 280px; max-width: 100%; }
+
+/* Map-not-catalogued dialog */
+.map-dialog-body { display: flex; flex-direction: column; gap: 12px; }
+.map-request {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #303133;
+    padding: 8px 10px;
+    background: #f5f7fb;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+}
+.map-hint { color: #909399; font-size: 12px; }
 
 /* Two-line request/match cell — same shape as the Buzztech import's
    PDF/Zoho description cell. */
@@ -800,8 +994,33 @@ export default {
 /* Add-product suggestion popup — unscoped because Element UI teleports
    the autocomplete popper outside the component root. */
 .oz-add-suggestions .add-suggestion {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 4px 0;
     line-height: 1.3;
+}
+.oz-add-suggestions .add-suggestion-img {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: #f5f7fa;
+}
+.oz-add-suggestions .add-suggestion-img-ph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c0c4cc;
+    font-size: 18px;
+}
+.oz-add-suggestions .add-suggestion-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
 }
 .oz-add-suggestions .add-suggestion-name {
     font-weight: 500;

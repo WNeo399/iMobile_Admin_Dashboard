@@ -24,7 +24,9 @@ const PART_COLUMN_CATEGORY = {
 // from the Product Grade row, or null to use the default quality.
 const OTHER_TEXT_MAP = [
     { match: 'back glass', category: 'back-cover-glass', gradeFrom: null, defaultQuality: 'Original' },
-    { match: 'back cover', category: 'back-cover-glass', gradeFrom: null, defaultQuality: 'Original' },
+    // "Back Cover" → the High Quality with Lens cover (the better stock). The
+    // backend falls back to Original when a model doesn't carry that grade.
+    { match: 'back cover', category: 'back-cover-glass', gradeFrom: null, defaultQuality: 'High Quality with Lens' },
     { match: 'housing', category: 'frame', gradeFrom: 'frame', defaultQuality: 'No Small Parts' },
     { match: 'charging', category: 'charging-port', gradeFrom: 'charging port', defaultQuality: 'Original' }
 ]
@@ -167,11 +169,23 @@ export function resolveRows(parsed) {
             if (other) {
                 const mapped = matchOther(other)
                 category = mapped.category
-                source = `other:${other}`
                 gradeText = mapped.gradeFrom ? gradeCell(mapped.gradeFrom) : ''
                 // No grade text resolvable → use the mapping's default.
                 if (!gradeText) gradeText = mapped.defaultQuality
-                partsLabel = other
+                if (mapped === OTHER_FALLBACK) {
+                    // Truly miscellaneous (no real catalogue category) — keep
+                    // the buyer's wording and flag it "other" so the UI offers
+                    // a product picker.
+                    source = `other:${other}`
+                    partsLabel = other
+                } else {
+                    // Maps to a real catalogue category (e.g. "Back Glass" →
+                    // Back Cover Glass) — treat it like a standard part column:
+                    // show the category name and use the grade/colour re-pick,
+                    // not the "Other" product picker.
+                    source = category
+                    partsLabel = prettyCategory(category)
+                }
             }
         }
 
@@ -184,15 +198,18 @@ export function resolveRows(parsed) {
         const device = [brandName, modelName].filter(Boolean).join(' ').trim() || modelName
 
         out.push({
-            model_id: normalizeModelId(modelName),
+            model_id: normalizeModelId(modelName, brandName),
             color: isScreen ? null : normalizeColor(colorRaw),
             category,
             requestedQuality,
             source,
             // Carry the human-readable model + part for the results table.
+            // Use `partsLabel` (the part exactly as the buyer wrote it) rather
+            // than the normalised category, so a free-text Other value like
+            // "Sim Tray" / "Back Glass" shows verbatim instead of "Other".
             _display: {
                 model: modelName,
-                part: prettyCategory(category),
+                part: partsLabel || prettyCategory(category),
                 requestedGrade: requestedQuality
             },
             // Verbatim fields for the printable job label — independent
@@ -211,11 +228,39 @@ export function resolveRows(parsed) {
 
 // ── Normalizers (exported for tests) ────────────────────────────────
 
-// §3a: strip "iPhone", slugify the remainder, re-prefix "iphone-".
-// "iPhone 16 Pro Max" -> "iphone-16-pro-max"; "16e" -> "iphone-16e".
-export function normalizeModelId(name) {
-    const stripped = String(name || '')
-        .toLowerCase()
+// Build the catalogue model id (slug) from a sheet's model name. Brand-aware,
+// because Apple and Samsung are keyed differently in imb_products_model:
+//   Apple    "iPhone 16 Pro Max"        -> "iphone-16-pro-max"
+//   Samsung  "Samsung Galaxy S24 Ultra" -> "galaxy-s24-ultra"
+//            "Samsung S25 Ultra"        -> "galaxy-s25-ultra"  (Galaxy added)
+// A trailing "(model number)" is dropped — catalogue ids never include it
+// (e.g. "Galaxy S26 Ultra (S948)" is keyed "galaxy-s26-ultra"), and OZ sheets
+// usually omit it anyway.
+export function normalizeModelId(name, brand) {
+    const lower = String(name || '').toLowerCase()
+    const brandText = String(brand || '').toLowerCase()
+    const isSamsung =
+        brandText.includes('samsung') ||
+        lower.includes('samsung') ||
+        lower.includes('galaxy')
+
+    if (isSamsung) {
+        // Drop "(S948)"-style model numbers (catalogue ids omit them) and the
+        // brand word, then ensure the "galaxy-" prefix the catalogue uses.
+        let s = lower
+            .replace(/\([^)]*\)/g, ' ')
+            .replace(/samsung/g, ' ')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+        if (!s) return ''
+        if (!s.startsWith('galaxy')) s = `galaxy-${s}`
+        return s
+    }
+
+    // Apple — strip "iPhone", slugify, re-prefix "iphone-". Parentheticals are
+    // kept here (e.g. "(2nd Gen)" is meaningful for the SE), matching the
+    // original behaviour exactly.
+    const stripped = lower
         .replace(/iphone/g, '')
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
