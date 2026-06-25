@@ -222,17 +222,37 @@ export const moduleRoutes = [
         }
       },
       {
-        // Apple SVP Lookup — customer enquiries (imb_svp_enquiry) raised by the
-        // public genuine-parts lookup site when a serial isn't on record and
-        // the customer asks us to confirm with the supplier.
-        path: "svpEnquiry",
-        component: (resolve) => require(["@/views/imobile/svp/enquiries"], resolve),
-        name: "ImobileSvpEnquiry",
-        meta: {
-          title: "SVP Enquiries",
-          icon: "el-icon-search",
-          permissions: ["svp:enquiry:view"]
-        }
+        // Serials Lookup — the Apple SVP feature: the genuine-serial list
+        // (uploaded from the supplier's sheet) the public lookup site checks
+        // against, plus the customer enquiries it generates. Grouped as a
+        // submenu via ParentView, like Catalogue.
+        path: "svp",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Serials Lookup", icon: "el-icon-search" },
+        children: [
+          {
+            path: "/imobile/svp/serials",
+            component: (resolve) => require(["@/views/imobile/svp/serials"], resolve),
+            name: "ImobileSvpSerials",
+            meta: {
+              title: "Serials",
+              icon: "el-icon-files",
+              permissions: ["svp:serial:view"]
+            }
+          },
+          {
+            path: "/imobile/svp/enquiries",
+            component: (resolve) => require(["@/views/imobile/svp/enquiries"], resolve),
+            name: "ImobileSvpEnquiry",
+            meta: {
+              title: "Enquiries",
+              icon: "el-icon-chat-dot-round",
+              permissions: ["svp:enquiry:view"]
+            }
+          }
+        ]
       }
     ]
   },
