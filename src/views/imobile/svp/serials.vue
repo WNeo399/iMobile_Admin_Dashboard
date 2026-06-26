@@ -83,13 +83,33 @@
                     <span class="mono">· {{ checkResult.serial }}</span>
                 </el-tag>
             </div>
+            <div class="form-hint">
+                When a checked serial isn't on record, it's logged below so you can download the list later.
+            </div>
+        </el-card>
+
+        <!-- Not-found log -->
+        <el-card shadow="never" class="misses-card">
+            <div slot="header" class="card-head"><i class="el-icon-warning-outline" /> Not-found checks</div>
+            <div class="misses-row">
+                <div class="stat">
+                    <div class="stat-value">{{ stats.missCount != null ? stats.missCount.toLocaleString() : '—' }}</div>
+                    <div class="stat-label">serials checked here but not on record</div>
+                </div>
+                <span class="stat-spacer" />
+                <el-button size="small" icon="el-icon-download" :loading="downloading" :disabled="!stats.missCount" @click="downloadMisses">Download CSV</el-button>
+                <el-button size="small" type="danger" plain icon="el-icon-delete" :disabled="!stats.missCount" @click="clearMisses">Clear</el-button>
+            </div>
+            <div class="form-hint">
+                Deduplicated, with a hit count. Importing a sheet that includes a logged serial removes it from this list.
+            </div>
         </el-card>
     </div>
 </template>
 
 <script>
 import * as XLSX from 'xlsx-js-style'
-import { getSvpSerialStats, importSvpSerials, checkSvpSerial } from '@/api/svp/serial'
+import { getSvpSerialStats, importSvpSerials, checkSvpSerial, getSvpSerialMisses, clearSvpSerialMisses } from '@/api/svp/serial'
 
 // Cells that are obviously a header label, not a serial.
 const HEADER_RE = /^(serial(\s*(no\.?|number|#))?|s\/?n|imei|#|sno)$/i
@@ -103,8 +123,9 @@ export default {
     name: 'ImobileSvpSerials',
     data() {
         return {
-            stats: { count: null, lastImportedAt: null, lastBy: null, lastMode: null },
+            stats: { count: null, lastImportedAt: null, lastBy: null, lastMode: null, missCount: null },
             loadingStats: false,
+            downloading: false,
             fileName: '',
             parseError: '',
             parsedSerials: [],
@@ -128,7 +149,8 @@ export default {
                         count: res.count,
                         lastImportedAt: res.lastImportedAt,
                         lastBy: res.lastBy,
-                        lastMode: res.lastMode
+                        lastMode: res.lastMode,
+                        missCount: res.missCount
                     }
                 }
             } catch (e) {
@@ -220,12 +242,75 @@ export default {
                 const res = await checkSvpSerial(s)
                 if (!res || res.success === false) throw new Error((res && res.message) || 'Check failed')
                 this.checkResult = { found: res.found, serial: res.serial }
+                // A not-found check was just logged server-side — refresh the count.
+                if (!res.found) this.loadStats()
             } catch (e) {
                 console.error('SVP serial check failed:', e)
                 this.$message.error(this.msg(e, 'Check failed'))
             } finally {
                 this.checking = false
             }
+        },
+        async downloadMisses() {
+            if (this.downloading) return
+            this.downloading = true
+            try {
+                const res = await getSvpSerialMisses()
+                if (!res || res.success === false) throw new Error((res && res.message) || 'Download failed')
+                const list = res.misses || []
+                if (!list.length) {
+                    this.$message.info('No not-found serials to download yet.')
+                    return
+                }
+                const head = ['Serial', 'Times checked', 'First checked', 'Last checked', 'Checked by']
+                const rows = list.map(m => [m.serial, m.count, this.formatDate(m.firstCheckedAt), this.formatDate(m.lastCheckedAt), m.lastBy])
+                const csv = [head, ...rows].map(r => r.map(this.csvCell).join(',')).join('\r\n')
+                this.downloadCsv(csv, `svp-not-found-serials-${this.todayStamp()}.csv`)
+            } catch (e) {
+                console.error('SVP misses download failed:', e)
+                this.$message.error(this.msg(e, 'Download failed'))
+            } finally {
+                this.downloading = false
+            }
+        },
+        async clearMisses() {
+            try {
+                await this.$confirm(
+                    `Clear all ${this.stats.missCount != null ? this.stats.missCount.toLocaleString() : ''} logged not-found serials? Download them first if you need them — this can't be undone.`,
+                    'Clear not-found log',
+                    { confirmButtonText: 'Clear', cancelButtonText: 'Cancel', type: 'warning' }
+                )
+            } catch { return }
+            try {
+                const res = await clearSvpSerialMisses()
+                if (!res || res.success === false) throw new Error((res && res.message) || 'Clear failed')
+                this.$message.success(`Cleared ${(res.deleted || 0).toLocaleString()} entries.`)
+                this.loadStats()
+            } catch (e) {
+                console.error('SVP misses clear failed:', e)
+                this.$message.error(this.msg(e, 'Clear failed'))
+            }
+        },
+        csvCell(v) {
+            const s = v == null ? '' : String(v)
+            return '"' + s.replace(/"/g, '""') + '"'
+        },
+        downloadCsv(text, filename) {
+            // Prepend a BOM so Excel reads UTF-8 correctly.
+            const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8;' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = filename
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+        },
+        todayStamp() {
+            const d = new Date()
+            const p = n => String(n).padStart(2, '0')
+            return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`
         },
         formatDate(value) {
             if (!value) return '—'
@@ -250,6 +335,8 @@ export default {
 .stat-label { font-size: 12px; color: #909399; margin-top: 2px; }
 .stat-meta { font-size: 13px; color: #606266; }
 .stat-spacer { flex: 1; }
+
+.misses-row { display: flex; align-items: center; gap: 12px; }
 
 .file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .file-name { font-size: 13px; font-weight: 500; color: #303133; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -26,3 +26,18 @@ export function checkSvpSerial(serial) {
     params: { serial }
   })
 }
+
+// Serials checked on the admin page that weren't on record (for CSV download).
+export function getSvpSerialMisses() {
+  return request({
+    url: '/svpSerial/misses',
+    method: 'get'
+  })
+}
+
+export function clearSvpSerialMisses() {
+  return request({
+    url: '/svpSerial/misses',
+    method: 'delete'
+  })
+}
