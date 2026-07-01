@@ -1366,8 +1366,16 @@
                                 <el-table-column label="Used" prop="quantityUsed" width="70" align="center" />
                                 <el-table-column label="Returned" prop="quantityReturned" width="90" align="center" />
                             </el-table>
-                            <div v-if="order.trackingNumber" class="sent-order-tracking">
-                                Tracking: {{ order.trackingNumber }}
+                            <div v-if="order.shippingMethod || order.trackingNumber || order.shipmentStatus" class="sent-order-tracking">
+                                <span v-if="order.shippingMethod" class="sent-ship-item">
+                                    <i class="el-icon-truck" /> {{ order.shippingMethod }}
+                                </span>
+                                <span v-if="order.trackingNumber" class="sent-ship-item">
+                                    Tracking: {{ order.trackingNumber }}
+                                </span>
+                                <el-tag v-if="order.shipmentStatus" size="mini" type="info" effect="plain">
+                                    {{ order.shipmentStatus }}
+                                </el-tag>
                             </div>
                         </div>
                     </div>
@@ -2005,7 +2013,15 @@ export default {
         // If the user navigates here again with a different openCase id while
         // already mounted, honour it.
         '$route.query.openCase'(id) {
-            if (id) this.openCaseById(String(id))
+            if (id) this.openCaseById(String(id), this.routeTab())
+        },
+        // Notifications append a changing refresh nonce (_r). Watching it means
+        // re-clicking the same case — or a case whose id still sits in the URL
+        // after switching cases in-page — still reopens the right detail.
+        // openCaseById dedupes when it's already showing that case.
+        '$route.query._r'() {
+            const id = this.$route.query.openCase
+            if (id) this.openCaseById(String(id), this.routeTab())
         }
     },
     methods: {
@@ -2100,7 +2116,19 @@ export default {
         async refreshAll() {
             await Promise.all([this.getList(), this.loadCounts()])
         },
+        // The optional `tab` deep-link param from the route (e.g. a returns
+        // notification opens straight on the Returns tab).
+        routeTab() {
+            return this.$route.query.tab ? String(this.$route.query.tab) : undefined
+        },
         async openCaseById(id, tab) {
+            // Already showing this exact case — just honour a requested tab
+            // (e.g. a returns notification) and stop. Also dedupes the openCase
+            // + _r watchers both firing for a single navigation.
+            if (this.detailDialogOpen && this.detailCase && String(this.detailCase._id) === String(id)) {
+                if (tab) this.detailActiveTab = this.resolveDetailTab(this.detailCase, tab)
+                return
+            }
             // Prefer the row already in the loaded list to avoid a round-trip.
             const found = this.list.find(c => c._id === id)
             if (found) {
@@ -2307,14 +2335,17 @@ export default {
             this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
             this.getList()
         },
-        openDetail(row, tab) {
-            this.detailCase = row
-            // Default to Basic Info; callers (e.g. the Returns dashboard
-            // deep-link) can request a specific tab. Fall back to 'basic' if
-            // the requested tab isn't available for this case.
+        // Default to Basic Info; callers (e.g. a returns notification) can
+        // request a specific tab. Falls back to 'basic' if the requested tab
+        // isn't available for this case (no active return tracking).
+        resolveDetailTab(row, tab) {
             const requested = tab || 'basic'
             const hasReturns = !!(row && row.returnTracking && row.returnTracking.active)
-            this.detailActiveTab = requested === 'returns' && !hasReturns ? 'basic' : requested
+            return requested === 'returns' && !hasReturns ? 'basic' : requested
+        },
+        openDetail(row, tab) {
+            this.detailCase = row
+            this.detailActiveTab = this.resolveDetailTab(row, tab)
             this.resetDeviceEdits()
             this.seedReturnsForm()
             this.detailDialogOpen = true
@@ -3610,7 +3641,12 @@ export default {
     margin-top: 6px;
     color: #606266;
     font-size: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
 }
+.sent-ship-item i { margin-right: 3px; color: #909399; }
 
 .send-parts-scroll {
     max-height: 75vh;

@@ -31,6 +31,9 @@
         </el-tooltip>
 
       </template> -->
+      <el-tooltip content="Notifications" effect="dark" placement="bottom">
+        <header-notice id="header-notice" class="right-menu-item hover-effect" />
+      </el-tooltip>
       <el-dropdown class="avatar-container right-menu-item hover-effect" trigger="hover">
         <div class="avatar-wrapper">
           <el-avatar :size="32" class="user-avatar">{{ userInitial }}</el-avatar>
