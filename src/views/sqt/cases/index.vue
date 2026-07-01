@@ -1345,16 +1345,8 @@
                                 >{{ order.zohoSalesOrderNumber || order.zohoSalesOrderId }}</a>
                                 <span v-else>{{ order.zohoSalesOrderNumber || '—' }}</span>
                                 <span class="sent-order-date">{{ formatDateTime(order.orderedAt) }}</span>
-                                <span class="sent-order-parts-count">
-                                    {{ (order.lineItems || []).length }} part{{ (order.lineItems || []).length === 1 ? '' : 's' }}
-                                </span>
-                            </div>
-                            <div v-if="order.shippingMethod || order.trackingNumber || order.shipmentStatus" class="sent-order-tracking">
-                                <span v-if="order.shippingMethod" class="sent-ship-item">
-                                    <i class="el-icon-truck" /> {{ order.shippingMethod }}
-                                </span>
-                                <span v-if="order.trackingNumber" class="sent-ship-item">
-                                    Tracking:
+                                <span v-if="order.trackingNumber" class="sent-order-ship">
+                                    | Tracking:
                                     <a
                                         v-if="trackingUrl(order)"
                                         :href="trackingUrl(order)"
@@ -1362,11 +1354,14 @@
                                         rel="noopener"
                                         class="product-link"
                                     >{{ order.trackingNumber }}</a>
-                                    <span v-else>{{ order.trackingNumber }}</span>
+                                    <template v-else>{{ order.trackingNumber }}</template>
                                 </span>
-                                <el-tag v-if="order.shipmentStatus" size="mini" type="info" effect="plain">
-                                    {{ order.shipmentStatus }}
-                                </el-tag>
+                                <span v-else-if="order.shippingMethod" class="sent-order-ship">
+                                    | Delivery Method: {{ order.shippingMethod }}
+                                </span>
+                                <span class="sent-order-parts-count">
+                                    {{ (order.lineItems || []).length }} part{{ (order.lineItems || []).length === 1 ? '' : 's' }}
+                                </span>
                             </div>
                             <el-table :data="order.lineItems || []" size="mini" border class="sent-order-table">
                                 <el-table-column label="Part" prop="partName" min-width="180" />
@@ -3659,16 +3654,10 @@ export default {
 .sent-order-table {
     width: 100%;
 }
-.sent-order-tracking {
-    margin: 6px 0;
+.sent-order-ship {
     color: #606266;
     font-size: 12px;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 14px;
 }
-.sent-ship-item i { margin-right: 3px; color: #909399; }
 
 .send-parts-scroll {
     max-height: 75vh;
