@@ -1349,6 +1349,25 @@
                                     {{ (order.lineItems || []).length }} part{{ (order.lineItems || []).length === 1 ? '' : 's' }}
                                 </span>
                             </div>
+                            <div v-if="order.shippingMethod || order.trackingNumber || order.shipmentStatus" class="sent-order-tracking">
+                                <span v-if="order.shippingMethod" class="sent-ship-item">
+                                    <i class="el-icon-truck" /> {{ order.shippingMethod }}
+                                </span>
+                                <span v-if="order.trackingNumber" class="sent-ship-item">
+                                    Tracking:
+                                    <a
+                                        v-if="trackingUrl(order)"
+                                        :href="trackingUrl(order)"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="product-link"
+                                    >{{ order.trackingNumber }}</a>
+                                    <span v-else>{{ order.trackingNumber }}</span>
+                                </span>
+                                <el-tag v-if="order.shipmentStatus" size="mini" type="info" effect="plain">
+                                    {{ order.shipmentStatus }}
+                                </el-tag>
+                            </div>
                             <el-table :data="order.lineItems || []" size="mini" border class="sent-order-table">
                                 <el-table-column label="Part" prop="partName" min-width="180" />
                                 <el-table-column label="SKU" prop="sku" width="130">
@@ -1366,17 +1385,6 @@
                                 <el-table-column label="Used" prop="quantityUsed" width="70" align="center" />
                                 <el-table-column label="Returned" prop="quantityReturned" width="90" align="center" />
                             </el-table>
-                            <div v-if="order.shippingMethod || order.trackingNumber || order.shipmentStatus" class="sent-order-tracking">
-                                <span v-if="order.shippingMethod" class="sent-ship-item">
-                                    <i class="el-icon-truck" /> {{ order.shippingMethod }}
-                                </span>
-                                <span v-if="order.trackingNumber" class="sent-ship-item">
-                                    Tracking: {{ order.trackingNumber }}
-                                </span>
-                                <el-tag v-if="order.shipmentStatus" size="mini" type="info" effect="plain">
-                                    {{ order.shipmentStatus }}
-                                </el-tag>
-                            </div>
                         </div>
                     </div>
                     <div v-else class="empty-block">
@@ -3170,6 +3178,20 @@ export default {
                 this.noteSubmitting = false
             }
         },
+        // Carrier tracking link, keyed off the order's shipping method. Returns
+        // null for any other/unknown carrier so the number shows as plain text.
+        trackingUrl(order) {
+            if (!order || !order.trackingNumber) return null
+            const method = String(order.shippingMethod || '').trim()
+            const t = encodeURIComponent(String(order.trackingNumber).trim())
+            if (method === 'StarTrack Fixed Price Premium') {
+                return `https://startrack.com.au/track/details/${t}`
+            }
+            if (method === 'Australia Post eParcel - Express Post') {
+                return `https://auspost.com.au/mypost/track/details/${t}`
+            }
+            return null
+        },
         caseLabel(c) {
             if (!c) return '—'
             if (c.caseId) return `Case ${c.caseId}`
@@ -3638,7 +3660,7 @@ export default {
     width: 100%;
 }
 .sent-order-tracking {
-    margin-top: 6px;
+    margin: 6px 0;
     color: #606266;
     font-size: 12px;
     display: flex;
