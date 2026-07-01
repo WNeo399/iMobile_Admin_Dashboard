@@ -29,7 +29,7 @@
                         v-if="data.count !== undefined"
                         :value="data.count"
                         :max="999"
-                        :type="data.id === 'all' ? 'primary' : badgeType(data.id)"
+                        :type="nodeBadgeType(data.id)"
                         class="status-node-badge"
                     />
                 </span>
@@ -1337,13 +1337,13 @@
                             <div class="sent-order-header">
                                 <i class="el-icon-truck" />
                                 <a
-                                    v-if="order.zohoSalesOrderId"
+                                    v-if="order.zohoSalesOrderId && canViewZohoLink"
                                     :href="`https://inventory.zoho.com/app/746138234#/salesorders/${order.zohoSalesOrderId}`"
                                     target="_blank"
                                     rel="noopener"
                                     class="product-link"
                                 >{{ order.zohoSalesOrderNumber || order.zohoSalesOrderId }}</a>
-                                <span v-else>{{ order.zohoSalesOrderNumber || '—' }}</span>
+                                <span v-else>{{ order.zohoSalesOrderNumber || order.zohoSalesOrderId || '—' }}</span>
                                 <span class="sent-order-date">{{ formatDateTime(order.orderedAt) }}</span>
                                 <span v-if="order.trackingNumber" class="sent-order-ship">
                                     | Tracking:
@@ -1606,6 +1606,10 @@ const STATUS_META = [
     { value: 'repaired', label: 'Repaired', tag: 'success', color: '#67C23A' },
     { value: 'repaired-and-collected', label: 'Repaired & Collected', tag: 'success', color: '#67C23A' },
     { value: 'waiting-solvup', label: 'Waiting Solvup', tag: 'warning', color: '#E6A23C' },
+    // Admin-only flag that the Solvup hand-off has a problem; sits under
+    // Waiting Solvup in the tree. Brick-red to stand apart from the bright-red
+    // unrepairable/ber cluster below.
+    { value: 'issue-with-solvup', label: 'Issue with Solvup', tag: 'danger', color: '#C0392B' },
     { value: 'unrepairable', label: 'Unrepairable', tag: 'danger', color: '#F56C6C' },
     { value: 'ber', label: 'BER', tag: 'danger', color: '#F56C6C' },
     { value: 'completed', label: 'Completed', tag: 'success', color: '#67C23A' },
@@ -1617,7 +1621,7 @@ const STATUS_META = [
 // or sent to Solvup) and shouldn't be visible to shop roles. The backend
 // also filters them out of /list and /counts for shop-scoped users, so
 // counts here will always be 0 for non-admins anyway.
-const ADMIN_ONLY_STATUSES = ['on-hold', 'waiting-solvup']
+const ADMIN_ONLY_STATUSES = ['on-hold', 'waiting-solvup', 'issue-with-solvup']
 
 const LABOR_COST = 70
 const GST_RATE = 0.1
@@ -1774,6 +1778,12 @@ export default {
             ]
         },
         canViewPrice() {
+            const roles = this.$store.getters.roles || []
+            return roles.includes('admin') || roles.includes('techelite-admin')
+        },
+        // Only Admin / TechElite Admin get the deep-link into Zoho Inventory;
+        // other roles just see the sales order number as plain text.
+        canViewZohoLink() {
             const roles = this.$store.getters.roles || []
             return roles.includes('admin') || roles.includes('techelite-admin')
         },
@@ -3201,6 +3211,18 @@ export default {
         badgeType(s) {
             const meta = STATUS_META.find(x => x.value === s)
             return meta ? meta.tag : ''
+        },
+        // Background colour for the tree-panel count badge. Independent of the
+        // status pill's tag so a few statuses can read better here (info=grey,
+        // primary=blue).
+        nodeBadgeType(id) {
+            if (id === 'all') return 'primary'
+            const overrides = {
+                'require-extra-parts': 'info', // grey
+                'on-hold': 'info', // grey
+                'repairing': 'primary' // blue
+            }
+            return overrides[id] || this.badgeType(id)
         },
         statusColor(s) {
             if (s === 'all') return '#409EFF'
