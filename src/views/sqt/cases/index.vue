@@ -3173,16 +3173,17 @@ export default {
                 this.noteSubmitting = false
             }
         },
-        // Carrier tracking link, keyed off the order's shipping method. Returns
-        // null for any other/unknown carrier so the number shows as plain text.
+        // Carrier tracking link, keyed off the order's shipping method
+        // (case-insensitive substring match). Returns null for any other/unknown
+        // carrier so the number shows as plain text.
         trackingUrl(order) {
             if (!order || !order.trackingNumber) return null
-            const method = String(order.shippingMethod || '').trim()
+            const method = String(order.shippingMethod || '').toLowerCase()
             const t = encodeURIComponent(String(order.trackingNumber).trim())
-            if (method === 'StarTrack Fixed Price Premium') {
+            if (method.includes('startrack')) {
                 return `https://startrack.com.au/track/details/${t}`
             }
-            if (method === 'Australia Post eParcel - Express Post') {
+            if (method.includes('australia post') || method.includes('auspost') || method.includes('aupost')) {
                 return `https://auspost.com.au/mypost/track/details/${t}`
             }
             return null
