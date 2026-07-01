@@ -428,6 +428,29 @@
                             :value="s.value" />
                     </el-select>
                 </el-form-item>
+
+                <!-- Device-return question for Unrepairable / BER — mirrors the
+                     dedicated Mark Unrepairable action so the returns record is
+                     seeded with the right device expectation. -->
+                <template v-if="isDeviceReturnStatus(changeStatusForm.status)">
+                    <el-alert
+                        type="warning"
+                        :closable="false"
+                        show-icon
+                        class="device-return-alert"
+                        title="If possible, keep the customer's device so it can be returned to us."
+                    />
+                    <div class="device-return-prompt">
+                        <div class="device-return-label">
+                            Do you have the customer's device on hand for return?
+                        </div>
+                        <el-radio-group v-model="changeStatusForm.deviceExpected">
+                            <el-radio :label="true">Yes — I have the device for return</el-radio>
+                            <el-radio :label="false">No — Customer took the device</el-radio>
+                        </el-radio-group>
+                    </div>
+                </template>
+
                 <el-form-item label="Note" required>
                     <el-input v-model="changeStatusForm.note" type="textarea" :rows="3"
                         placeholder="Reason for this status change (required)" />
@@ -2268,6 +2291,13 @@ export default {
             this.getList()
         },
         handleQuery() {
+            // Searching spans all statuses — mirror handleStatusClick (which
+            // clears the search): when a term is entered, drop the selected
+            // status so results aren't silently limited to it.
+            if ((this.queryParams.search || '').trim() && this.activeStatus) {
+                this.activeStatus = null
+                this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
+            }
             this.queryParams.page = 1
             this.getList()
         },
@@ -3037,8 +3067,13 @@ export default {
         },
         handleChangeStatus(row) {
             this.changeStatusCase = row
-            this.changeStatusForm = { status: row.status, note: '' }
+            this.changeStatusForm = { status: row.status, note: '', deviceExpected: true }
             this.changeStatusDialogOpen = true
+        },
+        isDeviceReturnStatus(status) {
+            // Unrepairable & BER return the customer's device + parts, so they
+            // ask the device-return question (Cancelled returns parts only).
+            return status === 'unrepairable' || status === 'ber'
         },
         async submitChangeStatus() {
             if (!this.changeStatusCase) return
@@ -3052,10 +3087,16 @@ export default {
             }
             this.changeStatusSubmitting = true
             try {
-                const res = await changeCaseStatus(this.changeStatusCase._id, {
+                const payload = {
                     status: this.changeStatusForm.status,
                     note: this.changeStatusForm.note.trim()
-                })
+                }
+                // Unrepairable / BER set up a returns record — pass the device
+                // expectation just like the dedicated Mark Unrepairable action.
+                if (this.isDeviceReturnStatus(this.changeStatusForm.status)) {
+                    payload.deviceExpected = this.changeStatusForm.deviceExpected
+                }
+                const res = await changeCaseStatus(this.changeStatusCase._id, payload)
                 const updated = res && res.data
                 const newStatus = (updated && updated.status) || this.changeStatusForm.status
                 this.$message.success(`Status changed to "${this.statusLabel(newStatus)}"`)

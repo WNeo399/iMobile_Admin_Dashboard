@@ -68,6 +68,7 @@
             <div slot="header" class="card-head"><i class="el-icon-search" /> Check a serial</div>
             <div class="check-row">
                 <el-input
+                    ref="checkInput"
                     v-model="checkSerial"
                     placeholder="Enter a serial to test the list…"
                     clearable
@@ -244,6 +245,12 @@ export default {
                 this.checkResult = { found: res.found, serial: res.serial }
                 // A not-found check was just logged server-side — refresh the count.
                 if (!res.found) this.loadStats()
+                // Clear + refocus so the next serial can be scanned straight away
+                // (the result tag still shows what was just checked).
+                this.checkSerial = ''
+                this.$nextTick(() => {
+                    this.$refs.checkInput && this.$refs.checkInput.focus()
+                })
             } catch (e) {
                 console.error('SVP serial check failed:', e)
                 this.$message.error(this.msg(e, 'Check failed'))
