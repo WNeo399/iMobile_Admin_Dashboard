@@ -309,6 +309,18 @@ export const moduleRoutes = [
             }
           }
         ]
+      },
+      {
+        // Ask the Data — agentic Claude chat that answers questions by running
+        // read-only SQL over the scraper MySQL. Gated by ai:query:use.
+        path: "ask",
+        component: (resolve) => require(["@/views/refurbished/ask"], resolve),
+        name: "RefurbishedAsk",
+        meta: {
+          title: "Ask AI",
+          icon: "el-icon-chat-line-round",
+          permissions: ["ai:query:use"]
+        }
       }
     ]
   },

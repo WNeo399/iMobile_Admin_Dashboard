@@ -10,11 +10,14 @@
       <app-main/>
       <settings ref="settingRef"/>
     </div>
+    <!-- Global floating AI assistant — visible to users who can query the data -->
+    <ai-assistant-orb v-hasPermi="['ai:query:use']"/>
   </div>
 </template>
 
 <script>
 import { AppMain, Navbar, Settings, Sidebar, TagsView } from './components'
+import AiAssistantOrb from '@/components/AiAssistantOrb'
 import ResizeMixin from './mixin/ResizeHandler'
 import { mapState } from 'vuex'
 import variables from '@/assets/styles/variables.scss'
@@ -26,7 +29,8 @@ export default {
     Navbar,
     Settings,
     Sidebar,
-    TagsView
+    TagsView,
+    AiAssistantOrb
   },
   mixins: [ResizeMixin],
   computed: {
