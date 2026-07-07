@@ -345,6 +345,29 @@ export const moduleRoutes = [
     ]
   },
   {
+    // Statement — reached via a button, not the sidebar (hidden), because the
+    // admin role is a super-user that would otherwise see every gated route.
+    // Dual-mode: a portal login opens their OWN statement (no query); an admin
+    // opens a customer's via ?customer=<name> from the Customer page.
+    path: "/statement",
+    component: Layout,
+    hidden: true,
+    redirect: "/statement/index",
+    children: [
+      {
+        path: "index",
+        component: (resolve) => require(["@/views/inflow/statement"], resolve),
+        name: "InflowStatement",
+        meta: {
+          title: "Statement",
+          icon: "el-icon-document",
+          activeMenu: "/inflow/customers",
+          permissions: ["inflow:statement:view"]
+        }
+      }
+    ]
+  },
+  {
     path: "/sqt",
     component: Layout,
     redirect: "noRedirect",

@@ -25,20 +25,23 @@
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini" height="calc(100vh - 210px)" @sort-change="onSort">
-            <el-table-column prop="invoiceNumber" label="Invoice #" min-width="170" sortable="custom">
+            <el-table-column prop="invoiceNumber" label="Invoice #" min-width="200" sortable="custom">
                 <template slot-scope="s">
-                    <el-link type="primary" :underline="false" @click="openDetail(s.row)">{{ s.row.invoiceNumber }}</el-link>
-                    <el-tag v-if="s.row.isCreditNote" size="mini" type="info" class="io-cn">CN</el-tag>
+                    <div class="io-inv">
+                        <el-link type="primary" :underline="false" @click="openDetail(s.row)">{{ s.row.invoiceNumber }}</el-link>
+                        <el-tag v-if="s.row.isCreditNote" size="mini" type="info" class="io-cn">CN</el-tag>
+                    </div>
+                    <div v-if="s.row.vendor" class="io-vendor" :title="s.row.vendor">{{ s.row.vendor }}</div>
                 </template>
             </el-table-column>
-            <el-table-column prop="customerName" label="Customer" min-width="170" sortable="custom" show-overflow-tooltip>
+            <el-table-column prop="customerName" label="Customer" min-width="180" sortable="custom" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.customerName || '—' }}</template>
-            </el-table-column>
-            <el-table-column prop="vendor" label="Vendor" min-width="150" show-overflow-tooltip>
-                <template slot-scope="s">{{ s.row.vendor || '—' }}</template>
             </el-table-column>
             <el-table-column prop="invoiceDate" label="Date" width="110" sortable="custom">
                 <template slot-scope="s">{{ dateStr(s.row) }}</template>
+            </el-table-column>
+            <el-table-column prop="lineItemCount" label="Items" width="80" align="right">
+                <template slot-scope="s">{{ s.row.lineItemCount == null ? '—' : s.row.lineItemCount }}</template>
             </el-table-column>
             <el-table-column prop="totalAmount" label="Total" width="120" align="right" sortable="custom">
                 <template slot-scope="s"><span :class="{ neg: s.row.totalAmount < 0 }">{{ money(s.row.totalAmount) }}</span></template>
@@ -52,11 +55,10 @@
             <el-table-column prop="status" label="Status" width="100" align="center">
                 <template slot-scope="s"><el-tag size="mini" :type="statusTag(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="" width="210" align="right">
+            <el-table-column label="" width="200" align="right">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" @click="openDetail(s.row)">View</el-button>
                     <el-button v-if="s.row.invoicePdfUrl" size="mini" type="text" icon="el-icon-document" @click="openPdf(s.row)">Invoice</el-button>
-                    <el-button v-if="s.row.status !== 'credit'" v-hasPermi="['inflow:order:payment']" size="mini" type="text" @click="openPayment(s.row)">Pay</el-button>
+                    <el-button v-if="s.row.status !== 'credit'" v-hasPermi="['inflow:order:payment']" size="mini" type="text" @click="openPayment(s.row)">Record Payment</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -92,10 +94,14 @@
 
                     <div class="io-sub">Payments <span v-if="detail.payments && detail.payments.length" class="io-count">({{ detail.payments.length }})</span></div>
                     <el-table v-if="detail.payments && detail.payments.length" :data="detail.payments" size="mini" border>
-                        <el-table-column label="Date" width="150"><template slot-scope="s">{{ dateTimeStr(s.row.date) }}</template></el-table-column>
-                        <el-table-column label="Amount" width="120" align="right"><template slot-scope="s">{{ money(s.row.amount) }}</template></el-table-column>
-                        <el-table-column prop="note" label="Note" min-width="160" show-overflow-tooltip />
-                        <el-table-column prop="recordedBy" label="By" width="140" show-overflow-tooltip><template slot-scope="s">{{ s.row.recordedBy || '—' }}</template></el-table-column>
+                        <el-table-column label="Date" width="130"><template slot-scope="s">{{ dateOnly(s.row.date) }}</template></el-table-column>
+                        <el-table-column label="Amount" width="130" align="right"><template slot-scope="s">{{ money(s.row.amount) }}</template></el-table-column>
+                        <el-table-column prop="note" label="Note" min-width="200" show-overflow-tooltip />
+                        <el-table-column label="" width="50" align="center">
+                            <template slot-scope="s">
+                                <el-button v-hasPermi="['inflow:order:payment']" size="mini" type="text" class="io-del" icon="el-icon-delete" @click="deletePayment(s.row)" />
+                            </template>
+                        </el-table-column>
                     </el-table>
                     <div v-else class="io-empty">No payments recorded.</div>
                 </template>
@@ -131,7 +137,7 @@
         </el-dialog>
 
         <!-- Invoice PDF preview -->
-        <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="80%" top="5vh">
+        <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="60%" top="7vh">
             <div class="io-pdf-wrap">
                 <iframe v-if="pdfUrl" :src="pdfUrl" class="io-pdf-frame" title="Invoice PDF" />
             </div>
@@ -144,7 +150,7 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, recordInflowPayment, getInflowFilters } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters } from '@/api/inflow'
 
 export default {
     name: 'InflowSalesOrders',
@@ -253,6 +259,21 @@ export default {
                 this.paying = false
             }
         },
+        deletePayment(payment) {
+            this.$confirm(`Delete this payment of ${this.money(payment.amount)}?`, 'Delete payment', {
+                type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel'
+            }).then(async () => {
+                try {
+                    const r = await deleteInflowPayment(this.detail._id, payment._id)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$message.success('Payment deleted')
+                    this.detail = r.order
+                    this.load()
+                } catch (e) {
+                    this.$message.error(this.msg(e, 'Failed to delete payment'))
+                }
+            }).catch(() => {})
+        },
         statusTag(s) { return { unpaid: 'danger', partial: 'warning', paid: 'success', credit: 'info' }[s] || 'info' },
         statusLabel(s) { return { unpaid: 'Unpaid', partial: 'Partial', paid: 'Paid', credit: 'Credit' }[s] || s },
         dateStr(o) {
@@ -260,7 +281,7 @@ export default {
             if (o && o.invoiceDate) { const d = new Date(o.invoiceDate); if (!isNaN(d)) return d.toLocaleDateString('en-AU') }
             return '—'
         },
-        dateTimeStr(v) { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleString('en-AU') },
+        dateOnly(v) { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleDateString('en-AU') },
         money(v) {
             const n = Number(v)
             if (!isFinite(n)) return '—'
@@ -284,6 +305,8 @@ export default {
 .io-meta { font-size: 12px; color: #909399; margin-right: 6px; white-space: nowrap; }
 .io-pager { margin-top: 10px; text-align: right; }
 .io-cn { margin-left: 6px; }
+.io-inv { line-height: 1.3; }
+.io-vendor { font-size: 11px; color: #909399; line-height: 1.3; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .neg { color: #F56C6C; }
 .owing { color: #E6A23C; font-weight: 600; }
 .io-desc { margin-bottom: 6px; }
@@ -291,7 +314,8 @@ export default {
 .io-count { color: #909399; font-weight: normal; }
 .io-empty { color: #909399; font-size: 12px; }
 .io-payinfo { font-size: 13px; color: #606266; margin-bottom: 12px; }
-.io-pdf-wrap { height: 76vh; background: #f2f3f5; }
+.io-pdf-wrap { height: 72vh; background: #f2f3f5; }
 .io-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .io-pdf-open { margin-right: 12px; }
+.io-del { color: #F56C6C; }
 </style>

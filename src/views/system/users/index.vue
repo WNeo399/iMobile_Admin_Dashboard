@@ -163,6 +163,15 @@
                             : 'The user will only see cases for the shops assigned here.' }}
                     </div>
                 </el-form-item>
+                <!-- Links an InFlow Customer portal login to the customer whose
+                     statement it can view. Auto-set when created via the
+                     Customer page's "Enable User Portal"; editable here too. -->
+                <el-form-item v-if="selectedRoleIsInflowCustomer" label="Customer" prop="inflowCustomerName">
+                    <el-select v-model="form.inflowCustomerName" filterable clearable placeholder="Link to an InFlow customer" style="width: 100%">
+                        <el-option v-for="c in inflowCustomers" :key="c" :label="c" :value="c" />
+                    </el-select>
+                    <div class="form-hint">This login sees only this customer's statement.</div>
+                </el-form-item>
                 <el-form-item label="Active" prop="active">
                     <el-switch v-model="form.active" />
                 </el-form-item>
@@ -192,6 +201,7 @@
 <script>
 import { listUsers, createUser, updateUser, deleteUser, resetUserPassword, listRoles } from '@/api/system/users'
 import { listShops } from '@/api/sqt/shops'
+import { getInflowFilters } from '@/api/inflow'
 
 // Pseudo node-keys for the role tree. Real role rows use `role:<value>`.
 const ALL_KEY = 'all'
@@ -204,6 +214,7 @@ function emptyForm() {
         password: '',
         role: '',
         shopIds: [],
+        inflowCustomerName: '',
         active: true
     }
 }
@@ -223,6 +234,7 @@ export default {
             // Group metadata from the same endpoint. { value, label }.
             roleGroups: [],
             shops: [],
+            inflowCustomers: [],
             // queryParams.role holds the comma-separated role(s) the
             // backend should filter on. The tree drives this — the inline
             // search bar no longer shows a Role dropdown.
@@ -268,6 +280,9 @@ export default {
         // Repair Shop is a single-shop role; Repair Shop Owner is multi-shop.
         selectedRoleIsRepairShop() {
             return this.form.role === 'repair-shop'
+        },
+        selectedRoleIsInflowCustomer() {
+            return this.form.role === 'inflow-customer'
         },
         // Bridges the single-shop select to the form.shopIds array so the
         // model stays a consistent array type regardless of role.
@@ -320,6 +335,7 @@ export default {
         await this.loadRoles()
         this.getList()
         this.loadShops()
+        this.loadInflowCustomers()
     },
     methods: {
         async getList() {
@@ -353,6 +369,12 @@ export default {
                 const res = await listShops({ page: 1, pageSize: 500 })
                 this.shops = res.data || []
             } catch (e) { console.error(e) }
+        },
+        async loadInflowCustomers() {
+            try {
+                const res = await getInflowFilters()
+                if (res && res.success) this.inflowCustomers = res.customers || []
+            } catch (e) { /* non-fatal — only needed to link inflow-customer logins */ }
         },
         handleQuery() {
             this.queryParams.page = 1
@@ -405,6 +427,7 @@ export default {
                 password: '',
                 role: row.role || '',
                 shopIds: (row.shopIds || []).map(String),
+                inflowCustomerName: row.inflowCustomerName || '',
                 active: row.active !== false
             }
             this.dialogTitle = 'Edit User'
@@ -457,6 +480,9 @@ export default {
                         role: this.form.role,
                         active: this.form.active,
                         shopIds: this.selectedRoleShopScoped ? this.form.shopIds : []
+                    }
+                    if (this.selectedRoleIsInflowCustomer) {
+                        payload.inflowCustomerName = this.form.inflowCustomerName || ''
                     }
                     if (this.form._id) {
                         await updateUser(this.form._id, payload)
