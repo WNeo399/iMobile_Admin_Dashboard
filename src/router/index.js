@@ -141,6 +141,19 @@ export const moduleRoutes = [
               icon: "el-icon-files",
               permissions: ["zoho:collection:view"]
             }
+          },
+          {
+            // Purchase Order — read-only view over the supplier's Tencent Docs
+            // sheet ("澳洲"). Tree lists the sheet's tabs; the table shows a
+            // tab's rows.
+            path: "/imobile/inventory/purchaseOrder",
+            component: (resolve) => require(["@/views/imobile/purchaseOrder/index"], resolve),
+            name: "ImobilePurchaseOrder",
+            meta: {
+              title: "Purchase Order",
+              icon: "el-icon-shopping-bag-1",
+              permissions: ["po:order:view"]
+            }
           }
         ]
       },
@@ -253,6 +266,81 @@ export const moduleRoutes = [
             }
           }
         ]
+      }
+    ]
+  },
+  {
+    // Refurbished Phones — market intelligence over the external scraper MySQL
+    // DB. A "Scraper" submenu (Dashboard snapshot + Reebelo offer list) plus the
+    // "Ask AI" chat. Admin + iMobile Admin (refurb:*:* / ai:*:*).
+    path: "/refurbished",
+    component: Layout,
+    redirect: "/refurbished/scraper/dashboard",
+    alwaysShow: true,
+    meta: { title: "Refurbished Phones", icon: "el-icon-mobile-phone" },
+    children: [
+      {
+        // Scraper — scraped marketplace data (Reebelo / JB) from the external
+        // MySQL DB: a dashboard snapshot + a filterable Reebelo offer list.
+        path: "scraper",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Scraper", icon: "el-icon-connection" },
+        children: [
+          {
+            path: "/refurbished/scraper/dashboard",
+            component: (resolve) => require(["@/views/refurbished/dashboard"], resolve),
+            name: "RefurbishedDashboard",
+            meta: {
+              title: "Dashboard",
+              icon: "el-icon-data-analysis",
+              permissions: ["refurb:offer:view"]
+            }
+          },
+          {
+            path: "/refurbished/scraper/reebelo",
+            component: (resolve) => require(["@/views/refurbished/list"], resolve),
+            name: "RefurbishedList",
+            meta: {
+              title: "Reebelo",
+              icon: "el-icon-tickets",
+              permissions: ["refurb:offer:view"]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    // InFlow — sales orders + customers, ingested via the public webhook
+    // (/integration/inflow). Admin + iMobile Admin view; recording payments is
+    // Admin-only (inflow:order:payment).
+    path: "/inflow",
+    component: Layout,
+    redirect: "/inflow/salesOrders",
+    alwaysShow: true,
+    meta: { title: "InFlow", icon: "el-icon-money" },
+    children: [
+      {
+        path: "salesOrders",
+        component: (resolve) => require(["@/views/inflow/salesOrders"], resolve),
+        name: "InflowSalesOrders",
+        meta: {
+          title: "Sales Orders",
+          icon: "el-icon-s-order",
+          permissions: ["inflow:order:view"]
+        }
+      },
+      {
+        path: "customers",
+        component: (resolve) => require(["@/views/inflow/customers"], resolve),
+        name: "InflowCustomers",
+        meta: {
+          title: "Customer",
+          icon: "el-icon-user",
+          permissions: ["inflow:customer:view"]
+        }
       }
     ]
   },
