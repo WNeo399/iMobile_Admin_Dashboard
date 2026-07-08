@@ -319,6 +319,7 @@ export default {
                     date: this.dateStr(o),
                     type: (o.isCreditNote || t < 0) ? 'Credit Note' : 'Invoice',
                     details: o.invoiceNumber || '',
+                    pdf: o.invoicePdfUrl || '',
                     amount: t, payment: p, balance: bal
                 }
             })
@@ -347,14 +348,17 @@ export default {
             const dueValStyle = { font: { bold: true }, alignment: { horizontal: 'right' }, border: { top: { style: 'thin', color: { rgb: 'BFBFBF' } } } }
             const thStyle = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '333333' } }, alignment: { vertical: 'center' } }
             const rightBold = { font: { bold: true }, alignment: { horizontal: 'right' } }
+            const linkStyle = { font: { color: { rgb: '0563C1' }, underline: true } }
 
             const aoa = []
             const merges = []
             const styles = []   // { r, c, s }
             const fmts = []     // { r, c, z }
+            const links = []    // { r, c, target }
             const push = arr => { aoa.push(arr); return aoa.length - 1 }
             const sty = (r, c, s) => styles.push({ r, c, s })
             const fmt = (r, c, z) => fmts.push({ r, c, z })
+            const lnk = (r, c, target) => links.push({ r, c, target })
 
             // Header — "To / customer" (left) + title / vendor / period (right, cols D–F)
             const r0 = push(['To', '', '', 'Statement of Accounts', '', ''])
@@ -396,6 +400,8 @@ export default {
             txns.forEach(t => {
                 const r = push([t.date, t.type, t.details, t.amount, t.payment, t.balance])
                 fmt(r, 3, AMT); fmt(r, 4, NUM); fmt(r, 5, NUM)
+                // Make the invoice number (Details) a link to its PDF, when there is one.
+                if (t.pdf) { lnk(r, 2, t.pdf); sty(r, 2, linkStyle) }
             })
 
             // Balance Due footer (label right-aligned across C–E, value in F)
@@ -410,6 +416,7 @@ export default {
             const setS = (r, c, s) => { const a = XLSX.utils.encode_cell({ r, c }); if (ws[a]) ws[a].s = Object.assign({}, ws[a].s, s) }
             styles.forEach(({ r, c, s }) => setS(r, c, s))
             fmts.forEach(({ r, c, z }) => { const a = XLSX.utils.encode_cell({ r, c }); if (ws[a] && typeof ws[a].v === 'number') { ws[a].t = 'n'; ws[a].z = z } })
+            links.forEach(({ r, c, target }) => { const a = XLSX.utils.encode_cell({ r, c }); if (ws[a]) ws[a].l = { Target: target, Tooltip: 'Open invoice PDF' } })
 
             const wb = XLSX.utils.book_new()
             XLSX.utils.book_append_sheet(wb, ws, 'Statement')
