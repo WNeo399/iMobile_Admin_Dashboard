@@ -14,6 +14,11 @@ export function recordInflowPayment(id, data) {
   return request({ url: `/inflow/salesorders/${id}/payment`, method: 'post', data })
 }
 
+// Available credit notes (for this order's customer) that can be applied.
+export function getInflowOrderCredits(id) {
+  return request({ url: `/inflow/salesorders/${id}/credits`, method: 'get' })
+}
+
 export function deleteInflowPayment(id, paymentId) {
   return request({ url: `/inflow/salesorders/${id}/payment/${paymentId}`, method: 'delete' })
 }

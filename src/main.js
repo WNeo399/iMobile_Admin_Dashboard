@@ -63,6 +63,14 @@ Vue.use(Element, {
   size: Cookies.get('size') || 'medium' // set element-ui default size
 })
 
+// Project-wide: el-dialog does NOT close when the overlay/modal is clicked, so a
+// dialog can't be dismissed by an accidental outside click (losing entered data).
+// Overriding the component's default prop applies to every <el-dialog>; any dialog
+// can still opt back in with :close-on-click-modal="true".
+if (Element.Dialog && Element.Dialog.props && Element.Dialog.props.closeOnClickModal) {
+  Element.Dialog.props.closeOnClickModal.default = false
+}
+
 Vue.config.productionTip = false
 
 new Vue({

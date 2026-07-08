@@ -234,7 +234,7 @@ export default {
 .ic-spacer { flex: 1; }
 .ic-meta { font-size: 12px; color: #909399; margin-right: 6px; white-space: nowrap; }
 .ic-pager { margin-top: 10px; text-align: right; }
-.neg { color: #F56C6C; }
+.neg { color: #67C23A; }
 .owing { color: #E6A23C; }
 .ic-muted { color: #c0c4cc; }
 .ic-del { color: #F56C6C; }

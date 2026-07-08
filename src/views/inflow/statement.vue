@@ -43,7 +43,7 @@
 
                 <div class="stmt-kpis" v-loading="loading">
                     <div class="kpi"><div class="kpi-val">{{ money(filteredSummary.invoiced) }}</div><div class="kpi-lbl">Invoiced</div></div>
-                    <div class="kpi"><div class="kpi-val neg">{{ money(filteredSummary.credits) }}</div><div class="kpi-lbl">Credits</div></div>
+                    <div class="kpi"><div class="kpi-val neg">{{ money(Math.abs(filteredSummary.credits)) }}</div><div class="kpi-lbl">Credits</div></div>
                     <div class="kpi"><div class="kpi-val">{{ money(filteredSummary.paid) }}</div><div class="kpi-lbl">Paid</div></div>
                     <div class="kpi"><div class="kpi-val" :class="outClass(filteredSummary.outstanding)">{{ money(filteredSummary.outstanding) }}</div><div class="kpi-lbl">Outstanding</div></div>
                 </div>
@@ -458,7 +458,7 @@ export default {
 .stmt-table { width: 100%; }
 .stmt-cn { margin-left: 6px; }
 .stmt-empty { color: #909399; font-size: 13px; }
-.neg { color: #F56C6C; }
+.neg { color: #67C23A; }
 .owing { color: #E6A23C; font-weight: 600; }
 .stmt-desc { margin-bottom: 6px; }
 .stmt-sec { font-weight: 600; font-size: 13px; color: #303133; margin: 14px 0 6px; }

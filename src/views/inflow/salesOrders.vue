@@ -55,10 +55,9 @@
             <el-table-column prop="status" label="Status" width="100" align="center">
                 <template slot-scope="s"><el-tag size="mini" :type="statusTag(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="" width="200" align="right">
+            <el-table-column label="" width="130" align="center">
                 <template slot-scope="s">
-                    <el-button v-if="s.row.invoicePdfUrl" size="mini" type="text" icon="el-icon-document" @click="openPdf(s.row)">Invoice</el-button>
-                    <el-button v-if="s.row.status !== 'credit'" v-hasPermi="['inflow:order:payment']" size="mini" type="text" @click="openPayment(s.row)">Record Payment</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View Detail</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -96,7 +95,12 @@
                     <el-table v-if="detail.payments && detail.payments.length" :data="detail.payments" size="mini" border>
                         <el-table-column label="Date" width="130"><template slot-scope="s">{{ dateOnly(s.row.date) }}</template></el-table-column>
                         <el-table-column label="Amount" width="130" align="right"><template slot-scope="s">{{ money(s.row.amount) }}</template></el-table-column>
-                        <el-table-column prop="note" label="Note" min-width="200" show-overflow-tooltip />
+                        <el-table-column label="Note" min-width="200" show-overflow-tooltip>
+                            <template slot-scope="s">
+                                <el-tag v-if="s.row.method === 'credit'" size="mini" type="warning" effect="plain">Credit · {{ s.row.creditNoteNumber }}</el-tag>
+                                <span v-else>{{ s.row.note }}</span>
+                            </template>
+                        </el-table-column>
                         <el-table-column label="" width="50" align="center">
                             <template slot-scope="s">
                                 <el-button v-hasPermi="['inflow:order:payment']" size="mini" type="text" class="io-del" icon="el-icon-delete" @click="deletePayment(s.row)" />
@@ -108,19 +112,20 @@
             </div>
             <span slot="footer">
                 <el-button v-if="detail && detail.invoicePdfUrl" size="small" icon="el-icon-document" @click="openPdf(detail)">View Invoice</el-button>
+                <el-button v-if="detail && detail.status !== 'credit' && detail.balance > 0" v-hasPermi="['inflow:order:payment']" size="small" @click="openApplyCredit(detail)">Apply Credit</el-button>
                 <el-button v-if="detail && detail.status !== 'credit'" v-hasPermi="['inflow:order:payment']" type="primary" size="small" @click="openPayment(detail)">Record Payment</el-button>
                 <el-button size="small" @click="detailVisible = false">Close</el-button>
             </span>
         </el-dialog>
 
-        <!-- Payment dialog -->
-        <el-dialog title="Record Payment" :visible.sync="payVisible" width="420px">
+        <!-- Record Payment dialog (cash only) -->
+        <el-dialog title="Record Payment" :visible.sync="payVisible" width="440px">
             <div v-if="payOrder" class="io-payinfo">
                 {{ payOrder.invoiceNumber }} · balance <b :class="{ owing: (payOrder.balance) > 0 }">{{ money(payOrder.balance) }}</b>
             </div>
             <el-form label-width="90px" size="small">
                 <el-form-item label="Amount">
-                    <el-input-number v-model="payForm.amount" :precision="2" :step="100" :controls="false" style="width:100%" placeholder="0.00" />
+                    <el-input-number v-model="payForm.amount" :precision="2" :step="100" :min="0" :max="payOrder && payOrder.balance > 0 ? round2(payOrder.balance) : undefined" :controls="false" style="width:100%" placeholder="0.00" />
                     <el-button v-if="payOrder && payOrder.balance > 0" type="text" size="mini" @click="payForm.amount = round2(payOrder.balance)">Pay full balance</el-button>
                 </el-form-item>
                 <el-form-item label="Date">
@@ -133,6 +138,45 @@
             <span slot="footer">
                 <el-button size="small" @click="payVisible = false">Cancel</el-button>
                 <el-button type="primary" size="small" :loading="paying" @click="submitPayment">Record</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- Apply Credit dialog -->
+        <el-dialog title="Apply Credit" :visible.sync="creditVisible" width="860px" top="6vh">
+            <div v-if="creditOrder" class="io-payinfo">
+                {{ creditOrder.invoiceNumber }} · balance <b :class="{ owing: creditOrder.balance > 0 }">{{ money(creditOrder.balance) }}</b>
+            </div>
+            <el-form :inline="true" label-width="120px" size="small">
+                <el-form-item label="Applied on Date">
+                    <el-date-picker v-model="creditDate" type="date" value-format="yyyy-MM-dd" style="width:200px" />
+                </el-form-item>
+            </el-form>
+            <div v-loading="creditsLoading">
+                <template v-if="credits.length">
+                    <el-table :data="credits" size="mini" border>
+                        <el-table-column label="Transaction #" min-width="130"><template slot-scope="s">{{ s.row.invoiceNumber }}</template></el-table-column>
+                        <el-table-column label="Date" width="110"><template slot-scope="s">{{ dateStr(s.row) }}</template></el-table-column>
+                        <el-table-column label="Vendor" min-width="140" show-overflow-tooltip><template slot-scope="s">{{ s.row.vendor || '—' }}</template></el-table-column>
+                        <el-table-column label="Credit Amount" width="120" align="right"><template slot-scope="s"><span class="io-credit">{{ money(s.row.creditAmount) }}</span></template></el-table-column>
+                        <el-table-column label="Available" width="120" align="right"><template slot-scope="s">{{ money(s.row.available) }}</template></el-table-column>
+                        <el-table-column label="Credits to Apply" width="160" align="right">
+                            <template slot-scope="s">
+                                <el-input-number v-model="creditApply[s.row._id]" :precision="2" :step="10" :min="0" :max="maxApply(s.row)" :controls="false" size="mini" style="width:130px" placeholder="0.00" />
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </template>
+                <div v-else-if="!creditsLoading" class="io-empty io-nocredits">No credit notes available for this customer.</div>
+            </div>
+
+            <div class="io-paysum">
+                <div class="io-paysum-row"><span>Amount to Credit</span><b class="io-credit">{{ money(creditsTotal) }}</b></div>
+                <div class="io-paysum-row io-paysum-total"><span>Balance Due after</span><b :class="{ owing: creditRemaining > 0, neg: creditRemaining < 0 }">{{ money(creditRemaining) }}</b></div>
+            </div>
+
+            <span slot="footer">
+                <el-button size="small" @click="creditVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="applying" :disabled="!credits.length || creditRemaining < -0.005" @click="submitApplyCredit">Apply</el-button>
             </span>
         </el-dialog>
 
@@ -150,7 +194,7 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits } from '@/api/inflow'
 
 export default {
     name: 'InflowSalesOrders',
@@ -169,7 +213,18 @@ export default {
             detailVisible: false, detail: null, detailLoading: false,
             payVisible: false, payOrder: null, paying: false,
             payForm: { amount: null, date: this.today(), note: '' },
+            creditVisible: false, creditOrder: null, applying: false,
+            credits: [], creditsLoading: false, creditApply: {}, creditDate: this.today(),
             pdfVisible: false, pdfUrl: '', pdfTitle: ''
+        }
+    },
+    computed: {
+        // Total credit being applied across all credit notes in the Apply Credit dialog.
+        creditsTotal() {
+            return this.round2(this.credits.reduce((s, c) => s + (Number(this.creditApply[c._id]) || 0), 0))
+        },
+        creditRemaining() {
+            return this.creditOrder ? this.round2((Number(this.creditOrder.balance) || 0) - this.creditsTotal) : 0
         }
     },
     created() {
@@ -236,6 +291,7 @@ export default {
             this.pdfTitle = row.invoiceNumber || ''
             this.pdfVisible = true
         },
+        // Record Payment — cash only.
         openPayment(row) {
             this.payOrder = row
             this.payForm = { amount: row.balance > 0 ? this.round2(row.balance) : null, date: this.today(), note: '' }
@@ -243,20 +299,84 @@ export default {
         },
         async submitPayment() {
             const amount = Number(this.payForm.amount)
-            if (!isFinite(amount) || amount === 0) { this.$message.warning('Enter a non-zero amount.'); return }
+            if (!isFinite(amount) || amount <= 0) { this.$message.warning('Enter a positive amount.'); return }
+            const bal = this.round2(Number(this.payOrder.balance) || 0)
+            if (amount > bal + 0.005) {
+                this.$message.warning(`Amount can't exceed the balance due of ${this.money(bal)}.`)
+                return
+            }
             this.paying = true
             try {
                 const r = await recordInflowPayment(this.payOrder._id, { amount, date: this.payForm.date, note: this.payForm.note })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success('Payment recorded')
                 this.payVisible = false
-                // reflect in the open detail + the row
                 if (this.detail && this.detail._id === r.order._id) this.detail = r.order
                 this.load()
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to record payment'))
             } finally {
                 this.paying = false
+            }
+        },
+        // Apply Credit — apply available credit notes against the balance (no cash).
+        async openApplyCredit(row) {
+            this.creditOrder = row
+            this.creditDate = this.today()
+            this.credits = []
+            this.creditApply = {}
+            this.creditVisible = true
+            this.creditsLoading = true
+            try {
+                const r = await getInflowOrderCredits(row._id)
+                if (r && r.success) {
+                    this.credits = r.credits || []
+                    const map = {}
+                    this.credits.forEach(c => { map[c._id] = null })
+                    this.creditApply = map
+                }
+            } catch (e) { this.$message.error(this.msg(e, 'Failed to load credits')) }
+            finally { this.creditsLoading = false }
+        },
+        // Max credit that can go on one row: capped by both its available credit
+        // and the balance left after the other rows' amounts.
+        maxApply(row) {
+            const other = this.round2(this.creditsTotal - (Number(this.creditApply[row._id]) || 0))
+            const room = this.round2((Number(this.creditOrder && this.creditOrder.balance) || 0) - other)
+            return Math.max(0, Math.min(Number(row.available) || 0, room))
+        },
+        async submitApplyCredit() {
+            const creditsPayload = this.credits
+                .map(c => ({ creditNoteId: c._id, amount: this.round2(Number(this.creditApply[c._id]) || 0), available: c.available, invoiceNumber: c.invoiceNumber }))
+                .filter(c => c.amount > 0)
+            if (!creditsPayload.length) { this.$message.warning('Enter a credit amount to apply.'); return }
+            for (const c of creditsPayload) {
+                if (c.amount > c.available + 0.005) {
+                    this.$message.warning(`Only ${this.money(c.available)} available on ${c.invoiceNumber}.`)
+                    return
+                }
+            }
+            const bal = this.round2(Number(this.creditOrder.balance) || 0)
+            if (this.creditsTotal > bal + 0.005) {
+                this.$message.warning(`Credit applied can't exceed the balance due of ${this.money(bal)}.`)
+                return
+            }
+            this.applying = true
+            try {
+                const r = await recordInflowPayment(this.creditOrder._id, {
+                    amount: 0,
+                    date: this.creditDate,
+                    credits: creditsPayload.map(c => ({ creditNoteId: c.creditNoteId, amount: c.amount }))
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success('Credit applied')
+                this.creditVisible = false
+                if (this.detail && this.detail._id === r.order._id) this.detail = r.order
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to apply credit'))
+            } finally {
+                this.applying = false
             }
         },
         deletePayment(payment) {
@@ -307,13 +427,19 @@ export default {
 .io-cn { margin-left: 6px; }
 .io-inv { line-height: 1.3; }
 .io-vendor { font-size: 11px; color: #909399; line-height: 1.3; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.neg { color: #F56C6C; }
+.neg { color: #67C23A; }
 .owing { color: #E6A23C; font-weight: 600; }
 .io-desc { margin-bottom: 6px; }
 .io-sub { font-weight: 600; font-size: 13px; color: #303133; margin: 14px 0 6px; }
 .io-count { color: #909399; font-weight: normal; }
 .io-empty { color: #909399; font-size: 12px; }
 .io-payinfo { font-size: 13px; color: #606266; margin-bottom: 12px; }
+.io-credit { color: #67C23A; font-weight: 600; }
+.io-nocredits { margin: 10px 0; }
+.io-paysum { margin-top: 16px; margin-left: auto; width: 320px; border-top: 1px solid #ebeef5; padding-top: 10px; }
+.io-paysum-row { display: flex; justify-content: space-between; font-size: 13px; color: #606266; padding: 3px 0; }
+.io-paysum-total { border-top: 1px solid #ebeef5; margin-top: 4px; padding-top: 8px; font-size: 14px; color: #303133; }
+.io-paysum-total b { font-size: 15px; }
 .io-pdf-wrap { height: 72vh; background: #f2f3f5; }
 .io-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .io-pdf-open { margin-right: 12px; }

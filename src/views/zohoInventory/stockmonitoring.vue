@@ -72,12 +72,20 @@
                 <el-table v-loading="loading" :data="showProductList" @selection-change="handleSelectionChange"
                     @sort-change="handleSorting" ref="table" empty-text="No Data" stripe border row-key="id">
                     <el-table-column type="selection" width="50" align="center" :reserve-selection="true" />
-                    <el-table-column label="SKU" align="center" key="sku" width="150" prop="sku" />
-                    <el-table-column label="Product Name" align="center" key="productName" min-width="250"
-                        sortable="custom" prop="productName" :show-overflow-tooltip="true">
+                    <el-table-column label="Product" align="left" header-align="center" key="product"
+                        min-width="300" sortable="custom" prop="productName">
+                        <template slot-scope="scope">
+                            <div class="product-cell">
+                                <a class="product-name-link"
+                                    :href="`https://inventory.zoho.com/app/746138234#/inventory/items/${scope.row.id}`"
+                                    target="_blank" rel="noopener" :title="scope.row.productName">{{ scope.row.productName }}</a>
+                                <div class="product-meta">
+                                    <span class="p-sku">SKU: {{ scope.row.sku || '—' }}</span>
+                                    <span v-if="scope.row.location" class="p-loc"><i class="el-icon-location-outline" /> {{ scope.row.location }}</span>
+                                </div>
+                            </div>
+                        </template>
                     </el-table-column>
-                    <el-table-column label="Location" align="center" key="location" width="150" prop="location"
-                        :show-overflow-tooltip="true" />
                     <el-table-column label="Current Stock" align="center" key="stock" prop="stock" width="140"
                         sortable="custom" :show-overflow-tooltip="true" />
 
@@ -110,6 +118,12 @@
                                     <span>InFlow: {{ scope.row.offlineSales || 0 }}</span>
                                 </div>
                             </div>
+                        </template>
+                    </el-table-column>
+
+                    <el-table-column label="Purchase" align="center" key="purchase" width="120">
+                        <template slot-scope="scope">
+                            <span class="purchase-cell">-</span>
                         </template>
                     </el-table-column>
 
@@ -597,6 +611,41 @@ export default {
     position: sticky;
     top: 0;
     z-index: 999;
+}
+
+.product-cell {
+    line-height: 1.35;
+    text-align: left;
+}
+
+.product-name-link {
+    display: inline-block;
+    font-weight: 500;
+    color: #409eff;
+    text-decoration: underline;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.product-name-link:hover {
+    color: #66b1ff;
+}
+
+.product-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin-top: 3px;
+    font-size: 12px;
+    color: #909399;
+}
+
+.product-meta .p-loc i {
+    margin-right: 2px;
+}
+
+.purchase-cell {
+    color: #909399;
 }
 
 .sales-cell {
