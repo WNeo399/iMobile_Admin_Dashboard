@@ -63,6 +63,33 @@
             </div>
         </el-card>
 
+        <!-- Add manually -->
+        <el-card shadow="never" class="add-card">
+            <div slot="header" class="card-head"><i class="el-icon-circle-plus-outline" /> Add serials to record</div>
+            <el-input
+                v-model="manualInput"
+                type="textarea"
+                :rows="3"
+                resize="none"
+                placeholder="Enter one or more serial numbers — one per line, or separated by spaces / commas…"
+                class="add-input"
+                @keyup.enter.native.ctrl="addManual"
+            />
+            <div class="add-row">
+                <span v-if="manualSerials.length" class="add-count">
+                    <strong>{{ manualSerials.length.toLocaleString() }}</strong> serial{{ manualSerials.length === 1 ? '' : 's' }} ready
+                </span>
+                <span v-else class="add-count muted">Type a serial to add it to the list</span>
+                <span class="stat-spacer" />
+                <el-button type="primary" icon="el-icon-plus" :loading="adding" :disabled="!manualSerials.length" @click="addManual">
+                    {{ adding ? 'Adding…' : (manualSerials.length > 1 ? `Add ${manualSerials.length.toLocaleString()} serials to record` : 'Add to record') }}
+                </el-button>
+            </div>
+            <div class="form-hint">
+                Added on top of the existing list — nothing is removed. Serials already on record are skipped.
+            </div>
+        </el-card>
+
         <!-- Spot check -->
         <el-card shadow="never" class="check-card">
             <div slot="header" class="card-head"><i class="el-icon-search" /> Check a serial</div>
@@ -132,9 +159,28 @@ export default {
             parsedSerials: [],
             mode: 'replace',
             importing: false,
+            manualInput: '',
+            adding: false,
             checkSerial: '',
             checking: false,
             checkResult: null
+        }
+    },
+    computed: {
+        // Serials typed into the manual-add box: split on whitespace / commas /
+        // semicolons, trimmed, deduped (case- and space-insensitive).
+        manualSerials() {
+            const seen = new Set()
+            const out = []
+            for (const tok of String(this.manualInput || '').split(/[\s,;]+/)) {
+                const v = tok.trim()
+                if (!v) continue
+                const key = v.replace(/\s+/g, '').toUpperCase()
+                if (seen.has(key)) continue
+                seen.add(key)
+                out.push(v)
+            }
+            return out
         }
     },
     created() {
@@ -232,6 +278,31 @@ export default {
                 this.$message.error(this.msg(e, 'Import failed'))
             } finally {
                 this.importing = false
+            }
+        },
+        // Add one or more manually-typed serials on top of the existing list
+        // (merge — never removes anything). Reuses the import endpoint.
+        async addManual() {
+            const serials = this.manualSerials
+            if (!serials.length || this.adding) return
+            this.adding = true
+            try {
+                const res = await importSvpSerials({ serials, mode: 'merge' })
+                if (!res || res.success === false) throw new Error((res && res.message) || 'Add failed')
+                const inserted = res.inserted || 0
+                const already = (res.submitted || serials.length) - inserted
+                this.$message.success(
+                    `Added ${inserted.toLocaleString()} serial${inserted === 1 ? '' : 's'}` +
+                    (already > 0 ? ` (${already.toLocaleString()} already on record)` : '') +
+                    ` — ${(res.total || 0).toLocaleString()} on record.`
+                )
+                this.manualInput = ''
+                this.loadStats()
+            } catch (e) {
+                console.error('SVP manual serial add failed:', e)
+                this.$message.error(this.msg(e, 'Add failed'))
+            } finally {
+                this.adding = false
             }
         },
         async doCheck() {
@@ -356,6 +427,11 @@ export default {
 .parsed-preview { font-size: 12px; }
 .mode-group { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
 .radio-hint { color: #909399; font-weight: normal; font-size: 12px; }
+
+.add-input { margin-bottom: 10px; }
+.add-input ::v-deep textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.add-row { display: flex; align-items: center; gap: 12px; }
+.add-count { font-size: 13px; color: #303133; strong { color: #409eff; } }
 
 .check-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .check-input { width: 280px; max-width: 100%; }
