@@ -86,8 +86,8 @@
                         <el-descriptions-item label="Total"><b :class="{ neg: detail.totalAmount < 0 }">{{ money(detail.totalAmount) }}</b></el-descriptions-item>
                         <el-descriptions-item label="Paid / Balance">{{ money(detail.paidAmount) }} / <b :class="outClass(detail.balance)">{{ money(detail.balance) }}</b></el-descriptions-item>
                     </el-descriptions>
-                    <div class="stmt-sec">Line items</div>
-                    <el-table :data="detail.lineItems || []" size="mini" border>
+                    <div class="stmt-sec">Line items <span v-if="detail.lineItems && detail.lineItems.length" class="stmt-li-count">({{ detail.lineItems.length }})</span></div>
+                    <el-table :data="pagedLineItems" size="mini" border>
                         <el-table-column label="Item" min-width="260">
                             <template slot-scope="s">
                                 <div class="stmt-li-desc">{{ s.row.description }}</div>
@@ -98,6 +98,10 @@
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
                         <el-table-column label="Subtotal" width="120" align="right"><template slot-scope="s">{{ money(s.row.subTotal) }}</template></el-table-column>
                     </el-table>
+                    <el-pagination v-if="detail.lineItems && detail.lineItems.length > liPageSize"
+                        small background layout="total, prev, pager, next"
+                        :total="detail.lineItems.length" :page-size="liPageSize" :current-page="liPage"
+                        @current-change="p => liPage = p" class="stmt-li-pager" />
                 </template>
             </div>
             <span slot="footer">
@@ -134,6 +138,7 @@ export default {
             statusMode: 'all',
             vendorFilter: '',
             detailVisible: false, detail: null, detailLoading: false,
+            liPage: 1, liPageSize: 10,
             pdfVisible: false, pdfUrl: '', pdfTitle: '',
             pickerOptions: {
                 firstDayOfWeek: 1,
@@ -181,6 +186,11 @@ export default {
                 if (t < 0) credits += t; else invoiced += t
             }
             return { orderCount: this.filteredOrders.length, invoiced, credits, paid, outstanding: total - paid }
+        },
+        pagedLineItems() {
+            const items = (this.detail && this.detail.lineItems) || []
+            const start = (this.liPage - 1) * this.liPageSize
+            return items.slice(start, start + this.liPageSize)
         }
     },
     watch: {
@@ -227,6 +237,7 @@ export default {
         async openDetail(row) {
             this.detailVisible = true
             this.detail = row
+            this.liPage = 1
             this.detailLoading = true
             try {
                 const r = this.adminCustomer
@@ -469,6 +480,8 @@ export default {
 .stmt-sec { font-weight: 600; font-size: 13px; color: #303133; margin: 14px 0 6px; }
 .stmt-li-desc { color: #303133; line-height: 1.3; }
 .stmt-li-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
+.stmt-li-count { color: #909399; font-weight: normal; }
+.stmt-li-pager { margin-top: 8px; text-align: right; }
 .stmt-pdf-wrap { height: 72vh; background: #f2f3f5; }
 .stmt-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .stmt-pdf-open { margin-right: 12px; }

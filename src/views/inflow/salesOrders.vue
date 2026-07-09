@@ -83,8 +83,8 @@
                         <el-descriptions-item label="Paid / Balance">{{ money(detail.paidAmount) }} / <b :class="{ owing: detail.balance > 0 }">{{ money(detail.balance) }}</b></el-descriptions-item>
                     </el-descriptions>
 
-                    <div class="io-sub">Line items</div>
-                    <el-table :data="detail.lineItems || []" size="mini" border>
+                    <div class="io-sub">Line items <span v-if="detail.lineItems && detail.lineItems.length" class="io-count">({{ detail.lineItems.length }})</span></div>
+                    <el-table :data="pagedLineItems" size="mini" border>
                         <el-table-column label="Item" min-width="260">
                             <template slot-scope="s">
                                 <div class="io-li-desc">{{ s.row.description }}</div>
@@ -95,6 +95,10 @@
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
                         <el-table-column label="Subtotal" width="120" align="right"><template slot-scope="s">{{ money(s.row.subTotal) }}</template></el-table-column>
                     </el-table>
+                    <el-pagination v-if="detail.lineItems && detail.lineItems.length > liPageSize"
+                        small background layout="total, prev, pager, next"
+                        :total="detail.lineItems.length" :page-size="liPageSize" :current-page="liPage"
+                        @current-change="p => liPage = p" class="io-li-pager" />
 
                     <div class="io-sub">Payments <span v-if="detail.payments && detail.payments.length" class="io-count">({{ detail.payments.length }})</span></div>
                     <el-table v-if="detail.payments && detail.payments.length" :data="detail.payments" size="mini" border>
@@ -216,6 +220,7 @@ export default {
                 dateFrom: '', dateTo: '', sort: 'invoiceDate', order: 'desc'
             },
             detailVisible: false, detail: null, detailLoading: false,
+            liPage: 1, liPageSize: 10,
             payVisible: false, payOrder: null, paying: false,
             payForm: { amount: null, date: this.today(), note: '' },
             creditVisible: false, creditOrder: null, applying: false,
@@ -230,6 +235,11 @@ export default {
         },
         creditRemaining() {
             return this.creditOrder ? this.round2((Number(this.creditOrder.balance) || 0) - this.creditsTotal) : 0
+        },
+        pagedLineItems() {
+            const items = (this.detail && this.detail.lineItems) || []
+            const start = (this.liPage - 1) * this.liPageSize
+            return items.slice(start, start + this.liPageSize)
         }
     },
     created() {
@@ -280,6 +290,7 @@ export default {
         async openDetail(row) {
             this.detailVisible = true
             this.detail = row
+            this.liPage = 1
             this.detailLoading = true
             try {
                 const r = await getInflowOrder(row._id)
@@ -442,6 +453,7 @@ export default {
 .io-credit { color: #67C23A; font-weight: 600; }
 .io-li-desc { color: #303133; line-height: 1.3; }
 .io-li-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
+.io-li-pager { margin-top: 8px; text-align: right; }
 .io-nocredits { margin: 10px 0; }
 .io-paysum { margin-top: 16px; margin-left: auto; width: 320px; border-top: 1px solid #ebeef5; padding-top: 10px; }
 .io-paysum-row { display: flex; justify-content: space-between; font-size: 13px; color: #606266; padding: 3px 0; }
