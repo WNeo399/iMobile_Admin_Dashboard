@@ -88,7 +88,12 @@
                     </el-descriptions>
                     <div class="stmt-sec">Line items</div>
                     <el-table :data="detail.lineItems || []" size="mini" border>
-                        <el-table-column prop="description" label="Description" min-width="240" show-overflow-tooltip />
+                        <el-table-column label="Item" min-width="260">
+                            <template slot-scope="s">
+                                <div class="stmt-li-desc">{{ s.row.description }}</div>
+                                <div v-if="s.row.sku" class="stmt-li-sku">SKU: {{ s.row.sku }}</div>
+                            </template>
+                        </el-table-column>
                         <el-table-column prop="quantity" label="Qty" width="70" align="right" />
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
                         <el-table-column label="Subtotal" width="120" align="right"><template slot-scope="s">{{ money(s.row.subTotal) }}</template></el-table-column>
@@ -462,6 +467,8 @@ export default {
 .owing { color: #E6A23C; font-weight: 600; }
 .stmt-desc { margin-bottom: 6px; }
 .stmt-sec { font-weight: 600; font-size: 13px; color: #303133; margin: 14px 0 6px; }
+.stmt-li-desc { color: #303133; line-height: 1.3; }
+.stmt-li-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
 .stmt-pdf-wrap { height: 72vh; background: #f2f3f5; }
 .stmt-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .stmt-pdf-open { margin-right: 12px; }

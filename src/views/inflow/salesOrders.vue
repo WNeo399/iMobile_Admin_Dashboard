@@ -85,7 +85,12 @@
 
                     <div class="io-sub">Line items</div>
                     <el-table :data="detail.lineItems || []" size="mini" border>
-                        <el-table-column prop="description" label="Description" min-width="240" show-overflow-tooltip />
+                        <el-table-column label="Item" min-width="260">
+                            <template slot-scope="s">
+                                <div class="io-li-desc">{{ s.row.description }}</div>
+                                <div v-if="s.row.sku" class="io-li-sku">SKU: {{ s.row.sku }}</div>
+                            </template>
+                        </el-table-column>
                         <el-table-column prop="quantity" label="Qty" width="70" align="right" />
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
                         <el-table-column label="Subtotal" width="120" align="right"><template slot-scope="s">{{ money(s.row.subTotal) }}</template></el-table-column>
@@ -435,6 +440,8 @@ export default {
 .io-empty { color: #909399; font-size: 12px; }
 .io-payinfo { font-size: 13px; color: #606266; margin-bottom: 12px; }
 .io-credit { color: #67C23A; font-weight: 600; }
+.io-li-desc { color: #303133; line-height: 1.3; }
+.io-li-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
 .io-nocredits { margin: 10px 0; }
 .io-paysum { margin-top: 16px; margin-left: auto; width: 320px; border-top: 1px solid #ebeef5; padding-top: 10px; }
 .io-paysum-row { display: flex; justify-content: space-between; font-size: 13px; color: #606266; padding: 3px 0; }
