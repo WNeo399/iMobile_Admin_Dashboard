@@ -1,29 +1,42 @@
 import request from '@/utils/request'
 
-// Purchase Order — read-only view over the supplier's Tencent Docs sheet.
+// Purchase Order — reads the imb_purchase_order collection (synced from the
+// supplier's Tencent Docs sheet by the backend).
 
-export function getPoTabs() {
+// Paginated + filterable (category, status, free-text search).
+export function getPoRecords(query) {
   return request({
-    url: '/purchaseOrder/tabs',
-    method: 'get'
-  })
-}
-
-// The first call of a cache cycle triggers an export on the backend (~10s),
-// so allow a generous timeout.
-export function getPoTab(title) {
-  return request({
-    url: '/purchaseOrder/tab',
+    url: '/purchaseOrder/records',
     method: 'get',
-    params: { title },
-    timeout: 60000
+    params: query
   })
 }
 
-export function refreshPo() {
+// Pull the latest from Tencent Docs into the DB (a few seconds — it exports the
+// whole sheet), then the page reloads from the DB.
+export function syncPo() {
   return request({
-    url: '/purchaseOrder/refresh',
+    url: '/purchaseOrder/sync',
     method: 'post',
-    timeout: 60000
+    timeout: 90000
   })
+}
+
+// Not-yet-received purchase summary per Zoho item_id (for Stock Monitoring).
+export function getPoByZohoIds(zohoIds) {
+  return request({
+    url: '/purchaseOrder/byZohoIds',
+    method: 'post',
+    data: { zohoIds }
+  })
+}
+
+// Category (sheet) list for the Create PO picker.
+export function getPoCategories() {
+  return request({ url: '/purchaseOrder/categories', method: 'get' })
+}
+
+// Create a purchase order in-app (from Stock Monitoring).
+export function createPo(data) {
+  return request({ url: '/purchaseOrder/create', method: 'post', data })
 }

@@ -327,16 +327,18 @@ export default {
                 return da - db
             })
 
-            let invoicedNet = 0, paidSum = 0, bal = opening
+            let invoicedNet = 0, paidSum = 0
             const txns = period.map(o => {
                 const t = money(o.totalAmount), p = money(o.paidAmount)
-                invoicedNet += t; paidSum += p; bal += (t - p)
+                invoicedNet += t; paidSum += p
                 return {
                     date: this.dateStr(o),
                     type: (o.isCreditNote || t < 0) ? 'Credit Note' : 'Invoice',
                     details: o.invoiceNumber || '',
                     pdf: o.invoicePdfUrl || '',
-                    amount: t, payment: p, balance: bal
+                    // Per-row balance = this order's own outstanding (total - paid),
+                    // not a running total. The Balance Due footer is still the sum.
+                    amount: t, payment: p, balance: t - p
                 }
             })
             const balanceDue = opening + invoicedNet - paidSum

@@ -2,8 +2,9 @@
     <div class="portal-home">
         <el-card shadow="never" class="ph-card">
             <div class="ph-title"><i class="el-icon-document" /> Your customer portal</div>
-            <div class="ph-text">View your account statement — invoices, payments, and your outstanding balance.</div>
-            <el-button type="primary" icon="el-icon-right" @click="$router.push('/statement/index')">Go to my statement</el-button>
+            <div class="ph-text">Review your order history and your account statement — invoices, payments, and your outstanding balance.</div>
+            <el-button type="primary" icon="el-icon-tickets" @click="$router.push('/portal/orders/index')">Order History</el-button>
+            <el-button icon="el-icon-right" @click="$router.push('/portal/statement/index')">My Statement</el-button>
         </el-card>
     </div>
 </template>

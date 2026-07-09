@@ -4,6 +4,9 @@ import auth from '@/plugins/auth'
 // Is the current user allowed to access this route?
 function routeAllowed(route) {
   const meta = route.meta || {}
+  // `exclusiveRoles` gates a route to specific roles WITHOUT the admin bypass,
+  // so portal-only pages don't leak onto the admin sidebar (where they'd be empty).
+  if (meta.exclusiveRoles) return auth.hasStrictRoleOr(meta.exclusiveRoles)
   if (meta.permissions) return auth.hasPermiOr(meta.permissions)
   if (meta.roles) return auth.hasRoleOr(meta.roles)
   return true

@@ -380,6 +380,37 @@ export const moduleRoutes = [
     ]
   },
   {
+    // InFlow customer portal — Order History. `exclusiveRoles` gates it to
+    // inflow-customer WITHOUT the admin super-user bypass, so it shows on the
+    // customer's sidebar but never the admin's (where it would render empty).
+    path: "/portal/orders",
+    component: Layout,
+    meta: { exclusiveRoles: ["inflow-customer"] },
+    children: [
+      {
+        path: "index",
+        component: (resolve) => require(["@/views/inflow/orderHistory"], resolve),
+        name: "InflowOrderHistory",
+        meta: { title: "Order History", icon: "el-icon-tickets" }
+      }
+    ]
+  },
+  {
+    // InFlow customer portal — Statement (the same statement.vue an admin opens
+    // via ?customer=; here with no query, so it loads the caller's OWN account).
+    path: "/portal/statement",
+    component: Layout,
+    meta: { exclusiveRoles: ["inflow-customer"] },
+    children: [
+      {
+        path: "index",
+        component: (resolve) => require(["@/views/inflow/statement"], resolve),
+        name: "InflowPortalStatement",
+        meta: { title: "Statement", icon: "el-icon-document" }
+      }
+    ]
+  },
+  {
     path: "/sqt",
     component: Layout,
     redirect: "noRedirect",

@@ -54,5 +54,12 @@ export default {
     return roles.every(item => {
       return authRole(item)
     })
+  },
+  // Strict role check — the admin super-user bypass does NOT apply. Use for
+  // routes that must be shown ONLY to users literally holding one of the roles
+  // (e.g. the InFlow customer portal, which would render empty for an admin).
+  hasStrictRoleOr(roles) {
+    const userRoles = (store.getters && store.getters.roles) || []
+    return roles.some(r => userRoles.includes(r))
   }
 }

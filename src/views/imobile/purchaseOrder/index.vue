@@ -21,48 +21,62 @@
 
         <div class="po-main">
             <div class="po-toolbar">
-                <span class="po-title"><i class="el-icon-tickets" /> {{ activeTitle || 'Purchase Order' }}</span>
-                <span v-if="activeTitle" class="po-meta">{{ filteredRows.length.toLocaleString() }} rows</span>
+                <span class="po-title"><i class="el-icon-tickets" /> {{ activeCategory || 'All Categories' }}</span>
+                <span class="po-meta">{{ total.toLocaleString() }} rows</span>
+                <span v-if="syncedStr" class="po-meta">· synced {{ syncedStr }}</span>
                 <span class="po-spacer" />
-                <el-checkbox
-                    v-if="activeTitle && receivedDateCol !== -1"
-                    v-model="onlyUnreceived"
-                    class="po-toggle"
-                    @change="page = 1"
-                >Not-yet-received only</el-checkbox>
+                <el-checkbox v-model="notReceived" class="po-toggle" @change="reload">Not yet received only</el-checkbox>
                 <el-input
-                    v-if="activeTitle"
                     v-model="search"
                     size="small"
                     clearable
                     prefix-icon="el-icon-search"
-                    placeholder="Filter rows…"
+                    placeholder="SKU / product / supplier / DHL#…"
                     class="po-search"
-                    @input="page = 1"
+                    @keyup.enter.native="reload"
+                    @clear="reload"
                 />
-                <el-button size="small" icon="el-icon-refresh" :loading="refreshing" @click="onRefresh">Refresh</el-button>
+                <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">Refresh</el-button>
             </div>
 
             <el-table
                 v-loading="loading"
-                :element-loading-text="loadingText"
-                :data="pagedRows"
+                :data="rows"
                 border
                 size="mini"
                 height="calc(100vh - 220px)"
                 class="po-table"
             >
-                <el-table-column type="index" :index="indexBase" width="52" fixed align="center" />
-                <el-table-column
-                    v-for="(col, i) in columns"
-                    :key="i"
-                    :prop="'c' + i"
-                    :label="col || ('Col ' + (i + 1))"
-                    :min-width="colWidth(col)"
-                    show-overflow-tooltip
-                />
+                <el-table-column label="产品" min-width="340" fixed>
+                    <template slot-scope="s">
+                        <a v-if="s.row.zoho_id"
+                            class="po-prod-link"
+                            :href="`https://inventory.zoho.com/app/746138234#/inventory/product/variantslist/${s.row.zoho_id}`"
+                            target="_blank" rel="noopener">{{ s.row.productName }}</a>
+                        <div v-else class="po-prod-name">{{ s.row.productName }}</div>
+                        <div v-if="s.row.sku" class="po-prod-sku">SKU: {{ s.row.sku }}</div>
+                        <div v-if="s.row.note" class="po-prod-note">备注: {{ s.row.note }}</div>
+                    </template>
+                </el-table-column>
+                <el-table-column label="订货日期" prop="orderDate" width="110" align="center" />
+                <el-table-column label="订货数量" width="100" align="center"><template slot-scope="s">{{ num(s.row.orderQty) }}</template></el-table-column>
+                <el-table-column label="采购单价" width="100" align="center"><template slot-scope="s">{{ yuan(s.row.unitPrice) }}</template></el-table-column>
+                <el-table-column label="供应商" prop="supplier" width="120" align="center" show-overflow-tooltip />
+                <el-table-column label="下单时间" prop="orderedAt" width="110" align="center" />
+                <el-table-column label="发货数量" width="100" align="center"><template slot-scope="s">{{ num(s.row.shippedQty) }}</template></el-table-column>
+                <el-table-column label="发货日期" prop="shippedDate" width="120" align="center" />
+                <el-table-column label="DHL单号" prop="dhlTracking" width="130" align="center" show-overflow-tooltip>
+                    <template slot-scope="s">
+                        <a v-if="s.row.dhlTracking"
+                            class="po-dhl-link"
+                            :href="`https://www.dhl.com/au-en/home/tracking.html?tracking-id=${encodeURIComponent(s.row.dhlTracking)}&submit=1`"
+                            target="_blank" rel="noopener">{{ s.row.dhlTracking }}</a>
+                        <span v-else>—</span>
+                    </template>
+                </el-table-column>
+                <el-table-column label="收到日期" prop="receivedDate" width="120" align="center" />
                 <template slot="empty">
-                    <span class="po-empty">{{ activeTitle ? 'No rows in this tab.' : 'Pick a tab on the left to load its data.' }}</span>
+                    <span class="po-empty">No records{{ search || notReceived ? ' match the current filters.' : '.' }}</span>
                 </template>
             </el-table>
 
@@ -70,12 +84,12 @@
                 <el-pagination
                     background
                     layout="total, sizes, prev, pager, next, jumper"
-                    :total="filteredRows.length"
+                    :total="total"
                     :page-size="pageSize"
                     :page-sizes="[50, 100, 200, 500]"
                     :current-page="page"
-                    @current-change="p => page = p"
-                    @size-change="onSizeChange"
+                    @current-change="onPage"
+                    @size-change="onSize"
                 />
             </div>
         </div>
@@ -84,160 +98,98 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { getPoTabs, getPoTab, refreshPo } from '@/api/purchaseOrder'
+import { getPoRecords } from '@/api/purchaseOrder'
+
+const DEFAULT_CATEGORY = '屏幕'
 
 export default {
     name: 'ImobilePurchaseOrder',
     components: { TreePanel },
     data() {
         return {
-            tabs: [],
-            activeTitle: '',
-            columns: [],
-            allRows: [],
+            byCategory: {},
+            byCategoryOpen: {},
+            activeCategory: DEFAULT_CATEGORY,
+            rows: [],
+            total: 0,
+            lastSyncedAt: null,
+            notReceived: true,
             search: '',
-            onlyUnreceived: true,
             page: 1,
             pageSize: 100,
             loading: false,
-            loadingText: 'Loading…',
-            refreshing: false
+            treeInit: false
         }
     },
     computed: {
         treeData() {
-            return [{
-                id: 'root',
-                label: 'Purchase Order',
-                children: this.tabs.map(t => ({
-                    id: t.sheetId,
-                    label: t.title,
-                    count: t.rowCount != null ? t.rowCount : null
-                }))
-            }]
+            // Counts follow the "Not yet received only" toggle.
+            const counts = this.notReceived ? this.byCategoryOpen : this.byCategory
+            const children = Object.keys(this.byCategory).map(cat => ({
+                id: cat, label: cat, count: counts[cat] || 0
+            }))
+            const total = Object.keys(this.byCategory).reduce((sum, cat) => sum + (counts[cat] || 0), 0)
+            return [{ id: 'root', label: 'All Categories', count: total, children }]
         },
-        // Index of the received-date column (收到日期 / 收货日期); -1 if absent.
-        receivedDateCol() {
-            for (let i = 0; i < this.columns.length; i++) {
-                const h = String(this.columns[i] || '')
-                if (h.indexOf('收到日期') !== -1 || h.indexOf('收货日期') !== -1) return i
-            }
-            return -1
-        },
-        filteredRows() {
-            let rows = this.allRows
-            // Only not-yet-received: keep rows whose received-date cell is empty.
-            if (this.onlyUnreceived && this.receivedDateCol !== -1) {
-                const key = 'c' + this.receivedDateCol
-                rows = rows.filter(r => String(r[key] || '').trim() === '')
-            }
-            const q = (this.search || '').trim().toLowerCase()
-            if (q) {
-                const n = this.columns.length
-                rows = rows.filter(r => {
-                    for (let i = 0; i < n; i++) {
-                        if (String(r['c' + i] || '').toLowerCase().indexOf(q) !== -1) return true
-                    }
-                    return false
-                })
-            }
-            return rows
-        },
-        pagedRows() {
-            const start = (this.page - 1) * this.pageSize
-            return this.filteredRows.slice(start, start + this.pageSize)
-        },
-        indexBase() {
-            return (this.page - 1) * this.pageSize + 1
+        syncedStr() {
+            if (!this.lastSyncedAt) return ''
+            const d = new Date(this.lastSyncedAt)
+            return isNaN(d.getTime()) ? '' : d.toLocaleString('en-AU', { timeZone: 'Australia/Melbourne' })
         }
     },
     created() {
-        this.loadTabs()
+        this.load()
     },
     methods: {
-        async loadTabs() {
+        async load() {
+            this.loading = true
             try {
-                const res = await getPoTabs()
-                if (!res || res.success === false) throw new Error((res && res.message) || 'Failed to load tabs')
-                this.tabs = res.tabs || []
-                if (this.tabs.length) {
-                    const first = this.tabs[0]
+                const r = await getPoRecords({
+                    page: this.page,
+                    pageSize: this.pageSize,
+                    category: this.activeCategory,
+                    notReceived: this.notReceived ? 'true' : undefined,
+                    search: this.search
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.rows = r.rows || []
+                this.total = r.total || 0
+                if (r.lastSyncedAt) this.lastSyncedAt = r.lastSyncedAt
+                if (r.byCategory && Object.keys(r.byCategory).length) this.byCategory = r.byCategory
+                this.byCategoryOpen = r.byCategoryOpen || {}
+                // First load: if the default category is missing, fall back to All.
+                if (!this.treeInit && Object.keys(this.byCategory).length) {
+                    this.treeInit = true
+                    if (this.activeCategory && !this.byCategory[this.activeCategory]) {
+                        this.activeCategory = ''
+                        this.load()
+                    }
                     this.$nextTick(() => {
                         if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) {
-                            this.$refs.treeRef.setCurrentKey(first.sheetId)
+                            this.$refs.treeRef.setCurrentKey(this.activeCategory || 'root')
                         }
                     })
-                    this.loadTab(first.title)
                 }
             } catch (e) {
-                console.error('PO tabs load failed:', e)
-                this.$message.error(this.msg(e, 'Failed to load tabs'))
-            }
-        },
-        onNodeClick(data) {
-            if (!data || data.id === 'root') return
-            if (data.label === this.activeTitle) return
-            this.loadTab(data.label)
-        },
-        async loadTab(title) {
-            this.loading = true
-            this.loadingText = 'Loading from Tencent Docs… (first load exports the sheet, ~10s)'
-            try {
-                const res = await getPoTab(title)
-                if (!res || res.success === false) throw new Error((res && res.message) || 'Failed to load tab')
-                const header = res.columns || []
-                const rows = res.rows || []
-                // Some data rows can be wider than the (trailing-trimmed) header,
-                // so size the columns to the widest of header + a sample of rows.
-                let nCols = header.length
-                for (let i = 0; i < rows.length && i < 200; i++) {
-                    if (rows[i].length > nCols) nCols = rows[i].length
-                }
-                nCols = Math.max(nCols, 1)
-                this.columns = Array.from({ length: nCols }, (_, i) => (header[i] != null ? String(header[i]) : ''))
-                this.allRows = rows.map(r => {
-                    const o = {}
-                    for (let i = 0; i < nCols; i++) o['c' + i] = r[i] != null ? r[i] : ''
-                    return o
-                })
-                this.activeTitle = title
-                // Reflect the real (blank-filtered) data count in the tree node.
-                const tabMeta = this.tabs.find(t => t.title === title)
-                if (tabMeta) this.$set(tabMeta, 'rowCount', this.allRows.length)
-                this.page = 1
-                this.search = ''
-            } catch (e) {
-                console.error('PO tab load failed:', e)
-                this.$message.error(this.msg(e, 'Failed to load tab'))
+                console.error('PO records load failed:', e)
+                this.$message.error(this.msg(e, 'Failed to load purchase orders'))
             } finally {
                 this.loading = false
             }
         },
-        async onRefresh() {
-            this.refreshing = true
-            try {
-                const res = await refreshPo()
-                if (!res || res.success === false) throw new Error((res && res.message) || 'Refresh failed')
-                this.$message.success('Refreshed from Tencent Docs')
-                if (this.activeTitle) await this.loadTab(this.activeTitle)
-            } catch (e) {
-                console.error('PO refresh failed:', e)
-                this.$message.error(this.msg(e, 'Refresh failed'))
-            } finally {
-                this.refreshing = false
-            }
-        },
-        onSizeChange(size) {
-            this.pageSize = size
+        reload() { this.page = 1; this.load() },
+        onNodeClick(data) {
+            if (!data) return
+            const cat = data.id === 'root' ? '' : data.label
+            if (cat === this.activeCategory) return
+            this.activeCategory = cat
             this.page = 1
+            this.load()
         },
-        colWidth(col) {
-            const h = String(col || '')
-            // 品名 (product name) is long free text — give it plenty of room.
-            if (h.indexOf('品名') !== -1) return 380
-            const len = h.length
-            return Math.min(Math.max(90, len * 12 + 24), 320)
-        },
+        onPage(p) { this.page = p; this.load() },
+        onSize(s) { this.pageSize = s; this.page = 1; this.load() },
+        num(v) { return (v == null || v === '') ? '—' : Number(v).toLocaleString() },
+        yuan(v) { return (v == null || v === '') ? '—' : '￥' + Number(v).toLocaleString() },
         msg(e, fallback) {
             return (e.response && e.response.data && e.response.data.message) || e.message || fallback
         }
@@ -263,6 +215,7 @@ export default {
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
+    flex-wrap: wrap;
 }
 .po-title {
     font-size: 15px;
@@ -271,10 +224,18 @@ export default {
     white-space: nowrap;
     i { color: #409eff; margin-right: 4px; }
 }
-.po-meta { font-size: 12px; color: #909399; }
+.po-meta { font-size: 12px; color: #909399; white-space: nowrap; }
 .po-spacer { flex: 1; }
-.po-search { width: 220px; max-width: 40vw; }
+.po-toggle { white-space: nowrap; }
+.po-search { width: 240px; max-width: 40vw; }
 .po-table { flex: 1; }
+.po-prod-name { color: #303133; line-height: 1.35; white-space: normal; word-break: break-word; }
+.po-prod-link { display: inline-block; color: #409eff; text-decoration: underline; line-height: 1.35; white-space: normal; word-break: break-word; }
+.po-prod-link:hover { color: #66b1ff; }
+.po-prod-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
+.po-prod-note { font-size: 12px; color: #E6A23C; line-height: 1.3; margin-top: 1px; white-space: normal; word-break: break-word; }
+.po-dhl-link { color: #409eff; text-decoration: underline; }
+.po-dhl-link:hover { color: #66b1ff; }
 .po-pager { margin-top: 10px; text-align: right; }
 .po-empty { color: #909399; font-size: 13px; }
 

@@ -121,17 +121,27 @@
                         </template>
                     </el-table-column>
 
-                    <el-table-column label="Purchase" align="center" key="purchase" width="120">
+                    <el-table-column label="Purchase" align="center" key="purchase" width="180">
                         <template slot-scope="scope">
-                            <span class="purchase-cell">-</span>
+                            <i v-if="purchaseLoading" class="el-icon-loading"></i>
+                            <div v-else-if="scope.row.purchase && scope.row.purchase.count" class="purchase-cell">
+                                <div class="purchase-line"><span class="purchase-label">Order Qty:</span> <b>{{ scope.row.purchase.orderQty }}</b></div>
+                                <div v-if="scope.row.purchase.shippedQty" class="purchase-line"><span class="purchase-label">Shipped Qty:</span> <b>{{ scope.row.purchase.shippedQty }}</b></div>
+                                <div v-for="t in scope.row.purchase.trackings" :key="t" class="purchase-line">
+                                    <span class="purchase-label">DHL:</span> <a :href="dhlUrl(t)" target="_blank" rel="noopener">{{ t }}</a>
+                                </div>
+                            </div>
+                            <span v-else class="purchase-none">-</span>
                         </template>
                     </el-table-column>
 
-                    <el-table-column label="Operation" align="center" width="160"
+                    <el-table-column label="Operation" align="center" width="200"
                         class-name="small-padding fixed-width">
                         <template slot-scope="scope" v-if="scope.row.userId !== 1">
                             <el-button size="mini" type="text" icon="el-icon-edit"
                                 @click="handleGetProductDetail(scope.row.id)">View Detail</el-button>
+                            <el-button size="mini" type="text" icon="el-icon-shopping-cart-2"
+                                @click="openCreatePo(scope.row)">Create PO</el-button>
                             <!-- <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)" v-hasPermi="['system:user:remove']">删除</el-button>
               <el-dropdown size="mini" @command="(command) => handleCommand(command, scope.row)" v-hasPermi="['system:user:resetPwd', 'system:user:edit']">
                 <el-button size="mini" type="text" icon="el-icon-d-arrow-right">更多</el-button>
@@ -149,6 +159,42 @@
             </div>
         </div>
         <ProductDetailDialog :open.sync="open" :product="product"></ProductDetailDialog>
+
+        <!-- Create Purchase Order -->
+        <el-dialog :visible.sync="poDialogVisible" width="520px" append-to-body :close-on-click-modal="false">
+            <div slot="title" class="po-create-head"><i class="el-icon-shopping-cart-2" /> Create Purchase Order</div>
+            <div v-if="poProduct" class="po-create-card">
+                <div class="po-create-name" :title="poProduct.productName">{{ poProduct.productName }}</div>
+                <div class="po-create-meta">
+                    <el-tag size="mini" effect="plain">SKU {{ poProduct.sku || '—' }}</el-tag>
+                    <span v-if="poProduct.location" class="po-create-chip"><i class="el-icon-location-outline" /> {{ poProduct.location }}</span>
+                    <span class="po-create-chip">Stock <b :class="{ 'po-create-low': Number(poProduct.stock) <= 0 }">{{ poProduct.stock != null ? poProduct.stock : '—' }}</b></span>
+                </div>
+                <div v-if="poProduct.purchase && poProduct.purchase.count" class="po-create-onorder">
+                    <i class="el-icon-warning-outline" /> Already on order: <b>{{ poProduct.purchase.orderQty }}</b><span v-if="poProduct.purchase.shippedQty"> · {{ poProduct.purchase.shippedQty }} shipped</span>
+                </div>
+            </div>
+
+            <el-form label-position="top" size="small" class="po-create-form" @submit.native.prevent>
+                <div class="po-create-row">
+                    <el-form-item label="Category" class="po-create-col">
+                        <el-select v-model="poForm.category" placeholder="Select category" filterable style="width:100%">
+                            <el-option v-for="c in poCategories" :key="c" :label="c" :value="c" />
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="Order Quantity" class="po-create-col-qty">
+                        <el-input-number v-model="poForm.orderQty" :min="1" :precision="0" :step="1" controls-position="right" style="width:100%" placeholder="Qty" />
+                    </el-form-item>
+                </div>
+                <el-form-item label="Note">
+                    <el-input v-model="poForm.note" type="textarea" :rows="2" resize="none" maxlength="200" show-word-limit placeholder="Optional — e.g. urgent / specific colour" />
+                </el-form-item>
+            </el-form>
+            <span slot="footer">
+                <el-button size="small" @click="poDialogVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="poSaving" @click="submitCreatePo">Create PO</el-button>
+            </span>
+        </el-dialog>
         <!--
             Shared collection create/edit dialog (same component the
             Collections page uses). Only ever opened in Edit mode here —
@@ -168,6 +214,7 @@
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
 import { getCurrentStock, getSalesTotal } from "../../api/zoho/stockMonitoring";
+import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
 import { getCollectionGroups, getCollectionDetail } from "../../api/zoho/products/collection";
 import { getProductDetail } from "../../api/zoho/products/product";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
@@ -181,6 +228,12 @@ export default {
             open: false,
             loading: false,
             salesLoading: false,
+            purchaseLoading: false,
+            poCategories: [],
+            poDialogVisible: false,
+            poProduct: null,
+            poForm: { category: '', orderQty: null, note: '' },
+            poSaving: false,
             total: 0,
             showSearch: true,
             applyPurchaseFilter: false,
@@ -406,6 +459,62 @@ export default {
                 that.salesLoading = false
             })
         },
+        // Not-yet-received purchases per Zoho item_id, merged onto the rows for
+        // the "Purchase" column. Mirrors handleGetSalesTotal's id set.
+        handleGetPurchase() {
+            const that = this
+            that.purchaseLoading = true
+            const itemIds = (that.productList.length > 300 ? that.showProductList : that.productList)
+                .map(product => product.id).filter(Boolean)
+            getPoByZohoIds(itemIds).then(resp => {
+                const map = (resp && resp.data) || {}
+                const merge = list => list.map(item => ({ ...item, purchase: map[item.id] || null }))
+                that.showProductList = merge(that.showProductList)
+                that.productList = merge(that.productList)
+                that.purchaseLoading = false
+            }).catch(() => {
+                that.purchaseLoading = false
+            })
+        },
+        dhlUrl(t) {
+            return `https://www.dhl.com/au-en/home/tracking.html?tracking-id=${encodeURIComponent(t)}&submit=1`
+        },
+        openCreatePo(row) {
+            this.poProduct = row
+            this.poForm = { category: '', orderQty: null, note: '' }
+            this.poDialogVisible = true
+            if (!this.poCategories.length) {
+                getPoCategories().then(r => { if (r && r.success) this.poCategories = r.categories || [] }).catch(() => {})
+            }
+        },
+        async submitCreatePo() {
+            if (!this.poForm.category) { this.$message.warning('Please select a category.'); return }
+            const qty = Number(this.poForm.orderQty)
+            if (!Number.isFinite(qty) || qty <= 0) { this.$message.warning('Please enter a quantity.'); return }
+            this.poSaving = true
+            try {
+                const r = await createPo({
+                    category: this.poForm.category,
+                    orderQty: qty,
+                    note: this.poForm.note,
+                    sku: this.poProduct.sku,
+                    productName: this.poProduct.productName,
+                    zoho_id: this.poProduct.id
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (r.tencentWritten) {
+                    this.$message.success('Purchase order created and added to the Tencent sheet')
+                } else {
+                    this.$message.warning('Purchase order saved — but it could not be written to the Tencent sheet yet.')
+                }
+                this.poDialogVisible = false
+                this.handleGetPurchase()
+            } catch (e) {
+                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || 'Failed to create purchase order')
+            } finally {
+                this.poSaving = false
+            }
+        },
         getList() {
             const that = this
             this.loading = true
@@ -421,6 +530,7 @@ export default {
                 that.loading = false
                 that.$nextTick(() => {
                     that.handleGetSalesTotal()
+                    that.handleGetPurchase()
                 })
             }).catch(err => {
                 that.loading = false
@@ -440,7 +550,10 @@ export default {
                 page * pageSize
             )
             this.$nextTick(() => {
-                that.productList.length > 300 && that.handleGetSalesTotal()
+                if (that.productList.length > 300) {
+                    that.handleGetSalesTotal()
+                    that.handleGetPurchase()
+                }
             })
         },
         handleSorting({ prop, order }) {
@@ -645,7 +758,95 @@ export default {
 }
 
 .purchase-cell {
+    line-height: 1.5;
+    text-align: left;
+    display: inline-block;
+    font-size: 12px;
+}
+.purchase-line {
+    color: #303133;
+    white-space: nowrap;
+}
+.purchase-label {
     color: #909399;
+}
+.purchase-line a {
+    color: #409eff;
+    text-decoration: underline;
+}
+.purchase-line a:hover {
+    color: #66b1ff;
+}
+.purchase-none {
+    color: #c0c4cc;
+}
+.po-create-head {
+    font-size: 15px;
+    font-weight: 600;
+    color: #303133;
+}
+.po-create-head i {
+    color: #409eff;
+    margin-right: 6px;
+}
+.po-create-card {
+    background: #f5f7fa;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+}
+.po-create-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: #303133;
+    line-height: 1.4;
+}
+.po-create-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #909399;
+}
+.po-create-chip i {
+    margin-right: 2px;
+}
+.po-create-meta b {
+    color: #303133;
+    margin-left: 2px;
+}
+.po-create-low {
+    color: #F56C6C;
+}
+.po-create-onorder {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed #dcdfe6;
+    font-size: 12px;
+    color: #E6A23C;
+}
+.po-create-form ::v-deep .el-form-item {
+    margin-bottom: 16px;
+}
+.po-create-form ::v-deep .el-form-item__label {
+    padding-bottom: 2px;
+    line-height: 1.4;
+    color: #606266;
+}
+.po-create-row {
+    display: flex;
+    gap: 14px;
+}
+.po-create-col {
+    flex: 1;
+    min-width: 0;
+}
+.po-create-col-qty {
+    width: 150px;
+    flex: none;
 }
 
 .sales-cell {
