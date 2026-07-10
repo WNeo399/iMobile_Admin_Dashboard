@@ -4,7 +4,6 @@
         <div class="banner-text">
             <div class="banner-greeting">{{ greeting }}, {{ name }}</div>
             <div class="banner-role">
-                <el-tag size="small" type="info" effect="plain">{{ roleLabel }}</el-tag>
                 <span class="banner-date">{{ today }}</span>
             </div>
         </div>
@@ -14,14 +13,6 @@
 <script>
 // Top-of-page welcome strip. Lives in the role shell so every dashboard gets
 // the same header without each child re-implementing it.
-const ROLE_LABEL_MAP = {
-    admin: 'Admin',
-    'imobile-admin': 'iMobile Admin',
-    'techelite-admin': 'TechElite Admin',
-    'shop-owner': 'Repair Shop Owner',
-    'repair-shop': 'Repair Shop'
-}
-
 export default {
     name: 'WelcomeBanner',
     computed: {
@@ -31,10 +22,6 @@ export default {
         initial() {
             const n = String(this.name || '').trim()
             return n ? n.charAt(0).toUpperCase() : '?'
-        },
-        roleLabel() {
-            const roles = this.$store.state.user.roles || []
-            return ROLE_LABEL_MAP[roles[0]] || roles[0] || 'User'
         },
         greeting() {
             const h = new Date().getHours()
