@@ -534,8 +534,18 @@ export default {
                         itemId: hit.itemId,
                         quantity: Number(r.qty) > 0 ? Number(r.qty) : 1
                     }
-                    const jobNumber = r.line && r.line._label && r.line._label.jobNumber
-                    if (jobNumber) line.description = `Job Number: ${jobNumber}`
+                    // Line description — two lines for the per-row sheet
+                    // ("Job Number: <No>" + "PO Device: <Po Device>"); the older
+                    // grid sheet has no No column, so it keeps a single Job Number.
+                    const lbl = (r.line && r.line._label) || {}
+                    const descLines = []
+                    if (lbl.no) {
+                        descLines.push(`Job Number: ${lbl.no}`)
+                        if (lbl.jobNumber) descLines.push(`PO Device: ${lbl.jobNumber}`)
+                    } else if (lbl.jobNumber) {
+                        descLines.push(`Job Number: ${lbl.jobNumber}`)
+                    }
+                    if (descLines.length) line.description = descLines.join('\n')
                     lineItems.push(line)
                 }
                 if (lineItems.length === 0) {

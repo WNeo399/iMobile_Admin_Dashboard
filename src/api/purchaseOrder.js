@@ -33,6 +33,28 @@ export function updateSyncPo() {
   })
 }
 
+// Mark a pending PO as ordered — supplier (required) + unitPrice (optional).
+// Stamps 下单时间 and writes back to the Tencent sheet (slow), so allow a long timeout.
+export function placePoOrder(data) {
+  return request({ url: '/purchaseOrder/placeOrder', method: 'post', data, timeout: 120000 })
+}
+
+// Mark a PO as 缺货 (out of stock) — a dashboard-only status flag.
+export function markPoShortage(id) {
+  return request({ url: '/purchaseOrder/markShortage', method: 'post', data: { id } })
+}
+
+// Mark a PO as 已取消 (cancelled) — a dashboard-only status flag.
+export function cancelPoOrder(id) {
+  return request({ url: '/purchaseOrder/cancelOrder', method: 'post', data: { id } })
+}
+
+// Edit an order's 备注 / 订单数量. A quantity change is mirrored to the Tencent
+// sheet (slow), so allow a long timeout.
+export function updatePoDetail(data) {
+  return request({ url: '/purchaseOrder/updateDetail', method: 'post', data, timeout: 120000 })
+}
+
 // Not-yet-received purchase summary per Zoho item_id (for Stock Monitoring).
 export function getPoByZohoIds(zohoIds) {
   return request({

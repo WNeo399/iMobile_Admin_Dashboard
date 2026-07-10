@@ -3,8 +3,8 @@
         <tree-panel
             ref="treeRef"
             :tree-data="treeData"
-            title="Purchase Order"
-            title-icon-class="el-icon-shopping-bag-1"
+            title="采购订单"
+            title-icon-class="el-icon-box"
             node-key="id"
             :default-expand-all="true"
             :show-search="false"
@@ -20,65 +20,128 @@
         </tree-panel>
 
         <div class="po-main">
-            <div class="po-toolbar">
-                <span class="po-title"><i class="el-icon-tickets" /> {{ activeCategory || 'All Categories' }}</span>
-                <span class="po-meta">{{ total.toLocaleString() }} rows</span>
-                <span v-if="syncedStr" class="po-meta">· synced {{ syncedStr }}</span>
-                <span class="po-spacer" />
-                <el-checkbox v-model="notReceived" class="po-toggle" @change="reload">Not yet received only</el-checkbox>
-                <el-input
-                    v-model="search"
-                    size="small"
-                    clearable
-                    prefix-icon="el-icon-search"
-                    placeholder="SKU / product / supplier / DHL#…"
-                    class="po-search"
-                    @keyup.enter.native="reload"
-                    @clear="reload"
-                />
-                <el-button size="small" type="success" icon="el-icon-plus" @click="openCreatePo">Create PO</el-button>
-                <el-button size="small" type="primary" plain icon="el-icon-sort" :loading="syncing" @click="onSync">Sync with Tencent</el-button>
-                <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">Refresh</el-button>
+            <!-- Top action bar -->
+            <div class="po-topbar">
+                <el-checkbox v-model="notReceived" class="po-toggle" @change="onNotReceived">仅显示未签收</el-checkbox>
+                <el-button type="success" size="small" icon="el-icon-plus" @click="openCreatePo">创建 PO</el-button>
+                <el-button type="primary" plain size="small" icon="el-icon-sort" :loading="syncing" @click="onSync">同步腾讯</el-button>
+                <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">刷新</el-button>
             </div>
 
+            <!-- Title -->
+            <div class="po-header">
+                <div class="po-h-title">{{ activeCategory || '采购订单' }}</div>
+                <div class="po-h-sub">管理和跟踪所有采购订单<span v-if="syncedStr"> · 同步于 {{ syncedStr }}</span></div>
+            </div>
+
+            <!-- Filters -->
+            <div class="po-filters">
+                <div class="po-f-item">
+                    <label>状态</label>
+                    <el-select v-model="activeStatus" size="small" placeholder="全部状态" clearable
+                        style="width:150px" @change="onStatusChange">
+                        <el-option v-for="s in STATUS_LIST" :key="s.value" :label="s.label" :value="s.value" />
+                    </el-select>
+                </div>
+                <div class="po-f-item">
+                    <label>供应商</label>
+                    <el-select v-model="activeSupplier" size="small" placeholder="全部供应商" clearable filterable
+                        style="width:180px" @change="reload">
+                        <el-option v-for="s in suppliers" :key="s" :label="s" :value="s" />
+                    </el-select>
+                </div>
+                <div class="po-f-item po-f-grow">
+                    <label>关键词</label>
+                    <el-input v-model="search" size="small" clearable prefix-icon="el-icon-search"
+                        placeholder="搜索产品名称、SKU、供应商、DHL单号…"
+                        @keyup.enter.native="reload" @clear="reload" />
+                </div>
+                <el-button size="small" @click="resetFilters">重置</el-button>
+            </div>
+
+            <!-- KPI status cards -->
+            <div class="po-kpis">
+                <div v-for="s in STATUS_LIST" :key="s.value"
+                    class="po-kpi" :class="{ active: activeStatus === s.value }"
+                    @click="toggleStatus(s.value)">
+                    <div class="po-kpi-icon" :style="{ background: s.bg, color: s.color }"><i :class="s.icon" /></div>
+                    <div class="po-kpi-body">
+                        <div class="po-kpi-label">{{ s.label }}</div>
+                        <div class="po-kpi-count">{{ byStatus[s.value] || 0 }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
             <el-table
                 v-loading="loading"
                 :data="rows"
-                border
                 size="mini"
-                height="calc(100vh - 220px)"
+                height="calc(100vh - 432px)"
                 class="po-table"
             >
-                <el-table-column label="产品" min-width="340" fixed>
+                <el-table-column label="订单日期" prop="orderDate" width="110" align="center" fixed>
+                    <template slot-scope="s">{{ s.row.orderDate || '—' }}</template>
+                </el-table-column>
+                <el-table-column label="产品" min-width="300" fixed>
                     <template slot-scope="s">
-                        <a v-if="s.row.zoho_id"
-                            class="po-prod-link"
-                            :href="`https://inventory.zoho.com/app/746138234#/inventory/product/variantslist/${s.row.zoho_id}`"
-                            target="_blank" rel="noopener">{{ s.row.productName }}</a>
-                        <div v-else class="po-prod-name">{{ s.row.productName }}</div>
+                        <div class="po-prod-name">
+                            {{ s.row.productName }}<a v-if="s.row.zoho_id"
+                                class="po-prod-zoho"
+                                :href="zohoLink(s.row.zoho_id)"
+                                target="_blank" rel="noopener"
+                                title="在 Zoho 中查看"><i class="el-icon-link" /></a>
+                        </div>
                         <div v-if="s.row.sku" class="po-prod-sku">SKU: {{ s.row.sku }}</div>
                         <div v-if="s.row.note" class="po-prod-note">备注: {{ s.row.note }}</div>
                     </template>
                 </el-table-column>
-                <el-table-column label="订货日期" prop="orderDate" width="110" align="center" />
-                <el-table-column label="订货数量" width="100" align="center"><template slot-scope="s">{{ num(s.row.orderQty) }}</template></el-table-column>
+                <el-table-column label="订单数量" width="90" align="center"><template slot-scope="s">{{ num(s.row.orderQty) }}</template></el-table-column>
                 <el-table-column label="采购单价" width="100" align="center"><template slot-scope="s">{{ yuan(s.row.unitPrice) }}</template></el-table-column>
-                <el-table-column label="供应商" prop="supplier" width="120" align="center" show-overflow-tooltip />
-                <el-table-column label="下单时间" prop="orderedAt" width="110" align="center" />
-                <el-table-column label="发货数量" width="100" align="center"><template slot-scope="s">{{ num(s.row.shippedQty) }}</template></el-table-column>
-                <el-table-column label="发货日期" prop="shippedDate" width="120" align="center" />
-                <el-table-column label="DHL单号" prop="dhlTracking" width="130" align="center" show-overflow-tooltip>
+                <el-table-column label="供应商" width="100" align="center" show-overflow-tooltip>
+                    <template slot-scope="s">{{ s.row.supplier || '—' }}</template>
+                </el-table-column>
+                <el-table-column label="下单时间" width="100" align="center"><template slot-scope="s">{{ s.row.orderedAt || '—' }}</template></el-table-column>
+                <el-table-column label="发货数量" width="130" align="center">
                     <template slot-scope="s">
-                        <a v-if="s.row.dhlTracking"
-                            class="po-dhl-link"
-                            :href="`https://www.dhl.com/au-en/home/tracking.html?tracking-id=${encodeURIComponent(s.row.dhlTracking)}&submit=1`"
-                            target="_blank" rel="noopener">{{ s.row.dhlTracking }}</a>
-                        <span v-else>—</span>
+                        <div>{{ num(s.row.shippedQty) }}</div>
+                        <div v-if="s.row.dhlTracking" class="po-dhl-sub">
+                            DHL: <a
+                                class="po-dhl-link"
+                                :href="dhlLink(s.row.dhlTracking)"
+                                target="_blank" rel="noopener"
+                                :title="s.row.dhlTracking">{{ s.row.dhlTracking }}</a>
+                        </div>
                     </template>
                 </el-table-column>
-                <el-table-column label="收到日期" prop="receivedDate" width="120" align="center" />
+                <el-table-column label="发货日期" width="110" align="center"><template slot-scope="s">{{ s.row.shippedDate || '—' }}</template></el-table-column>
+                <el-table-column label="收到日期" width="110" align="center"><template slot-scope="s">{{ s.row.receivedDate || '—' }}</template></el-table-column>
+                <el-table-column label="状态" width="90" align="center">
+                    <template slot-scope="s">
+                        <span class="po-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span>
+                    </template>
+                </el-table-column>
+                <el-table-column label="操作" align="center" width="130" class-name="small-padding fixed-width" fixed="right">
+                    <template slot-scope="s">
+                        <el-button
+                            v-if="s.row.status === 'pending' || s.row.status === 'shortage'"
+                            size="mini"
+                            type="text"
+                            icon="el-icon-document-checked"
+                            @click="openPlaceOrder(s.row)"
+                        >已下单</el-button>
+                        <el-dropdown trigger="click" @command="(cmd) => cmd()">
+                            <el-button size="mini" type="text" icon="el-icon-more" class="more-btn" />
+                            <el-dropdown-menu slot="dropdown">
+                                <el-dropdown-item :command="() => openDetail(s.row)" icon="el-icon-document">订单详情</el-dropdown-item>
+                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'ordered'" :command="() => markShortage(s.row)" icon="el-icon-remove-outline" divided>缺货</el-dropdown-item>
+                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'shortage'" :command="() => cancelOrder(s.row)" icon="el-icon-circle-close" :divided="s.row.status === 'shortage'">取消订单</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </el-dropdown>
+                    </template>
+                </el-table-column>
                 <template slot="empty">
-                    <span class="po-empty">No records{{ search || notReceived ? ' match the current filters.' : '.' }}</span>
+                    <span class="po-empty">暂无采购订单{{ search || activeStatus || activeSupplier ? '（当前筛选条件下）' : '' }}</span>
                 </template>
             </el-table>
 
@@ -88,7 +151,7 @@
                     layout="total, sizes, prev, pager, next, jumper"
                     :total="total"
                     :page-size="pageSize"
-                    :page-sizes="[50, 100, 200, 500]"
+                    :page-sizes="[10, 20, 50, 100]"
                     :current-page="page"
                     @current-change="onPage"
                     @size-change="onSize"
@@ -184,31 +247,121 @@
                 </el-button>
             </span>
         </el-dialog>
+
+        <!-- 标记已下单 -->
+        <el-dialog :visible.sync="orderDialogVisible" width="480px" append-to-body :close-on-click-modal="false">
+            <div slot="title" class="po-create-head"><i class="el-icon-document-checked" /> 标记为已下单</div>
+            <div v-if="orderRow" class="po-order-card">
+                <div class="po-item-name" :title="orderRow.productName">{{ orderRow.productName }}</div>
+                <div class="po-item-sku">SKU: {{ orderRow.sku || '—' }} · 订单数量 {{ num(orderRow.orderQty) }}</div>
+                <div v-if="orderRow.note" class="po-order-note">备注: {{ orderRow.note }}</div>
+            </div>
+            <el-form label-position="top" size="small" class="po-order-form" @submit.native.prevent>
+                <div class="po-order-row">
+                    <el-form-item label="供应商" class="po-order-col">
+                        <el-select v-model="orderForm.supplier" placeholder="选择或输入" filterable allow-create
+                            default-first-option clearable style="width:100%">
+                            <el-option v-for="s in suppliers" :key="s" :label="s" :value="s" />
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="采购单价" class="po-order-col">
+                        <el-input v-model="orderForm.unitPrice" type="number" min="0" placeholder="0.00" style="width:100%">
+                            <template slot="prepend">￥</template>
+                        </el-input>
+                    </el-form-item>
+                </div>
+                <div class="po-order-hint"><i class="el-icon-time" /> 下单时间记录为当前时间，状态更新为「已下单」。</div>
+            </el-form>
+            <span slot="footer">
+                <el-button size="small" @click="orderDialogVisible = false">取消</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="orderSaving" @click="submitPlaceOrder">确认下单</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- 订单详情 -->
+        <el-dialog :visible.sync="detailVisible" width="640px" append-to-body :close-on-click-modal="false">
+            <div slot="title" class="po-create-head"><i class="el-icon-document" /> 订单详情</div>
+            <el-descriptions v-if="detailRow" :column="2" border size="small" class="po-detail">
+                <el-descriptions-item label="产品" :span="2">
+                    {{ detailRow.productName }}<a v-if="detailRow.zoho_id"
+                        class="po-prod-zoho" :href="zohoLink(detailRow.zoho_id)"
+                        target="_blank" rel="noopener" title="在 Zoho 中查看"><i class="el-icon-link" /></a>
+                </el-descriptions-item>
+                <el-descriptions-item label="SKU">{{ detailRow.sku || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="分类">{{ detailRow.category || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="状态">
+                    <span class="po-status" :style="statusStyle(detailRow.status)">{{ statusLabel(detailRow.status) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="供应商">{{ detailRow.supplier || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="订单日期">{{ detailRow.orderDate || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="订单数量">
+                    <el-input-number v-if="detailRow.status === 'pending'" v-model="detailForm.orderQty"
+                        :min="1" :precision="0" :step="1" size="mini" controls-position="right" style="width:130px" />
+                    <span v-else>{{ num(detailRow.orderQty) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="采购单价">{{ yuan(detailRow.unitPrice) }}</el-descriptions-item>
+                <el-descriptions-item label="金额">{{ yuan(detailRow.lineTotal) }}</el-descriptions-item>
+                <el-descriptions-item label="下单时间">{{ detailRow.orderedAt || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="发货数量">{{ num(detailRow.shippedQty) }}</el-descriptions-item>
+                <el-descriptions-item label="发货日期">{{ detailRow.shippedDate || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="DHL单号">
+                    <a v-if="detailRow.dhlTracking" class="po-dhl-link"
+                        :href="dhlLink(detailRow.dhlTracking)" target="_blank" rel="noopener">{{ detailRow.dhlTracking }}</a>
+                    <span v-else>—</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="收到日期">{{ detailRow.receivedDate || '—' }}</el-descriptions-item>
+            </el-descriptions>
+            <div v-if="detailRow" class="po-detail-note">
+                <div class="po-detail-note-label">备注</div>
+                <el-input v-model="detailForm.note" type="textarea" :rows="2" resize="none"
+                    maxlength="200" show-word-limit placeholder="备注（选填）" />
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="detailVisible = false">关闭</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="detailSaving" @click="saveDetail">保存</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { getPoRecords, updateSyncPo, getPoCategories, createPoBatch } from '@/api/purchaseOrder'
+import { getPoRecords, updateSyncPo, getPoCategories, createPoBatch, placePoOrder, markPoShortage, cancelPoOrder, updatePoDetail } from '@/api/purchaseOrder'
 import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
 
-const DEFAULT_CATEGORY = '屏幕'
+// The 5 PO statuses — DB value → { label, icon, colours }. The first four are
+// derived by the backend (deriveStatus); "shortage" (缺货) is supported here but
+// not auto-derived yet.
+const STATUS_LIST = [
+    { value: 'pending', label: '待处理', icon: 'el-icon-time', color: '#E6A23C', bg: '#FDF6EC' },
+    { value: 'ordered', label: '已下单', icon: 'el-icon-document-checked', color: '#409EFF', bg: '#ECF5FF' },
+    { value: 'shipped', label: '已发货', icon: 'el-icon-truck', color: '#8B5CF6', bg: '#F3EFFF' },
+    { value: 'received', label: '已签收', icon: 'el-icon-circle-check', color: '#67C23A', bg: '#F0F9EB' },
+    { value: 'shortage', label: '缺货', icon: 'el-icon-remove-outline', color: '#F56C6C', bg: '#FEF0F0' },
+    { value: 'cancelled', label: '已取消', icon: 'el-icon-circle-close', color: '#909399', bg: '#F4F4F5' }
+]
+const STATUS_META = STATUS_LIST.reduce((m, s) => ((m[s.value] = s), m), {})
 
 export default {
     name: 'ImobilePurchaseOrder',
     components: { TreePanel },
     data() {
         return {
+            STATUS_LIST,
             byCategory: {},
             byCategoryOpen: {},
-            activeCategory: DEFAULT_CATEGORY,
+            byStatus: {},
+            suppliers: [],
+            activeCategory: '',
+            activeStatus: '',
+            activeSupplier: '',
             rows: [],
             total: 0,
             lastSyncedAt: null,
             notReceived: true,
             search: '',
             page: 1,
-            pageSize: 100,
+            pageSize: 10,
             loading: false,
             syncing: false,
             treeInit: false,
@@ -218,18 +371,28 @@ export default {
             poItems: [],
             poSearchKeyword: '',
             poLookupLoading: false,
-            poSaving: false
+            poSaving: false,
+            // Mark-as-ordered dialog
+            orderDialogVisible: false,
+            orderRow: null,
+            orderForm: { supplier: '', unitPrice: undefined },
+            orderSaving: false,
+            // Order detail dialog (备注 / 订单数量 editable)
+            detailVisible: false,
+            detailRow: null,
+            detailForm: { note: '', orderQty: null },
+            detailSaving: false
         }
     },
     computed: {
         treeData() {
-            // Counts follow the "Not yet received only" toggle.
-            const counts = this.notReceived ? this.byCategoryOpen : this.byCategory
+            // Tree counts show the outstanding (未签收) count per category.
+            const counts = this.byCategoryOpen
             const children = Object.keys(this.byCategory).map(cat => ({
                 id: cat, label: cat, count: counts[cat] || 0
             }))
             const total = Object.keys(this.byCategory).reduce((sum, cat) => sum + (counts[cat] || 0), 0)
-            return [{ id: 'root', label: 'All Categories', count: total, children }]
+            return [{ id: 'root', label: '所有订单', count: total, children }]
         },
         syncedStr() {
             if (!this.lastSyncedAt) return ''
@@ -248,7 +411,9 @@ export default {
                     page: this.page,
                     pageSize: this.pageSize,
                     category: this.activeCategory,
-                    notReceived: this.notReceived ? 'true' : undefined,
+                    status: this.activeStatus || undefined,
+                    supplier: this.activeSupplier || undefined,
+                    notReceived: (!this.activeStatus && this.notReceived) ? 'true' : undefined,
                     search: this.search
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
@@ -257,6 +422,8 @@ export default {
                 if (r.lastSyncedAt) this.lastSyncedAt = r.lastSyncedAt
                 if (r.byCategory && Object.keys(r.byCategory).length) this.byCategory = r.byCategory
                 this.byCategoryOpen = r.byCategoryOpen || {}
+                this.byStatus = r.byStatus || {}
+                this.suppliers = r.suppliers || []
                 // First load: if the default category is missing, fall back to All.
                 if (!this.treeInit && Object.keys(this.byCategory).length) {
                     this.treeInit = true
@@ -272,18 +439,154 @@ export default {
                 }
             } catch (e) {
                 console.error('PO records load failed:', e)
-                this.$message.error(this.msg(e, 'Failed to load purchase orders'))
+                this.$message.error(this.msg(e, '加载采购订单失败'))
             } finally {
                 this.loading = false
             }
         },
         reload() { this.page = 1; this.load() },
+        // ── Filters / status ────────────────────────────────────────
+        onNotReceived() {
+            // "仅显示未签收" is a broad filter — checking it clears any specific status.
+            if (this.notReceived) this.activeStatus = ''
+            this.reload()
+        },
+        onStatusChange() {
+            // 已签收 contradicts "仅显示未签收", so untick it in that case.
+            if (this.activeStatus === 'received') this.notReceived = false
+            this.reload()
+        },
+        // Clicking a KPI card toggles that status filter.
+        toggleStatus(value) {
+            if (this.activeStatus === value) {
+                this.activeStatus = ''
+            } else {
+                this.activeStatus = value
+                if (value === 'received') this.notReceived = false
+            }
+            this.reload()
+        },
+        resetFilters() {
+            this.activeStatus = ''
+            this.activeSupplier = ''
+            this.search = ''
+            this.notReceived = true
+            this.reload()
+        },
+        statusLabel(v) { return (STATUS_META[v] && STATUS_META[v].label) || v || '—' },
+        statusStyle(v) {
+            const m = STATUS_META[v]
+            return m ? { color: m.color, background: m.bg } : { color: '#909399', background: '#f4f4f5' }
+        },
+        zohoLink(id) { return `https://inventory.zoho.com/app/746138234#/inventory/product/variantslist/${id}` },
+        dhlLink(t) { return `https://www.dhl.com/au-en/home/tracking.html?tracking-id=${encodeURIComponent(t)}&submit=1` },
+        openDetail(row) {
+            this.detailRow = row
+            this.detailForm = {
+                note: row.note || '',
+                orderQty: row.orderQty != null ? Number(row.orderQty) : null
+            }
+            this.detailVisible = true
+        },
+        async saveDetail() {
+            const isPending = this.detailRow.status === 'pending'
+            const qty = Number(this.detailForm.orderQty)
+            if (isPending && (!Number.isFinite(qty) || qty <= 0)) { this.$message.warning('请输入有效的订单数量。'); return }
+            this.detailSaving = true
+            try {
+                const r = await updatePoDetail({
+                    id: this.detailRow._id,
+                    note: this.detailForm.note,
+                    orderQty: isPending ? qty : undefined
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || '保存失败')
+                if (r.tencentWritten === false) {
+                    this.$message.warning('已保存 — 但数量尚未能写入腾讯文档。')
+                } else {
+                    this.$message.success('已保存。')
+                }
+                this.detailVisible = false
+                this.load()
+            } catch (e) {
+                console.error('PO update detail failed:', e)
+                this.$message.error(this.msg(e, '保存失败'))
+            } finally {
+                this.detailSaving = false
+            }
+        },
+        // ── Mark a pending PO as ordered ────────────────────────────
+        openPlaceOrder(row) {
+            this.orderRow = row
+            this.orderForm = {
+                supplier: row.supplier || '',
+                unitPrice: row.unitPrice != null ? Number(row.unitPrice) : undefined
+            }
+            this.orderDialogVisible = true
+        },
+        async submitPlaceOrder() {
+            const supplier = String(this.orderForm.supplier || '').trim()
+            this.orderSaving = true
+            try {
+                const r = await placePoOrder({
+                    id: this.orderRow._id,
+                    supplier,
+                    unitPrice: this.orderForm.unitPrice
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || '操作失败')
+                if (r.tencentWritten) {
+                    this.$message.success('已标记为已下单，并同步到腾讯文档。')
+                } else {
+                    this.$message.warning('已标记为已下单 — 但尚未能写入腾讯文档。')
+                }
+                this.orderDialogVisible = false
+                this.load()
+            } catch (e) {
+                console.error('PO place order failed:', e)
+                this.$message.error(this.msg(e, '操作失败'))
+            } finally {
+                this.orderSaving = false
+            }
+        },
+        async markShortage(row) {
+            try {
+                await this.$confirm('确认将此订单标记为「缺货」？', '标记缺货',
+                    { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' })
+            } catch (e) {
+                return // cancelled
+            }
+            try {
+                const r = await markPoShortage(row._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || '操作失败')
+                this.$message.success('已标记为缺货。')
+                this.load()
+            } catch (e) {
+                console.error('PO mark shortage failed:', e)
+                this.$message.error(this.msg(e, '操作失败'))
+            }
+        },
+        async cancelOrder(row) {
+            try {
+                await this.$confirm('确认取消此订单？状态将更新为「已取消」。', '取消订单',
+                    { confirmButtonText: '确认', cancelButtonText: '返回', type: 'warning' })
+            } catch (e) {
+                return // cancelled
+            }
+            try {
+                const r = await cancelPoOrder(row._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || '操作失败')
+                this.$message.success('订单已取消。')
+                this.load()
+            } catch (e) {
+                console.error('PO cancel order failed:', e)
+                this.$message.error(this.msg(e, '操作失败'))
+            }
+        },
         async onSync() {
             try {
                 await this.$confirm(
-                    'This pulls the latest updates from the Tencent Doc and applies them to the database (updates changed rows, adds new ones). It can take a while as it exports the whole sheet.',
-                    'Sync with Tencent Doc',
-                    { confirmButtonText: 'Sync', cancelButtonText: 'Cancel', type: 'info' }
+                    '将从腾讯文档拉取最新更新并应用到数据库（更新已变动的行，新增新行）。因需导出整个表格，可能需要一些时间。',
+                    '同步腾讯文档',
+                    { confirmButtonText: '同步', cancelButtonText: '取消', type: 'info' }
                 )
             } catch (e) {
                 return // cancelled
@@ -291,15 +594,15 @@ export default {
             this.syncing = true
             try {
                 const r = await updateSyncPo()
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Sync failed')
+                if (!r || r.success === false) throw new Error((r && r.message) || '同步失败')
                 const updated = r.updated || 0
                 const inserted = r.inserted || 0
                 const unchanged = r.unchanged || 0
-                this.$message.success(`Sync complete — ${updated} updated, ${inserted} new, ${unchanged} unchanged.`)
+                this.$message.success(`同步完成 — 更新 ${updated}，新增 ${inserted}，未变动 ${unchanged}。`)
                 this.reload()
             } catch (e) {
                 console.error('PO update sync failed:', e)
-                this.$message.error(this.msg(e, 'Sync failed'))
+                this.$message.error(this.msg(e, '同步失败'))
             } finally {
                 this.syncing = false
             }
@@ -444,9 +747,9 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const n = r.created || items.length
                 if (r.tencentWritten) {
-                    this.$message.success(`${n} purchase order${n > 1 ? 's' : ''} created and added to the Tencent sheet.`)
+                    this.$message.success(`已创建 ${n} 个采购订单并写入腾讯文档。`)
                 } else {
-                    this.$message.warning(`${n} purchase order${n > 1 ? 's' : ''} saved — but they could not be written to the Tencent sheet yet.`)
+                    this.$message.warning(`已保存 ${n} 个采购订单 — 但尚未能写入腾讯文档。`)
                 }
                 this.poDialogVisible = false
                 // If every new PO went to one category, jump there so they're visible.
@@ -487,35 +790,110 @@ export default {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    padding: 12px 14px;
+    padding: 14px 18px;
+    background: #f6f8fb;
+    overflow: hidden;
 }
-.po-toolbar {
+/* Top action bar */
+.po-topbar {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
 }
-.po-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: #303133;
-    white-space: nowrap;
-    i { color: #409eff; margin-right: 4px; }
-}
-.po-meta { font-size: 12px; color: #909399; white-space: nowrap; }
-.po-spacer { flex: 1; }
 .po-toggle { white-space: nowrap; }
-.po-search { width: 240px; max-width: 40vw; }
-.po-table { flex: 1; }
+.po-topsearch { width: 300px; max-width: 42vw; }
+
+/* Page title */
+.po-header { margin-bottom: 12px; }
+.po-h-title { font-size: 20px; font-weight: 700; color: #1f2937; line-height: 1.2; }
+.po-h-sub { font-size: 13px; color: #909399; margin-top: 3px; }
+
+/* Filter bar */
+.po-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+}
+.po-f-item { display: flex; flex-direction: column; gap: 5px; }
+.po-f-item > label { font-size: 12px; color: #909399; }
+.po-f-grow { flex: 1; min-width: 200px; }
+
+/* KPI status cards */
+.po-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.po-kpi {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: box-shadow .15s, transform .15s, border-color .15s;
+}
+.po-kpi:hover { box-shadow: 0 2px 12px rgba(0, 0, 0, .07); transform: translateY(-1px); }
+.po-kpi.active { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64, 158, 255, .15); }
+.po-kpi-icon {
+    width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 21px;
+}
+.po-kpi-body { min-width: 0; }
+.po-kpi-label { font-size: 13px; color: #909399; line-height: 1.2; }
+.po-kpi-count { font-size: 22px; font-weight: 700; color: #1f2937; line-height: 1.25; margin-top: 2px; }
+
+/* Table */
+.po-table {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    overflow: hidden;
+}
 .po-prod-name { color: #303133; line-height: 1.35; white-space: normal; word-break: break-word; }
-.po-prod-link { display: inline-block; color: #409eff; text-decoration: underline; line-height: 1.35; white-space: normal; word-break: break-word; }
-.po-prod-link:hover { color: #66b1ff; }
+.po-prod-zoho { color: #409eff; margin-left: 5px; font-size: 13px; text-decoration: none; cursor: pointer; }
+.po-prod-zoho:hover { color: #66b1ff; }
 .po-prod-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
 .po-prod-note { font-size: 12px; color: #E6A23C; line-height: 1.3; margin-top: 1px; white-space: normal; word-break: break-word; }
-.po-dhl-link { color: #409eff; text-decoration: underline; }
-.po-dhl-link:hover { color: #66b1ff; }
-.po-pager { margin-top: 10px; text-align: right; }
+.po-action-dash { color: #c0c4cc; }
+.more-btn {
+    padding: 4px 4px !important;
+    color: #909399;
+    &:hover { color: #409eff; }
+}
+.po-order-card { margin: 0 0 14px; padding: 10px 12px; background: #f5f7fa; border: 1px solid #ebeef5; border-radius: 6px; }
+.po-order-note { font-size: 12px; color: #E6A23C; line-height: 1.3; margin-top: 4px; word-break: break-word; }
+.po-order-form ::v-deep .el-form-item { margin-bottom: 8px; }
+.po-order-row { display: flex; gap: 12px; }
+.po-order-col { flex: 1; margin-bottom: 0; }
+.po-order-hint { font-size: 12px; color: #909399; margin-top: 4px; i { margin-right: 4px; } }
+.po-dhl-link { color: #409eff; text-decoration: none; }
+.po-dhl-link:hover { color: #66b1ff; text-decoration: underline; }
+.po-dhl-sub { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; word-break: break-all; }
+.po-status {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.po-detail-note { margin-top: 12px; }
+.po-detail-note-label { font-size: 13px; color: #606266; margin-bottom: 6px; }
+.po-pager { margin-top: 12px; text-align: right; }
 .po-empty { color: #909399; font-size: 13px; }
 
 .po-node {

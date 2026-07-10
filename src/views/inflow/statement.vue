@@ -49,7 +49,7 @@
                 </div>
 
                 <div class="stmt-table-wrap" v-loading="loading">
-                    <el-table :data="filteredOrders" border size="mini" class="stmt-table">
+                    <el-table :data="pagedOrders" border size="mini" class="stmt-table">
                         <el-table-column prop="invoiceNumber" label="Invoice #" min-width="190">
                             <template slot-scope="s">
                                 <el-link type="primary" :underline="false" @click="openDetail(s.row)">{{ s.row.invoiceNumber }}</el-link>
@@ -69,6 +69,13 @@
                         </el-table-column>
                         <template slot="empty"><span class="stmt-empty">{{ orders.length ? 'No invoices match the current filters.' : 'No invoices on your account yet.' }}</span></template>
                     </el-table>
+                    <el-pagination v-if="filteredOrders.length > ordersPageSize"
+                        background layout="total, sizes, prev, pager, next, jumper"
+                        :total="filteredOrders.length" :page-size="ordersPageSize" :page-sizes="[10, 20, 50, 100]"
+                        :current-page="ordersPage"
+                        @current-change="p => ordersPage = p"
+                        @size-change="s => { ordersPageSize = s; ordersPage = 1 }"
+                        class="stmt-pager" />
                 </div>
             </div>
         </div>
@@ -138,6 +145,7 @@ export default {
             statusMode: 'all',
             vendorFilter: '',
             detailVisible: false, detail: null, detailLoading: false,
+            ordersPage: 1, ordersPageSize: 10,
             liPage: 1, liPageSize: 10,
             pdfVisible: false, pdfUrl: '', pdfTitle: '',
             pickerOptions: {
@@ -187,6 +195,10 @@ export default {
             }
             return { orderCount: this.filteredOrders.length, invoiced, credits, paid, outstanding: total - paid }
         },
+        pagedOrders() {
+            const start = (this.ordersPage - 1) * this.ordersPageSize
+            return this.filteredOrders.slice(start, start + this.ordersPageSize)
+        },
         pagedLineItems() {
             const items = (this.detail && this.detail.lineItems) || []
             const start = (this.liPage - 1) * this.liPageSize
@@ -194,7 +206,10 @@ export default {
         }
     },
     watch: {
-        adminCustomer() { this.load() }
+        adminCustomer() { this.load() },
+        // Back to page 1 whenever the filtered result set changes (vendor / date /
+        // status filters, or a reload).
+        filteredOrders() { this.ordersPage = 1 }
     },
     created() {
         this.load()
@@ -484,6 +499,7 @@ export default {
 .stmt-li-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
 .stmt-li-count { color: #909399; font-weight: normal; }
 .stmt-li-pager { margin-top: 8px; text-align: right; }
+.stmt-pager { margin-top: 10px; text-align: right; }
 .stmt-pdf-wrap { height: 72vh; background: #f2f3f5; }
 .stmt-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .stmt-pdf-open { margin-right: 12px; }

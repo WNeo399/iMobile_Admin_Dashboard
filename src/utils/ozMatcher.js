@@ -57,30 +57,32 @@ export function parseWorkbook(arrayBuffer) {
     // header:1 → array of arrays; defval:'' so missing cells are stable.
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false })
 
-    // Header row = the one containing both "Model" and "Screen".
+    // Detect the header row AND which format the sheet is:
+    //  • perRow — the in-store repairs export: one row per device, carrying a
+    //    SKU + Fault notes column (model parsed from the SKU, part from the fault).
+    //  • grid   — the older OZ sheet: a Model column + one column per part, with
+    //    a "Product Grade" row.
     let headerIdx = -1
+    let format = null
     for (let i = 0; i < rows.length; i++) {
         const cells = rows[i].map(c => String(c).trim().toLowerCase())
-        if (cells.includes('model') && cells.includes('screen')) {
-            headerIdx = i
-            break
-        }
+        if (cells.includes('sku') && cells.some(c => c.includes('fault'))) { headerIdx = i; format = 'perRow'; break }
+        if (cells.includes('model') && cells.includes('screen')) { headerIdx = i; format = 'grid'; break }
     }
     if (headerIdx === -1) {
-        throw new Error('Could not find the header row (needs "Model" and "Screen" columns).')
+        throw new Error('Could not find a recognised header row (need "SKU" + "Fault notes", or "Model" + "Screen").')
     }
 
-    // Build a column-name → index map from the header row.
+    // Build a column-name → index map from the header row (trailing spaces in
+    // headers like "SKU " / "Fault notes " are trimmed away).
     const header = rows[headerIdx].map(c => String(c).trim())
     const columns = {}
     header.forEach((name, idx) => {
         if (name) columns[name.toLowerCase()] = idx
     })
 
-    // Sheet date — used on the printed labels. The OZ sheet carries a
-    // "Date:" row above the header; scan the pre-header rows for a
-    // dd/mm/yyyy-ish token. Left blank when absent (the label
-    // generator falls back to today).
+    // Optional "Date:" row above the header (older sheets) — used on labels.
+    // Left blank when absent (the label generator falls back to today).
     let sheetDate = ''
     for (let i = 0; i <= headerIdx; i++) {
         const joined = rows[i].map(c => String(c == null ? '' : c)).join(' ')
@@ -90,41 +92,108 @@ export function parseWorkbook(arrayBuffer) {
         }
     }
 
-    // Product Grade row = first row after the header whose first non-empty
-    // cell starts with "product grade".
+    // Product Grade row — only the grid format has one.
     let gradeIdx = -1
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-        const first = String((rows[i].find(c => String(c).trim() !== '')) || '').trim().toLowerCase()
-        if (first.startsWith('product grade')) {
-            gradeIdx = i
-            break
+    if (format === 'grid') {
+        for (let i = headerIdx + 1; i < rows.length; i++) {
+            const first = String((rows[i].find(c => String(c).trim() !== '')) || '').trim().toLowerCase()
+            if (first.startsWith('product grade')) { gradeIdx = i; break }
         }
     }
     const gradeRow = gradeIdx !== -1 ? rows[gradeIdx] : null
 
-    // Data rows are everything after the grade row (or after the header if
-    // no grade row), skipping blanks. A row counts as data when its
-    // Job Number cell is non-empty — empty / spacer rows in the sheet
-    // have no job number, so this drops them. Falls back to the Model
-    // column only if the sheet has no Job Number column at all.
-    const dataStart = gradeIdx !== -1 ? gradeIdx + 1 : headerIdx + 1
-    const jobIdx = columns['job number']
-    const modelIdx = columns['model']
-    const keyIdx = jobIdx != null ? jobIdx : modelIdx
+    // Data rows. perRow: any row with a SKU. grid: rows keyed by Job Number (or
+    // Model), starting after the grade row. Blank / spacer rows are dropped.
     const dataRows = []
-    for (let i = dataStart; i < rows.length; i++) {
-        const row = rows[i]
-        const key = keyIdx != null ? String(row[keyIdx] == null ? '' : row[keyIdx]).trim() : ''
-        if (!key) continue
-        dataRows.push(row)
+    if (format === 'perRow') {
+        const skuIdx = columns['sku']
+        for (let i = headerIdx + 1; i < rows.length; i++) {
+            const sku = skuIdx != null ? String(rows[i][skuIdx] == null ? '' : rows[i][skuIdx]).trim() : ''
+            if (!sku) continue
+            dataRows.push(rows[i])
+        }
+    } else {
+        const dataStart = gradeIdx !== -1 ? gradeIdx + 1 : headerIdx + 1
+        const keyIdx = columns['job number'] != null ? columns['job number'] : columns['model']
+        for (let i = dataStart; i < rows.length; i++) {
+            const key = keyIdx != null ? String(rows[i][keyIdx] == null ? '' : rows[i][keyIdx]).trim() : ''
+            if (!key) continue
+            dataRows.push(rows[i])
+        }
     }
 
-    return { columns, gradeRow, dataRows, sheetDate }
+    return { format, columns, gradeRow, dataRows, sheetDate }
 }
 
 // ── Resolution ──────────────────────────────────────────────────────
 
 export function resolveRows(parsed) {
+    return parsed.format === 'perRow' ? resolvePerRow(parsed) : resolveGrid(parsed)
+}
+
+// ── perRow format (in-store repairs export) ─────────────────────────
+// One device per row. Model comes from the SKU, the part from the Fault notes,
+// the job number from "Po Device", and the colour from the Color column. The
+// sheet carries no part grade, so requestedQuality is left blank (the buyer
+// picks a grade per line in the review step).
+function resolvePerRow(parsed) {
+    const { columns, dataRows, sheetDate } = parsed
+    const cell = (row, colName) => {
+        const idx = columns[colName]
+        return idx != null ? String(row[idx] == null ? '' : row[idx]).trim() : ''
+    }
+
+    const out = []
+    for (const row of dataRows) {
+        const sku = cell(row, 'sku')
+        const parsedSku = parseSku(sku)
+        if (!parsedSku || !parsedSku.modelTokens.length) continue
+
+        const faultText = cell(row, 'fault notes')
+        const part = faultToPart(faultText)
+        if (!part) continue // no fault → nothing to order
+
+        const category = part.category
+        // Device colour (from the Color column, falling back to the SKU) — kept on
+        // the printed label even for colourless parts, since it identifies the phone.
+        const colorRaw = cell(row, 'color') || prettyWords(parsedSku.colorTokens)
+        const jobNumber = cell(row, 'po device')
+        const no = cell(row, 'no')
+        // "Other" faults (e.g. "Rear Microphone") keep the buyer's wording and are
+        // resolved by picking the product; known parts show the category name.
+        const partsLabel = part.other ? faultText : prettyCategory(category)
+        const source = part.other ? `other:${faultText}` : category
+        // Standard grade per part (buyer can still change it in review).
+        const requestedQuality = part.other ? '' : (PART_DEFAULT_QUALITY[category] || '')
+
+        out.push({
+            model_id: normalizeModelId(parsedSku.modelName, parsedSku.brand),
+            // Colourless parts (screen / battery / charging port) match on
+            // model + grade only — a battery isn't "Desert Titanium".
+            color: COLOURLESS_CATEGORIES.has(category) ? null : normalizeColor(colorRaw),
+            category,
+            requestedQuality,
+            source,
+            _display: {
+                model: prettyModel(parsedSku.modelTokens),
+                part: partsLabel,
+                requestedGrade: requestedQuality
+            },
+            _label: {
+                no,
+                jobNumber,
+                device: prettyDevice(parsedSku.brand, parsedSku.modelTokens),
+                color: colorRaw,
+                parts: partsLabel,
+                date: sheetDate || ''
+            }
+        })
+    }
+    return out
+}
+
+// ── grid format (original OZ sheet) ─────────────────────────────────
+function resolveGrid(parsed) {
     const { columns, gradeRow, dataRows, sheetDate } = parsed
     const cell = (row, colName) => {
         const idx = columns[colName]
@@ -224,6 +293,93 @@ export function resolveRows(parsed) {
         })
     }
     return out
+}
+
+// ── perRow helpers ──────────────────────────────────────────────────
+
+// Split a full SKU into brand / model / colour tokens. The SKU shape is
+//   BRAND-MODEL…-<storage>-COLOUR…-GRADE-<x>
+// e.g. APPLE-IPHONE-16-PRO-MAX-256GB-DESERT-TITANIUM-GRADE-A. The storage token
+// (\d+GB/TB) bounds the model; the trailing GRADE-x is the DEVICE grade (not a
+// part grade) and is ignored. Returns null for an unparseable SKU.
+export function parseSku(sku) {
+    const tokens = String(sku || '').split('-').map(t => t.trim()).filter(Boolean)
+    if (tokens.length < 2) return null
+    const brand = tokens[0]
+    const storageIdx = tokens.findIndex(t => /^\d+(gb|tb)$/i.test(t))
+    const gradeIdx = tokens.findIndex(t => /^grade$/i.test(t))
+    const modelEnd = storageIdx >= 0 ? storageIdx : (gradeIdx >= 0 ? gradeIdx : tokens.length)
+    const modelTokens = tokens.slice(1, modelEnd)
+    const colorStart = storageIdx >= 0 ? storageIdx + 1 : modelEnd
+    const colorEnd = gradeIdx >= 0 ? gradeIdx : tokens.length
+    const colorTokens = tokens.slice(colorStart, colorEnd)
+    return { brand, modelTokens, colorTokens, modelName: modelTokens.join(' ') }
+}
+
+// Free-text fault → catalogue part category (lowercase contains-match, first
+// hit wins). "Middel/Middle Frame" → frame, "Charging Port" → charging-port,
+// etc. Anything unrecognised (e.g. "Rear Microphone") becomes an "other" line
+// the buyer maps by hand.
+const FAULT_TO_PART = [
+    { match: 'screen', category: 'screen' },
+    { match: 'lcd', category: 'screen' },
+    { match: 'display', category: 'screen' },
+    { match: 'battery', category: 'battery' },
+    { match: 'charge', category: 'charging-port' },
+    { match: 'charging', category: 'charging-port' },
+    { match: 'frame', category: 'frame' },
+    { match: 'housing', category: 'frame' },
+    { match: 'back glass', category: 'back-cover-glass' },
+    { match: 'back cover', category: 'back-cover-glass' },
+    { match: 'rear glass', category: 'back-cover-glass' }
+]
+export function faultToPart(faultText) {
+    const t = String(faultText || '').trim().toLowerCase()
+    if (!t) return null
+    for (const rule of FAULT_TO_PART) {
+        if (t.includes(rule.match)) return { category: rule.category, other: false }
+    }
+    return { category: 'other', other: true }
+}
+
+// The new export carries no part grade, so we apply the business's standard
+// grade per part (canonical quality names, same as the old sheet's usage):
+//   Screen → JK+ · Battery → IMB+ · Frame → No Small Parts.
+// The buyer can still change any line's grade in the review step. "Other" faults
+// have no default (they're mapped to a product by hand).
+const PART_DEFAULT_QUALITY = {
+    'screen': 'JK+',
+    'battery': 'IMB+',
+    'frame': 'No Small Parts',
+    'charging-port': 'Original',
+    'back-cover-glass': 'Original'
+}
+
+// Parts that have no colour variant — matched on model + grade only. The rest
+// (frame, back cover glass) carry the device colour.
+const COLOURLESS_CATEGORIES = new Set(['screen', 'battery', 'charging-port'])
+
+// Display prettifiers for the SKU's UPPERCASE tokens (labels + review table).
+const BRAND_PRETTY = {
+    apple: 'Apple', samsung: 'Samsung', google: 'Google', huawei: 'Huawei',
+    oppo: 'OPPO', xiaomi: 'Xiaomi', motorola: 'Motorola', nokia: 'Nokia', oneplus: 'OnePlus'
+}
+const MODEL_WORD_PRETTY = { iphone: 'iPhone', ipad: 'iPad', ipod: 'iPod', galaxy: 'Galaxy', macbook: 'MacBook' }
+function titleWord(w) {
+    const lw = String(w).toLowerCase()
+    if (MODEL_WORD_PRETTY[lw]) return MODEL_WORD_PRETTY[lw]
+    if (/\d/.test(w)) return String(w).toUpperCase() // model numbers: S24, 16, A55
+    return lw.charAt(0).toUpperCase() + lw.slice(1)  // pro → Pro, max → Max
+}
+function prettyWords(tokens) {
+    return (tokens || []).map(titleWord).join(' ')
+}
+function prettyModel(tokens) {
+    return prettyWords(tokens)
+}
+function prettyDevice(brand, modelTokens) {
+    const b = BRAND_PRETTY[String(brand).toLowerCase()] || titleWord(brand)
+    return [b, prettyWords(modelTokens)].filter(Boolean).join(' ')
 }
 
 // ── Normalizers (exported for tests) ────────────────────────────────
