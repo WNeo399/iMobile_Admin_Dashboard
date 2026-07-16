@@ -25,6 +25,7 @@
                 popper-class="create-so-suggestions"
                 @select="onProductSelected"
                 @keyup.enter.native="onScanEnter"
+                @keydown.native="onSearchKeydown"
             >
                 <template slot-scope="{ item }">
                     <div class="product-suggestion">
@@ -132,6 +133,12 @@
 
             <div class="step-actions">
                 <el-button
+                    :loading="printingList"
+                    :disabled="lineItems.length === 0"
+                    icon="el-icon-printer"
+                    @click="printList"
+                >Print List</el-button>
+                <el-button
                     type="primary"
                     :loading="creating"
                     :disabled="lineItems.length === 0"
@@ -161,7 +168,7 @@
 
 <script>
 import { createBuzztechSalesOrder } from '@/api/tools/buzztech'
-import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
+import { searchProducts, lookupProductBySku, getItemLocations } from '@/api/zoho/products/product'
 
 // Placeholder customer the SO is raised against. Staff are expected to
 // re-assign the real customer inside Zoho before the SO is confirmed.
@@ -185,10 +192,37 @@ export default {
             // SKU not yet in the list) and consumed by the next call to
             // onProductSelected — so the user's confirming click captures
             // the originally-scanned code on the new row.
-            pendingScanCode: ''
+            pendingScanCode: '',
+            printingList: false,
+            // Keystroke-burst tracking to tell a barcode scanner (a rapid
+            // burst of characters + Enter) from manual typing. Scanners
+            // emit ~10–30ms between keys; humans are far slower.
+            scanBurstStart: 0,
+            scanBurstCount: 0,
+            scanLastKeyTs: 0
         }
     },
     methods: {
+        // Track printable keystrokes on the search input. A gap of >400ms
+        // starts a new burst — so a scan into a half-typed box still counts
+        // only the scanner's own burst.
+        onSearchKeydown(e) {
+            if (!e || typeof e.key !== 'string' || e.key.length !== 1) return
+            const now = Date.now()
+            if (now - this.scanLastKeyTs > 400) {
+                this.scanBurstStart = now
+                this.scanBurstCount = 0
+            }
+            this.scanBurstCount += 1
+            this.scanLastKeyTs = now
+        },
+        // Does the current input look like it was entered by a scanner?
+        // At least 4 chars arriving at an average of ≤40ms per key.
+        looksScanned(codeLength) {
+            if (this.scanBurstCount < 4 || this.scanBurstCount < Math.min(codeLength, 4)) return false
+            const elapsed = this.scanLastKeyTs - this.scanBurstStart
+            return elapsed <= this.scanBurstCount * 40
+        },
         // ── Product search (same pattern as Buzztech tool) ────────────
         async fetchProductSuggestions(query, cb) {
             const q = (query || '').trim()
@@ -203,6 +237,10 @@ export default {
 
             try {
                 const res = await searchProducts(q)
+                // Staleness guard: a scan may have already consumed this query
+                // (auto-add cleared the input) by the time the debounced fetch
+                // resolves — don't pop a dropdown for it.
+                if (q !== (this.productKeyword || '').trim()) { cb([]); return }
                 if (!res || !res.success) { cb([]); return }
                 const products = Array.isArray(res.data) ? res.data : []
                 cb(products.map(p => ({
@@ -299,6 +337,8 @@ export default {
         async onScanEnter() {
             const code = (this.productKeyword || '').trim()
             if (!code || this.addingProduct) return
+            // Decide scanner-vs-typed NOW, before any await resets the burst.
+            const scanned = this.looksScanned(code.length)
 
             // Local fast path: if this code already matches a row's SKU or
             // one of its captured scan codes, bump qty without calling
@@ -324,16 +364,41 @@ export default {
                     this.$message.error(`No product found for "${code}"`)
                     return
                 }
+
+                const skuOf = (p) => p.sku
+                    || (Array.isArray(p.skus) && p.skus[0] && p.skus[0].sku)
+                    || (p.variants && p.variants[0] && p.variants[0].sku)
+                    || ''
+
+                // Scanner input + an EXACT SKU match → add it automatically
+                // (no manual pick). Typed input keeps the confirm-first flow.
+                if (scanned) {
+                    const exact = products.filter(p => skuOf(p).toLowerCase() === code.toLowerCase())
+                    if (exact.length === 1) {
+                        const p = exact[0]
+                        await this.addProductBySku({
+                            sku: skuOf(p),
+                            name: p.name || p.product_name || p.title || '',
+                            imgUrl: this.extractProductImage(p),
+                            scanCode: code
+                        })
+                        this.productKeyword = ''
+                        this.closeSuggestions()
+                        this.$nextTick(() => {
+                            const ref = this.$refs.searchInput
+                            if (ref && typeof ref.focus === 'function') ref.focus()
+                        })
+                        return
+                    }
+                }
+
                 if (products.length > 1) {
                     // Ambiguous — autocomplete will surface the dropdown.
                     return
                 }
 
                 const product = products[0]
-                const sku = product.sku
-                    || (Array.isArray(product.skus) && product.skus[0] && product.skus[0].sku)
-                    || (product.variants && product.variants[0] && product.variants[0].sku)
-                    || ''
+                const sku = skuOf(product)
                 if (!sku) return
 
                 const existing = this.lineItems.find(
@@ -487,6 +552,88 @@ export default {
         },
 
         // ── Submit ────────────────────────────────────────────────────
+        // ── Print List — A4 picking sheet of the current line items ────
+        // Three columns: Product (name + SKU), Location (fetched live from
+        // the Items view), Quantity. Rendered as HTML in a hidden iframe so
+        // the browser paginates long lists across A4 pages natively.
+        async printList() {
+            if (!this.lineItems.length || this.printingList) return
+            this.printingList = true
+            try {
+                let locations = {}
+                try {
+                    const r = await getItemLocations(this.lineItems.map(li => li.sku).filter(Boolean))
+                    if (r && r.success) locations = r.data || {}
+                } catch (e) {
+                    console.error('Location lookup failed:', e)
+                    this.$message.warning('Could not load locations — printing without them.')
+                }
+
+                const escapeHtml = (s) => String(s == null ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                const now = new Date()
+                const p = n => String(n).padStart(2, '0')
+                const dateStr = `${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()} ${p(now.getHours())}:${p(now.getMinutes())}`
+
+                const rows = this.lineItems.map(li => `
+                    <tr>
+                        <td>
+                            <div class="pname">${escapeHtml(li.name || '')}</div>
+                            <div class="psku">SKU: ${escapeHtml(li.sku || '—')}</div>
+                        </td>
+                        <td class="loc">${escapeHtml(locations[li.sku] || '—')}</td>
+                        <td class="qty">${escapeHtml(li.qty)}</td>
+                    </tr>`).join('')
+
+                const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Picking List</title>
+                    <style>
+                        @page { size: A4; margin: 15mm; }
+                        * { box-sizing: border-box; }
+                        body { font-family: Helvetica, Arial, sans-serif; color: #111; margin: 0; }
+                        h1 { font-size: 18px; margin: 0 0 2px; }
+                        .meta { font-size: 12px; color: #555; margin-bottom: 12px; }
+                        table { width: 100%; border-collapse: collapse; }
+                        thead { display: table-header-group; }
+                        th { text-align: left; font-size: 12px; padding: 6px 8px; border-bottom: 2px solid #111; }
+                        td { padding: 7px 8px; border-bottom: 1px solid #ccc; vertical-align: top; font-size: 13px; }
+                        tr { page-break-inside: avoid; }
+                        .pname { font-weight: 600; line-height: 1.3; }
+                        .psku { font-size: 11px; color: #555; margin-top: 1px; }
+                        th.loc, td.loc { width: 120px; }
+                        th.qty, td.qty { width: 70px; text-align: center; }
+                        td.loc { font-weight: 600; }
+                    </style></head><body>
+                    <h1>Picking List</h1>
+                    <div class="meta">${this.lineItems.length} item${this.lineItems.length === 1 ? '' : 's'} · ${dateStr}</div>
+                    <table>
+                        <thead><tr><th>Product</th><th class="loc">Location</th><th class="qty">Quantity</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </body></html>`
+
+                const frame = document.createElement('iframe')
+                frame.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden;'
+                document.body.appendChild(frame)
+                frame.contentDocument.open()
+                frame.contentDocument.write(html)
+                frame.contentDocument.close()
+                setTimeout(() => {
+                    try {
+                        frame.contentWindow.focus()
+                        frame.contentWindow.print()
+                    } finally {
+                        // Give the print dialog time to snapshot before removal.
+                        setTimeout(() => frame.remove(), 60000)
+                        this.printingList = false
+                    }
+                }, 150)
+            } catch (e) {
+                console.error('Print list failed:', e)
+                this.$message.error('Could not build the picking list.')
+                this.printingList = false
+            }
+        },
+
         async createOrder() {
             if (this.lineItems.length === 0 || this.creating) return
             this.creating = true

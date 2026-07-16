@@ -24,6 +24,18 @@ export function lookupProductBySku(sku) {
   })
 }
 
+// Bulk SKU → storage location (Items view "Location"). Used by the Create
+// Sales Order "Print List" picking sheet.
+// Body: { skus: [...] } → { success, data: { '<sku>': 'A1-A1-L4' | null } }
+export function getItemLocations(skus) {
+  return request({
+    url: '/zoho/product/itemLocations',
+    method: 'post',
+    data: { skus },
+    timeout: 30000
+  })
+}
+
 // Barcode-label data for one SKU: product name, Selling Price and the
 // Platinum-pricebook rate. Used by the Tools → Barcode Generator.
 export function getLabelData(sku) {
