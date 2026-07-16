@@ -24,6 +24,16 @@ export function lookupProductBySku(sku) {
   })
 }
 
+// Barcode-label data for one SKU: product name, Selling Price and the
+// Platinum-pricebook rate. Used by the Tools → Barcode Generator.
+export function getLabelData(sku) {
+  return request({
+    url: '/zoho/product/labelData',
+    method: 'get',
+    params: { sku }
+  })
+}
+
 // Resolve a scanned code (SKU or barcode/UPC) to a Zoho Inventory item.
 // Returns { itemId, sku, name, status, scanCode, matchedBy }. Used by the
 // scan-on-Enter flow in the Create Sales Order tool.

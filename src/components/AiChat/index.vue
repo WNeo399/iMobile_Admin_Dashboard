@@ -9,7 +9,7 @@
             </div>
 
             <div v-for="(m, idx) in messages" :key="idx" class="msg" :class="m.role">
-                <div class="bubble">
+                <div class="bubble" :class="{ 'has-chart': m.result && m.result.view === 'chart' }">
                     <template v-if="m.role === 'user'">
                         <div v-if="m.attachments && m.attachments.length" class="msg-attach">
                             <template v-for="(a, ai) in m.attachments">
@@ -20,30 +20,38 @@
                         <div v-if="m.text" class="bubble-text">{{ m.text }}</div>
                     </template>
                     <template v-else>
-                        <div class="bubble-text" :class="{ err: m.error }">{{ m.text }}</div>
-                        <el-collapse v-if="m.steps && m.steps.length" class="steps">
-                            <el-collapse-item :title="stepTitle(m.steps)">
-                                <div v-for="(st, si) in m.steps" :key="si" class="step">
-                                    <pre class="sql">{{ st.sql }}</pre>
-                                    <div v-if="st.error" class="step-err">⚠ {{ st.error }}</div>
-                                    <template v-else>
-                                        <div class="step-meta">{{ st.rowCount }} row{{ st.rowCount === 1 ? '' : 's' }}</div>
-                                        <el-table v-if="st.rows && st.rows.length" :data="st.rows.slice(0, 20)" size="mini" border max-height="240" class="step-table">
-                                            <el-table-column v-for="col in columnsOf(st.rows)" :key="col" :prop="col" :label="col" min-width="110" show-overflow-tooltip>
-                                                <template slot-scope="s">{{ fmt(s.row[col]) }}</template>
-                                            </el-table-column>
-                                        </el-table>
-                                        <div v-if="st.rowCount > 20" class="step-more">…and {{ st.rowCount - 20 }} more rows</div>
-                                    </template>
+                        <template v-if="m.result">
+                            <div v-if="m.result.summary" class="bubble-text">{{ m.result.summary }}</div>
+                            <el-table
+                                v-if="m.result.view === 'table' && m.result.rows && m.result.rows.length"
+                                :data="tableData(m.result)" size="mini" border max-height="300" class="result-table">
+                                <el-table-column v-for="(col, ci) in m.result.columns" :key="ci"
+                                    :prop="'c' + ci" :label="col" min-width="110" show-overflow-tooltip />
+                            </el-table>
+                            <div v-if="m.result.card && (m.result.view === 'card' || m.result.view === 'chart')" class="result-card">
+                                <div v-if="m.result.card.title" class="result-card-title">{{ m.result.card.title }}</div>
+                                <div v-if="m.result.card.subtitle" class="result-card-sub">{{ m.result.card.subtitle }}</div>
+                                <div v-if="m.result.card.fields && m.result.card.fields.length" class="result-card-fields">
+                                    <div v-for="(f, fi) in m.result.card.fields" :key="fi" class="result-field">
+                                        <span class="result-field-label">{{ f.label }}</span>
+                                        <span class="result-field-value">{{ f.value }}</span>
+                                    </div>
                                 </div>
-                            </el-collapse-item>
-                        </el-collapse>
+                            </div>
+                            <template v-if="m.result.view === 'chart'">
+                                <result-chart v-for="(c, cidx) in chartsOf(m.result)" :key="cidx" :chart="c" class="result-chart" height="200px" />
+                            </template>
+                            <div v-if="expandable && hasVisual(m)" class="result-expand">
+                                <el-button type="text" size="mini" icon="el-icon-full-screen" @click="openExpand(m)">Expand</el-button>
+                            </div>
+                        </template>
+                        <div v-else class="bubble-text" :class="{ err: m.error }">{{ m.text }}</div>
                     </template>
                 </div>
             </div>
 
             <div v-if="loading" class="msg assistant">
-                <div class="bubble"><span class="thinking"><i class="el-icon-loading" /> Querying…</span></div>
+                <div class="bubble"><span class="thinking"><i class="el-icon-loading" /> {{ progressLabel || 'Thinking…' }}</span></div>
             </div>
         </div>
 
@@ -67,11 +75,52 @@
                 <input ref="file" type="file" multiple accept="image/*,.xlsx,.xls,.csv" class="ai-file-input" @change="onFiles" />
             </div>
         </div>
+
+        <!-- Expanded reply — a roomier view of a table/card answer (used when the
+             chat lives in the small assistant panel). append-to-body so it isn't
+             clipped by the panel. -->
+        <el-dialog :visible.sync="expandVisible" width="720px" top="8vh" append-to-body :close-on-click-modal="false" custom-class="ai-expand-dialog" @opened="onExpandOpened">
+            <div slot="title" class="ai-expand-title"><i class="el-icon-magic-stick" /> Answer</div>
+            <template v-if="expanded && expanded.result">
+                <div v-if="expanded.result.summary" class="ai-expand-summary">{{ expanded.result.summary }}</div>
+                <el-table
+                    v-if="expanded.result.view === 'table' && expanded.result.rows && expanded.result.rows.length"
+                    :data="tableData(expanded.result)" size="small" border max-height="480" class="result-table">
+                    <el-table-column v-for="(col, ci) in expanded.result.columns" :key="ci"
+                        :prop="'c' + ci" :label="col" min-width="120" show-overflow-tooltip />
+                </el-table>
+                <template v-if="expanded.result.view === 'chart'">
+                    <div v-if="expanded.result.card" class="result-card ai-expand-chart-card">
+                        <div v-if="expanded.result.card.title" class="result-card-title">{{ expanded.result.card.title }}</div>
+                        <div v-if="expanded.result.card.subtitle" class="result-card-sub">{{ expanded.result.card.subtitle }}</div>
+                        <div v-if="expanded.result.card.fields && expanded.result.card.fields.length" class="result-card-fields">
+                            <div v-for="(f, fi) in expanded.result.card.fields" :key="'f' + fi" class="result-field">
+                                <span class="result-field-label">{{ f.label }}</span>
+                                <span class="result-field-value">{{ f.value }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <result-chart v-for="(c, cidx) in chartsOf(expanded.result)" :key="cidx"
+                        ref="expandCharts" :chart="c" height="320px" class="ai-expand-chart" />
+                </template>
+                <div v-else-if="expanded.result.view === 'card' && expanded.result.card" class="result-card ai-expand-card">
+                    <div v-if="expanded.result.card.title" class="result-card-title">{{ expanded.result.card.title }}</div>
+                    <div v-if="expanded.result.card.subtitle" class="result-card-sub">{{ expanded.result.card.subtitle }}</div>
+                    <div v-if="expanded.result.card.fields && expanded.result.card.fields.length" class="result-card-fields">
+                        <div v-for="(f, fi) in expanded.result.card.fields" :key="fi" class="result-field">
+                            <span class="result-field-label">{{ f.label }}</span>
+                            <span class="result-field-value">{{ f.value }}</span>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </el-dialog>
     </div>
 </template>
 
 <script>
-import { askData } from '@/api/aiQuery'
+import { askDataStream } from '@/api/aiQuery'
+import ResultChart from './ResultChart'
 
 const MAX_ATTACH = 6
 const MAX_FILE_BYTES = 15 * 1024 * 1024
@@ -80,26 +129,33 @@ const SHEET_TEXT_CAP = 100 * 1024
 
 export default {
     name: 'AiChat',
+    components: { ResultChart },
     props: {
         suggestions: {
             type: Array,
             default: () => [
-                'Cheapest Like New iPhone 15 Pro right now?',
-                'Top 5 sellers by number of offers',
-                'Average price by grade for Apple',
-                'Which brands have the most offers?'
+                'Platform price of iPhone 13 128GB in A grade?',
+                'How is the iPhone 13 128GB selling recently?',
+                'Has the price of the iPhone 12 128GB dropped in the last 30 days?',
+                'After-commission payout for the cheapest iPhone 12 128GB?'
             ]
         },
         placeholder: {
             type: String,
             default: 'Ask a question, or attach an image / spreadsheet…  (Enter to send)'
         },
-        rows: { type: Number, default: 2 }
+        rows: { type: Number, default: 2 },
+        // Show an "Expand" control on table/card answers that opens them in a
+        // large dialog — for hosts with limited width (the assistant orb panel).
+        expandable: { type: Boolean, default: false }
     },
     data() {
         return {
             input: '',
             loading: false,
+            progressLabel: '',
+            expandVisible: false,
+            expanded: null,
             attaching: false,
             pending: [], // [{ name, kind:'image'|'sheet', block, previewUrl }]
             messages: [] // [{ role, text, apiContent, attachments?, steps?, error? }]
@@ -214,11 +270,12 @@ export default {
                 .map(m => ({ role: m.role, content: m.apiContent }))
 
             this.loading = true
+            this.progressLabel = 'Thinking…'
             try {
-                const res = await askData(history)
+                const res = await askDataStream(history, { onProgress: (label) => { this.progressLabel = label } })
                 if (!res || res.success === false) throw res
                 const answer = res.answer || '(no answer)'
-                this.messages.push({ role: 'assistant', text: answer, apiContent: answer, steps: res.steps || [] })
+                this.messages.push({ role: 'assistant', text: answer, apiContent: answer, steps: res.steps || [], result: res.result || null })
             } catch (e) {
                 const code = (e && e.code) || (e && e.response && e.response.data && e.response.data.code)
                 const msg = code === 'not_configured'
@@ -227,6 +284,7 @@ export default {
                 this.messages.push({ role: 'assistant', text: msg, apiContent: '', error: true })
             } finally {
                 this.loading = false
+                this.progressLabel = ''
                 this.scrollDown()
             }
         },
@@ -235,21 +293,39 @@ export default {
             this.messages = []
             this.pending = []
         },
-        stepTitle(steps) {
-            const n = steps.length
-            return `Ran ${n} quer${n === 1 ? 'y' : 'ies'}`
+        // Charts arrive as `charts` (1–3); older answers used a single `chart`.
+        chartsOf(result) {
+            if (!result) return []
+            if (Array.isArray(result.charts) && result.charts.length) return result.charts
+            return result.chart ? [result.chart] : []
         },
-        columnsOf(rows) {
-            const cols = []
-            const seen = {}
-            rows.forEach(r => Object.keys(r || {}).forEach(k => {
-                if (!seen[k]) { seen[k] = 1; cols.push(k) }
-            }))
-            return cols
+        // A message has an expandable visual when its result is a table, card or chart.
+        hasVisual(m) {
+            const r = m && m.result
+            if (!r) return false
+            return (r.view === 'table' && r.rows && r.rows.length) ||
+                (r.view === 'card' && r.card) ||
+                (r.view === 'chart' && this.chartsOf(r).length > 0)
         },
-        fmt(v) {
-            if (v === null || v === undefined) return ''
-            return typeof v === 'object' ? JSON.stringify(v) : String(v)
+        openExpand(m) {
+            this.expanded = m
+            this.expandVisible = true
+        },
+        onExpandOpened() {
+            // Charts may have initialised while the dialog was still animating —
+            // re-measure once it's fully open.
+            const refs = this.$refs.expandCharts
+            const list = Array.isArray(refs) ? refs : refs ? [refs] : []
+            list.forEach(c => c && c.resize && c.resize())
+        },
+        // Zip a present_answer table (columns[] + rows[][]) into el-table row objects.
+        tableData(result) {
+            const cols = (result && result.columns) || []
+            return ((result && result.rows) || []).map(r => {
+                const o = {}
+                cols.forEach((c, i) => { o['c' + i] = (r && r[i] != null) ? r[i] : '' })
+                return o
+            })
         },
         scrollDown() {
             this.$nextTick(() => {
@@ -266,11 +342,19 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.ai-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.ai-chat {
+    display: flex; flex-direction: column; height: 100%; min-height: 0;
+    /* When hosted as a flex item (the orb panel body), don't let wide content
+       (tables) inflate the chat past the host's width — shrink and let the
+       table scroll internally instead. */
+    min-width: 0;
+    max-width: 100%;
+}
 
 .ai-thread {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 8px 4px;
     background: #f7f8fa;
     border: 1px solid #ebeef5;
@@ -285,15 +369,56 @@ export default {
 .msg.assistant { justify-content: flex-start; }
 .bubble {
     max-width: 82%;
+    /* Flex items default to min-width:auto and refuse to shrink below their
+       content (a wide table would push the bubble past the panel edge and get
+       clipped) — allow shrinking so tables scroll INSIDE the bubble instead. */
+    min-width: 0;
     padding: 9px 13px;
     border-radius: 12px;
     font-size: 13px;
     line-height: 1.5;
 }
 .msg.user .bubble { background: #409eff; color: #fff; border-bottom-right-radius: 3px; }
-.msg.assistant .bubble { background: #fff; color: #303133; border: 1px solid #ebeef5; border-bottom-left-radius: 3px; }
+.msg.assistant .bubble {
+    background: #fff; color: #303133; border: 1px solid #ebeef5; border-bottom-left-radius: 3px;
+    /* Answers can carry tables — give them the full row and clip anything
+       that would spill past the rounded corner. */
+    max-width: 96%;
+    overflow: hidden;
+}
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .bubble-text.err { color: #F56C6C; }
+
+/* Structured answer: table + single-product card + chart */
+.result-table { margin-top: 8px; width: 100%; max-width: 100%; }
+.result-chart { margin-top: 8px; }
+.ai-expand-chart { margin-bottom: 10px; }
+.ai-expand-chart-card { margin: 0 0 12px; }
+/* Charts need real width — take the full row instead of shrink-to-fit. */
+.msg.assistant .bubble.has-chart { width: 96%; }
+/* Belt-and-braces: whatever el-table computes, keep the horizontal overflow
+   scrollable inside the table rather than clipped by the bubble. */
+.result-table ::v-deep .el-table__body-wrapper { overflow-x: auto; }
+.result-expand { text-align: right; margin-top: 2px; }
+.result-expand .el-button { padding: 2px 0; font-size: 12px; color: #909399; }
+.result-expand .el-button:hover { color: #409eff; }
+.ai-expand-title { font-size: 15px; font-weight: 600; color: #303133; }
+.ai-expand-title i { color: #409eff; margin-right: 4px; }
+.ai-expand-summary { font-size: 14px; color: #303133; line-height: 1.6; margin-bottom: 10px; }
+.ai-expand-card { margin-top: 0; }
+.result-card {
+    margin-top: 8px;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: #fafbfc;
+}
+.result-card-title { font-size: 14px; font-weight: 600; color: #303133; line-height: 1.35; }
+.result-card-sub { font-size: 12px; color: #909399; margin-top: 2px; }
+.result-card-fields { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.result-field { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.result-field-label { color: #909399; flex-shrink: 0; }
+.result-field-value { color: #303133; font-weight: 500; text-align: right; word-break: break-word; }
 .thinking { color: #909399; }
 
 .msg-attach { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
@@ -303,23 +428,6 @@ export default {
     background: rgba(255, 255, 255, 0.22); color: #fff;
     padding: 3px 8px; border-radius: 6px; font-size: 12px;
 }
-
-.steps { margin-top: 8px; border-top: 1px dashed #ebeef5; }
-.steps ::v-deep .el-collapse-item__header { height: 30px; line-height: 30px; font-size: 12px; color: #909399; border: none; background: transparent; }
-.steps ::v-deep .el-collapse-item__wrap { border: none; background: transparent; }
-.steps ::v-deep .el-collapse { border: none; }
-.step { margin-bottom: 12px; }
-.step .sql {
-    margin: 0 0 5px; padding: 7px 9px;
-    background: #2d2d2d; color: #d6e9c6;
-    border-radius: 5px; font-size: 11.5px;
-    white-space: pre-wrap; word-break: break-word;
-    font-family: Consolas, Menlo, monospace;
-}
-.step-meta { font-size: 11px; color: #909399; margin-bottom: 4px; }
-.step-err { font-size: 12px; color: #F56C6C; margin-bottom: 4px; }
-.step-more { font-size: 11px; color: #c0c4cc; margin-top: 4px; }
-.step-table { width: 100%; }
 
 .ai-composer { margin-top: 10px; }
 .ai-attachments {

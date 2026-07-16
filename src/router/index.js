@@ -91,6 +91,52 @@ export const constantRoutes = [
 // `meta.permissions` lists the permission(s) that grant access to a route.
 export const moduleRoutes = [
   {
+    // ExEngine group — Devices + Accessories sub-sections. Structure scaffold;
+    // pages are placeholders for now. NOTE: no permissions/roles set yet, so it
+    // is visible to everyone — add meta.permissions / meta.roles to gate it once
+    // the audience is decided.
+    path: "/exengine",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "ExEngine", icon: "el-icon-cpu" },
+    children: [
+      {
+        path: "devices",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Devices", icon: "el-icon-mobile-phone" },
+        children: [
+          {
+            path: "/exengine/devices/insights",
+            component: (resolve) => require(["@/views/exengine/devices/insights/index"], resolve),
+            name: "ExEngineInsights",
+            meta: { title: "Insights", icon: "el-icon-data-analysis" }
+          }
+        ]
+      },
+      {
+        path: "accessories",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Accessories", icon: "el-icon-headset" },
+        children: [
+          {
+            // Placeholder so the Accessories tab renders — rename / replace when
+            // its real pages are defined.
+            path: "/exengine/accessories/overview",
+            component: (resolve) => require(["@/views/exengine/accessories/overview/index"], resolve),
+            name: "ExEngineAccessoriesOverview",
+            meta: { title: "Overview", icon: "el-icon-menu" }
+          }
+        ]
+      }
+    ]
+  },
+  {
     // iMobile group — top-level umbrella for iMobile-specific modules.
     // Inventory is currently the only child; new modules (Sales, Customers,
     // etc.) can be added as siblings of `inventory` later without touching
@@ -311,14 +357,25 @@ export const moduleRoutes = [
         ]
       },
       {
-        // Ask the Data — agentic Claude chat that answers questions by running
+        // AI Agent — agentic Claude chat that answers questions by running
         // read-only SQL over the scraper MySQL. Gated by ai:query:use.
         path: "ask",
         component: (resolve) => require(["@/views/refurbished/ask"], resolve),
         name: "RefurbishedAsk",
         meta: {
-          title: "Ask AI",
+          title: "AI Agent",
           icon: "el-icon-chat-line-round",
+          permissions: ["ai:query:use"]
+        }
+      },
+      {
+        // Agent Skills — admin-authored knowledge base the AI Agent consults.
+        path: "ai-skills",
+        component: (resolve) => require(["@/views/refurbished/aiSkills"], resolve),
+        name: "RefurbishedAiSkills",
+        meta: {
+          title: "Agent Skills",
+          icon: "el-icon-notebook-2",
           permissions: ["ai:query:use"]
         }
       }

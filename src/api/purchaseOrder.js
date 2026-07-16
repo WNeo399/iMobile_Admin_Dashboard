@@ -49,6 +49,12 @@ export function cancelPoOrder(id) {
   return request({ url: '/purchaseOrder/cancelOrder', method: 'post', data: { id } })
 }
 
+// Record a 采购单价 quote for a pending / shortage PO (dashboard-only, doesn't
+// change the status).
+export function quotePoPrice(data) {
+  return request({ url: '/purchaseOrder/quotePrice', method: 'post', data })
+}
+
 // Edit an order's 备注 / 订单数量. A quantity change is mirrored to the Tencent
 // sheet (slow), so allow a long timeout.
 export function updatePoDetail(data) {

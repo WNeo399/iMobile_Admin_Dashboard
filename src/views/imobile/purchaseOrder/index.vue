@@ -97,7 +97,13 @@
                     </template>
                 </el-table-column>
                 <el-table-column label="订单数量" width="90" align="center"><template slot-scope="s">{{ num(s.row.orderQty) }}</template></el-table-column>
-                <el-table-column label="采购单价" width="100" align="center"><template slot-scope="s">{{ yuan(s.row.unitPrice) }}</template></el-table-column>
+                <el-table-column label="采购单价" width="110" align="center">
+                    <template slot-scope="s">
+                        <span v-if="s.row.unitPrice != null">{{ yuan(s.row.unitPrice) }}</span>
+                        <span v-else-if="s.row.quotedPrice != null">{{ yuan(s.row.quotedPrice) }} <span class="po-quote-tag">报价</span></span>
+                        <span v-else>—</span>
+                    </template>
+                </el-table-column>
                 <el-table-column label="供应商" width="100" align="center" show-overflow-tooltip>
                     <template slot-scope="s">{{ s.row.supplier || '—' }}</template>
                 </el-table-column>
@@ -134,8 +140,9 @@
                             <el-button size="mini" type="text" icon="el-icon-more" class="more-btn" />
                             <el-dropdown-menu slot="dropdown">
                                 <el-dropdown-item :command="() => openDetail(s.row)" icon="el-icon-document">订单详情</el-dropdown-item>
-                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'ordered'" :command="() => markShortage(s.row)" icon="el-icon-remove-outline" divided>缺货</el-dropdown-item>
-                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'shortage'" :command="() => cancelOrder(s.row)" icon="el-icon-circle-close" :divided="s.row.status === 'shortage'">取消订单</el-dropdown-item>
+                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'shortage'" :command="() => openQuote(s.row)" icon="el-icon-price-tag" divided>报价</el-dropdown-item>
+                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'ordered'" :command="() => markShortage(s.row)" icon="el-icon-remove-outline" :divided="s.row.status === 'ordered'">缺货</el-dropdown-item>
+                                <el-dropdown-item v-if="s.row.status === 'pending' || s.row.status === 'shortage'" :command="() => cancelOrder(s.row)" icon="el-icon-circle-close">取消订单</el-dropdown-item>
                             </el-dropdown-menu>
                         </el-dropdown>
                     </template>
@@ -278,6 +285,27 @@
             </span>
         </el-dialog>
 
+        <!-- 报价 -->
+        <el-dialog :visible.sync="quoteVisible" width="420px" append-to-body :close-on-click-modal="false">
+            <div slot="title" class="po-create-head"><i class="el-icon-price-tag" /> 报价</div>
+            <div v-if="quoteRow" class="po-order-card">
+                <div class="po-item-name" :title="quoteRow.productName">{{ quoteRow.productName }}</div>
+                <div class="po-item-sku">SKU: {{ quoteRow.sku || '—' }} · 订单数量 {{ num(quoteRow.orderQty) }}</div>
+            </div>
+            <el-form label-position="top" size="small" @submit.native.prevent>
+                <el-form-item label="采购单价">
+                    <el-input v-model="quoteForm.unitPrice" type="number" min="0" placeholder="0.00" style="width:100%">
+                        <template slot="prepend">￥</template>
+                    </el-input>
+                </el-form-item>
+                <div class="po-order-hint"><i class="el-icon-info" /> 报价仅记录参考单价，不会改变订单状态。</div>
+            </el-form>
+            <span slot="footer">
+                <el-button size="small" @click="quoteVisible = false">取消</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="quoteSaving" @click="submitQuote">保存报价</el-button>
+            </span>
+        </el-dialog>
+
         <!-- 订单详情 -->
         <el-dialog :visible.sync="detailVisible" width="640px" append-to-body :close-on-click-modal="false">
             <div slot="title" class="po-create-head"><i class="el-icon-document" /> 订单详情</div>
@@ -299,7 +327,11 @@
                         :min="1" :precision="0" :step="1" size="mini" controls-position="right" style="width:130px" />
                     <span v-else>{{ num(detailRow.orderQty) }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="采购单价">{{ yuan(detailRow.unitPrice) }}</el-descriptions-item>
+                <el-descriptions-item label="采购单价">
+                    <span v-if="detailRow.unitPrice != null">{{ yuan(detailRow.unitPrice) }}</span>
+                    <span v-else-if="detailRow.quotedPrice != null">{{ yuan(detailRow.quotedPrice) }} <span class="po-quote-tag">报价</span></span>
+                    <span v-else>—</span>
+                </el-descriptions-item>
                 <el-descriptions-item label="金额">{{ yuan(detailRow.lineTotal) }}</el-descriptions-item>
                 <el-descriptions-item label="下单时间">{{ detailRow.orderedAt || '—' }}</el-descriptions-item>
                 <el-descriptions-item label="发货数量">{{ num(detailRow.shippedQty) }}</el-descriptions-item>
@@ -326,7 +358,7 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { getPoRecords, updateSyncPo, getPoCategories, createPoBatch, placePoOrder, markPoShortage, cancelPoOrder, updatePoDetail } from '@/api/purchaseOrder'
+import { getPoRecords, updateSyncPo, getPoCategories, createPoBatch, placePoOrder, markPoShortage, cancelPoOrder, updatePoDetail, quotePoPrice } from '@/api/purchaseOrder'
 import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
 
 // The 5 PO statuses — DB value → { label, icon, colours }. The first four are
@@ -377,6 +409,11 @@ export default {
             orderRow: null,
             orderForm: { supplier: '', unitPrice: undefined },
             orderSaving: false,
+            // 报价 dialog
+            quoteVisible: false,
+            quoteRow: null,
+            quoteForm: { unitPrice: undefined },
+            quoteSaving: false,
             // Order detail dialog (备注 / 订单数量 editable)
             detailVisible: false,
             detailRow: null,
@@ -514,12 +551,38 @@ export default {
                 this.detailSaving = false
             }
         },
+        // ── Quote a purchase price ──────────────────────────────────
+        openQuote(row) {
+            this.quoteRow = row
+            const seed = row.quotedPrice != null ? row.quotedPrice : row.unitPrice
+            this.quoteForm = { unitPrice: seed != null ? Number(seed) : undefined }
+            this.quoteVisible = true
+        },
+        async submitQuote() {
+            const price = Number(this.quoteForm.unitPrice)
+            if (!Number.isFinite(price) || price < 0) { this.$message.warning('请输入有效的采购单价。'); return }
+            this.quoteSaving = true
+            try {
+                const r = await quotePoPrice({ id: this.quoteRow._id, unitPrice: price })
+                if (!r || r.success === false) throw new Error((r && r.message) || '保存失败')
+                this.$message.success('报价已保存。')
+                this.quoteVisible = false
+                this.load()
+            } catch (e) {
+                console.error('PO quote failed:', e)
+                this.$message.error(this.msg(e, '保存失败'))
+            } finally {
+                this.quoteSaving = false
+            }
+        },
         // ── Mark a pending PO as ordered ────────────────────────────
         openPlaceOrder(row) {
             this.orderRow = row
+            // Pre-fill the price from a confirmed price, else the recorded quote.
+            const seed = row.unitPrice != null ? row.unitPrice : row.quotedPrice
             this.orderForm = {
                 supplier: row.supplier || '',
-                unitPrice: row.unitPrice != null ? Number(row.unitPrice) : undefined
+                unitPrice: seed != null ? Number(seed) : undefined
             }
             this.orderDialogVisible = true
         },
@@ -876,6 +939,7 @@ export default {
 }
 .po-order-card { margin: 0 0 14px; padding: 10px 12px; background: #f5f7fa; border: 1px solid #ebeef5; border-radius: 6px; }
 .po-order-note { font-size: 12px; color: #E6A23C; line-height: 1.3; margin-top: 4px; word-break: break-word; }
+.po-quote-tag { font-size: 10px; color: #909399; background: #f4f4f5; padding: 0 5px; border-radius: 8px; margin-left: 2px; }
 .po-order-form ::v-deep .el-form-item { margin-bottom: 8px; }
 .po-order-row { display: flex; gap: 12px; }
 .po-order-col { flex: 1; margin-bottom: 0; }

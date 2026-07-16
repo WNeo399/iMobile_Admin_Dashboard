@@ -101,6 +101,7 @@ import CreateCreditNote from './components/CreateCreditNote'
 import CreateSalesOrder from './components/CreateSalesOrder'
 import BuzztechOrderImport from './components/BuzztechOrderImport'
 import CreateOzOrder from './components/CreateOzOrder'
+import BarcodeGenerator from './components/BarcodeGenerator'
 
 // Tools registry — single source of truth for what shows on this page.
 //
@@ -154,6 +155,16 @@ const TOOLS = [
         component: CreateOzOrder,
         // Wide — the match results table needs room for the re-pick dropdowns.
         dialogWidth: '860px'
+    },
+    {
+        id: 'barcode-generator',
+        name: 'Barcode Generator',
+        description: 'Search a product and print an 89×36mm barcode label with optional Selling / Platinum prices.',
+        icon: 'el-icon-printer',
+        color: 'red',
+        entry: 'dialog',
+        component: BarcodeGenerator,
+        dialogWidth: '560px'
     },
     {
         id: 'location-monitoring',

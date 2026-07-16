@@ -3,19 +3,19 @@
         <transition name="ai-pop">
             <div v-show="open" class="ai-panel">
                 <div class="ai-panel-head">
-                    <span class="ai-panel-title"><i class="el-icon-magic-stick" /> Ask the Data</span>
+                    <span class="ai-panel-title"><i class="el-icon-magic-stick" /> AI Agent</span>
                     <span class="ai-panel-actions">
                         <i class="el-icon-delete" title="Clear conversation" @click="clearChat" />
                         <i class="el-icon-close" title="Close" @click="open = false" />
                     </span>
                 </div>
                 <div class="ai-panel-body">
-                    <ai-chat ref="chat" :rows="2" />
+                    <ai-chat ref="chat" :rows="2" expandable />
                 </div>
             </div>
         </transition>
 
-        <button class="ai-orb" :class="{ open }" :title="open ? 'Close assistant' : 'Ask the Data AI'" @click="toggle">
+        <button class="ai-orb" :class="{ open }" :title="open ? 'Close assistant' : 'AI Agent'" @click="toggle">
             <i :class="open ? 'el-icon-close' : 'el-icon-chat-dot-round'" />
         </button>
     </div>
