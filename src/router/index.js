@@ -113,7 +113,8 @@ export const moduleRoutes = [
             path: "/exengine/devices/insights",
             component: (resolve) => require(["@/views/exengine/devices/insights/index"], resolve),
             name: "ExEngineInsights",
-            meta: { title: "Insights", icon: "el-icon-data-analysis" }
+            // Admin-only for now — only admin's wildcard carries exengine:*.
+            meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["exengine:insights:view"] }
           }
         ]
       },
@@ -130,7 +131,7 @@ export const moduleRoutes = [
             path: "/exengine/accessories/overview",
             component: (resolve) => require(["@/views/exengine/accessories/overview/index"], resolve),
             name: "ExEngineAccessoriesOverview",
-            meta: { title: "Overview", icon: "el-icon-menu" }
+            meta: { title: "Overview", icon: "el-icon-menu", permissions: ["exengine:accessories:view"] }
           }
         ]
       }
@@ -376,7 +377,9 @@ export const moduleRoutes = [
         meta: {
           title: "Agent Skills",
           icon: "el-icon-notebook-2",
-          permissions: ["ai:query:use"]
+          // Separate from ai:query:use so chat-only roles (Phone Supplier)
+          // don't see the knowledge base.
+          permissions: ["ai:skills:manage"]
         }
       }
     ]

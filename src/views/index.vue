@@ -36,6 +36,7 @@ import IMobileRepairAdminHome from './dashboard/IMobileRepairAdminHome'
 import ShopOwnerHome from './dashboard/ShopOwnerHome'
 import RepairShopHome from './dashboard/RepairShopHome'
 import InflowCustomerHome from './dashboard/InflowCustomerHome'
+import PhoneSupplierHome from './dashboard/PhoneSupplierHome'
 
 // Role-aware home shell. Picks the dashboard variant that matches the user's
 // primary role; falls back to an admin-ish view for unknown roles so an
@@ -47,7 +48,8 @@ const ROLE_TO_COMPONENT = {
     'techelite-admin': 'TechEliteAdminHome',
     'shop-owner': 'ShopOwnerHome',
     'repair-shop': 'RepairShopHome',
-    'inflow-customer': 'InflowCustomerHome'
+    'inflow-customer': 'InflowCustomerHome',
+    'phone-supplier': 'PhoneSupplierHome'
 }
 
 // localStorage key for the admin "view as" preference. Per-browser so two
@@ -59,7 +61,8 @@ export default {
     components: {
         WelcomeBanner, AdminHome, TechEliteAdminHome,
         IMobileAdminHome, IMobileRepairAdminHome,
-        ShopOwnerHome, RepairShopHome, InflowCustomerHome
+        ShopOwnerHome, RepairShopHome, InflowCustomerHome,
+        PhoneSupplierHome
     },
     data() {
         // Hydrate from localStorage so a reload keeps the chosen view.

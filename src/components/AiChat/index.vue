@@ -1,5 +1,15 @@
 <template>
-    <div class="ai-chat">
+    <div
+        class="ai-chat"
+        @dragenter.prevent="onDragEnter"
+        @dragover.prevent
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
+    >
+        <div v-if="dragDepth > 0" class="ai-drop-overlay">
+            <i class="el-icon-upload" />
+            <span>Drop image / spreadsheet to attach</span>
+        </div>
         <div ref="thread" class="ai-thread">
             <div v-if="!messages.length" class="ai-empty">
                 <div class="ai-empty-title">Try asking…</div>
@@ -70,6 +80,7 @@
                     v-model="input" type="textarea" :rows="rows" resize="none"
                     :placeholder="placeholder" :disabled="loading"
                     @keydown.enter.native.exact.prevent="send"
+                    @paste.native="onPaste"
                 />
                 <el-button type="primary" icon="el-icon-position" circle :loading="loading" :disabled="(!input.trim() && !pending.length) || attaching" @click="send" />
                 <input ref="file" type="file" multiple accept="image/*,.xlsx,.xls,.csv" class="ai-file-input" @change="onFiles" />
@@ -156,6 +167,7 @@ export default {
             progressLabel: '',
             expandVisible: false,
             expanded: null,
+            dragDepth: 0,
             attaching: false,
             pending: [], // [{ name, kind:'image'|'sheet', block, previewUrl }]
             messages: [] // [{ role, text, apiContent, attachments?, steps?, error? }]
@@ -173,6 +185,43 @@ export default {
         async onFiles(e) {
             const files = Array.from(e.target.files || [])
             e.target.value = '' // allow re-selecting the same file
+            await this.addFiles(files)
+        },
+        // Paste — accept images (e.g. a screenshot) or files from the clipboard.
+        // Plain text pastes are untouched.
+        async onPaste(e) {
+            if (this.loading || this.attaching) return
+            const items = (e.clipboardData && e.clipboardData.items) || []
+            const files = []
+            for (const it of items) {
+                if (it.kind === 'file') {
+                    const f = it.getAsFile()
+                    if (f) files.push(f)
+                }
+            }
+            if (!files.length) return
+            e.preventDefault()
+            await this.addFiles(files)
+        },
+        // Drag & drop anywhere on the chat.
+        onDragEnter(e) {
+            if (this.loading || this.attaching) return
+            if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) {
+                this.dragDepth += 1
+            }
+        },
+        onDragLeave() {
+            if (this.dragDepth > 0) this.dragDepth -= 1
+        },
+        async onDrop(e) {
+            this.dragDepth = 0
+            if (this.loading || this.attaching) return
+            const files = Array.from((e.dataTransfer && e.dataTransfer.files) || [])
+            if (files.length) await this.addFiles(files)
+        },
+        // Shared attachment pipeline — images are downscaled to base64 blocks,
+        // spreadsheets parsed to CSV text. Used by the picker, paste and drop.
+        async addFiles(files) {
             if (!files.length) return
             if (this.pending.length + files.length > MAX_ATTACH) {
                 this.$message.warning(`Up to ${MAX_ATTACH} attachments at a time.`)
@@ -343,6 +392,7 @@ export default {
 
 <style lang="scss" scoped>
 .ai-chat {
+    position: relative;
     display: flex; flex-direction: column; height: 100%; min-height: 0;
     /* When hosted as a flex item (the orb panel body), don't let wide content
        (tables) inflate the chat past the host's width — shrink and let the
@@ -350,6 +400,25 @@ export default {
     min-width: 0;
     max-width: 100%;
 }
+
+.ai-drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(64, 158, 255, 0.08);
+    border: 2px dashed #409eff;
+    border-radius: 10px;
+    color: #409eff;
+    font-size: 14px;
+    font-weight: 600;
+    pointer-events: none; /* let the drop event reach the container */
+}
+.ai-drop-overlay i { font-size: 34px; }
 
 .ai-thread {
     flex: 1;
