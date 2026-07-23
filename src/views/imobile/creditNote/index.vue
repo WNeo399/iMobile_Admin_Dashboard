@@ -534,14 +534,14 @@
                                         >No matches</span>
                                         <el-select
                                             v-else
-                                            :value="selections[scope.row.sku] || ''"
+                                            :value="selections[scope.$index] || ''"
                                             placeholder="Pick a match"
                                             size="small"
                                             filterable
                                             clearable
                                             class="match-select"
                                             popper-class="match-select-popper"
-                                            @change="onSelectionChange(scope.row.sku, $event)"
+                                            @change="onSelectionChange(scope.$index, $event)"
                                         >
                                             <el-option
                                                 v-for="m in matchOptions(scope.row.sku)"
@@ -584,18 +584,18 @@
                                         much is already on the credit note.
                                     -->
                                     <div
-                                        v-if="existingForSku(scope.row.sku)"
+                                        v-if="existingForRow(scope.$index)"
                                         class="zoho-item-existing"
-                                        :title="`The existing Zoho line(s) for this item will be replaced by your quantity (was ${existingForSku(scope.row.sku).quantity}${existingForSku(scope.row.sku).count > 1 ? ` across ${existingForSku(scope.row.sku).count} lines` : ''}).`"
+                                        :title="`The existing Zoho line(s) for this item will be replaced by your quantity (was ${existingForRow(scope.$index).quantity}${existingForRow(scope.$index).count > 1 ? ` across ${existingForRow(scope.$index).count} lines` : ''}).`"
                                     >
                                         <i class="el-icon-refresh" />
                                         Will replace existing · was qty
-                                        {{ existingForSku(scope.row.sku).quantity }}
+                                        {{ existingForRow(scope.$index).quantity }}
                                         <span
-                                            v-if="existingForSku(scope.row.sku).count > 1"
+                                            v-if="existingForRow(scope.$index).count > 1"
                                             class="zoho-item-existing-detail"
                                         >
-                                            ({{ existingForSku(scope.row.sku).count }} lines)
+                                            ({{ existingForRow(scope.$index).count }} lines)
                                         </span>
                                     </div>
                                 </div>
@@ -955,10 +955,13 @@ export default {
             matchesBySku: {},
             matchesLoading: false,
             matchesError: '',
-            // User's per-row picks, keyed by OCR sku → matched Zoho itemId.
-            // In-memory only — discarded when the dialog closes. The
-            // single-match auto-select still kicks in on every open.
-            selections: {},
+            // User's per-row picks, indexed by row position in items[]
+            // (like `quantities` — NOT keyed by sku, so two rows with
+            // the same OCR sku hold independent picks, e.g. colour
+            // variants of one base SKU). In-memory only — discarded
+            // when the dialog closes. The single-match auto-select
+            // still kicks in on every open.
+            selections: [],
             // Editable quantities, indexed by row position in items[].
             // Indexed (rather than keyed by sku) so two rows with the
             // same OCR sku can hold independent quantities. Same
@@ -1117,7 +1120,7 @@ export default {
         // it lands, without waiting for the dialog to be re-opened.
         submittableItemCount() {
             const items = this.editedItems || []
-            return items.filter(it => it.sku && this.selections[it.sku]).length
+            return items.filter((it, idx) => it.sku && this.selections[idx]).length
         },
         // Map of itemId → { name, quantity, count } from the existing
         // Zoho credit note's line items. Powers the "Already in credit
@@ -1178,7 +1181,7 @@ export default {
         // we want — they'd send a row with no item_id to Zoho.
         allItemsHaveMatch() {
             const items = this.editedItems || []
-            return items.every(it => it.sku && this.selections[it.sku])
+            return items.every((it, idx) => it.sku && this.selections[idx])
         },
         // First reason the submit can't fire, in priority order. null
         // when the button is enabled. Used both as the disable gate
@@ -1352,7 +1355,7 @@ export default {
             // a previous dialog's picks don't bleed across rows. The
             // single-match auto-select inside loadSkuMatches will fill
             // the easy ones in once the lookup lands.
-            this.selections = {}
+            this.selections = []
             this.matchesBySku = {}
             this.matchesError = ''
             // Deep-clone items into the editable working copy. Shallow
@@ -1418,7 +1421,7 @@ export default {
             // data (Active-status changes between sessions are real).
             this.reviewRow = null
             this.matchesBySku = {}
-            this.selections = {}
+            this.selections = []
             this.quantities = []
             this.editedItems = []
             this.editedCreditNo = ''
@@ -1461,14 +1464,17 @@ export default {
                 const res = await bulkSkuMatches(skus)
                 const data = (res && res.data) || {}
                 this.matchesBySku = data
-                // Auto-select singletons that don't already have a pick.
-                const updated = { ...this.selections }
-                for (const sku of skus) {
-                    const matches = data[sku] || []
-                    if (matches.length === 1 && !updated[sku]) {
-                        updated[sku] = matches[0].itemId
+                // Auto-select singletons on rows that don't already have
+                // a pick — per ROW, so duplicate-sku rows each get their
+                // own (independent) selection.
+                const updated = this.selections.slice()
+                const items = this.editedItems || []
+                items.forEach((it, idx) => {
+                    const matches = (it && it.sku && data[it.sku]) || []
+                    if (matches.length === 1 && !updated[idx]) {
+                        updated[idx] = matches[0].itemId
                     }
-                }
+                })
                 this.selections = updated
             } catch (e) {
                 console.error('SKU match lookup failed:', e)
@@ -1492,7 +1498,7 @@ export default {
             const payloadItems = []
             rowItems.forEach((it, idx) => {
                 const sku = it && it.sku
-                const itemId = sku ? this.selections[sku] : null
+                const itemId = sku ? this.selections[idx] : null
                 if (!itemId) return
                 const candidates = this.matchesBySku[sku] || []
                 const m = candidates.find(c => c.itemId === itemId)
@@ -1592,6 +1598,7 @@ export default {
             const newRow = { sku: '', model: null, quantity: '0' }
             this.editedItems.push(newRow)
             this.quantities.push(0)
+            this.selections.push(null)
             const newIdx = this.editedItems.length - 1
             try {
                 await updateCreditNote(this.reviewRow._id, {
@@ -1607,6 +1614,7 @@ export default {
                 // matches what's actually in Mongo.
                 this.editedItems.pop()
                 this.quantities.pop()
+                this.selections.pop()
                 const msg = (e.response && e.response.data && e.response.data.message)
                     || e.message
                     || 'Failed to add line item'
@@ -1621,8 +1629,10 @@ export default {
             const removedItem = this.editedItems[idx]
             if (!removedItem) return
             const removedQty = this.quantities[idx]
+            const removedSel = this.selections[idx]
             this.editedItems.splice(idx, 1)
             this.quantities.splice(idx, 1)
+            this.selections.splice(idx, 1)
             try {
                 await updateCreditNote(this.reviewRow._id, {
                     items: this.editedItems
@@ -1633,6 +1643,7 @@ export default {
                 // doesn't visibly shuffle when persist fails.
                 this.editedItems.splice(idx, 0, removedItem)
                 this.quantities.splice(idx, 0, removedQty)
+                this.selections.splice(idx, 0, removedSel)
                 const msg = (e.response && e.response.data && e.response.data.message)
                     || e.message
                     || 'Failed to delete line item'
@@ -1697,6 +1708,11 @@ export default {
             // Optimistic UI: apply the new sku locally first so the
             // cell repaints immediately. Revert on persist failure.
             this.$set(this.editedItems[idx], 'sku', newSku)
+            // The row's previous pick belonged to the old sku — clear
+            // it so a stale itemId can't ride along under the new sku.
+            const clearedSel = this.selections.slice()
+            clearedSel[idx] = null
+            this.selections = clearedSel
             this.editingSkuIdx = -1
             this.editingSkuDraft = ''
             this.savingSkuIdx = idx
@@ -1708,7 +1724,7 @@ export default {
                     updateCreditNote(this.reviewRow._id, {
                         items: this.editedItems
                     }),
-                    this.loadSingleSkuMatches(newSku)
+                    this.loadSingleSkuMatches(newSku, idx)
                 ])
                 // Patch the live list row so the visible table stays
                 // in sync without a full refresh — same trick we use
@@ -1779,29 +1795,32 @@ export default {
         },
         // Single-SKU variant of loadSkuMatches — used after an inline
         // SKU edit so the picker refreshes for just the changed row.
-        // No-op when the SKU is already in the cache (the bulk lookup
-        // may have already covered it on first open).
-        async loadSingleSkuMatches(sku) {
+        // Skips the fetch when the SKU is already in the cache (the
+        // bulk lookup may have covered it on first open), but still
+        // applies the single-match auto-select to THAT ROW (rowIdx) —
+        // per row, not per sku, so duplicate-sku rows stay independent.
+        async loadSingleSkuMatches(sku, rowIdx) {
             if (!sku) return
-            if (Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)) return
-            try {
-                const res = await bulkSkuMatches([sku])
-                const data = (res && res.data) || {}
-                this.matchesBySku = { ...this.matchesBySku, ...data }
-                // Same single-match auto-select rule as the bulk path.
-                const matches = data[sku] || []
-                if (matches.length === 1 && !this.selections[sku]) {
-                    const next = { ...this.selections }
-                    next[sku] = matches[0].itemId
-                    this.selections = next
+            if (!Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)) {
+                try {
+                    const res = await bulkSkuMatches([sku])
+                    const data = (res && res.data) || {}
+                    this.matchesBySku = { ...this.matchesBySku, ...data }
+                } catch (e) {
+                    // Surface in the dialog's alert banner so the failure
+                    // is visible without dismissing the user's edit.
+                    this.matchesError = (e.response && e.response.data && e.response.data.message)
+                        || e.message
+                        || 'SKU match lookup failed'
+                    console.error('Single SKU match lookup failed:', e)
+                    return
                 }
-            } catch (e) {
-                // Surface in the dialog's alert banner so the failure
-                // is visible without dismissing the user's edit.
-                this.matchesError = (e.response && e.response.data && e.response.data.message)
-                    || e.message
-                    || 'SKU match lookup failed'
-                console.error('Single SKU match lookup failed:', e)
+            }
+            const matches = this.matchesBySku[sku] || []
+            if (rowIdx != null && matches.length === 1 && !this.selections[rowIdx]) {
+                const next = this.selections.slice()
+                next[rowIdx] = matches[0].itemId
+                this.selections = next
             }
         },
         // ── Inline Credit No edit ──────────────────────────────────
@@ -1887,25 +1906,19 @@ export default {
             if (!itemId) return null
             return this.existingItemIdMap.get(String(itemId)) || null
         },
-        // Same lookup but keyed by the OCR sku — convenience for the
-        // row badge which already knows its sku but has to resolve
-        // selections[sku] to get the matched itemId.
-        existingForSku(sku) {
-            if (!sku) return null
-            const itemId = this.selections[sku]
+        // Same lookup but by row position — convenience for the row
+        // badge which resolves selections[idx] to the matched itemId.
+        existingForRow(idx) {
+            const itemId = this.selections[idx]
             if (!itemId) return null
             return this.existingForItemId(itemId)
         },
         // Element UI's el-select is :value + @change so we can swap
-        // entries on the selections map without two-way binding to a
+        // entries on the selections array without two-way binding to a
         // nested path. Empty string is treated as "clear".
-        onSelectionChange(sku, itemId) {
-            const next = { ...this.selections }
-            if (itemId) {
-                next[sku] = itemId
-            } else {
-                delete next[sku]
-            }
+        onSelectionChange(idx, itemId) {
+            const next = this.selections.slice()
+            next[idx] = itemId || null
             this.selections = next
         },
         // Quantity is held in a plain array indexed by row position;

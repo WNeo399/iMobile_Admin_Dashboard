@@ -138,6 +138,37 @@ export const moduleRoutes = [
     ]
   },
   {
+    // Consignment — devices placed with partner shops. Insights + Shops are
+    // admin-side; Devices is shared with the consignment-shop logins (whose
+    // data is scoped server-side to their own shop).
+    path: "/consignment",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "Consignment", icon: "el-icon-box" },
+    children: [
+      {
+        path: "insights",
+        component: (resolve) => require(["@/views/consignment/insights"], resolve),
+        name: "ConsignmentInsights",
+        meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
+      },
+      {
+        path: "devices",
+        component: (resolve) => require(["@/views/consignment/devices"], resolve),
+        name: "ConsignmentDevices",
+        meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
+      },
+      {
+        path: "shops",
+        component: (resolve) => require(["@/views/consignment/shops"], resolve),
+        name: "ConsignmentShops",
+        meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
+      }
+    ]
+  },
+  {
     // iMobile group — top-level umbrella for iMobile-specific modules.
     // Inventory is currently the only child; new modules (Sales, Customers,
     // etc.) can be added as siblings of `inventory` later without touching
