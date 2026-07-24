@@ -169,6 +169,30 @@ export const moduleRoutes = [
     ]
   },
   {
+    // Blackbelt — admin-only for now (only admin's wildcard carries
+    // blackbelt:*). Page contents to be defined; placeholders meanwhile.
+    path: "/blackbelt",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "Blackbelt", icon: "el-icon-medal" },
+    children: [
+      {
+        path: "accounts",
+        component: (resolve) => require(["@/views/blackbelt/accounts"], resolve),
+        name: "BlackbeltAccounts",
+        meta: { title: "Accounts", icon: "el-icon-office-building", permissions: ["blackbelt:account:view"] }
+      },
+      {
+        path: "invoices",
+        component: (resolve) => require(["@/views/blackbelt/invoices"], resolve),
+        name: "BlackbeltInvoices",
+        meta: { title: "Invoices", icon: "el-icon-tickets", permissions: ["blackbelt:invoice:view"] }
+      }
+    ]
+  },
+  {
     // iMobile group — top-level umbrella for iMobile-specific modules.
     // Inventory is currently the only child; new modules (Sales, Customers,
     // etc.) can be added as siblings of `inventory` later without touching
@@ -230,10 +254,29 @@ export const moduleRoutes = [
             meta: {
               title: "Purchase Order",
               icon: "el-icon-shopping-bag-1",
-              permissions: ["po:order:view"]
+              permissions: ["po:order:view"],
+              // iMobile Purchase gets its own flattened entry directly under
+              // iMobile (see /imobile/purchaseOrder below) — hide this nested
+              // one from them so the page doesn't appear twice.
+              excludeRoles: ["imobile-purchase"]
             }
           }
         ]
+      },
+      {
+        // Flattened Purchase Order entry for the iMobile Purchase role ONLY —
+        // they get iMobile → Purchase Order without the Inventory level (which
+        // for them would hold this single page). Everyone else keeps the
+        // nested entry above (which excludeRoles-hides itself from this role).
+        // exclusiveRoles = strict match, so this stays off the admin sidebar.
+        path: "/imobile/purchaseOrder",
+        component: (resolve) => require(["@/views/imobile/purchaseOrder/index"], resolve),
+        name: "ImobilePurchaseOrderDirect",
+        meta: {
+          title: "Purchase Order",
+          icon: "el-icon-shopping-bag-1",
+          exclusiveRoles: ["imobile-purchase"]
+        }
       },
       {
         // Catalogue — the IMB parts catalogue (imb_products + its
@@ -309,7 +352,11 @@ export const moduleRoutes = [
         meta: {
           title: "Special Order",
           icon: "el-icon-shopping-cart-2",
-          permissions: ["zoho:salesOrder:create"]
+          // ANY-match: the original zoho gate (admin / iMobile Admin) OR the
+          // dedicated po:specialOrder:view held by the iMobile Purchase role
+          // (which must NOT get zoho:salesOrder:create — that would also
+          // unlock the Credit Note page).
+          permissions: ["zoho:salesOrder:create", "po:specialOrder:view"]
         }
       },
       {

@@ -7,6 +7,10 @@ function routeAllowed(route) {
   // `exclusiveRoles` gates a route to specific roles WITHOUT the admin bypass,
   // so portal-only pages don't leak onto the admin sidebar (where they'd be empty).
   if (meta.exclusiveRoles) return auth.hasStrictRoleOr(meta.exclusiveRoles)
+  // `excludeRoles` hides a route from specific roles (strict match — admin is
+  // unaffected unless listed). Lets a role get its own flattened menu entry
+  // for a page without seeing the regular nested one too.
+  if (meta.excludeRoles && auth.hasStrictRoleOr(meta.excludeRoles)) return false
   if (meta.permissions) return auth.hasPermiOr(meta.permissions)
   if (meta.roles) return auth.hasRoleOr(meta.roles)
   return true
