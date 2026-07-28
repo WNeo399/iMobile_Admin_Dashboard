@@ -227,6 +227,13 @@ export default {
             getConsignShops().then(r => { if (r && r.success) this.shops = r.shops || [] }).catch(() => {})
         }
     },
+    // Keep-alive revisits skip created() — refresh devices + shop options.
+    activated() {
+        this.load()
+        if (this.isAdmin) {
+            getConsignShops().then(r => { if (r && r.success) this.shops = r.shops || [] }).catch(() => {})
+        }
+    },
     methods: {
         async load() {
             this.loading = true

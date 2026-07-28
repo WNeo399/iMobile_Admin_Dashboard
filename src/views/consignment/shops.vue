@@ -118,6 +118,10 @@ export default {
     created() {
         this.load()
     },
+    // Keep-alive revisits skip created() — refresh so cross-page changes show.
+    activated() {
+        this.load()
+    },
     methods: {
         async load() {
             this.loading = true
