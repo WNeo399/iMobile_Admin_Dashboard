@@ -121,20 +121,22 @@
                 <div class="bi-email-field">
                     <span class="bi-email-label">To</span>
                     <el-select v-model="emailForm.to" size="small" multiple filterable allow-create default-first-option
-                        placeholder="Type an address and press Enter" class="bi-email-select">
-                        <el-option v-for="o in emailOptions" :key="o.email" :value="o.email" :label="o.email">
+                        placeholder="Type an address and press Enter" class="bi-email-select"
+                        @change="list => captureTyped(list, 'typedTo')">
+                        <el-option v-for="o in toOptions" :key="o.email" :value="o.email" :label="o.email">
                             <span>{{ o.email }}</span>
-                            <span class="bi-opt-rate">{{ o.name }}</span>
+                            <span v-if="o.name" class="bi-opt-rate">{{ o.name }}</span>
                         </el-option>
                     </el-select>
                 </div>
                 <div class="bi-email-field">
                     <span class="bi-email-label">Cc</span>
                     <el-select v-model="emailForm.cc" size="small" multiple filterable allow-create default-first-option
-                        placeholder="optional" class="bi-email-select">
+                        placeholder="optional" class="bi-email-select"
+                        @change="list => captureTyped(list, 'typedCc')">
                         <el-option v-for="o in ccOptions" :key="o.email" :value="o.email" :label="o.email">
                             <span>{{ o.email }}</span>
-                            <span class="bi-opt-rate">{{ o.name }}</span>
+                            <span v-if="o.name" class="bi-opt-rate">{{ o.name }}</span>
                         </el-option>
                     </el-select>
                 </div>
@@ -206,7 +208,12 @@ export default {
             emailRow: null,
             emailForm: { to: [], cc: [], subject: '', body: '' },
             emailFiles: [],
-            sendingEmail: false
+            sendingEmail: false,
+            // Addresses typed via allow-create this session — each field keeps
+            // its own list (To entries only join the To dropdown, Cc likewise).
+            // Deliberately NOT persisted anywhere.
+            typedTo: [],
+            typedCc: []
         }
     },
     computed: {
@@ -217,17 +224,33 @@ export default {
             if (!this.selectedAccount || this.selectedAccount.negotiatedRate == null || !this.form.qty) return 0
             return Math.round(this.selectedAccount.negotiatedRate * this.form.qty * 100) / 100
         },
-        // Address suggestions for the compose selectors — only the invoice's
-        // linked account (type freely for anything else); Cc also offers the
-        // accounts@ mailbox.
-        emailOptions() {
-            if (!this.emailRow) return []
+        // The invoice's linked account, when it has an email — the base
+        // suggestion for both fields.
+        linkedAccountOption() {
+            if (!this.emailRow) return null
             const acc = this.accounts.find(a => String(a._id) === String(this.emailRow.accountId))
             const email = acc && (acc.email || '').trim()
-            return email ? [{ email, name: acc.name }] : []
+            return email ? { email, name: acc.name } : null
         },
+        // To = linked account + addresses typed into To this session.
+        toOptions() {
+            const base = this.linkedAccountOption ? [this.linkedAccountOption] : []
+            for (const e of this.typedTo) {
+                if (!base.some(b => b.email.toLowerCase() === e.toLowerCase())) base.push({ email: e, name: '' })
+            }
+            return base
+        },
+        // Cc = accounts@ + linked account + addresses typed into Cc.
         ccOptions() {
-            return [{ email: 'accounts@exyon.com.au', name: 'Exyon Accounts' }, ...this.emailOptions]
+            const base = [{ email: 'accounts@exyon.com.au', name: 'Exyon Accounts' }]
+            if (this.linkedAccountOption &&
+                !base.some(b => b.email.toLowerCase() === this.linkedAccountOption.email.toLowerCase())) {
+                base.push(this.linkedAccountOption)
+            }
+            for (const e of this.typedCc) {
+                if (!base.some(b => b.email.toLowerCase() === e.toLowerCase())) base.push({ email: e, name: '' })
+            }
+            return base
         }
     },
     created() {
@@ -328,6 +351,19 @@ export default {
                 const reader = new FileReader()
                 reader.onload = () => this.emailFiles.push({ filename: f.name, size: f.size, dataBase64: reader.result })
                 reader.readAsDataURL(f)
+            }
+        },
+        // Fired on every To/Cc selection change — any value that isn't already
+        // an option for THAT field joins that field's session list.
+        captureTyped(list, bucket) {
+            const options = bucket === 'typedTo' ? this.toOptions : this.ccOptions
+            const known = new Set(options.map(o => o.email.toLowerCase()))
+            for (const raw of list || []) {
+                const addr = String(raw || '').trim()
+                if (!addr || known.has(addr.toLowerCase())) continue
+                if (!this[bucket].some(e => e.toLowerCase() === addr.toLowerCase())) {
+                    this[bucket].push(addr)
+                }
             }
         },
         prettySize(bytes) {
