@@ -49,6 +49,7 @@
                     <el-dropdown trigger="click" class="bi-more" @command="cmd => onRowCommand(cmd, s.row)">
                         <el-button size="mini" type="text" class="bi-more-btn">···</el-button>
                         <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item command="email" icon="el-icon-message">Email Invoice</el-dropdown-item>
                             <el-dropdown-item v-if="s.row.paymentStatus !== 'paid'" command="paid" icon="el-icon-check">Mark Paid</el-dropdown-item>
                             <el-dropdown-item v-else command="unpaid" icon="el-icon-refresh-left">Mark Unpaid</el-dropdown-item>
                             <el-dropdown-item command="delete" icon="el-icon-delete" class="bi-drop-del">Delete</el-dropdown-item>
@@ -60,7 +61,7 @@
         </el-table>
 
         <!-- New invoice -->
-        <el-dialog :visible.sync="dialogVisible" width="480px" append-to-body :close-on-click-modal="false">
+        <el-dialog :visible.sync="dialogVisible" width="540px" append-to-body :close-on-click-modal="false">
             <div slot="title" class="bi-dialog-title"><i class="el-icon-tickets" /> New Invoice</div>
             <el-form label-position="top" size="small" class="bi-form" @submit.native.prevent>
                 <el-form-item label="Account" required>
@@ -81,6 +82,10 @@
                             disabled placeholder="—">
                             <template slot="prepend">$</template>
                         </el-input>
+                    </el-form-item>
+                    <el-form-item label="Due Date" class="bi-form-col">
+                        <el-date-picker v-model="form.dueDate" type="date" value-format="yyyy-MM-dd"
+                            :clearable="false" style="width: 100%" />
                     </el-form-item>
                 </div>
                 <el-form-item label="Note">
@@ -105,6 +110,65 @@
             </span>
         </el-dialog>
 
+        <!-- Email compose — laid out like a mail client: inline address
+             fields, a borderless body, attachment chips at the bottom -->
+        <el-dialog :visible.sync="emailVisible" width="640px" append-to-body :close-on-click-modal="false" custom-class="bi-email-dialog">
+            <div slot="title" class="bi-dialog-title">
+                <i class="el-icon-message" /> Email {{ emailRow && emailRow.number }}
+                <span v-if="emailRow" class="bi-email-context">{{ money(emailRow.total) }} · {{ liveAccountName(emailRow) }}</span>
+            </div>
+            <div class="bi-email">
+                <div class="bi-email-field">
+                    <span class="bi-email-label">To</span>
+                    <el-select v-model="emailForm.to" size="small" multiple filterable allow-create default-first-option
+                        placeholder="Type an address and press Enter" class="bi-email-select">
+                        <el-option v-for="o in emailOptions" :key="o.email" :value="o.email" :label="o.email">
+                            <span>{{ o.email }}</span>
+                            <span class="bi-opt-rate">{{ o.name }}</span>
+                        </el-option>
+                    </el-select>
+                </div>
+                <div class="bi-email-field">
+                    <span class="bi-email-label">Cc</span>
+                    <el-select v-model="emailForm.cc" size="small" multiple filterable allow-create default-first-option
+                        placeholder="optional" class="bi-email-select">
+                        <el-option v-for="o in ccOptions" :key="o.email" :value="o.email" :label="o.email">
+                            <span>{{ o.email }}</span>
+                            <span class="bi-opt-rate">{{ o.name }}</span>
+                        </el-option>
+                    </el-select>
+                </div>
+                <div class="bi-email-field">
+                    <span class="bi-email-label">Subject</span>
+                    <el-input v-model="emailForm.subject" size="small" maxlength="200" class="bi-email-subject" />
+                </div>
+                <el-input v-model="emailForm.body" type="textarea" :autosize="{ minRows: 9, maxRows: 16 }"
+                    maxlength="5000" class="bi-email-body" placeholder="Write your message…" />
+                <div class="bi-attach-list">
+                    <span class="bi-attach bi-attach-fixed bi-attach-click" title="Preview the invoice PDF"
+                        @click="emailRow && downloadPdf(emailRow)">
+                        <i class="el-icon-document" /> {{ emailRow && emailRow.number }}.pdf
+                        <span class="bi-attach-note">invoice</span>
+                        <i class="el-icon-view bi-attach-eye" />
+                    </span>
+                    <span v-for="(f, i) in emailFiles" :key="i" class="bi-attach">
+                        <i class="el-icon-paperclip" /> {{ f.filename }}
+                        <span class="bi-attach-note">{{ prettySize(f.size) }}</span>
+                        <i class="el-icon-close bi-attach-x" @click="emailFiles.splice(i, 1)" />
+                    </span>
+                    <el-button size="mini" type="text" icon="el-icon-paperclip" class="bi-attach-add"
+                        :disabled="emailFiles.length >= 5" @click="$refs.emailFile.click()">Attach file</el-button>
+                    <input ref="emailFile" type="file" multiple class="bi-file-input" @change="onEmailFiles" />
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="emailVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" icon="el-icon-position" :loading="sendingEmail"
+                    :disabled="!emailForm.to.length || !emailForm.subject.trim()"
+                    @click="sendEmail">Send</el-button>
+            </span>
+        </el-dialog>
+
         <!-- PDF preview -->
         <el-dialog :visible.sync="previewVisible" width="760px" top="4vh" append-to-body
             custom-class="bi-preview-dialog" @closed="cleanupPreview">
@@ -120,7 +184,7 @@
 </template>
 
 <script>
-import { getBlackbeltAccounts, getBlackbeltInvoices, createBlackbeltInvoice, deleteBlackbeltInvoice, setBlackbeltInvoicePayment } from '@/api/blackbelt'
+import { getBlackbeltAccounts, getBlackbeltInvoices, createBlackbeltInvoice, deleteBlackbeltInvoice, setBlackbeltInvoicePayment, emailBlackbeltInvoice } from '@/api/blackbelt'
 import { buildBlackbeltInvoicePdf } from '@/utils/blackbeltInvoicePdf'
 
 export default {
@@ -132,12 +196,17 @@ export default {
             accounts: [],
             accountFilter: '',
             dialogVisible: false,
-            form: { accountId: '', qty: 1, note: '' },
+            form: { accountId: '', qty: 1, note: '', dueDate: '' },
             creating: false,
             previewVisible: false,
             previewUrl: '',
             previewDoc: null,
-            previewNumber: ''
+            previewNumber: '',
+            emailVisible: false,
+            emailRow: null,
+            emailForm: { to: [], cc: [], subject: '', body: '' },
+            emailFiles: [],
+            sendingEmail: false
         }
     },
     computed: {
@@ -147,6 +216,18 @@ export default {
         computedTotal() {
             if (!this.selectedAccount || this.selectedAccount.negotiatedRate == null || !this.form.qty) return 0
             return Math.round(this.selectedAccount.negotiatedRate * this.form.qty * 100) / 100
+        },
+        // Address suggestions for the compose selectors — only the invoice's
+        // linked account (type freely for anything else); Cc also offers the
+        // accounts@ mailbox.
+        emailOptions() {
+            if (!this.emailRow) return []
+            const acc = this.accounts.find(a => String(a._id) === String(this.emailRow.accountId))
+            const email = acc && (acc.email || '').trim()
+            return email ? [{ email, name: acc.name }] : []
+        },
+        ccOptions() {
+            return [{ email: 'accounts@exyon.com.au', name: 'Exyon Accounts' }, ...this.emailOptions]
         }
     },
     created() {
@@ -180,7 +261,7 @@ export default {
             } catch (e) { /* select stays empty; invoices list still works */ }
         },
         openCreate() {
-            this.form = { accountId: this.accountFilter || '', qty: 1, note: '' }
+            this.form = { accountId: this.accountFilter || '', qty: 1, note: '', dueDate: this.defaultDueDate() }
             this.dialogVisible = true
             // Belt-and-braces freshness: re-pull accounts every time the
             // dialog opens, so a just-created account (or freshly negotiated
@@ -190,7 +271,12 @@ export default {
         async create() {
             this.creating = true
             try {
-                const r = await createBlackbeltInvoice({ accountId: this.form.accountId, qty: this.form.qty, note: (this.form.note || '').trim() })
+                const r = await createBlackbeltInvoice({
+                    accountId: this.form.accountId,
+                    qty: this.form.qty,
+                    note: (this.form.note || '').trim(),
+                    dueDate: this.form.dueDate
+                })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(`Invoice ${r.invoice.number} created — ${this.money(r.invoice.total)}.`)
                 this.dialogVisible = false
@@ -201,10 +287,76 @@ export default {
                 this.creating = false
             }
         },
+        // Today + 15 days, local time, as yyyy-MM-dd for the date picker.
+        defaultDueDate() {
+            const d = new Date(Date.now() + 15 * 86400000)
+            const p = n => String(n).padStart(2, '0')
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+        },
         onRowCommand(cmd, row) {
             if (cmd === 'paid') this.setPayment(row, 'paid')
             else if (cmd === 'unpaid') this.setPayment(row, 'unpaid')
             else if (cmd === 'delete') this.removeInvoice(row)
+            else if (cmd === 'email') this.emailInvoice(row)
+        },
+        // Open the compose dialog prefilled from the invoice + account.
+        emailInvoice(row) {
+            const account = this.accounts.find(a => String(a._id) === String(row.accountId))
+            const dueStr = row.dueDate
+                ? new Date(row.dueDate).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+                : ''
+            this.emailRow = row
+            this.emailForm = {
+                to: account && (account.email || '').trim() ? [account.email.trim()] : [],
+                cc: ['accounts@exyon.com.au'],
+                subject: `Invoice ${row.number} — Exyon Pty Ltd`,
+                body:
+                    `Dear ${this.liveAccountName(row)},\n\n` +
+                    `Please find attached invoice ${row.number} for ${this.money(row.total)}.` +
+                    (dueStr ? ` Payment is due by ${dueStr}.` : '') +
+                    `\n\nBank details are included on the invoice.\n\nKind regards,\nExyon Pty Ltd`
+            }
+            this.emailFiles = []
+            this.emailVisible = true
+        },
+        onEmailFiles(e) {
+            const files = Array.from(e.target.files || [])
+            e.target.value = ''
+            for (const f of files) {
+                if (this.emailFiles.length >= 5) { this.$message.warning('Up to 5 extra attachments.'); break }
+                if (f.size > 3.5 * 1024 * 1024) { this.$message.warning(`"${f.name}" is too large (max 3.5MB).`); continue }
+                const reader = new FileReader()
+                reader.onload = () => this.emailFiles.push({ filename: f.name, size: f.size, dataBase64: reader.result })
+                reader.readAsDataURL(f)
+            }
+        },
+        prettySize(bytes) {
+            if (bytes > 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
+            return Math.max(1, Math.round(bytes / 1024)) + 'KB'
+        },
+        async sendEmail() {
+            const row = this.emailRow
+            if (!row) return
+            this.sendingEmail = true
+            try {
+                const doc = buildBlackbeltInvoicePdf({ ...row, accountName: this.liveAccountName(row) })
+                const r = await emailBlackbeltInvoice(row._id, {
+                    to: this.emailForm.to.join(', '),
+                    cc: this.emailForm.cc.join(', '),
+                    subject: this.emailForm.subject.trim(),
+                    body: this.emailForm.body,
+                    pdfBase64: doc.output('datauristring'),
+                    attachments: this.emailFiles.map(f => ({ filename: f.filename, dataBase64: f.dataBase64 }))
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(`Invoice ${row.number} emailed to ${r.to}${r.cc ? ' (cc ' + r.cc + ')' : ''}.`)
+                this.emailVisible = false
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to send the email'))
+            } finally {
+                this.sendingEmail = false
+            }
         },
         // The account's CURRENT name (accounts list) — the invoice only holds a
         // snapshot from creation time. Falls back to the snapshot if the
@@ -323,7 +475,40 @@ export default {
 .bi-opt-rate { float: right; font-size: 12px; color: #909399; margin-left: 12px; }
 .bi-form ::v-deep .el-form-item { margin-bottom: 14px; }
 .bi-form-row { display: flex; gap: 12px; }
-.bi-form-col { flex: 1; }
+.bi-form-col { flex: 1; min-width: 0; }
+/* Email compose — mail-client feel: inline labels over underline-only
+   inputs, a borderless body, chips + attach at the bottom. */
+::v-deep .bi-email-dialog .el-dialog__body { padding: 6px 20px 12px; }
+.bi-email-context { font-weight: normal; font-size: 12px; color: #909399; margin-left: 10px; }
+.bi-email-field { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #f0f2f5; }
+.bi-email-label { width: 52px; flex-shrink: 0; font-size: 13px; color: #909399; }
+.bi-email-field ::v-deep .el-input__inner { border: none; padding-left: 0; }
+.bi-email-select { flex: 1; width: 100%; }
+.bi-email-select ::v-deep .el-select__tags { margin-left: -6px; }
+.bi-email-subject ::v-deep .el-input__inner { font-weight: 600; color: #303133; }
+.bi-email-body { margin-top: 10px; }
+.bi-email-body ::v-deep .el-textarea__inner {
+    border: 1px solid #dcdfe6; border-radius: 6px; padding: 8px 12px;
+    font-family: inherit; font-size: 13px; line-height: 1.6; resize: none;
+}
+.bi-attach-add { padding: 3px 6px; }
+
+.bi-attach-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px solid #f0f2f5; padding-top: 10px; }
+.bi-attach {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #f4f6f9; border: 1px solid #e4e7ed; border-radius: 6px;
+    padding: 3px 9px; font-size: 12px; color: #303133;
+}
+.bi-attach-fixed { background: #ecf5ff; border-color: #d9ecff; }
+.bi-attach-click { cursor: pointer; }
+.bi-attach-click:hover { border-color: #409eff; }
+.bi-attach-eye { color: #409eff; }
+.bi-attach-note { color: #909399; font-size: 11px; }
+.bi-attach-x { cursor: pointer; color: #c0c4cc; }
+.bi-attach-x:hover { color: #F56C6C; }
+.bi-file-input { display: none; }
+.bi-form-row ::v-deep .el-form-item__label { white-space: nowrap; }
+.bi-form-row ::v-deep .el-date-editor.el-input { width: 100%; }
 .bi-preview-frame { width: 100%; height: 72vh; border: 1px solid #ebeef5; border-radius: 6px; background: #525659; }
 ::v-deep .bi-preview-dialog .el-dialog__body { padding: 10px 16px 0; }
 .bi-total {

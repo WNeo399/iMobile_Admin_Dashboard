@@ -36,3 +36,8 @@ export function deleteBlackbeltInvoice(id) {
 export function setBlackbeltInvoicePayment(id, status) {
   return request({ url: `/blackbelt/invoices/${id}/paymentStatus`, method: 'post', data: { status } })
 }
+// Email the invoice. data: { to, cc, subject, body, pdfBase64,
+// attachments: [{filename, dataBase64}] } — PDF rendered client-side.
+export function emailBlackbeltInvoice(id, data) {
+  return request({ url: `/blackbelt/invoices/${id}/email`, method: 'post', data, timeout: 120000 })
+}

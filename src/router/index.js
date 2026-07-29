@@ -93,8 +93,9 @@ export const moduleRoutes = [
   {
     // ExEngine group — Devices + Accessories sub-sections. Structure scaffold;
     // pages are placeholders for now. NOTE: no permissions/roles set yet, so it
-    // is visible to everyone — add meta.permissions / meta.roles to gate it once
-    // the audience is decided.
+    // group renders for anyone whose permissions keep at least one child:
+    // Devices/Accessories are exengine:* (admin-only), Scraper is
+    // refurb:offer:view (admin, iMobile Admin, Phone Supplier).
     path: "/exengine",
     component: Layout,
     redirect: "noRedirect",
@@ -132,6 +133,38 @@ export const moduleRoutes = [
             component: (resolve) => require(["@/views/exengine/accessories/overview/index"], resolve),
             name: "ExEngineAccessoriesOverview",
             meta: { title: "Overview", icon: "el-icon-menu", permissions: ["exengine:accessories:view"] }
+          }
+        ]
+      },
+      {
+        // Scraper — scraped refurbished-market data (Reebelo / JB) from the
+        // external MySQL DB. Moved here from the retired Refurbished Phones
+        // group; the /refurbished/* URLs are kept so links keep working.
+        path: "scraper",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Scraper", icon: "el-icon-connection" },
+        children: [
+          {
+            path: "/refurbished/scraper/dashboard",
+            component: (resolve) => require(["@/views/refurbished/dashboard"], resolve),
+            name: "RefurbishedDashboard",
+            meta: {
+              title: "Dashboard",
+              icon: "el-icon-data-analysis",
+              permissions: ["refurb:offer:view"]
+            }
+          },
+          {
+            path: "/refurbished/scraper/reebelo",
+            component: (resolve) => require(["@/views/refurbished/list"], resolve),
+            name: "RefurbishedList",
+            meta: {
+              title: "Reebelo",
+              icon: "el-icon-tickets",
+              permissions: ["refurb:offer:view"]
+            }
           }
         ]
       }
@@ -395,69 +428,23 @@ export const moduleRoutes = [
     ]
   },
   {
-    // Refurbished Phones — market intelligence over the external scraper MySQL
-    // DB. A "Scraper" submenu (Dashboard snapshot + Reebelo offer list) plus the
-    // "Ask AI" chat. Admin + iMobile Admin (refurb:*:* / ai:*:*).
-    path: "/refurbished",
+    // Refurbished Phones — rebuilt around the Stock page (the old Scraper /
+    // AI pages now live under ExEngine and System). refurb:stock:view =
+    // admin + iMobile Admin (refurb:*:*); grant it to widen.
+    path: "/refurbishedPhones",
     component: Layout,
-    redirect: "/refurbished/scraper/dashboard",
+    redirect: "noRedirect",
     alwaysShow: true,
     meta: { title: "Refurbished Phones", icon: "el-icon-mobile-phone" },
     children: [
       {
-        // Scraper — scraped marketplace data (Reebelo / JB) from the external
-        // MySQL DB: a dashboard snapshot + a filterable Reebelo offer list.
-        path: "scraper",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Scraper", icon: "el-icon-connection" },
-        children: [
-          {
-            path: "/refurbished/scraper/dashboard",
-            component: (resolve) => require(["@/views/refurbished/dashboard"], resolve),
-            name: "RefurbishedDashboard",
-            meta: {
-              title: "Dashboard",
-              icon: "el-icon-data-analysis",
-              permissions: ["refurb:offer:view"]
-            }
-          },
-          {
-            path: "/refurbished/scraper/reebelo",
-            component: (resolve) => require(["@/views/refurbished/list"], resolve),
-            name: "RefurbishedList",
-            meta: {
-              title: "Reebelo",
-              icon: "el-icon-tickets",
-              permissions: ["refurb:offer:view"]
-            }
-          }
-        ]
-      },
-      {
-        // AI Agent — agentic Claude chat that answers questions by running
-        // read-only SQL over the scraper MySQL. Gated by ai:query:use.
-        path: "ask",
-        component: (resolve) => require(["@/views/refurbished/ask"], resolve),
-        name: "RefurbishedAsk",
+        path: "/refurbished/stock",
+        component: (resolve) => require(["@/views/refurbished/stock"], resolve),
+        name: "RefurbishedStock",
         meta: {
-          title: "AI Agent",
-          icon: "el-icon-chat-line-round",
-          permissions: ["ai:query:use"]
-        }
-      },
-      {
-        // Agent Skills — admin-authored knowledge base the AI Agent consults.
-        path: "ai-skills",
-        component: (resolve) => require(["@/views/refurbished/aiSkills"], resolve),
-        name: "RefurbishedAiSkills",
-        meta: {
-          title: "Agent Skills",
-          icon: "el-icon-notebook-2",
-          // Separate from ai:query:use so chat-only roles (Phone Supplier)
-          // don't see the knowledge base.
-          permissions: ["ai:skills:manage"]
+          title: "Stock",
+          icon: "el-icon-box",
+          permissions: ["refurb:stock:view"]
         }
       }
     ]
@@ -659,6 +646,32 @@ export const moduleRoutes = [
     alwaysShow: true,
     meta: { title: "System", icon: "el-icon-setting" },
     children: [
+      {
+        // AI Agent — agentic Claude chat over the business data. Moved here
+        // from the retired Refurbished Phones group; URL kept as
+        // /refurbished/ask so existing links (e.g. PhoneSupplierHome) work.
+        path: "/refurbished/ask",
+        component: (resolve) => require(["@/views/refurbished/ask"], resolve),
+        name: "RefurbishedAsk",
+        meta: {
+          title: "AI Agent",
+          icon: "el-icon-chat-line-round",
+          permissions: ["ai:query:use"]
+        }
+      },
+      {
+        // Agent Skills — admin-authored knowledge base the AI Agent consults.
+        path: "/refurbished/ai-skills",
+        component: (resolve) => require(["@/views/refurbished/aiSkills"], resolve),
+        name: "RefurbishedAiSkills",
+        meta: {
+          title: "Agent Skills",
+          icon: "el-icon-notebook-2",
+          // Separate from ai:query:use so chat-only roles (Phone Supplier)
+          // don't see the knowledge base.
+          permissions: ["ai:skills:manage"]
+        }
+      },
       {
         path: "users",
         component: (resolve) => require(["@/views/system/users/index"], resolve),

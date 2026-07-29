@@ -69,7 +69,11 @@ function metaPair(doc, x, y, label, value, maxWidth) {
 export function buildBlackbeltInvoicePdf(invoice) {
     const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' })
     const created = invoice.createdAt ? new Date(invoice.createdAt) : new Date()
-    const due = new Date(created.getTime() + 30 * 86400000)
+    // Due date is stored on the invoice (picked at creation, default +15
+    // days); fall back to +15 for records predating the field.
+    const due = invoice.dueDate && !isNaN(new Date(invoice.dueDate).getTime())
+        ? new Date(invoice.dueDate)
+        : new Date(created.getTime() + 15 * 86400000)
 
     // ── Company block (top-left) ──
     doc.setFont('helvetica', 'normal')
