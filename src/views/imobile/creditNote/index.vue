@@ -846,6 +846,18 @@
                     Close
                 </el-button>
                 <!--
+                    Save Progress — persists the in-dialog review state
+                    (quantities, Zoho match picks, note, device buckets)
+                    without submitting to Zoho, so the reviewer can close
+                    and pick up where they left off later.
+                -->
+                <el-button
+                    icon="el-icon-finished"
+                    :loading="savingProgress"
+                    :disabled="submitting"
+                    @click="saveProgress"
+                >Save Progress</el-button>
+                <!--
                     Submit only renders for Processed rows — already-
                     Completed rows have been pushed to Zoho once and
                     re-submitting would duplicate the line items in
@@ -970,6 +982,7 @@ export default {
             // Editable note text, seeded from row.returnNote on open.
             // Session-only — will feed into the downstream Zoho update
             // along with selections + quantities.
+            savingProgress: false,
             editedNote: '',
             // Session-editable device buckets, seeded from row.returnDevice
             // / row.repairDevice on open. Each entry is {model, quantity}.
@@ -1464,13 +1477,18 @@ export default {
                 const res = await bulkSkuMatches(skus)
                 const data = (res && res.data) || {}
                 this.matchesBySku = data
-                // Auto-select singletons on rows that don't already have
-                // a pick — per ROW, so duplicate-sku rows each get their
-                // own (independent) selection.
+                // Seed each row's pick, per ROW (duplicate-sku rows stay
+                // independent): a match saved via Save Progress wins when
+                // it's still a valid candidate; otherwise a single-match
+                // sku auto-selects.
                 const updated = this.selections.slice()
                 const items = this.editedItems || []
                 items.forEach((it, idx) => {
                     const matches = (it && it.sku && data[it.sku]) || []
+                    if (!updated[idx] && it && it.matchedItemId &&
+                        matches.some(m => String(m.itemId) === String(it.matchedItemId))) {
+                        updated[idx] = String(it.matchedItemId)
+                    }
                     if (matches.length === 1 && !updated[idx]) {
                         updated[idx] = matches[0].itemId
                     }
@@ -1489,6 +1507,45 @@ export default {
         // existing Zoho credit note. Iterates row-by-row (not by sku)
         // so duplicate OCR skus across rows each produce their own
         // Zoho line item.
+        // Persist the current review state (quantities, match picks, note,
+        // device buckets) WITHOUT submitting to Zoho — resumable progress.
+        async saveProgress() {
+            if (!this.reviewRow || this.savingProgress) return
+            this.savingProgress = true
+            try {
+                const items = (this.editedItems || []).map((it, idx) => ({
+                    sku: it.sku,
+                    model: it.model,
+                    quantity: String(this.getQuantity(idx)),
+                    matchedItemId: this.selections[idx] || null
+                }))
+                const res = await updateCreditNote(this.reviewRow._id, {
+                    items,
+                    returnNote: this.editedNote || '',
+                    returnDevice: this.editedReturnDevices,
+                    repairDevice: this.editedRepairDevices
+                })
+                if (!res || res.success === false) {
+                    throw new Error((res && res.message) || 'Save failed')
+                }
+                // Mirror the saved quantities/picks into the editable copy so
+                // the in-dialog state matches what's now in Mongo.
+                items.forEach((it, idx) => {
+                    if (this.editedItems[idx]) {
+                        this.$set(this.editedItems[idx], 'quantity', it.quantity)
+                        this.$set(this.editedItems[idx], 'matchedItemId', it.matchedItemId)
+                    }
+                })
+                this.syncListRowItems()
+                this.$message.success('Progress saved — you can close and resume later.')
+            } catch (e) {
+                this.$message.error(
+                    (e.response && e.response.data && e.response.data.message) || e.message || 'Failed to save progress'
+                )
+            } finally {
+                this.savingProgress = false
+            }
+        },
         async submitToZoho() {
             if (!this.reviewRow || this.submitting) return
             // Iterate the editable copy so the freshly-edited SKU
