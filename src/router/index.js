@@ -470,6 +470,16 @@ export const moduleRoutes = [
         }
       },
       {
+        path: "orderDispatch",
+        component: (resolve) => require(["@/views/inflow/orderDispatch"], resolve),
+        name: "InflowOrderDispatch",
+        meta: {
+          title: "Order Dispatch",
+          icon: "el-icon-box",
+          permissions: ["inflow:order:view"]
+        }
+      },
+      {
         path: "customers",
         component: (resolve) => require(["@/views/inflow/customers"], resolve),
         name: "InflowCustomers",

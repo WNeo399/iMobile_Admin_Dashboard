@@ -31,6 +31,17 @@ export function getInflowFilters() {
   return request({ url: '/inflow/filters', method: 'get' })
 }
 
+// SKU mapping (barcode → iMobile warehouse SKU, per invoice) + warehouse dispatch
+export function uploadInflowSkuMap(id, rows) {
+  return request({ url: `/inflow/salesorders/${id}/skumap`, method: 'post', data: { rows }, timeout: 60000 })
+}
+export function getInflowDispatch(query) {
+  return request({ url: '/inflow/dispatch', method: 'get', params: query })
+}
+export function setInflowDispatchQty(id, data) {
+  return request({ url: `/inflow/dispatch/${id}/qty`, method: 'post', data })
+}
+
 // Customer portal management (admin)
 export function getInflowPortal(name) {
   return request({ url: `/inflow/customers/${encodeURIComponent(name)}/portal`, method: 'get' })
