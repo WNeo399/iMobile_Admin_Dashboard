@@ -340,6 +340,10 @@ export default {
                     `\n\nBank details are included on the invoice.\n\nKind regards,\nExyon Pty Ltd`
             }
             this.emailFiles = []
+            // Typed-address suggestions are per compose dialog — start fresh
+            // so addresses from an earlier invoice's email don't carry over.
+            this.typedTo = []
+            this.typedCc = []
             this.emailVisible = true
         },
         onEmailFiles(e) {
