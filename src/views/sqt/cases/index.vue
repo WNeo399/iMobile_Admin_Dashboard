@@ -1268,6 +1268,7 @@
                                 :autosize="{ minRows: 1, maxRows: 4 }"
                                 placeholder="Device description"
                                 size="small"
+                                :disabled="deviceReadOnly"
                             />
                         </el-descriptions-item>
                         <el-descriptions-item label="Brand">
@@ -1281,6 +1282,7 @@
                                 v-model="deviceEdit.imei"
                                 placeholder="IMEI"
                                 size="small"
+                                :disabled="deviceReadOnly"
                             />
                         </el-descriptions-item>
                         <el-descriptions-item label="Model">
@@ -1299,7 +1301,7 @@
                             <div class="multiline">{{ detailCase.describedFault || '—' }}</div>
                         </el-descriptions-item>
                     </el-descriptions>
-                    <div v-if="detailCase.device" class="device-edit-actions">
+                    <div v-if="detailCase.device && !deviceReadOnly" class="device-edit-actions">
                         <el-button
                             type="primary"
                             size="mini"
@@ -1317,6 +1319,9 @@
                             Reset
                         </el-button>
                         <span v-if="deviceEditDirty" class="device-edit-hint">Unsaved changes</span>
+                    </div>
+                    <div v-else-if="detailCase.device && deviceReadOnly" class="device-edit-actions device-edit-hint">
+                        Case is On Hold — device details are read-only; you can still add notes.
                     </div>
                     <div v-else class="empty-block">No device info recorded.</div>
                 </el-tab-pane>
@@ -1617,11 +1622,12 @@ const STATUS_META = [
 ]
 
 // Statuses that only Admin / TechElite Admin should see in the tree and the
-// Change Status dropdown — they represent internal admin-side work (paused
-// or sent to Solvup) and shouldn't be visible to shop roles. The backend
-// also filters them out of /list and /counts for shop-scoped users, so
-// counts here will always be 0 for non-admins anyway.
-const ADMIN_ONLY_STATUSES = ['on-hold', 'waiting-solvup', 'issue-with-solvup']
+// Change Status dropdown — internal Solvup hand-off work that shouldn't be
+// visible to shop roles. The backend also filters them out of /list and
+// /counts for shop-scoped users. On Hold is deliberately NOT here: shop
+// users can see on-hold cases (read-only — the backend rejects every shop
+// action on them except adding a note).
+const SHOP_HIDDEN_STATUSES = ['waiting-solvup', 'issue-with-solvup']
 
 const LABOR_COST = 70
 const GST_RATE = 0.1
@@ -1804,8 +1810,9 @@ export default {
         sendPartsWarning() {
             return this.sendPartsBudget > 0 && this.sendPartsEstimated > this.sendPartsBudget
         },
-        // Admin + TechElite Admin see the full status list (incl. On Hold &
-        // Waiting Solvup); shop roles do not.
+        // Admin + TechElite Admin see the full status list (incl. the Solvup
+        // states); shop roles see everything else — including On Hold, which
+        // is read-only for them.
         canSeeAdminOnlyStatuses() {
             const roles = (this.$store && this.$store.state.user.roles) || []
             return roles.includes('admin') || roles.includes('techelite-admin')
@@ -1813,7 +1820,7 @@ export default {
         visibleStatusMeta() {
             return this.canSeeAdminOnlyStatuses
                 ? STATUS_META
-                : STATUS_META.filter(s => !ADMIN_ONLY_STATUSES.includes(s.value))
+                : STATUS_META.filter(s => !SHOP_HIDDEN_STATUSES.includes(s.value))
         },
         statusOptions() {
             return this.visibleStatusMeta.map(s => ({ value: s.value, label: s.label }))
@@ -1990,6 +1997,12 @@ export default {
             if (!this.sendPartsCase || !Array.isArray(this.sendPartsCase.zohoOrders)) return []
             // newest first
             return [...this.sendPartsCase.zohoOrders].reverse()
+        },
+        // Shop users can't edit the device on an on-hold case — the case is
+        // paused admin-side and adding a note is their only allowed action
+        // (the backend rejects the save anyway; this keeps the UI honest).
+        deviceReadOnly() {
+            return !this.canSeeAdminOnlyStatuses && !!this.detailCase && this.detailCase.status === 'on-hold'
         },
         deviceEditDirty() {
             if (!this.detailCase || !this.detailCase.device) return false
