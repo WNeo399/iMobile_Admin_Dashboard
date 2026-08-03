@@ -121,7 +121,8 @@
                         </template>
                     </el-table-column>
 
-                    <el-table-column label="Purchase" align="center" key="purchase" width="180">
+                    <!-- Purchase (Tencent PO) integration is Spare Parts only -->
+                    <el-table-column v-if="!isAccessories" label="Purchase" align="center" key="purchase" width="180">
                         <template slot-scope="scope">
                             <i v-if="purchaseLoading" class="el-icon-loading"></i>
                             <div v-else-if="scope.row.purchase && scope.row.purchase.count" class="purchase-cell">
@@ -140,7 +141,7 @@
                         <template slot-scope="scope" v-if="scope.row.userId !== 1">
                             <el-button size="mini" type="text" icon="el-icon-edit"
                                 @click="handleGetProductDetail(scope.row.id)">View Detail</el-button>
-                            <el-button size="mini" type="text" icon="el-icon-shopping-cart-2"
+                            <el-button v-if="!isAccessories" size="mini" type="text" icon="el-icon-shopping-cart-2"
                                 @click="openCreatePo(scope.row)">Create PO</el-button>
                             <!-- <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)" v-hasPermi="['system:user:remove']">删除</el-button>
               <el-dropdown size="mini" @command="(command) => handleCommand(command, scope.row)" v-hasPermi="['system:user:resetPwd', 'system:user:edit']">
@@ -204,6 +205,7 @@
         <collection-form-dialog
             :visible.sync="collectionDialogVisible"
             :collection="editingCollection"
+            :scope="scope"
             products-only
             @saved="onCollectionSaved"
         />
@@ -261,6 +263,19 @@ export default {
             multipleSelection: [],
         }
     },
+    computed: {
+        // 'accessories' on the Accessories route (set via route meta); ''
+        // on the original Spare Parts route. Drives which collection set
+        // the backend reads — same functionality, separate data.
+        scope() {
+            return (this.$route.meta && this.$route.meta.scope) || ''
+        },
+        // Accessories has no Tencent-Doc purchase-order integration: the
+        // Purchase column and the Create PO action are hidden entirely.
+        isAccessories() {
+            return this.scope === 'accessories'
+        }
+    },
     created() {
 
         this.getCollectionGroup()
@@ -288,7 +303,7 @@ export default {
             if (!this.currentCollection || this.collectionDetailLoading) return
             this.collectionDetailLoading = true
             try {
-                const res = await getCollectionDetail(this.currentCollection)
+                const res = await getCollectionDetail(this.currentCollection, this.scope)
                 if (!res || res.success === false || !res.data) {
                     throw new Error((res && res.message) || 'Failed to load collection')
                 }
@@ -316,7 +331,7 @@ export default {
             this.getCollectionGroup()
         },
         getCollectionGroup() {
-            getCollectionGroups().then(res => {
+            getCollectionGroups(this.scope).then(res => {
                 const groups = res.data || []
 
                 const buildTree = categories => {
@@ -461,7 +476,9 @@ export default {
         },
         // Not-yet-received purchases per Zoho item_id, merged onto the rows for
         // the "Purchase" column. Mirrors handleGetSalesTotal's id set.
+        // No-op for Accessories — the column doesn't exist there.
         handleGetPurchase() {
+            if (this.isAccessories) return
             const that = this
             that.purchaseLoading = true
             const itemIds = (that.productList.length > 300 ? that.showProductList : that.productList)
@@ -520,7 +537,7 @@ export default {
             this.loading = true
             const page = this.queryParams.pageNum
             const pageSize = this.queryParams.pageSize
-            getCurrentStock({ collection: that.currentCollection }).then(resp => {
+            getCurrentStock({ collection: that.currentCollection, scope: that.scope || undefined }).then(resp => {
                 that.productList = resp
                 that.total = resp.length
                 that.showProductList = resp.slice(

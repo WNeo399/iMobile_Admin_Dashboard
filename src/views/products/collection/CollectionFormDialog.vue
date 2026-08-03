@@ -172,7 +172,11 @@ export default {
         // the hidden fields re-send their hydrated values verbatim,
         // and the derived type still recomputes (adding products to a
         // Criteria collection makes it Combined, etc.).
-        productsOnly: { type: Boolean, default: false }
+        productsOnly: { type: Boolean, default: false },
+        // Which collection data set to save into: '' (default) = Spare
+        // Parts (productCollections), 'accessories' = the Accessories
+        // set. Passed straight through to the collection API helpers.
+        scope: { type: String, default: '' }
     },
     data() {
         return {
@@ -306,11 +310,11 @@ export default {
 
                     let saved = null;
                     if (this.form.id) {
-                        const res = await updateCollection(this.form.id, payload);
+                        const res = await updateCollection(this.form.id, payload, this.scope);
                         saved = (res && res.data) || null;
                         this.$message.success("Collection updated successfully");
                     } else {
-                        const res = await createCollection(payload);
+                        const res = await createCollection(payload, this.scope);
                         saved = (res && res.data) || null;
                         this.$message.success("Collection created successfully");
                     }

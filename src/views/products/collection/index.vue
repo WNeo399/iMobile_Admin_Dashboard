@@ -68,9 +68,10 @@
         <collection-form-dialog
             :visible.sync="dialogVisible"
             :collection="editingCollection"
+            :scope="scope"
             @saved="getList"
         />
-        <CollectionGroupDialog :visible.sync="showCollectionGroupDialog"></CollectionGroupDialog>
+        <CollectionGroupDialog :visible.sync="showCollectionGroupDialog" :scope="scope"></CollectionGroupDialog>
     </div>
 </template>
 
@@ -102,6 +103,14 @@ export default {
             editingCollection: null
         }
     },
+    computed: {
+        // 'accessories' on the Accessories route (via route meta); '' on
+        // the original Spare Parts route. Selects which collection data
+        // set the page manages.
+        scope() {
+            return (this.$route.meta && this.$route.meta.scope) || ''
+        }
+    },
     created() {
         this.getList()
     },
@@ -126,7 +135,7 @@ export default {
                     query.status = this.queryParams.status
                 }
 
-                const res = await getCollectionList(query)
+                const res = await getCollectionList(query, this.scope)
 
                 this.list = res.data || []
                 this.total = res.totalDocs || 0
@@ -188,7 +197,7 @@ export default {
                 that.loading = true
                 await deleteCollection({
                     id: row._id
-                })
+                }, this.scope)
 
                 this.$message.success('Deleted successfully')
                 that.loading = false

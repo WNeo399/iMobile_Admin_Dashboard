@@ -75,6 +75,13 @@ export default {
     visible: {
       type: Boolean,
       default: false
+    },
+    // '' = Spare Parts set (default), 'accessories' = the Accessories
+    // set. Forwarded to the collection API helpers so this dialog
+    // manages the right group tree.
+    scope: {
+      type: String,
+      default: ''
     }
   },
 
@@ -127,11 +134,11 @@ export default {
         const res = await getCollectionList({
           pageNum: 1,
           pageSize: 999
-        })
+        }, this.scope)
 
         this.collections = res.data || []
 
-        const gruop = await getCollectionGroups()
+        const gruop = await getCollectionGroups(this.scope)
         this.categories = gruop.data
       } catch (err) {
         console.error(err)
@@ -218,7 +225,7 @@ export default {
 
 async handleSave() {
   try {
-    await updateCollectionGroups(this.categories)
+    await updateCollectionGroups(this.categories, this.scope)
 
     this.$message.success(
       'Groups updated successfully'

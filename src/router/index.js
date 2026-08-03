@@ -227,9 +227,8 @@ export const moduleRoutes = [
   },
   {
     // iMobile group — top-level umbrella for iMobile-specific modules.
-    // Inventory is currently the only child; new modules (Sales, Customers,
-    // etc.) can be added as siblings of `inventory` later without touching
-    // the deepest leaves.
+    // New modules (Sales, Customers, etc.) can be added as siblings of
+    // `inventory` later without touching the deepest leaves.
     //
     // Path stays `/zohoInventory/...` for the actual pages so existing
     // deep links and the home-page quick-action links (which reference
@@ -243,6 +242,8 @@ export const moduleRoutes = [
     meta: { title: "iMobile", icon: "el-icon-goods" },
     children: [
       {
+        // Spare Parts (previously titled "Inventory" — the route path keeps
+        // the old `inventory` segment so existing URLs stay valid).
         path: "inventory",
         // ParentView is a transparent <router-view /> wrapper used by
         // RuoYi/vue-element-admin to render nested submenu groups without
@@ -250,7 +251,7 @@ export const moduleRoutes = [
         component: (resolve) => require(["@/components/ParentView"], resolve),
         redirect: "noRedirect",
         alwaysShow: true,
-        meta: { title: "Inventory", icon: "el-icon-notebook-2" },
+        meta: { title: "Spare Parts", icon: "el-icon-notebook-2" },
         children: [
           {
             path: "/zohoInventory/stockMonitoring",
@@ -293,15 +294,86 @@ export const moduleRoutes = [
               // one from them so the page doesn't appear twice.
               excludeRoles: ["imobile-purchase"]
             }
+          },
+          {
+            // Catalogue — the IMB parts catalogue (imb_products + its
+            // brand/category/model/quality reference data). Nested submenu
+            // inside Spare Parts, using the same ParentView wrapper. Reuses
+            // the collection permissions since the same iMobile Admin role
+            // manages this product data. Page paths stay absolute
+            // (/imobile/catalogue/...) so existing links keep working.
+            path: "catalogue",
+            component: (resolve) => require(["@/components/ParentView"], resolve),
+            redirect: "noRedirect",
+            alwaysShow: true,
+            meta: { title: "Catalogue", icon: "el-icon-collection" },
+            children: [
+              {
+                path: "/imobile/catalogue/products",
+                component: (resolve) => require(["@/views/imobile/catalogue/products"], resolve),
+                name: "CatalogueProducts",
+                meta: {
+                  title: "Products",
+                  icon: "el-icon-goods",
+                  permissions: ["zoho:collection:view"]
+                }
+              },
+              {
+                path: "/imobile/catalogue/reference",
+                component: (resolve) => require(["@/views/imobile/catalogue/reference"], resolve),
+                name: "CatalogueReference",
+                meta: {
+                  title: "Reference Data",
+                  icon: "el-icon-s-operation",
+                  permissions: ["zoho:collection:view"]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        // Accessories — same Stock Monitoring / Collections functionality
+        // as Spare Parts but over its own collection set (meta.scope
+        // switches the data source in the shared pages/API). Deliberately
+        // no Tencent purchase-order integration and no Create PO.
+        path: "accessories",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Accessories", icon: "el-icon-headset" },
+        children: [
+          {
+            path: "/imobile/accessories/stockMonitoring",
+            component: (resolve) => require(["@/views/accessories/stockmonitoring"], resolve),
+            name: "AccessoryStockMonitoring",
+            meta: {
+              title: "Stock Monitoring",
+              icon: "el-icon-data-line",
+              permissions: ["zoho:stock:view"],
+              scope: "accessories"
+            }
+          },
+          {
+            path: "/imobile/accessories/collections",
+            component: (resolve) => require(["@/views/accessories/collection"], resolve),
+            name: "AccessoryCollections",
+            meta: {
+              title: "Collections",
+              icon: "el-icon-files",
+              permissions: ["zoho:collection:view"],
+              scope: "accessories"
+            }
           }
         ]
       },
       {
         // Flattened Purchase Order entry for the iMobile Purchase role ONLY —
-        // they get iMobile → Purchase Order without the Inventory level (which
-        // for them would hold this single page). Everyone else keeps the
-        // nested entry above (which excludeRoles-hides itself from this role).
-        // exclusiveRoles = strict match, so this stays off the admin sidebar.
+        // they get iMobile → Purchase Order without the Spare Parts level
+        // (which for them would hold this single page). Everyone else keeps
+        // the nested entry above (which excludeRoles-hides itself from this
+        // role). exclusiveRoles = strict match, so this stays off the admin
+        // sidebar.
         path: "/imobile/purchaseOrder",
         component: (resolve) => require(["@/views/imobile/purchaseOrder/index"], resolve),
         name: "ImobilePurchaseOrderDirect",
@@ -310,40 +382,6 @@ export const moduleRoutes = [
           icon: "el-icon-shopping-bag-1",
           exclusiveRoles: ["imobile-purchase"]
         }
-      },
-      {
-        // Catalogue — the IMB parts catalogue (imb_products + its
-        // brand/category/model/quality reference data). Sibling of
-        // Inventory under iMobile, using the same ParentView submenu
-        // wrapper. Reuses the collection permissions since the same
-        // iMobile Admin role manages this product data.
-        path: "catalogue",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Catalogue", icon: "el-icon-collection" },
-        children: [
-          {
-            path: "/imobile/catalogue/products",
-            component: (resolve) => require(["@/views/imobile/catalogue/products"], resolve),
-            name: "CatalogueProducts",
-            meta: {
-              title: "Products",
-              icon: "el-icon-goods",
-              permissions: ["zoho:collection:view"]
-            }
-          },
-          {
-            path: "/imobile/catalogue/reference",
-            component: (resolve) => require(["@/views/imobile/catalogue/reference"], resolve),
-            name: "CatalogueReference",
-            meta: {
-              title: "Reference Data",
-              icon: "el-icon-s-operation",
-              permissions: ["zoho:collection:view"]
-            }
-          }
-        ]
       },
       {
         // iMobile Repair — sibling of Inventory under the iMobile group.

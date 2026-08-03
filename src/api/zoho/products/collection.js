@@ -1,11 +1,21 @@
 import request from '@/utils/request'
 
+// Collection management serves two separate data sets with identical
+// functionality: the Spare Parts set (default) and the Accessories set.
+// Every function takes an optional trailing `scope` — pass 'accessories'
+// to hit the accessory endpoints; omit it for the original behaviour.
+function base(scope) {
+  return scope === 'accessories'
+    ? '/zoho/product/accessoryCollections'
+    : '/zoho/product/collections'
+}
+
 /**
  * Create collection
  */
-export function createCollection(data) {
+export function createCollection(data, scope) {
   return request({
-    url: '/zoho/product/collections/create',
+    url: `${base(scope)}/create`,
     method: 'post',
     data
   })
@@ -14,9 +24,9 @@ export function createCollection(data) {
 /**
  * Update collection
  */
-export function updateCollection(id, data) {
+export function updateCollection(id, data, scope) {
   return request({
-    url: `/zoho/product/collections/update/${id}`,
+    url: `${base(scope)}/update/${id}`,
     method: 'put',
     data
   })
@@ -25,9 +35,9 @@ export function updateCollection(id, data) {
 /**
  * Get collection list
  */
-export function getCollectionList(query) {
+export function getCollectionList(query, scope) {
   return request({
-    url: '/zoho/product/collections/list',
+    url: `${base(scope)}/list`,
     method: 'get',
     params: query
   })
@@ -36,32 +46,31 @@ export function getCollectionList(query) {
 /**
  * Get collection detail
  */
-export function getCollectionDetail(id) {
+export function getCollectionDetail(id, scope) {
   return request({
-    url: `/zoho/product/collections/detail/${id}`,
+    url: `${base(scope)}/detail/${id}`,
     method: 'get'
   })
 }
 
-export function deleteCollection(data){
+export function deleteCollection(data, scope) {
   return request({
-    url: '/zoho/product/collections/delete',
+    url: `${base(scope)}/delete`,
     method: 'post',
     data
   })
-  
 }
 
-export function getCollectionGroups() {
+export function getCollectionGroups(scope) {
   return request({
-    url: '/zoho/product/collections/getGroup',
+    url: `${base(scope)}/getGroup`,
     method: 'get'
   })
 }
 
-export function updateCollectionGroups(data) {
+export function updateCollectionGroups(data, scope) {
   return request({
-    url: '/zoho/product/collections/updateGroup',
+    url: `${base(scope)}/updateGroup`,
     method: 'post',
     data
   })
