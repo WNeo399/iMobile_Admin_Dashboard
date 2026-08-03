@@ -62,11 +62,14 @@ export function scanProductByCode(code) {
 // Response: { success, data: { '<sku>': [{itemId, sku, name, status}, ...] } }
 // Used by the Credit Note review dialog to populate per-row Zoho-item
 // pickers so the user can disambiguate partial OCR SKUs.
-export function bulkSkuMatches(skus) {
+// `force: true` bypasses the backend's short-lived per-SKU cache — used by
+// the review dialog's confirm button so re-confirming a SKU always runs a
+// genuinely fresh Zoho lookup.
+export function bulkSkuMatches(skus, force) {
     return request({
         url: '/zoho/product/skuMatches',
         method: 'post',
-        data: { skus },
+        data: force ? { skus, force: true } : { skus },
         timeout: 30000
     })
 }

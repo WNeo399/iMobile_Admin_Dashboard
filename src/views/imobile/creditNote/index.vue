@@ -523,11 +523,28 @@
                                     </div>
                                     <div class="zoho-item-pick">
                                         <span
-                                            v-if="(matchesLoading || savingSkuIdx === scope.$index) && !matchesBySku[scope.row.sku]"
+                                            v-if="isSkuLoading(scope.row.sku) || savingSkuIdx === scope.$index"
                                             class="match-loading"
                                         >
                                             <i class="el-icon-loading" /> Loading matches…
                                         </span>
+                                        <span v-else-if="!scope.row.sku" class="muted">No matches</span>
+                                        <!--
+                                            Lazy loading: only the first few SKUs
+                                            load when the dialog opens, so a long
+                                            credit note can't burst past Zoho's
+                                            rate limit. Untouched rows load their
+                                            matches on this click (or via the SKU
+                                            confirm button, which force-refreshes).
+                                        -->
+                                        <el-button
+                                            v-else-if="!skuLoaded(scope.row.sku)"
+                                            size="mini"
+                                            plain
+                                            icon="el-icon-search"
+                                            class="match-load-btn"
+                                            @click="fetchMatches([scope.row.sku])"
+                                        >Load matches</el-button>
                                         <span
                                             v-else-if="!matchOptions(scope.row.sku).length"
                                             class="muted"
@@ -926,6 +943,16 @@ const STATUS_META = [
 // the bucket is locked down).
 const S3_BUCKET_BASE_URL = 'https://imobile-credit-note-053188594440-us-east-1-an.s3.us-east-1.amazonaws.com/'
 
+// Lazy SKU-match loading. Long credit notes used to fire one Zoho lookup
+// per SKU the moment the review dialog opened, tripping Zoho's account-wide
+// rate limit (error 6045). Now only the first INITIAL_MATCH_BATCH unique
+// SKUs load on open — enough to cover a typical short note entirely — and
+// the rest load on demand (per-row "Load matches", or the SKU confirm
+// button). Requests go out in MATCH_CHUNK-sized sequential chunks so even
+// the initial batch can't burst.
+const INITIAL_MATCH_BATCH = 8
+const MATCH_CHUNK = 4
+
 export default {
     name: 'ImobileCreditNote',
     components: { TreePanel },
@@ -962,10 +989,14 @@ export default {
             reviewRow: null,
             // Zoho SKU-match results, keyed by the OCR sku:
             //   { '5470': [{ itemId, sku, name, status }, ...] }
-            // Populated when the dialog opens. Cleared on close so
-            // reopening triggers a fresh lookup.
+            // Lazily populated: only the first batch of SKUs loads when
+            // the dialog opens; the rest load on demand (per-row "Load
+            // matches" or the SKU confirm button). A key that exists =
+            // that SKU's lookup has completed. Cleared on close.
             matchesBySku: {},
-            matchesLoading: false,
+            // SKUs with a lookup currently in flight — drives per-row
+            // spinners and the tab-level indicator (matchesLoading).
+            loadingSkus: [],
             matchesError: '',
             // User's per-row picks, indexed by row position in items[]
             // (like `quantities` — NOT keyed by sku, so two rows with
@@ -1228,6 +1259,11 @@ export default {
         // pricelist at a glance and add it to PRICE_LIST_IDS.
         zohoPriceListKnown() {
             return isKnownPriceList(this.zohoPricebookId)
+        },
+        // Any SKU-match lookup currently in flight (tab spinner + the
+        // submit gate). Per-row spinners use isSkuLoading instead.
+        matchesLoading() {
+            return this.loadingSkus.length > 0
         }
     },
     created() {
@@ -1366,19 +1402,24 @@ export default {
             this.reviewOpen = true
             // Selections are session-only — start blank every open so
             // a previous dialog's picks don't bleed across rows. The
-            // single-match auto-select inside loadSkuMatches will fill
-            // the easy ones in once the lookup lands.
+            // auto-select inside fetchMatches/applyAutoSelect will fill
+            // the easy ones in once each SKU's lookup lands.
             this.selections = []
             this.matchesBySku = {}
+            this.loadingSkus = []
             this.matchesError = ''
             // Deep-clone items into the editable working copy. Shallow
             // would alias the inner objects so a SKU edit before save
             // mutates the parent list row — bad UX (the list cell
             // updates to a value that may yet fail to persist).
+            // matchedItemId rides along so a pick saved via Save
+            // Progress re-seeds the row's selection once that SKU's
+            // matches load.
             this.editedItems = (row.items || []).map(it => ({
                 sku: (it && it.sku) || '',
                 model: it && it.model != null ? it.model : null,
-                quantity: it && it.quantity != null ? it.quantity : '0'
+                quantity: it && it.quantity != null ? it.quantity : '0',
+                matchedItemId: (it && it.matchedItemId) || null
             }))
             // Seed quantities from the parsed items[].quantity (which
             // the OCR parser stringifies); Number() so the
@@ -1424,7 +1465,13 @@ export default {
             this.zohoPricebookId = null
             this.zohoDetail = null
             this.zohoDetailError = ''
-            this.loadSkuMatches(row)
+            // Lazy: only the first batch of unique SKUs loads up front —
+            // covers a short note completely, keeps a long note under
+            // Zoho's rate limit. Remaining rows load on demand.
+            const uniqueSkus = [...new Set(
+                this.editedItems.map(i => i && i.sku).filter(Boolean)
+            )]
+            this.fetchMatches(uniqueSkus.slice(0, INITIAL_MATCH_BATCH))
             this.loadZohoDetail()
         },
         onReviewClose() {
@@ -1448,7 +1495,7 @@ export default {
             this.editedReturnDevices = []
             this.editedRepairDevices = []
             this.matchesError = ''
-            this.matchesLoading = false
+            this.loadingSkus = []
             this.submitting = false
             this.zohoCreditNoteId = null
             this.zohoCustomerName = null
@@ -1457,51 +1504,91 @@ export default {
             this.zohoDetailLoading = false
             this.zohoDetailError = ''
         },
-        // Fire the bulk LIKE-search against Zoho for every unique SKU
-        // in the row's items. Auto-selects when a SKU has exactly one
-        // match AND the user hasn't already picked something different
-        // — keeps the experience snappy without overriding existing
-        // saved picks.
-        async loadSkuMatches(row) {
-            const skus = [...new Set(
-                (row.items || [])
-                    .map(i => i && i.sku)
-                    .filter(Boolean)
-            )]
-            if (skus.length === 0) {
-                this.matchesBySku = {}
-                return
-            }
-            this.matchesLoading = true
+        // Is this SKU's Zoho lookup currently in flight? Drives the
+        // per-row spinner.
+        isSkuLoading(sku) {
+            return !!sku && this.loadingSkus.includes(sku)
+        },
+        // Has this SKU's lookup completed (whatever the result)? Rows
+        // whose SKU hasn't loaded yet show a "Load matches" button.
+        skuLoaded(sku) {
+            return !!sku && Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)
+        },
+        // Fetch Zoho matches for a set of SKUs, in small sequential
+        // chunks so a long credit note can't burst past Zoho's rate
+        // limit (error 6045). Skips SKUs already loaded or in flight
+        // unless `force` — the confirm button uses force so the user
+        // always gets a genuinely fresh lookup. Auto-select runs per
+        // chunk as results land.
+        async fetchMatches(skus, { force = false } = {}) {
+            const wanted = [...new Set((skus || []).filter(Boolean))]
+                .filter(s => force || !this.skuLoaded(s))
+                .filter(s => !this.loadingSkus.includes(s))
+            if (!wanted.length) return
+            this.loadingSkus = this.loadingSkus.concat(wanted)
+            this.matchesError = ''
+            const reviewId = this.reviewRow && this.reviewRow._id
             try {
-                const res = await bulkSkuMatches(skus)
-                const data = (res && res.data) || {}
-                this.matchesBySku = data
-                // Seed each row's pick, per ROW (duplicate-sku rows stay
-                // independent): a match saved via Save Progress wins when
-                // it's still a valid candidate; otherwise a single-match
-                // sku auto-selects.
-                const updated = this.selections.slice()
-                const items = this.editedItems || []
-                items.forEach((it, idx) => {
-                    const matches = (it && it.sku && data[it.sku]) || []
-                    if (!updated[idx] && it && it.matchedItemId &&
-                        matches.some(m => String(m.itemId) === String(it.matchedItemId))) {
-                        updated[idx] = String(it.matchedItemId)
-                    }
-                    if (matches.length === 1 && !updated[idx]) {
-                        updated[idx] = matches[0].itemId
-                    }
-                })
-                this.selections = updated
+                for (let i = 0; i < wanted.length; i += MATCH_CHUNK) {
+                    const chunk = wanted.slice(i, i + MATCH_CHUNK)
+                    const res = await bulkSkuMatches(chunk, force)
+                    // Dialog closed or switched rows mid-flight — drop
+                    // the stale response.
+                    if (!this.reviewRow || this.reviewRow._id !== reviewId) return
+                    const data = (res && res.data) || {}
+                    this.matchesBySku = { ...this.matchesBySku, ...data }
+                    this.loadingSkus = this.loadingSkus.filter(s => !chunk.includes(s))
+                    if (force) this.dropInvalidSelections(chunk)
+                    this.applyAutoSelect(chunk)
+                }
             } catch (e) {
                 console.error('SKU match lookup failed:', e)
-                this.matchesError = (e.response && e.response.data && e.response.data.message)
-                    || e.message
-                    || 'SKU match lookup failed'
+                if (this.reviewRow && this.reviewRow._id === reviewId) {
+                    this.matchesError = (e.response && e.response.data && e.response.data.message)
+                        || e.message
+                        || 'SKU match lookup failed'
+                }
             } finally {
-                this.matchesLoading = false
+                this.loadingSkus = this.loadingSkus.filter(s => !wanted.includes(s))
             }
+        },
+        // Seed row picks for the given SKUs, per ROW (duplicate-sku rows
+        // stay independent): a match saved via Save Progress wins when
+        // it's still a valid candidate; otherwise a single-match sku
+        // auto-selects. Never overrides an existing pick.
+        applyAutoSelect(skus) {
+            const set = new Set(skus || [])
+            const updated = this.selections.slice()
+            let changed = false;
+            (this.editedItems || []).forEach((it, idx) => {
+                if (!it || !it.sku || !set.has(it.sku) || updated[idx]) return
+                const matches = this.matchesBySku[it.sku] || []
+                if (it.matchedItemId &&
+                    matches.some(m => String(m.itemId) === String(it.matchedItemId))) {
+                    updated[idx] = String(it.matchedItemId)
+                    changed = true
+                } else if (matches.length === 1) {
+                    updated[idx] = matches[0].itemId
+                    changed = true
+                }
+            })
+            if (changed) this.selections = updated
+        },
+        // After a forced re-query, clear picks that no longer exist in
+        // the refreshed match list so a stale itemId can't be submitted.
+        dropInvalidSelections(skus) {
+            const set = new Set(skus || [])
+            const updated = this.selections.slice()
+            let changed = false;
+            (this.editedItems || []).forEach((it, idx) => {
+                if (!it || !it.sku || !set.has(it.sku) || !updated[idx]) return
+                const matches = this.matchesBySku[it.sku] || []
+                if (!matches.some(m => String(m.itemId) === String(updated[idx]))) {
+                    updated[idx] = null
+                    changed = true
+                }
+            })
+            if (changed) this.selections = updated
         },
         // Push the current selections + quantities + note into the
         // existing Zoho credit note. Iterates row-by-row (not by sku)
@@ -1756,10 +1843,13 @@ export default {
                 return
             }
             const oldSku = row.sku || ''
-            // No-op when the user confirms the same value — saves a
-            // pointless PATCH and avoids resetting the existing match.
+            // Confirming an UNCHANGED value skips the pointless PATCH
+            // (nothing to persist) but still runs a fresh Zoho lookup
+            // for the SKU — with lazy loading this doubles as each
+            // row's "load / refresh matches" trigger.
             if (newSku === oldSku) {
                 this.cancelEditSku()
+                this.fetchMatches([newSku], { force: true })
                 return
             }
             // Optimistic UI: apply the new sku locally first so the
@@ -1776,12 +1866,14 @@ export default {
             try {
                 // Persist + look up matches in parallel — the two
                 // round-trips are independent and the picker is more
-                // useful when both land together.
+                // useful when both land together. force: the user just
+                // confirmed this SKU, so bypass the match cache and hit
+                // Zoho for genuinely fresh results.
                 const [, ] = await Promise.all([
                     updateCreditNote(this.reviewRow._id, {
                         items: this.editedItems
                     }),
-                    this.loadSingleSkuMatches(newSku, idx)
+                    this.fetchMatches([newSku], { force: true })
                 ])
                 // Patch the live list row so the visible table stays
                 // in sync without a full refresh — same trick we use
@@ -1848,36 +1940,6 @@ export default {
                 if (this.reviewRow && this.reviewRow._id === requestedId) {
                     this.zohoDetailLoading = false
                 }
-            }
-        },
-        // Single-SKU variant of loadSkuMatches — used after an inline
-        // SKU edit so the picker refreshes for just the changed row.
-        // Skips the fetch when the SKU is already in the cache (the
-        // bulk lookup may have covered it on first open), but still
-        // applies the single-match auto-select to THAT ROW (rowIdx) —
-        // per row, not per sku, so duplicate-sku rows stay independent.
-        async loadSingleSkuMatches(sku, rowIdx) {
-            if (!sku) return
-            if (!Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)) {
-                try {
-                    const res = await bulkSkuMatches([sku])
-                    const data = (res && res.data) || {}
-                    this.matchesBySku = { ...this.matchesBySku, ...data }
-                } catch (e) {
-                    // Surface in the dialog's alert banner so the failure
-                    // is visible without dismissing the user's edit.
-                    this.matchesError = (e.response && e.response.data && e.response.data.message)
-                        || e.message
-                        || 'SKU match lookup failed'
-                    console.error('Single SKU match lookup failed:', e)
-                    return
-                }
-            }
-            const matches = this.matchesBySku[sku] || []
-            if (rowIdx != null && matches.length === 1 && !this.selections[rowIdx]) {
-                const next = this.selections.slice()
-                next[rowIdx] = matches[0].itemId
-                this.selections = next
             }
         },
         // ── Inline Credit No edit ──────────────────────────────────
@@ -2787,6 +2849,11 @@ export default {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+}
+/* Lazy-load trigger on rows whose SKU lookup hasn't run yet */
+.match-load-btn {
+    padding: 5px 10px;
+    font-size: 12px;
 }
 .review-pdf-frame {
     flex: 1;
