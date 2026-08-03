@@ -533,12 +533,15 @@
                                             Lazy loading: only the first few SKUs
                                             load when the dialog opens, so a long
                                             credit note can't burst past Zoho's
-                                            rate limit. Untouched rows load their
-                                            matches on this click (or via the SKU
-                                            confirm button, which force-refreshes).
+                                            rate limit. Untouched rows auto-load as
+                                            they scroll into view (v-visible-once);
+                                            the button remains as an instant
+                                            trigger / retry, and the SKU confirm
+                                            button force-refreshes.
                                         -->
                                         <el-button
                                             v-else-if="!skuLoaded(scope.row.sku)"
+                                            v-visible-once="() => queueMatchLoad(scope.row.sku)"
                                             size="mini"
                                             plain
                                             icon="el-icon-search"
@@ -956,6 +959,36 @@ const MATCH_CHUNK = 4
 export default {
     name: 'ImobileCreditNote',
     components: { TreePanel },
+    directives: {
+        // Runs the bound callback ONCE when the element scrolls into view
+        // (with a small preload margin). Used by the review dialog's
+        // "Load matches" placeholders so a row's Zoho lookup fires as the
+        // user scrolls to it — no click needed. IntersectionObserver
+        // accounts for ancestor clipping, so it works inside the dialog's
+        // scrollable body. On browsers without IntersectionObserver the
+        // manual button still works.
+        'visible-once': {
+            inserted(el, binding) {
+                if (typeof binding.value !== 'function') return
+                if (typeof IntersectionObserver === 'undefined') return
+                const obs = new IntersectionObserver(entries => {
+                    if (entries.some(e => e.isIntersecting)) {
+                        obs.disconnect()
+                        el.__visObs = null
+                        binding.value()
+                    }
+                }, { rootMargin: '150px' })
+                el.__visObs = obs
+                obs.observe(el)
+            },
+            unbind(el) {
+                if (el.__visObs) {
+                    el.__visObs.disconnect()
+                    el.__visObs = null
+                }
+            }
+        }
+    },
     data() {
         return {
             // Reactive viewport width — kept in sync by a window resize
@@ -1496,6 +1529,13 @@ export default {
             this.editedRepairDevices = []
             this.matchesError = ''
             this.loadingSkus = []
+            // Cancel any pending lazy-load flush so a queued batch can't
+            // fire after the dialog is gone.
+            if (this._lazyTimer) {
+                clearTimeout(this._lazyTimer)
+                this._lazyTimer = null
+            }
+            if (this._lazyQueue) this._lazyQueue.clear()
             this.submitting = false
             this.zohoCreditNoteId = null
             this.zohoCustomerName = null
@@ -1513,6 +1553,23 @@ export default {
         // whose SKU hasn't loaded yet show a "Load matches" button.
         skuLoaded(sku) {
             return !!sku && Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)
+        },
+        // Queue a SKU for lazy loading as its row scrolls into view.
+        // Several rows entering the viewport together (one scroll of the
+        // wheel) collapse into ONE fetchMatches call via a short debounce
+        // window, instead of a request per row. Non-reactive instance
+        // fields — nothing in the template depends on the queue itself.
+        queueMatchLoad(sku) {
+            if (!sku || this.skuLoaded(sku) || this.isSkuLoading(sku)) return
+            if (!this._lazyQueue) this._lazyQueue = new Set()
+            this._lazyQueue.add(sku)
+            if (this._lazyTimer) return
+            this._lazyTimer = setTimeout(() => {
+                const skus = [...this._lazyQueue]
+                this._lazyQueue.clear()
+                this._lazyTimer = null
+                if (skus.length) this.fetchMatches(skus)
+            }, 200)
         },
         // Fetch Zoho matches for a set of SKUs, in small sequential
         // chunks so a long credit note can't burst past Zoho's rate

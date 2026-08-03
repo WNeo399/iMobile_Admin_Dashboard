@@ -115,7 +115,7 @@
 
                                 <div class="sales-breakdown">
                                     <span>Zoho: {{ scope.row.zohoSales || 0 }}</span>
-                                    <span>InFlow: {{ scope.row.offlineSales || 0 }}</span>
+                                    <span>Other: {{ scope.row.offlineSales || 0 }}</span>
                                 </div>
                             </div>
                         </template>
@@ -619,7 +619,7 @@ export default {
                 'Current Stock': item.stock || 0,
                 [`Total Sales (${this.duration} Days)`]: Number(item.zohoSales || 0) + Number(item.offlineSales || 0),
                 'Zoho': item.zohoSales || 0,
-                'InFlow': item.offlineSales || 0,
+                'Other': item.offlineSales || 0,
             }))
 
             const worksheet = XLSX.utils.json_to_sheet(data)
