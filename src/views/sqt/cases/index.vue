@@ -1850,7 +1850,10 @@ export default {
         },
         selectPartsDialogTitle() {
             if (!this.selectPartsCase) return 'Select Parts'
-            return `Select Parts — ${this.caseLabel(this.selectPartsCase)}`
+            // Waiting Solvup = the parts were already handed off; the same
+            // dialog now serves as review/adjust.
+            const verb = this.selectPartsCase.status === 'waiting-solvup' ? 'Adjust Parts' : 'Select Parts'
+            return `${verb} — ${this.caseLabel(this.selectPartsCase)}`
         },
         selectPartsModelId() {
             return this.selectPartsCase && this.selectPartsCase.device && this.selectPartsCase.device.modelId
@@ -2119,6 +2122,13 @@ export default {
                     break
                 case 'repaired-and-collected':
                     a.push({ label: 'Select Parts', icon: 'el-icon-shopping-cart-2', permission: 'sqt:case:selectParts', click: () => this.handleSelectParts(row) })
+                    break
+                case 'waiting-solvup':
+                    // Same dialog as Select Parts — it pre-ticks the parts
+                    // already on the case (partsForInvoice), so this is the
+                    // "see what's selected / adjust it" view while the case
+                    // waits on Solvup.
+                    a.push({ label: 'Adjust Parts', icon: 'el-icon-shopping-cart-2', permission: 'sqt:case:selectParts', click: () => this.handleSelectParts(row) })
                     break
             }
             return a
@@ -2932,6 +2942,7 @@ export default {
         },
         async submitSelectParts() {
             if (!this.selectPartsCase) return
+            const wasWaitingSolvup = this.selectPartsCase.status === 'waiting-solvup'
             const parts = this.availableParts
                 .filter(p => p._selected)
                 .map(p => ({ partPriceId: p._id }))
@@ -2943,10 +2954,12 @@ export default {
                     const idx = this.list.findIndex(c => c._id === updated._id)
                     if (idx !== -1) this.$set(this.list, idx, updated)
                 }
-                if (parts.length > 0) {
-                    this.$message.success(`Saved ${parts.length} part(s) — moved to Waiting Solvup`)
-                } else {
+                if (parts.length === 0) {
                     this.$message.success('Part selection cleared')
+                } else if (wasWaitingSolvup) {
+                    this.$message.success(`Parts selection updated — ${parts.length} part(s)`)
+                } else {
+                    this.$message.success(`Saved ${parts.length} part(s) — moved to Waiting Solvup`)
                 }
                 this.selectPartsDialogOpen = false
                 // Status may have moved to "waiting-solvup" — re-pull list + tree counts.
