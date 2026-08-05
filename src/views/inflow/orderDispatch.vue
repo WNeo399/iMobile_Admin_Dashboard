@@ -111,7 +111,7 @@
                         :loading="batchSaving"
                         :disabled="!totalRemaining"
                         @click="autoFulfill"
-                    >Auto Fulfill</el-button>
+                    >Fulfill Order</el-button>
                     <el-button
                         type="primary"
                         size="small"
@@ -695,7 +695,7 @@ export default {
             const units = lines.reduce((s, l) => s + l.qty, 0)
             this.$confirm(
                 `Dispatch ALL remaining stock — ${units} unit${units === 1 ? '' : 's'} across ${lines.length} line${lines.length === 1 ? '' : 's'}? This records a batch and generates its packing list.`,
-                'Auto Fulfill',
+                'Fulfill Order',
                 { type: 'warning', confirmButtonText: 'Fulfill', cancelButtonText: 'Cancel' }
             ).then(() => this.submitBatchLines(lines, { autoFulfill: true })).catch(() => {})
         },
