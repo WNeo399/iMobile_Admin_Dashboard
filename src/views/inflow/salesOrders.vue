@@ -289,6 +289,12 @@ export default {
         if (this.$route.query.customer) this.query.customer = String(this.$route.query.customer)
         this.loadFilters()
         this.load()
+        this.maybeOpenFromQuery()
+    },
+    // Keep-alive: deep links (?open=<orderId>, e.g. from the Order Dispatch
+    // page) must also work when the page is revisited, not just on first load.
+    activated() {
+        this.maybeOpenFromQuery()
     },
     methods: {
         async loadFilters() {
@@ -329,6 +335,15 @@ export default {
             this.dateRange = []
             Object.assign(this.query, { search: '', customer: '', vendor: '', status: '', type: '', dateFrom: '', dateTo: '', page: 1 })
             this.load()
+        },
+        // ?open=<orderId> opens that order's detail dialog directly (used by
+        // the Order Dispatch page's invoice links). Applied once, then
+        // stripped from the URL.
+        maybeOpenFromQuery() {
+            const id = this.$route.query && this.$route.query.open
+            if (!id) return
+            this.$router.replace({ query: {} })
+            this.openDetail({ _id: String(id) })
         },
         async openDetail(row) {
             this.detailVisible = true

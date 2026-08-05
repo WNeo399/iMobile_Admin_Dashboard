@@ -15,7 +15,12 @@
             <el-table-column prop="invoiceNumber" label="Invoice #" min-width="180">
                 <template slot-scope="s">
                     <div class="od-inv">
-                        {{ s.row.invoiceNumber }}
+                        <!-- Sales orders (and manual records linked to one)
+                             jump to the Sales Orders page with the order's
+                             detail dialog opened. -->
+                        <el-link v-if="orderIdOf(s.row)" type="primary" :underline="false" class="od-inv-link"
+                            @click="goOrderDetail(s.row)">{{ s.row.invoiceNumber }}</el-link>
+                        <template v-else>{{ s.row.invoiceNumber }}</template>
                         <el-tag v-if="s.row.recordType === 'manual'" size="mini" type="warning" class="od-manual-tag">Manual</el-tag>
                     </div>
                     <div v-if="s.row.vendor" class="od-vendor" :title="s.row.vendor">{{ s.row.vendor }}</div>
@@ -100,6 +105,13 @@
                     <el-button size="small" @click="handleScan">Add</el-button>
                     <span class="od-spacer" />
                     <span v-if="batchUnits" class="od-batch-units">This batch: <b>{{ batchUnits }}</b> unit{{ batchUnits === 1 ? '' : 's' }}</span>
+                    <el-button
+                        size="small"
+                        icon="el-icon-magic-stick"
+                        :loading="batchSaving"
+                        :disabled="!totalRemaining"
+                        @click="autoFulfill"
+                    >Auto Fulfill</el-button>
                     <el-button
                         type="primary"
                         size="small"
@@ -498,6 +510,11 @@ export default {
             const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
             return items.filter(li => this.remainingOf(li) > 0).length
         },
+        // Units still to dispatch across the whole record — drives Auto Fulfill.
+        totalRemaining() {
+            const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
+            return items.reduce((s, li) => s + this.remainingOf(li), 0)
+        },
         fulfilledCount() {
             const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
             return items.filter(li => this.remainingOf(li) === 0).length
@@ -543,6 +560,18 @@ export default {
         onPage(p) { this.query.page = p; this.load() },
         onSize(s) { this.query.pageSize = s; this.query.page = 1; this.load() },
         lineDone(li) { return Number(li.dispatchedQty) >= (Number(li.quantity) || 0) && Number(li.quantity) > 0 },
+        // The sales-order id behind a row: the row itself for order records,
+        // the linked order for manual records (null when unlinked).
+        orderIdOf(row) {
+            if (!row) return null
+            if (row.recordType === 'manual') return row.linkedOrderId || null
+            return row._id
+        },
+        goOrderDetail(row) {
+            const id = this.orderIdOf(row)
+            if (!id) return
+            this.$router.push({ path: '/inflow/salesOrders', query: { open: String(id) } })
+        },
         remainingOf(li) {
             return Math.max(0, (Number(li.quantity) || 0) - (Number(li.dispatchedQty) || 0))
         },
@@ -650,16 +679,44 @@ export default {
             const lines = Object.keys(this.batchQty)
                 .map(k => ({ lineIndex: Number(k), qty: Number(this.batchQty[k]) }))
                 .filter(l => l.qty > 0)
+            await this.submitBatchLines(lines)
+        },
+        // Auto Fulfill — one batch covering every line's remaining units,
+        // so the record completes with a normal batch entry + packing list.
+        autoFulfill() {
+            if (!this.dispatchRecord) return
+            const items = this.dispatchRecord.lineItems || []
+            const lines = []
+            items.forEach((li, idx) => {
+                const rem = this.remainingOf(li)
+                if (rem > 0) lines.push({ lineIndex: idx, qty: rem })
+            })
+            if (!lines.length) return
+            const units = lines.reduce((s, l) => s + l.qty, 0)
+            this.$confirm(
+                `Dispatch ALL remaining stock — ${units} unit${units === 1 ? '' : 's'} across ${lines.length} line${lines.length === 1 ? '' : 's'}? This records a batch and generates its packing list.`,
+                'Auto Fulfill',
+                { type: 'warning', confirmButtonText: 'Fulfill', cancelButtonText: 'Cancel' }
+            ).then(() => this.submitBatchLines(lines, { autoFulfill: true })).catch(() => {})
+        },
+        async submitBatchLines(lines, { autoFulfill = false } = {}) {
+            if (!this.dispatchRecord || !lines.length) return
             this.batchSaving = true
             try {
                 const r = await createInflowDispatchBatch(this.dispatchRecord._id, {
                     lines,
-                    type: this.dispatchRecord.recordType === 'manual' ? 'manual' : undefined
+                    type: this.dispatchRecord.recordType === 'manual' ? 'manual' : undefined,
+                    // Auto Fulfill also prunes PENDING SKU-map entries for
+                    // barcodes this record never needed mapped.
+                    autoFulfill: autoFulfill || undefined
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.applyUpdatedRecord(r.record)
                 this.batchQty = {}
-                this.$message.success(`Batch #${r.batch.batchNo} recorded — ${r.batch.units} units`)
+                const msg = `Batch #${r.batch.batchNo} recorded — ${r.batch.units} units`
+                this.$message.success(r.mappingsRemoved
+                    ? `${msg} · ${r.mappingsRemoved} pending SKU mapping${r.mappingsRemoved === 1 ? '' : 's'} removed`
+                    : msg)
                 this.openPackingList(this.dispatchRecord, r.batch)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to record batch'))
@@ -1096,6 +1153,7 @@ export default {
 .od-meta { font-size: 12px; color: #909399; margin-right: 6px; white-space: nowrap; }
 .od-pager { margin-top: 10px; text-align: right; }
 .od-inv { line-height: 1.3; font-weight: 600; }
+.od-inv-link { font-weight: 600; font-size: inherit; }
 .od-manual-tag { margin-left: 6px; font-weight: normal; }
 .od-vendor { font-size: 11px; color: #909399; line-height: 1.3; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .od-dim { color: #C0C4CC; }
