@@ -55,10 +55,10 @@
             <el-table-column prop="status" label="Status" width="100" align="center">
                 <template slot-scope="s"><el-tag size="mini" :type="statusTag(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="" width="200" align="center">
+            <el-table-column label="" width="220" align="center">
                 <template slot-scope="s">
                     <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View Detail</el-button>
-                    <el-button size="mini" type="text" icon="el-icon-upload2" @click="openSkuMap(s.row)">SKU Map</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-connection" @click="openLinkDispatch(s.row)">Link Dispatch</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -190,31 +190,43 @@
             </span>
         </el-dialog>
 
-        <!-- SKU Map upload (per invoice) -->
-        <el-dialog :title="'SKU Map — ' + (skuMapOrder ? skuMapOrder.invoiceNumber : '')" :visible.sync="skuMapVisible" width="560px">
+        <!-- Link a manual dispatch record to this sales order -->
+        <el-dialog :title="'Link Dispatch — ' + (linkDispatchOrder ? linkDispatchOrder.invoiceNumber : '')"
+            :visible.sync="linkDispatchVisible" width="680px">
             <div class="io-skumap-hint">
-                Upload an Excel file with a <b>Barcode</b> column (the SKU on this invoice's line items)
-                and a <b>SKU</b> column (the real iMobile warehouse SKU). Only this invoice is mapped;
-                once mapped it shows up on the <b>Order Dispatch</b> page.
+                Pick an uploaded dispatch record to link to this sales order. The link just records
+                which order the dispatch list belongs to — the record stays on the Order Dispatch
+                page where the warehouse keeps working from it.
             </div>
-            <input ref="skuMapFile" type="file" accept=".xlsx,.xls,.csv" class="io-skumap-input" @change="onSkuMapFile" />
-            <div class="io-skumap-pick">
-                <el-button size="small" icon="el-icon-folder-opened" @click="$refs.skuMapFile.click()">Choose File</el-button>
-                <span class="io-skumap-file" :class="{ 'io-skumap-none': !skuMapFileName }">{{ skuMapFileName || 'No file selected' }}</span>
+            <div class="io-linkdisp-search">
+                <el-input v-model="linkDispatchSearch" size="small" clearable
+                    placeholder="Search dispatch records by invoice # / SKU…" prefix-icon="el-icon-search"
+                    @keyup.enter.native="searchDispatchUploads" />
+                <el-button size="small" type="primary" :loading="linkDispatchLoading" @click="searchDispatchUploads">Search</el-button>
             </div>
-            <template v-if="skuMapRows.length">
-                <div class="io-skumap-count">
-                    <b>{{ skuMapRows.length }}</b> mappings found<span v-if="skuMapSkipped"> · {{ skuMapSkipped }} rows skipped (missing Barcode or SKU)</span>
-                </div>
-                <el-table :data="skuMapRows.slice(0, 8)" size="mini" border>
-                    <el-table-column prop="barcode" label="Barcode" min-width="180" show-overflow-tooltip />
-                    <el-table-column prop="sku" label="SKU" min-width="180" show-overflow-tooltip />
-                </el-table>
-                <div v-if="skuMapRows.length > 8" class="io-skumap-more">…and {{ skuMapRows.length - 8 }} more</div>
-            </template>
+            <el-table v-loading="linkDispatchLoading" :data="linkDispatchRows" size="mini" border
+                empty-text="No unlinked dispatch records found">
+                <el-table-column prop="invoiceNumber" label="Invoice #" min-width="150" show-overflow-tooltip />
+                <el-table-column label="Uploaded" min-width="150">
+                    <template slot-scope="s">
+                        {{ dateOnly(s.row.createdAt) }}<span v-if="s.row.createdBy" class="io-count"> · {{ s.row.createdBy }}</span>
+                    </template>
+                </el-table-column>
+                <el-table-column label="Lines" width="70" align="right">
+                    <template slot-scope="s">{{ s.row.lineCount }}</template>
+                </el-table-column>
+                <el-table-column label="Dispatched" width="110" align="center">
+                    <template slot-scope="s">{{ s.row.dispatchedUnits }} / {{ s.row.units }}</template>
+                </el-table-column>
+                <el-table-column label="" width="90" align="center">
+                    <template slot-scope="s">
+                        <el-button size="mini" type="primary" plain :loading="linkDispatchSavingId === s.row._id"
+                            @click="doLinkDispatch(s.row)">Link</el-button>
+                    </template>
+                </el-table-column>
+            </el-table>
             <span slot="footer">
-                <el-button size="small" @click="skuMapVisible = false">Cancel</el-button>
-                <el-button type="primary" size="small" :loading="skuMapUploading" :disabled="!skuMapRows.length" @click="submitSkuMap">Upload</el-button>
+                <el-button size="small" @click="linkDispatchVisible = false">Close</el-button>
             </span>
         </el-dialog>
 
@@ -232,7 +244,7 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, uploadInflowSkuMap } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowDispatchUploads, linkInflowDispatchUpload } from '@/api/inflow'
 
 export default {
     name: 'InflowSalesOrders',
@@ -255,7 +267,8 @@ export default {
             creditVisible: false, creditOrder: null, applying: false,
             credits: [], creditsLoading: false, creditApply: {}, creditDate: this.today(),
             pdfVisible: false, pdfUrl: '', pdfTitle: '',
-            skuMapVisible: false, skuMapOrder: null, skuMapFileName: '', skuMapRows: [], skuMapSkipped: 0, skuMapUploading: false
+            linkDispatchVisible: false, linkDispatchOrder: null, linkDispatchSearch: '',
+            linkDispatchRows: [], linkDispatchLoading: false, linkDispatchSavingId: null
         }
     },
     computed: {
@@ -440,66 +453,40 @@ export default {
                 }
             }).catch(() => {})
         },
-        // SKU Map — upload barcode → iMobile SKU mappings for ONE invoice.
-        openSkuMap(row) {
-            this.skuMapOrder = row
-            this.skuMapVisible = true
-            this.skuMapFileName = ''
-            this.skuMapRows = []
-            this.skuMapSkipped = 0
-            if (this.$refs.skuMapFile) this.$refs.skuMapFile.value = ''
+        // Link Dispatch — attach an uploaded dispatch record to this order
+        // (reverse direction of the Order Dispatch page's Link action).
+        // Purely a relationship; the record stays on the dispatch page.
+        openLinkDispatch(row) {
+            this.linkDispatchOrder = row
+            this.linkDispatchSearch = ''
+            this.linkDispatchRows = []
+            this.linkDispatchVisible = true
+            this.searchDispatchUploads()
         },
-        async onSkuMapFile(e) {
-            const file = e.target.files && e.target.files[0]
-            if (!file) return
-            this.skuMapFileName = file.name
-            this.skuMapRows = []
-            this.skuMapSkipped = 0
+        async searchDispatchUploads() {
+            this.linkDispatchLoading = true
             try {
-                const XLSX = await import('xlsx')
-                const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
-                const sheet = wb.Sheets[wb.SheetNames[0]]
-                const rows = sheet ? XLSX.utils.sheet_to_json(sheet, { defval: '' }) : []
-                if (!rows.length) { this.$message.warning('The file has no data rows.'); return }
-                const headers = Object.keys(rows[0])
-                const barcodeKey = headers.find(h => String(h).trim().toLowerCase() === 'barcode')
-                const skuKey = headers.find(h => String(h).trim().toLowerCase() === 'sku')
-                if (!barcodeKey || !skuKey) {
-                    const missing = [!barcodeKey && '"Barcode"', !skuKey && '"SKU"'].filter(Boolean).join(' and ')
-                    this.$message.warning(`The file is missing the ${missing} column${!barcodeKey && !skuKey ? 's' : ''}.`)
-                    return
-                }
-                const parsed = []
-                let skipped = 0
-                for (const r of rows) {
-                    const barcode = String(r[barcodeKey] == null ? '' : r[barcodeKey]).trim()
-                    const sku = String(r[skuKey] == null ? '' : r[skuKey]).trim()
-                    if (!barcode || !sku) { skipped++; continue }
-                    parsed.push({ barcode, sku })
-                }
-                if (!parsed.length) { this.$message.warning('No usable rows — every row needs both Barcode and SKU.'); return }
-                this.skuMapRows = parsed
-                this.skuMapSkipped = skipped
-            } catch (err) {
-                this.$message.error('Could not read the Excel file.')
+                const r = await getInflowDispatchUploads({ search: this.linkDispatchSearch.trim() })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.linkDispatchRows = r.rows || []
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to load dispatch records'))
+            } finally {
+                this.linkDispatchLoading = false
             }
         },
-        async submitSkuMap() {
-            if (!this.skuMapOrder) return
-            this.skuMapUploading = true
+        async doLinkDispatch(record) {
+            if (!this.linkDispatchOrder) return
+            this.linkDispatchSavingId = record._id
             try {
-                const r = await uploadInflowSkuMap(this.skuMapOrder._id, this.skuMapRows)
+                const r = await linkInflowDispatchUpload(record._id, { orderId: this.linkDispatchOrder._id })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                if (r.linesMapped > 0) {
-                    this.$message.success(`Mapped ${r.linesMapped} of ${r.linesTotal} line items on ${this.skuMapOrder.invoiceNumber}`)
-                    this.skuMapVisible = false
-                } else {
-                    this.$message.warning('No line items matched the uploaded barcodes — nothing was mapped.')
-                }
+                this.$message.success(`Linked dispatch record ${record.invoiceNumber} to ${this.linkDispatchOrder.invoiceNumber}`)
+                this.linkDispatchVisible = false
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to upload SKU map'))
+                this.$message.error(this.msg(e, 'Failed to link'))
             } finally {
-                this.skuMapUploading = false
+                this.linkDispatchSavingId = null
             }
         },
         statusTag(s) { return { unpaid: 'danger', partial: 'warning', paid: 'success', credit: 'info' }[s] || 'info' },
@@ -556,10 +543,5 @@ export default {
 .io-pdf-open { margin-right: 12px; }
 .io-del { color: #F56C6C; }
 .io-skumap-hint { font-size: 13px; color: #606266; line-height: 1.6; margin-bottom: 12px; }
-.io-skumap-input { display: none; }
-.io-skumap-pick { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.io-skumap-file { font-size: 12px; color: #303133; }
-.io-skumap-none { color: #909399; }
-.io-skumap-count { font-size: 12px; color: #606266; margin-bottom: 8px; }
-.io-skumap-more { font-size: 12px; color: #909399; margin-top: 6px; }
+.io-linkdisp-search { display: flex; gap: 8px; margin-bottom: 10px; }
 </style>

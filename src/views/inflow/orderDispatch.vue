@@ -23,9 +23,14 @@
             </el-table-column>
             <el-table-column prop="customerName" label="Customer" min-width="170" show-overflow-tooltip>
                 <template slot-scope="s">
-                    <span v-if="s.row.recordType === 'manual'" class="od-dim">
-                        {{ s.row.createdBy ? `Uploaded by ${s.row.createdBy}` : 'Manual upload' }}
-                    </span>
+                    <template v-if="s.row.recordType === 'manual'">
+                        <span v-if="s.row.linkedInvoiceNumber" class="od-linked">
+                            <i class="el-icon-connection" /> {{ s.row.linkedInvoiceNumber }}
+                        </span>
+                        <span v-else class="od-dim">
+                            {{ s.row.createdBy ? `Uploaded by ${s.row.createdBy}` : 'Manual upload' }}
+                        </span>
+                    </template>
                     <template v-else>{{ s.row.customerName || '—' }}</template>
                 </template>
             </el-table-column>
@@ -249,11 +254,19 @@
         <!-- Upload List — create a manual dispatch record from an Excel file -->
         <el-dialog title="Upload Dispatch List" :visible.sync="uploadVisible" width="600px">
             <div class="od-up-hint">
-                Upload an Excel file with <b>Barcode</b>, <b>SKU</b> (iMobile warehouse SKU),
-                <b>Description</b> and <b>Quantity</b> columns — all four are required.
-                Enter the invoice # manually; the record can be linked to a sales order later.
+                Upload an Excel file with <b>SKU</b> (iMobile warehouse SKU), <b>Description</b> and
+                <b>Quantity</b> columns — <b>Barcode</b> is optional
             </div>
-            <el-form label-width="90px" size="small" @submit.native.prevent>
+            <el-form label-width="100px" size="small" class="od-up-form" @submit.native.prevent>
+                <el-form-item label="Sales Order">
+                    <el-select v-model="uploadOrderId" filterable remote clearable
+                        :remote-method="searchUploadOrders" :loading="uploadOrderLoading"
+                        placeholder="Optional — search a sales order to link this record to" style="width:100%"
+                        @change="onUploadOrderPicked">
+                        <el-option v-for="o in uploadOrderOptions" :key="o._id" :value="o._id"
+                            :label="o.invoiceNumber + (o.customerName ? ' — ' + o.customerName : '')" />
+                    </el-select>
+                </el-form-item>
                 <el-form-item label="Invoice #" required>
                     <el-input v-model="uploadInvoiceNo" placeholder="e.g. INV-12345" />
                 </el-form-item>
@@ -288,9 +301,15 @@
         <el-dialog :title="'Link to Sales Order — ' + (linkRecord ? linkRecord.invoiceNumber : '')"
             :visible.sync="linkVisible" width="680px">
             <div class="od-up-hint">
-                Linking transfers the SKU mapping, dispatched quantities and recorded batches onto the sales
-                order's matching line items (matched by barcode) and removes this manual record from the list.
+                The link just records which sales order this dispatch list belongs to — the record stays
+                here and the warehouse keeps dispatching from it. Picking another order re-links it.
             </div>
+            <el-alert v-if="linkRecord && linkRecord.linkedInvoiceNumber" type="info" :closable="false" show-icon class="od-link-current">
+                <template slot="title">
+                    Currently linked to <b>{{ linkRecord.linkedInvoiceNumber }}</b>
+                    <el-button type="text" size="mini" class="od-unlink-btn" :loading="linkSavingId === 'unlink'" @click="doUnlink">Unlink</el-button>
+                </template>
+            </el-alert>
             <div class="od-link-search">
                 <el-input v-model="linkSearch" size="small" clearable placeholder="Search sales orders by invoice # / customer…"
                     prefix-icon="el-icon-search" @keyup.enter.native="searchLinkOrders" />
@@ -364,6 +383,9 @@ export default {
             // Upload List dialog
             uploadVisible: false,
             uploadInvoiceNo: '',
+            uploadOrderId: '',
+            uploadOrderOptions: [],
+            uploadOrderLoading: false,
             uploadFileName: '',
             uploadRows: [],
             uploadSkipped: 0,
@@ -657,10 +679,29 @@ export default {
         openUpload() {
             this.uploadVisible = true
             this.uploadInvoiceNo = ''
+            this.uploadOrderId = ''
+            this.uploadOrderOptions = []
             this.uploadFileName = ''
             this.uploadRows = []
             this.uploadSkipped = 0
             if (this.$refs.uploadFile) this.$refs.uploadFile.value = ''
+            // Seed the optional order picker with the most recent orders.
+            this.searchUploadOrders('')
+        },
+        async searchUploadOrders(q) {
+            this.uploadOrderLoading = true
+            try {
+                const r = await getInflowOrders({ page: 1, pageSize: 10, search: String(q || '').trim() })
+                if (r && r.success !== false) this.uploadOrderOptions = r.rows || []
+            } catch (e) { /* non-fatal — picker just stays empty */ }
+            finally { this.uploadOrderLoading = false }
+        },
+        // Picking an order auto-fills the invoice # with its order number
+        // (still editable). Clearing the pick leaves the field untouched.
+        onUploadOrderPicked(orderId) {
+            if (!orderId) return
+            const o = this.uploadOrderOptions.find(x => x._id === orderId)
+            if (o && o.invoiceNumber) this.uploadInvoiceNo = o.invoiceNumber
         },
         async onUploadFile(e) {
             const file = e.target.files && e.target.files[0]
@@ -680,9 +721,10 @@ export default {
                 const skuKey = key('sku')
                 const descKey = key('description')
                 const qtyKey = key('quantity')
-                // All four columns are required — name every one that's missing.
+                // SKU, Description and Quantity are required — Barcode is
+                // optional (it only drives line matching when linking to a
+                // sales order). Name every required column that's missing.
                 const missing = [
-                    !barcodeKey && '"Barcode"',
                     !skuKey && '"SKU"',
                     !descKey && '"Description"',
                     !qtyKey && '"Quantity"'
@@ -718,9 +760,17 @@ export default {
             if (!invoiceNumber || !this.uploadRows.length) return
             this.uploadSaving = true
             try {
-                const r = await createInflowDispatchUpload({ invoiceNumber, rows: this.uploadRows })
+                const r = await createInflowDispatchUpload({
+                    invoiceNumber,
+                    rows: this.uploadRows,
+                    orderId: this.uploadOrderId || undefined
+                })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(`Dispatch record ${invoiceNumber} created — ${r.lines} line items`)
+                this.$message.success(
+                    r.linkedInvoiceNumber
+                        ? `Dispatch record ${invoiceNumber} created — ${r.lines} line items, linked to ${r.linkedInvoiceNumber}`
+                        : `Dispatch record ${invoiceNumber} created — ${r.lines} line items`
+                )
                 this.uploadVisible = false
                 this.reload()
             } catch (e) {
@@ -755,15 +805,28 @@ export default {
             try {
                 const r = await linkInflowDispatchUpload(this.linkRecord._id, { orderId: order._id })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                if (r.linesMatched < r.linesTotal) {
-                    this.$message.warning(`Linked to ${r.orderInvoiceNumber} — ${r.linesMatched} of ${r.linesTotal} lines matched by barcode; the rest stayed unmapped.`)
-                } else {
-                    this.$message.success(`Linked to ${r.orderInvoiceNumber} — all ${r.linesTotal} lines matched`)
-                }
+                this.$message.success(`Linked to ${r.orderInvoiceNumber}`)
+                // Reflect the relationship on the live row — no reload needed.
+                this.$set(this.linkRecord, 'linkedOrderId', order._id)
+                this.$set(this.linkRecord, 'linkedInvoiceNumber', r.orderInvoiceNumber)
                 this.linkVisible = false
-                this.load()
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to link'))
+            } finally {
+                this.linkSavingId = null
+            }
+        },
+        async doUnlink() {
+            if (!this.linkRecord) return
+            this.linkSavingId = 'unlink'
+            try {
+                const r = await linkInflowDispatchUpload(this.linkRecord._id, { orderId: null })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success('Unlinked')
+                this.$set(this.linkRecord, 'linkedOrderId', null)
+                this.$set(this.linkRecord, 'linkedInvoiceNumber', null)
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to unlink'))
             } finally {
                 this.linkSavingId = null
             }
@@ -826,10 +889,14 @@ export default {
 .od-pack-wrap { height: 70vh; background: #f2f3f5; }
 .od-pack-frame { width: 100%; height: 100%; border: none; display: block; }
 .od-up-hint { font-size: 13px; color: #606266; line-height: 1.6; margin-bottom: 12px; }
+.od-up-form ::v-deep .el-form-item__label { white-space: nowrap; }
 .od-up-input { display: none; }
 .od-up-pick { display: flex; align-items: center; gap: 10px; }
 .od-up-file { font-size: 12px; color: #303133; }
 .od-up-count { font-size: 12px; color: #606266; margin-bottom: 8px; }
 .od-up-more { font-size: 12px; color: #909399; margin-top: 6px; }
 .od-link-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.od-linked { color: #409EFF; font-size: 12px; }
+.od-link-current { margin-bottom: 10px; }
+.od-unlink-btn { margin-left: 10px; padding: 0; color: #F56C6C; }
 </style>

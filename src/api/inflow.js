@@ -54,6 +54,10 @@ export function updateInflowDispatchBatch(id, batchNo, data) {
 export function createInflowDispatchUpload(data) {
   return request({ url: '/inflow/dispatch/manual', method: 'post', data, timeout: 60000 })
 }
+// Unlinked manual records — the Sales Orders page's Link Dispatch picker.
+export function getInflowDispatchUploads(query) {
+  return request({ url: '/inflow/dispatch/manual', method: 'get', params: query })
+}
 export function linkInflowDispatchUpload(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/link`, method: 'post', data })
 }
