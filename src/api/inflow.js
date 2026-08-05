@@ -41,6 +41,25 @@ export function getInflowDispatch(query) {
 export function setInflowDispatchQty(id, data) {
   return request({ url: `/inflow/dispatch/${id}/qty`, method: 'post', data })
 }
+// Record one warehouse dispatch batch (scanned picks): { lines: [{lineIndex, qty}], type? }
+export function createInflowDispatchBatch(id, data) {
+  return request({ url: `/inflow/dispatch/${id}/batch`, method: 'post', data })
+}
+// Update a recorded batch's quantities (qty 0 removes a line; all-zero deletes the batch)
+export function updateInflowDispatchBatch(id, batchNo, data) {
+  return request({ url: `/inflow/dispatch/${id}/batch/${batchNo}`, method: 'put', data })
+}
+// Manually uploaded dispatch lists (Excel + hand-typed invoice #), linkable
+// to a real sales order later.
+export function createInflowDispatchUpload(data) {
+  return request({ url: '/inflow/dispatch/manual', method: 'post', data, timeout: 60000 })
+}
+export function linkInflowDispatchUpload(id, data) {
+  return request({ url: `/inflow/dispatch/manual/${id}/link`, method: 'post', data })
+}
+export function deleteInflowDispatchUpload(id) {
+  return request({ url: `/inflow/dispatch/manual/${id}`, method: 'delete' })
+}
 
 // Customer portal management (admin)
 export function getInflowPortal(name) {
