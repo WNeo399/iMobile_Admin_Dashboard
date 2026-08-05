@@ -122,10 +122,27 @@
                 <!-- Line items with live batch column (display order: scanned
                      line on top, completed lines at the bottom on open) -->
                 <el-table ref="linesTable" :data="displayLines" size="mini" border max-height="380" :row-class-name="lineRowClass">
-                    <el-table-column label="iMobile SKU" min-width="130">
+                    <el-table-column label="iMobile SKU" min-width="150">
                         <template slot-scope="li">
-                            <b v-if="li.row.imbSku">{{ li.row.imbSku }}</b>
-                            <span v-else class="od-dim">— not mapped</span>
+                            <!--
+                                Order lines can be mapped (or re-mapped) right
+                                here — the fix goes into the global SKU Mapping
+                                list, so every other order learns it too.
+                                Manual-upload lines carry their SKU from the
+                                uploaded file and aren't map-driven.
+                            -->
+                            <div class="od-sku-line">
+                                <b v-if="li.row.imbSku">{{ li.row.imbSku }}</b>
+                                <el-button
+                                    v-if="canMapLine(li.row)"
+                                    size="mini"
+                                    type="text"
+                                    :icon="li.row.imbSku ? 'el-icon-edit' : 'el-icon-plus'"
+                                    class="od-map-btn"
+                                    @click="openMapLine(li.row)"
+                                >{{ li.row.imbSku ? '' : 'Map' }}</el-button>
+                                <span v-if="!li.row.imbSku && !canMapLine(li.row)" class="od-dim">— not mapped</span>
+                            </div>
                         </template>
                     </el-table-column>
                     <el-table-column label="Barcode" min-width="125" show-overflow-tooltip>
@@ -200,6 +217,44 @@
             </div>
             <span slot="footer">
                 <el-button size="small" @click="dispatchVisible = false">Close</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- Map a barcode to an iMobile SKU (updates the global SKU Mapping list) -->
+        <el-dialog title="Map Barcode" :visible.sync="mapLineVisible" width="520px" append-to-body>
+            <div v-if="mapLineTarget" class="od-map-info">
+                <div class="od-map-row"><span class="od-map-label">Barcode</span><b>{{ mapLineTarget.sku }}</b></div>
+                <div v-if="mapLineTarget.description" class="od-map-row"><span class="od-map-label">Description</span>{{ mapLineTarget.description }}</div>
+            </div>
+            <el-autocomplete
+                v-model="mapLineSku"
+                value-key="sku"
+                style="width:100%"
+                :fetch-suggestions="fetchSkuSuggestions"
+                :debounce="400"
+                :trigger-on-focus="false"
+                popper-class="od-sku-suggestions"
+                placeholder="Search a Zoho product or type the iMobile SKU…"
+                @keyup.enter.native="saveMapLine"
+            >
+                <template slot-scope="{ item }">
+                    <div class="sku-suggestion" :title="item.name">
+                        <img v-if="item.imgUrl" :src="item.imgUrl" class="sku-suggestion-img" @error="onSuggestionImgError($event)" />
+                        <div v-else class="sku-suggestion-img sku-suggestion-img-placeholder"><i class="el-icon-picture-outline" /></div>
+                        <div class="sku-suggestion-info">
+                            <div class="sku-suggestion-name">{{ item.name }}</div>
+                            <div class="sku-suggestion-sku">{{ item.sku || 'no SKU' }}</div>
+                        </div>
+                    </div>
+                </template>
+            </el-autocomplete>
+            <div class="od-map-hint">
+                Saving updates the <b>SKU Mapping</b> list — this barcode maps the same way on every
+                other order automatically.
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="mapLineVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="mapLineSaving" :disabled="!mapLineSku.trim()" @click="saveMapLine">Save</el-button>
             </span>
         </el-dialog>
 
@@ -359,7 +414,8 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters } from '@/api/inflow'
+import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping } from '@/api/inflow'
+import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName } from '@/utils/dispatchPackingListPdf'
 
 export default {
@@ -387,6 +443,11 @@ export default {
             scanCode: '',
             batchQty: {},
             batchSaving: false,
+            // Map-barcode dialog (updates the global SKU Mapping list)
+            mapLineVisible: false,
+            mapLineTarget: null,
+            mapLineSku: '',
+            mapLineSaving: false,
             // Edit-batch dialog
             batchEditVisible: false,
             batchEditNo: null,
@@ -627,6 +688,88 @@ export default {
             this.$set(this.dispatchRecord, 'dispatchedQty', dispatched)
             this.$set(this.dispatchRecord, 'dispatchStatus', dispatched <= 0 ? 'pending' : dispatched < ordered ? 'partial' : 'dispatched')
         },
+        // ── Map a barcode from the dispatch dialog ───────────────────
+        // Only order lines with a barcode are map-driven; manual-upload
+        // lines carry their SKU from the uploaded file.
+        canMapLine(li) {
+            return !!(this.dispatchRecord && this.dispatchRecord.recordType !== 'manual' && li && li.sku)
+        },
+        openMapLine(li) {
+            this.mapLineTarget = li
+            this.mapLineSku = li.imbSku || ''
+            this.mapLineVisible = true
+        },
+        async saveMapLine() {
+            if (!this.mapLineTarget || !this.mapLineSku.trim()) return
+            const barcode = this.mapLineTarget.sku
+            const sku = this.mapLineSku.trim()
+            this.mapLineSaving = true
+            try {
+                const r = await saveInflowSkuMapping({
+                    barcode,
+                    sku,
+                    description: this.mapLineTarget.description || ''
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                // The retro-apply already stamped this order in Mongo —
+                // mirror it on every line of the open record with this
+                // barcode so the dialog (and scan matching) update live.
+                const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
+                items.forEach(li => {
+                    if (li && li.sku === barcode) this.$set(li, 'imbSku', sku)
+                })
+                this.$message.success(r.ordersUpdated > 1
+                    ? `Mapped — SKU Mapping updated, applied to ${r.ordersUpdated} orders`
+                    : 'Mapped — SKU Mapping updated')
+                this.mapLineVisible = false
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to save mapping'))
+            } finally {
+                this.mapLineSaving = false
+            }
+        },
+        async fetchSkuSuggestions(query, cb) {
+            const q = (query || '').trim()
+            if (!q) { cb([]); return }
+            try {
+                const res = await searchProducts(q)
+                if (!res || !res.success) { cb([]); return }
+                const products = Array.isArray(res.data) ? res.data : []
+                cb(products.map(p => ({
+                    name: p.name || p.product_name || p.title || '',
+                    sku: p.sku
+                        || (Array.isArray(p.skus) && p.skus[0] && p.skus[0].sku)
+                        || (p.variants && p.variants[0] && p.variants[0].sku)
+                        || '',
+                    imgUrl: this.extractProductImage(p)
+                })))
+            } catch (e) {
+                console.error('Product search failed:', e)
+                cb([])
+            }
+        },
+        extractProductImage(p) {
+            const BASE = 'https://www.imobilestore.com.au'
+            const toAbsolute = (path) => {
+                if (!path) return ''
+                if (/^https?:\/\//i.test(path)) return path
+                return BASE + (path.startsWith('/') ? '' : '/') + path
+            }
+            if (Array.isArray(p.documents) && p.documents[0]) {
+                const d = p.documents[0]
+                if (d.file_name && d.document_id) {
+                    return `${BASE}/product-images/${d.file_name}/${d.document_id}/100x100`
+                }
+            }
+            if (Array.isArray(p.images) && p.images[0]) {
+                const i = p.images[0]
+                return toAbsolute(i.image_url || i.url || i.path || i.image_path || '')
+            }
+            return toAbsolute(p.image_url || p.image || p.image_path || '')
+        },
+        onSuggestionImgError(e) {
+            if (e && e.target) e.target.style.display = 'none'
+        },
         // ── Edit a recorded batch ────────────────────────────────────
         openBatchEdit(batch) {
             const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
@@ -740,11 +883,14 @@ export default {
             finally { this.uploadOrderLoading = false }
         },
         // Picking an order auto-fills the invoice # with its order number
-        // (still editable). Clearing the pick leaves the field untouched.
+        // and selects the order's customer (both still editable). Clearing
+        // the pick leaves the fields untouched.
         onUploadOrderPicked(orderId) {
             if (!orderId) return
             const o = this.uploadOrderOptions.find(x => x._id === orderId)
-            if (o && o.invoiceNumber) this.uploadInvoiceNo = o.invoiceNumber
+            if (!o) return
+            if (o.invoiceNumber) this.uploadInvoiceNo = o.invoiceNumber
+            if (o.customerName) this.uploadCustomer = o.customerName
         },
         async onUploadFile(e) {
             const file = e.target.files && e.target.files[0]
@@ -957,9 +1103,37 @@ export default {
 .od-up-count { font-size: 12px; color: #606266; margin-bottom: 8px; }
 .od-up-more { font-size: 12px; color: #909399; margin-top: 6px; }
 .od-link-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.od-sku-line { display: flex; align-items: center; gap: 4px; }
+.od-map-btn { padding: 0 2px; }
+.od-map-info { margin-bottom: 12px; font-size: 13px; color: #303133; }
+.od-map-row { display: flex; gap: 10px; line-height: 1.8; }
+.od-map-label { color: #909399; width: 90px; flex: none; }
+.od-map-hint { font-size: 12px; color: #909399; line-height: 1.5; margin-top: 10px; }
 .od-linked { color: #409EFF; font-size: 12px; }
 .od-link-current { margin-bottom: 10px; }
 .od-link-customer { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .od-link-label { font-size: 13px; color: #606266; white-space: nowrap; }
 .od-unlink-btn { margin-left: 10px; padding: 0; color: #F56C6C; }
+</style>
+
+<style>
+/* Zoho product suggestion popup for the Map Barcode dialog — unscoped
+   because Element UI teleports the dropdown outside the component root. */
+.od-sku-suggestions { min-width: 480px !important; width: auto !important; }
+.od-sku-suggestions li { line-height: normal !important; padding: 6px 14px !important; }
+.od-sku-suggestions .sku-suggestion { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.od-sku-suggestions .sku-suggestion-img {
+    width: 32px; height: 32px; object-fit: cover; border-radius: 4px;
+    flex-shrink: 0; background: #f5f7fa;
+}
+.od-sku-suggestions .sku-suggestion-img-placeholder {
+    display: flex; align-items: center; justify-content: center;
+    color: #c0c4cc; font-size: 14px;
+}
+.od-sku-suggestions .sku-suggestion-info { min-width: 0; line-height: 1.4; }
+.od-sku-suggestions .sku-suggestion-name {
+    font-weight: 500; font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.od-sku-suggestions .sku-suggestion-sku { color: #909399; font-size: 12px; }
 </style>
