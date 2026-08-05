@@ -122,27 +122,58 @@
                 <!-- Line items with live batch column (display order: scanned
                      line on top, completed lines at the bottom on open) -->
                 <el-table ref="linesTable" :data="displayLines" size="mini" border max-height="380" :row-class-name="lineRowClass">
-                    <el-table-column label="iMobile SKU" min-width="150">
+                    <el-table-column label="iMobile SKU" min-width="200">
                         <template slot-scope="li">
                             <!--
-                                Order lines can be mapped (or re-mapped) right
-                                here — the fix goes into the global SKU Mapping
-                                list, so every other order learns it too.
-                                Manual-upload lines carry their SKU from the
-                                uploaded file and aren't map-driven.
+                                Same inline editor as the SKU Mapping page:
+                                search a Zoho product and pick it to map the
+                                barcode (saves to the global SKU Mapping list,
+                                so every other order learns it too), or type a
+                                raw SKU and confirm with Enter / ✓. Manual-
+                                upload lines carry their SKU from the uploaded
+                                file and aren't map-driven.
                             -->
-                            <div class="od-sku-line">
-                                <b v-if="li.row.imbSku">{{ li.row.imbSku }}</b>
+                            <div v-if="canMapLine(li.row)" class="od-sku-cell">
+                                <el-autocomplete
+                                    :value="skuDraft(li.row)"
+                                    size="mini"
+                                    value-key="sku"
+                                    :fetch-suggestions="fetchSkuSuggestions"
+                                    :debounce="400"
+                                    :trigger-on-focus="false"
+                                    popper-class="od-sku-suggestions"
+                                    :placeholder="li.row.imbSku ? '' : 'Search product / SKU…'"
+                                    :class="{ 'od-sku-pending': !skuDraft(li.row) }"
+                                    :disabled="savingLineIdx === li.row.__idx"
+                                    @input="v => setSkuDraft(li.row.__idx, v)"
+                                    @select="item => onLineSkuPicked(li.row, item)"
+                                    @keyup.enter.native="saveLineSku(li.row.__idx)"
+                                >
+                                    <template slot-scope="{ item }">
+                                        <div class="sku-suggestion" :title="item.name">
+                                            <img v-if="item.imgUrl" :src="item.imgUrl" class="sku-suggestion-img" @error="onSuggestionImgError($event)" />
+                                            <div v-else class="sku-suggestion-img sku-suggestion-img-placeholder"><i class="el-icon-picture-outline" /></div>
+                                            <div class="sku-suggestion-info">
+                                                <div class="sku-suggestion-name">{{ item.name }}</div>
+                                                <div class="sku-suggestion-sku">{{ item.sku || 'no SKU' }}</div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </el-autocomplete>
                                 <el-button
-                                    v-if="canMapLine(li.row)"
+                                    v-if="lineSkuDirty(li.row)"
                                     size="mini"
                                     type="text"
-                                    :icon="li.row.imbSku ? 'el-icon-edit' : 'el-icon-plus'"
-                                    class="od-map-btn"
-                                    @click="openMapLine(li.row)"
-                                >{{ li.row.imbSku ? '' : 'Map' }}</el-button>
-                                <span v-if="!li.row.imbSku && !canMapLine(li.row)" class="od-dim">— not mapped</span>
+                                    icon="el-icon-check"
+                                    class="od-sku-save"
+                                    :loading="savingLineIdx === li.row.__idx"
+                                    @click="saveLineSku(li.row.__idx)"
+                                />
                             </div>
+                            <template v-else>
+                                <b v-if="li.row.imbSku">{{ li.row.imbSku }}</b>
+                                <span v-else class="od-dim">— not mapped</span>
+                            </template>
                         </template>
                     </el-table-column>
                     <el-table-column label="Barcode" min-width="125" show-overflow-tooltip>
@@ -217,44 +248,6 @@
             </div>
             <span slot="footer">
                 <el-button size="small" @click="dispatchVisible = false">Close</el-button>
-            </span>
-        </el-dialog>
-
-        <!-- Map a barcode to an iMobile SKU (updates the global SKU Mapping list) -->
-        <el-dialog title="Map Barcode" :visible.sync="mapLineVisible" width="520px" append-to-body>
-            <div v-if="mapLineTarget" class="od-map-info">
-                <div class="od-map-row"><span class="od-map-label">Barcode</span><b>{{ mapLineTarget.sku }}</b></div>
-                <div v-if="mapLineTarget.description" class="od-map-row"><span class="od-map-label">Description</span>{{ mapLineTarget.description }}</div>
-            </div>
-            <el-autocomplete
-                v-model="mapLineSku"
-                value-key="sku"
-                style="width:100%"
-                :fetch-suggestions="fetchSkuSuggestions"
-                :debounce="400"
-                :trigger-on-focus="false"
-                popper-class="od-sku-suggestions"
-                placeholder="Search a Zoho product or type the iMobile SKU…"
-                @keyup.enter.native="saveMapLine"
-            >
-                <template slot-scope="{ item }">
-                    <div class="sku-suggestion" :title="item.name">
-                        <img v-if="item.imgUrl" :src="item.imgUrl" class="sku-suggestion-img" @error="onSuggestionImgError($event)" />
-                        <div v-else class="sku-suggestion-img sku-suggestion-img-placeholder"><i class="el-icon-picture-outline" /></div>
-                        <div class="sku-suggestion-info">
-                            <div class="sku-suggestion-name">{{ item.name }}</div>
-                            <div class="sku-suggestion-sku">{{ item.sku || 'no SKU' }}</div>
-                        </div>
-                    </div>
-                </template>
-            </el-autocomplete>
-            <div class="od-map-hint">
-                Saving updates the <b>SKU Mapping</b> list — this barcode maps the same way on every
-                other order automatically.
-            </div>
-            <span slot="footer">
-                <el-button size="small" @click="mapLineVisible = false">Cancel</el-button>
-                <el-button type="primary" size="small" :loading="mapLineSaving" :disabled="!mapLineSku.trim()" @click="saveMapLine">Save</el-button>
             </span>
         </el-dialog>
 
@@ -443,11 +436,11 @@ export default {
             scanCode: '',
             batchQty: {},
             batchSaving: false,
-            // Map-barcode dialog (updates the global SKU Mapping list)
-            mapLineVisible: false,
-            mapLineTarget: null,
-            mapLineSku: '',
-            mapLineSaving: false,
+            // Inline SKU mapping drafts (same editor as the SKU Mapping
+            // page), keyed by ORIGINAL line index. Kept outside the
+            // computed displayLines copies so typing survives re-renders.
+            skuDrafts: {},
+            savingLineIdx: null,
             // Edit-batch dialog
             batchEditVisible: false,
             batchEditNo: null,
@@ -560,6 +553,8 @@ export default {
             this.dispatchTab = 'dispatch'
             this.lineFilter = 'all'
             this.batchQty = {}
+            this.skuDrafts = {}
+            this.savingLineIdx = null
             this.scanCode = ''
             this.dispatchVisible = true
             this.$nextTick(() => {
@@ -587,6 +582,8 @@ export default {
             this.dispatchRecord = null
             this.lineOrder = []
             this.batchQty = {}
+            this.skuDrafts = {}
+            this.savingLineIdx = null
             this.scanCode = ''
         },
         // Row background reflects dispatch progress: green = fulfilled,
@@ -688,44 +685,66 @@ export default {
             this.$set(this.dispatchRecord, 'dispatchedQty', dispatched)
             this.$set(this.dispatchRecord, 'dispatchStatus', dispatched <= 0 ? 'pending' : dispatched < ordered ? 'partial' : 'dispatched')
         },
-        // ── Map a barcode from the dispatch dialog ───────────────────
+        // ── Inline barcode mapping in the dispatch dialog ────────────
         // Only order lines with a barcode are map-driven; manual-upload
         // lines carry their SKU from the uploaded file.
         canMapLine(li) {
             return !!(this.dispatchRecord && this.dispatchRecord.recordType !== 'manual' && li && li.sku)
         },
-        openMapLine(li) {
-            this.mapLineTarget = li
-            this.mapLineSku = li.imbSku || ''
-            this.mapLineVisible = true
+        skuDraft(row) {
+            const d = this.skuDrafts[row.__idx]
+            return d !== undefined ? d : (row.imbSku || '')
         },
-        async saveMapLine() {
-            if (!this.mapLineTarget || !this.mapLineSku.trim()) return
-            const barcode = this.mapLineTarget.sku
-            const sku = this.mapLineSku.trim()
-            this.mapLineSaving = true
+        setSkuDraft(idx, v) {
+            this.$set(this.skuDrafts, idx, v)
+        },
+        lineSkuDirty(row) {
+            const d = this.skuDrafts[row.__idx]
+            if (d === undefined) return false
+            const t = String(d).trim()
+            return !!t && t !== String(row.imbSku || '')
+        },
+        onLineSkuPicked(row, item) {
+            if (!item || !item.sku) {
+                this.$message.warning(`"${(item && item.name) || 'This product'}" has no SKU in Zoho — add one there first.`)
+                this.$set(this.skuDrafts, row.__idx, row.imbSku || '')
+                return
+            }
+            this.$set(this.skuDrafts, row.__idx, item.sku)
+            this.saveLineSku(row.__idx)
+        },
+        async saveLineSku(idx) {
+            const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
+            const line = items[idx]
+            if (!line || this.savingLineIdx != null) return
+            const draft = this.skuDrafts[idx]
+            const sku = String(draft !== undefined ? draft : line.imbSku || '').trim()
+            if (!sku || sku === String(line.imbSku || '')) return
+            const barcode = line.sku
+            this.savingLineIdx = idx
             try {
                 const r = await saveInflowSkuMapping({
                     barcode,
                     sku,
-                    description: this.mapLineTarget.description || ''
+                    description: line.description || ''
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 // The retro-apply already stamped this order in Mongo —
                 // mirror it on every line of the open record with this
                 // barcode so the dialog (and scan matching) update live.
-                const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
-                items.forEach(li => {
-                    if (li && li.sku === barcode) this.$set(li, 'imbSku', sku)
+                items.forEach((li, i) => {
+                    if (li && li.sku === barcode) {
+                        this.$set(li, 'imbSku', sku)
+                        this.$delete(this.skuDrafts, i)
+                    }
                 })
                 this.$message.success(r.ordersUpdated > 1
                     ? `Mapped — SKU Mapping updated, applied to ${r.ordersUpdated} orders`
                     : 'Mapped — SKU Mapping updated')
-                this.mapLineVisible = false
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to save mapping'))
             } finally {
-                this.mapLineSaving = false
+                this.savingLineIdx = null
             }
         },
         async fetchSkuSuggestions(query, cb) {
@@ -1103,12 +1122,10 @@ export default {
 .od-up-count { font-size: 12px; color: #606266; margin-bottom: 8px; }
 .od-up-more { font-size: 12px; color: #909399; margin-top: 6px; }
 .od-link-search { display: flex; gap: 8px; margin-bottom: 10px; }
-.od-sku-line { display: flex; align-items: center; gap: 4px; }
-.od-map-btn { padding: 0 2px; }
-.od-map-info { margin-bottom: 12px; font-size: 13px; color: #303133; }
-.od-map-row { display: flex; gap: 10px; line-height: 1.8; }
-.od-map-label { color: #909399; width: 90px; flex: none; }
-.od-map-hint { font-size: 12px; color: #909399; line-height: 1.5; margin-top: 10px; }
+.od-sku-cell { display: flex; align-items: center; gap: 6px; }
+.od-sku-cell .el-autocomplete { flex: 1; }
+.od-sku-pending ::v-deep .el-input__inner { border-color: #E6A23C; }
+.od-sku-save { color: #67C23A; padding: 0 2px; font-size: 16px; }
 .od-linked { color: #409EFF; font-size: 12px; }
 .od-link-current { margin-bottom: 10px; }
 .od-link-customer { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
