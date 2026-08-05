@@ -428,14 +428,27 @@ export default {
         }
     },
     created() {
+        this.applyRouteSearch()
         this.load()
     },
-    // Page is kept alive — refresh when the user navigates back (new SKU
-    // mappings uploaded on the Sales Orders page should show up here).
+    // Page is kept alive — refresh when the user navigates back, applying
+    // any search handed over via the route (e.g. an Owing Stocks chip).
     activated() {
+        this.applyRouteSearch()
         this.load()
     },
     methods: {
+        // Owing Stocks (and other pages) can deep-link here with ?search=…
+        // Applied once, then stripped from the URL so clearing the box
+        // doesn't get overridden on the next keep-alive activation.
+        applyRouteSearch() {
+            const s = this.$route.query && this.$route.query.search
+            if (s) {
+                this.query.search = String(s)
+                this.query.page = 1
+                this.$router.replace({ query: {} })
+            }
+        },
         async load() {
             this.loading = true
             try {

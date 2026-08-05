@@ -518,6 +518,16 @@ export const moduleRoutes = [
         }
       },
       {
+        path: "owingStocks",
+        component: (resolve) => require(["@/views/inflow/owingStocks"], resolve),
+        name: "InflowOwingStocks",
+        meta: {
+          title: "Owing Stocks",
+          icon: "el-icon-warning-outline",
+          permissions: ["inflow:order:view"]
+        }
+      },
+      {
         path: "customers",
         component: (resolve) => require(["@/views/inflow/customers"], resolve),
         name: "InflowCustomers",

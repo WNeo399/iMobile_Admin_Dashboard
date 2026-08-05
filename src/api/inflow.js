@@ -58,6 +58,10 @@ export function createInflowDispatchUpload(data) {
 export function getInflowDispatchUploads(query) {
   return request({ url: '/inflow/dispatch/manual', method: 'get', params: query })
 }
+// Outstanding (not yet fulfilled) stock grouped by SKU across all dispatch records.
+export function getInflowOwingStocks(query) {
+  return request({ url: '/inflow/dispatch/owing', method: 'get', params: query })
+}
 export function linkInflowDispatchUpload(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/link`, method: 'post', data })
 }
