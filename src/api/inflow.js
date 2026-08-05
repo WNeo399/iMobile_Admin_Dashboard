@@ -62,8 +62,31 @@ export function getInflowDispatchUploads(query) {
 export function getInflowOwingStocks(query) {
   return request({ url: '/inflow/dispatch/owing', method: 'get', params: query })
 }
+
+// Global customer-barcode → iMobile-SKU mapping list (map once, applied to
+// existing orders on save and to future orders at webhook ingest).
+export function getInflowSkuMap(query) {
+  return request({ url: '/inflow/skumap', method: 'get', params: query })
+}
+export function saveInflowSkuMapping(data) {
+  return request({ url: '/inflow/skumap', method: 'post', data })
+}
+export function importInflowSkuMap(rows) {
+  return request({ url: '/inflow/skumap/import', method: 'post', data: { rows }, timeout: 60000 })
+}
+export function deleteInflowSkuMapping(id) {
+  return request({ url: `/inflow/skumap/${id}`, method: 'delete' })
+}
 export function linkInflowDispatchUpload(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/link`, method: 'post', data })
+}
+// Link/unlink a dispatch record to an existing customer ({ customerName } / { customerName: null })
+export function setInflowDispatchCustomer(id, data) {
+  return request({ url: `/inflow/dispatch/manual/${id}/customer`, method: 'post', data })
+}
+// The logged-in customer's own dispatch status (portal)
+export function getMyInflowDispatch() {
+  return request({ url: '/inflow/dispatch/mine', method: 'get' })
 }
 export function deleteInflowDispatchUpload(id) {
   return request({ url: `/inflow/dispatch/manual/${id}`, method: 'delete' })

@@ -24,10 +24,11 @@
             <el-table-column prop="customerName" label="Customer" min-width="170" show-overflow-tooltip>
                 <template slot-scope="s">
                     <template v-if="s.row.recordType === 'manual'">
-                        <span v-if="s.row.linkedInvoiceNumber" class="od-linked">
+                        <div v-if="s.row.customerName">{{ s.row.customerName }}</div>
+                        <div v-if="s.row.linkedInvoiceNumber" class="od-linked">
                             <i class="el-icon-connection" /> {{ s.row.linkedInvoiceNumber }}
-                        </span>
-                        <span v-else class="od-dim">
+                        </div>
+                        <span v-if="!s.row.customerName && !s.row.linkedInvoiceNumber" class="od-dim">
                             {{ s.row.createdBy ? `Uploaded by ${s.row.createdBy}` : 'Manual upload' }}
                         </span>
                     </template>
@@ -267,6 +268,12 @@
                             :label="o.invoiceNumber + (o.customerName ? ' — ' + o.customerName : '')" />
                     </el-select>
                 </el-form-item>
+                <el-form-item label="Customer">
+                    <el-select v-model="uploadCustomer" filterable clearable
+                        placeholder="Optional — link a customer (auto-set when a sales order is picked)" style="width:100%">
+                        <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
+                    </el-select>
+                </el-form-item>
                 <el-form-item label="Invoice #" required>
                     <el-input v-model="uploadInvoiceNo" placeholder="e.g. INV-12345" />
                 </el-form-item>
@@ -301,8 +308,19 @@
         <el-dialog :title="'Link to Sales Order — ' + (linkRecord ? linkRecord.invoiceNumber : '')"
             :visible.sync="linkVisible" width="680px">
             <div class="od-up-hint">
-                The link just records which sales order this dispatch list belongs to — the record stays
-                here and the warehouse keeps dispatching from it. Picking another order re-links it.
+                Links are just relationships — the record stays here and the warehouse keeps dispatching
+                from it. Linking a <b>customer</b> lets that customer's portal login follow the dispatch
+                status (useful before the invoice exists); linking a <b>sales order</b> also adopts that
+                order's customer.
+            </div>
+            <div class="od-link-customer">
+                <span class="od-link-label">Customer</span>
+                <el-select :value="linkRecord ? linkRecord.customerName : ''" filterable clearable
+                    size="small" style="flex:1" placeholder="No customer linked — pick one"
+                    :loading="customerSaving" :disabled="customerSaving"
+                    @change="setCustomer">
+                    <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
+                </el-select>
             </div>
             <el-alert v-if="linkRecord && linkRecord.linkedInvoiceNumber" type="info" :closable="false" show-icon class="od-link-current">
                 <template slot="title">
@@ -341,7 +359,7 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders } from '@/api/inflow'
+import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters } from '@/api/inflow'
 import { buildPackingListPdf, packingListFileName } from '@/utils/dispatchPackingListPdf'
 
 export default {
@@ -380,9 +398,13 @@ export default {
             packUrl: '',
             packRecord: null,
             packBatch: null,
+            // InFlow customer names, for the customer link pickers.
+            customerOptions: [],
+            customerSaving: false,
             // Upload List dialog
             uploadVisible: false,
             uploadInvoiceNo: '',
+            uploadCustomer: '',
             uploadOrderId: '',
             uploadOrderOptions: [],
             uploadOrderLoading: false,
@@ -430,6 +452,7 @@ export default {
     created() {
         this.applyRouteSearch()
         this.load()
+        this.loadCustomers()
     },
     // Page is kept alive — refresh when the user navigates back, applying
     // any search handed over via the route (e.g. an Owing Stocks chip).
@@ -689,9 +712,16 @@ export default {
             this.packUrl = ''
         },
         // ── Upload List — manual dispatch record from an Excel file ──
+        async loadCustomers() {
+            try {
+                const r = await getInflowFilters()
+                if (r && r.success !== false) this.customerOptions = r.customers || []
+            } catch (e) { /* non-fatal — pickers just stay empty */ }
+        },
         openUpload() {
             this.uploadVisible = true
             this.uploadInvoiceNo = ''
+            this.uploadCustomer = ''
             this.uploadOrderId = ''
             this.uploadOrderOptions = []
             this.uploadFileName = ''
@@ -776,14 +806,14 @@ export default {
                 const r = await createInflowDispatchUpload({
                     invoiceNumber,
                     rows: this.uploadRows,
-                    orderId: this.uploadOrderId || undefined
+                    orderId: this.uploadOrderId || undefined,
+                    customerName: this.uploadCustomer || undefined
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(
-                    r.linkedInvoiceNumber
-                        ? `Dispatch record ${invoiceNumber} created — ${r.lines} line items, linked to ${r.linkedInvoiceNumber}`
-                        : `Dispatch record ${invoiceNumber} created — ${r.lines} line items`
-                )
+                const bits = [`Dispatch record ${invoiceNumber} created — ${r.lines} line items`]
+                if (r.linkedInvoiceNumber) bits.push(`linked to ${r.linkedInvoiceNumber}`)
+                if (r.customerName) bits.push(`customer ${r.customerName}`)
+                this.$message.success(bits.join(', '))
                 this.uploadVisible = false
                 this.reload()
             } catch (e) {
@@ -820,13 +850,31 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(`Linked to ${r.orderInvoiceNumber}`)
                 // Reflect the relationship on the live row — no reload needed.
+                // The order's customer is adopted server-side; mirror it here.
                 this.$set(this.linkRecord, 'linkedOrderId', order._id)
                 this.$set(this.linkRecord, 'linkedInvoiceNumber', r.orderInvoiceNumber)
+                this.$set(this.linkRecord, 'customerName', r.customerName || null)
                 this.linkVisible = false
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to link'))
             } finally {
                 this.linkSavingId = null
+            }
+        },
+        // Customer link (select in the link dialog) — saves on change;
+        // clearing the select unlinks the customer.
+        async setCustomer(name) {
+            if (!this.linkRecord) return
+            this.customerSaving = true
+            try {
+                const r = await setInflowDispatchCustomer(this.linkRecord._id, { customerName: name || null })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(this.linkRecord, 'customerName', r.customerName)
+                this.$message.success(r.customerName ? `Customer set to ${r.customerName}` : 'Customer unlinked')
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to link customer'))
+            } finally {
+                this.customerSaving = false
             }
         },
         async doUnlink() {
@@ -911,5 +959,7 @@ export default {
 .od-link-search { display: flex; gap: 8px; margin-bottom: 10px; }
 .od-linked { color: #409EFF; font-size: 12px; }
 .od-link-current { margin-bottom: 10px; }
+.od-link-customer { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.od-link-label { font-size: 13px; color: #606266; white-space: nowrap; }
 .od-unlink-btn { margin-left: 10px; padding: 0; color: #F56C6C; }
 </style>

@@ -530,14 +530,31 @@
                                         </span>
                                         <span v-else-if="!scope.row.sku" class="muted">No matches</span>
                                         <!--
+                                            Failed lookup (network drop etc.):
+                                            error sign + manual Retry. The
+                                            scroll trigger deliberately skips
+                                            failed SKUs so a dead connection
+                                            can't loop requests.
+                                        -->
+                                        <span v-else-if="skuLoadFailed(scope.row.sku)" class="match-failed">
+                                            <i class="el-icon-warning" /> Load failed
+                                            <el-button
+                                                size="mini"
+                                                type="text"
+                                                icon="el-icon-refresh-right"
+                                                class="match-retry-btn"
+                                                @click="fetchMatches([scope.row.sku])"
+                                            >Retry</el-button>
+                                        </span>
+                                        <!--
                                             Lazy loading: only the first few SKUs
                                             load when the dialog opens, so a long
                                             credit note can't burst past Zoho's
-                                            rate limit. Untouched rows auto-load as
-                                            they scroll into view (v-visible-once);
-                                            the button remains as an instant
-                                            trigger / retry, and the SKU confirm
-                                            button force-refreshes.
+                                            rate limit. Untouched rows auto-load
+                                            ONCE as they scroll into view
+                                            (v-visible-once); the button remains
+                                            as an instant trigger, and the SKU
+                                            confirm button force-refreshes.
                                         -->
                                         <el-button
                                             v-else-if="!skuLoaded(scope.row.sku)"
@@ -1030,6 +1047,11 @@ export default {
             // SKUs with a lookup currently in flight — drives per-row
             // spinners and the tab-level indicator (matchesLoading).
             loadingSkus: [],
+            // SKUs whose lookup FAILED (network drop etc.). Their rows show
+            // an error sign + Retry button, and the scroll-into-view auto
+            // trigger skips them — without this, every re-render re-armed
+            // the observer and a dead connection looped error toasts.
+            failedSkus: [],
             matchesError: '',
             // User's per-row picks, indexed by row position in items[]
             // (like `quantities` — NOT keyed by sku, so two rows with
@@ -1440,6 +1462,7 @@ export default {
             this.selections = []
             this.matchesBySku = {}
             this.loadingSkus = []
+            this.failedSkus = []
             this.matchesError = ''
             // Deep-clone items into the editable working copy. Shallow
             // would alias the inner objects so a SKU edit before save
@@ -1529,6 +1552,7 @@ export default {
             this.editedRepairDevices = []
             this.matchesError = ''
             this.loadingSkus = []
+            this.failedSkus = []
             // Cancel any pending lazy-load flush so a queued batch can't
             // fire after the dialog is gone.
             if (this._lazyTimer) {
@@ -1554,18 +1578,25 @@ export default {
         skuLoaded(sku) {
             return !!sku && Object.prototype.hasOwnProperty.call(this.matchesBySku, sku)
         },
+        // Has this SKU's lookup failed? Its row shows the retry control and
+        // the auto-trigger leaves it alone until the user retries.
+        skuLoadFailed(sku) {
+            return !!sku && this.failedSkus.includes(sku)
+        },
         // Queue a SKU for lazy loading as its row scrolls into view.
         // Several rows entering the viewport together (one scroll of the
         // wheel) collapse into ONE fetchMatches call via a short debounce
         // window, instead of a request per row. Non-reactive instance
         // fields — nothing in the template depends on the queue itself.
+        // Failed SKUs are skipped — the auto trigger fires at most once
+        // per line item; after a failure it's the Retry button's job.
         queueMatchLoad(sku) {
-            if (!sku || this.skuLoaded(sku) || this.isSkuLoading(sku)) return
+            if (!sku || this.skuLoaded(sku) || this.isSkuLoading(sku) || this.skuLoadFailed(sku)) return
             if (!this._lazyQueue) this._lazyQueue = new Set()
             this._lazyQueue.add(sku)
             if (this._lazyTimer) return
             this._lazyTimer = setTimeout(() => {
-                const skus = [...this._lazyQueue]
+                const skus = [...this._lazyQueue].filter(s => !this.skuLoadFailed(s))
                 this._lazyQueue.clear()
                 this._lazyTimer = null
                 if (skus.length) this.fetchMatches(skus)
@@ -1582,6 +1613,11 @@ export default {
                 .filter(s => force || !this.skuLoaded(s))
                 .filter(s => !this.loadingSkus.includes(s))
             if (!wanted.length) return
+            // A fresh attempt (Retry button / confirm) clears the failed
+            // mark so the rows switch back to their loading spinner.
+            if (this.failedSkus.length) {
+                this.failedSkus = this.failedSkus.filter(s => !wanted.includes(s))
+            }
             this.loadingSkus = this.loadingSkus.concat(wanted)
             this.matchesError = ''
             const reviewId = this.reviewRow && this.reviewRow._id
@@ -1604,6 +1640,11 @@ export default {
                     this.matchesError = (e.response && e.response.data && e.response.data.message)
                         || e.message
                         || 'SKU match lookup failed'
+                    // Everything in this attempt that never got a result is
+                    // marked failed — its row shows the error + Retry and
+                    // the scroll trigger won't re-fire for it.
+                    const unfetched = wanted.filter(s => !this.skuLoaded(s))
+                    this.failedSkus = [...new Set(this.failedSkus.concat(unfetched))]
                 }
             } finally {
                 this.loadingSkus = this.loadingSkus.filter(s => !wanted.includes(s))
@@ -2910,6 +2951,19 @@ export default {
 /* Lazy-load trigger on rows whose SKU lookup hasn't run yet */
 .match-load-btn {
     padding: 5px 10px;
+    font-size: 12px;
+}
+/* Failed lookup: error sign + manual retry (auto trigger stays off) */
+.match-failed {
+    color: #F56C6C;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.match-retry-btn {
+    padding: 0;
+    margin-left: 6px;
     font-size: 12px;
 }
 .review-pdf-frame {

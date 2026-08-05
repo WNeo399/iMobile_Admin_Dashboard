@@ -528,6 +528,16 @@ export const moduleRoutes = [
         }
       },
       {
+        path: "skuMapping",
+        component: (resolve) => require(["@/views/inflow/skuMapping"], resolve),
+        name: "InflowSkuMapping",
+        meta: {
+          title: "SKU Mapping",
+          icon: "el-icon-collection-tag",
+          permissions: ["inflow:order:view"]
+        }
+      },
+      {
         path: "customers",
         component: (resolve) => require(["@/views/inflow/customers"], resolve),
         name: "InflowCustomers",
@@ -559,6 +569,22 @@ export const moduleRoutes = [
           activeMenu: "/inflow/customers",
           permissions: ["inflow:statement:view"]
         }
+      }
+    ]
+  },
+  {
+    // InFlow customer portal — Dispatch Status: read-only view of the
+    // dispatch records linked to the logged-in customer (uploaded lists +
+    // their mapped sales orders).
+    path: "/portal/dispatch",
+    component: Layout,
+    meta: { exclusiveRoles: ["inflow-customer"] },
+    children: [
+      {
+        path: "index",
+        component: (resolve) => require(["@/views/inflow/portalDispatch"], resolve),
+        name: "InflowPortalDispatch",
+        meta: { title: "Dispatch Status", icon: "el-icon-box" }
       }
     ]
   },
