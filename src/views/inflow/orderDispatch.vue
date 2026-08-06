@@ -248,6 +248,29 @@
                             <el-table-column label="Units" width="70" align="right">
                                 <template slot-scope="b">{{ b.row.units }}</template>
                             </el-table-column>
+                            <!-- Tracking is usually known only after the label
+                                 is printed, so it stays editable here. -->
+                            <el-table-column label="Tracking #" min-width="180">
+                                <template slot-scope="b">
+                                    <div class="od-track-cell">
+                                        <el-input
+                                            :value="trackingDraft(b.row)"
+                                            size="mini"
+                                            placeholder="Add tracking #"
+                                            :disabled="savingTrackingNo === b.row.batchNo"
+                                            @input="v => setTrackingDraft(b.row.batchNo, v)"
+                                            @keyup.enter.native="saveTracking(b.row)"
+                                        />
+                                        <el-button
+                                            v-if="trackingDirty(b.row)"
+                                            size="mini" type="text" icon="el-icon-check"
+                                            class="od-track-save"
+                                            :loading="savingTrackingNo === b.row.batchNo"
+                                            @click="saveTracking(b.row)"
+                                        />
+                                    </div>
+                                </template>
+                            </el-table-column>
                             <el-table-column label="" width="190" align="center">
                                 <template slot-scope="b">
                                     <el-button size="mini" type="text" icon="el-icon-printer" @click="openPackingList(dispatchRecord, b.row)">Packing List</el-button>
@@ -453,6 +476,11 @@ export default {
             scanCode: '',
             batchQty: {},
             batchSaving: false,
+            // Per-batch tracking-number drafts, edited on the Recorded
+            // Batches tab (the number is only known once the courier label
+            // exists, i.e. after the batch is recorded).
+            trackingDrafts: {},
+            savingTrackingNo: null,
             // Inline SKU mapping drafts (same editor as the SKU Mapping
             // page), keyed by ORIGINAL line index. Kept outside the
             // computed displayLines copies so typing survives re-renders.
@@ -590,6 +618,8 @@ export default {
             this.dispatchTab = 'dispatch'
             this.lineFilter = 'all'
             this.batchQty = {}
+            this.trackingDrafts = {}
+            this.savingTrackingNo = null
             this.skuDrafts = {}
             this.savingLineIdx = null
             this.scanCode = ''
@@ -619,6 +649,8 @@ export default {
             this.dispatchRecord = null
             this.lineOrder = []
             this.batchQty = {}
+            this.trackingDrafts = {}
+            this.savingTrackingNo = null
             this.skuDrafts = {}
             this.savingLineIdx = null
             this.scanCode = ''
@@ -852,6 +884,37 @@ export default {
         },
         onSuggestionImgError(e) {
             if (e && e.target) e.target.style.display = 'none'
+        },
+        // ── Tracking number on a recorded batch ──────────────────────
+        trackingDraft(batch) {
+            const d = this.trackingDrafts[batch.batchNo]
+            return d !== undefined ? d : (batch.tracking || '')
+        },
+        setTrackingDraft(batchNo, v) {
+            this.$set(this.trackingDrafts, batchNo, v)
+        },
+        trackingDirty(batch) {
+            const d = this.trackingDrafts[batch.batchNo]
+            return d !== undefined && String(d).trim() !== String(batch.tracking || '')
+        },
+        async saveTracking(batch) {
+            if (!this.dispatchRecord || !this.trackingDirty(batch)) return
+            const tracking = String(this.trackingDrafts[batch.batchNo] || '').trim()
+            this.savingTrackingNo = batch.batchNo
+            try {
+                const r = await updateInflowDispatchBatch(this.dispatchRecord._id, batch.batchNo, {
+                    tracking,
+                    type: this.dispatchRecord.recordType === 'manual' ? 'manual' : undefined
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.applyUpdatedRecord(r.record)
+                this.$delete(this.trackingDrafts, batch.batchNo)
+                this.$message.success(tracking ? `Tracking saved for batch #${batch.batchNo}` : 'Tracking cleared')
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to save tracking number'))
+            } finally {
+                this.savingTrackingNo = null
+            }
         },
         // ── Edit a recorded batch ────────────────────────────────────
         openBatchEdit(batch) {
@@ -1194,6 +1257,9 @@ export default {
 .od-up-count { font-size: 12px; color: #606266; margin-bottom: 8px; }
 .od-up-more { font-size: 12px; color: #909399; margin-top: 6px; }
 .od-link-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.od-track-cell { display: flex; align-items: center; gap: 4px; }
+.od-track-cell .el-input { flex: 1; }
+.od-track-save { color: #67C23A; padding: 0 2px; font-size: 15px; }
 .od-sku-cell { display: flex; align-items: center; gap: 6px; }
 .od-sku-cell .el-autocomplete { flex: 1; }
 .od-sku-pending ::v-deep .el-input__inner { border-color: #E6A23C; }

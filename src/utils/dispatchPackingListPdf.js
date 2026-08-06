@@ -60,6 +60,7 @@ export function buildPackingListPdf({ record, batch }) {
         pair('Invoice #', record.invoiceNumber)
         pair('Batch', `#${batch.batchNo}`)
         pair('Date', fmtDate(batch.at))
+        if (batch.tracking) pair('Tracking #', batch.tracking)
         if (record.recordType !== 'manual' && record.customerName) {
             pair('Customer', record.customerName)
         }
