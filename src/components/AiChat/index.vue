@@ -32,6 +32,40 @@
                     <template v-else>
                         <template v-if="m.result">
                             <div v-if="m.result.summary" class="bubble-text">{{ m.result.summary }}</div>
+                            <!-- Follow-up questions / caveats. Without this the
+                                 agent's "here's what I still need" body was
+                                 invisible and the reply looked like a dead end. -->
+                            <div v-if="m.result.details" class="bubble-details">{{ m.result.details }}</div>
+                            <!--
+                                Clarifying questions as tappable choices. One
+                                question sends on click; several accumulate and
+                                send together. Typing a free answer in the box
+                                always works too.
+                            -->
+                            <div v-if="m.result.questions && m.result.questions.length && idx === messages.length - 1 && !loading" class="ask-block">
+                                <div v-for="(q, qi) in m.result.questions" :key="qi" class="ask-q">
+                                    <div class="ask-q-text">{{ q.question }}</div>
+                                    <div class="ask-opts">
+                                        <button
+                                            v-for="(o, oi) in q.options" :key="oi"
+                                            type="button"
+                                            class="ask-opt"
+                                            :class="{ 'is-picked': picked[qi] === o.label }"
+                                            :title="o.hint || ''"
+                                            @click="pickOption(m, qi, o.label)"
+                                        >
+                                            <span class="ask-opt-label">{{ o.label }}</span>
+                                            <span v-if="o.hint" class="ask-opt-hint">{{ o.hint }}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="m.result.questions.length > 1" class="ask-actions">
+                                    <el-button size="mini" type="primary" :disabled="!pickedCount" @click="sendPicked(m)">
+                                        Send {{ pickedCount }}/{{ m.result.questions.length }}
+                                    </el-button>
+                                    <span class="ask-hint">or type your own answer below</span>
+                                </div>
+                            </div>
                             <el-table
                                 v-if="m.result.view === 'table' && m.result.rows && m.result.rows.length"
                                 :data="tableData(m.result)" size="mini" border max-height="300" class="result-table">
@@ -94,6 +128,7 @@
             <div slot="title" class="ai-expand-title"><i class="el-icon-magic-stick" /> Answer</div>
             <template v-if="expanded && expanded.result">
                 <div v-if="expanded.result.summary" class="ai-expand-summary">{{ expanded.result.summary }}</div>
+                <div v-if="expanded.result.details" class="ai-expand-details">{{ expanded.result.details }}</div>
                 <el-table
                     v-if="expanded.result.view === 'table' && expanded.result.rows && expanded.result.rows.length"
                     :data="tableData(expanded.result)" size="small" border max-height="480" class="result-table">
@@ -162,6 +197,9 @@ export default {
     },
     data() {
         return {
+            // Choices tapped on the latest answer's clarifying questions,
+            // keyed by question index. Cleared whenever a message is sent.
+            picked: {},
             input: '',
             loading: false,
             progressLabel: '',
@@ -171,6 +209,12 @@ export default {
             attaching: false,
             pending: [], // [{ name, kind:'image'|'sheet', block, previewUrl }]
             messages: [] // [{ role, text, apiContent, attachments?, steps?, error? }]
+        }
+    },
+    computed: {
+        // How many of the latest answer's questions have a choice tapped.
+        pickedCount() {
+            return Object.keys(this.picked).filter(k => this.picked[k]).length
         }
     },
     methods: {
@@ -295,9 +339,27 @@ export default {
             if (text.length > SHEET_TEXT_CAP) text = text.slice(0, SHEET_TEXT_CAP) + '\n…(truncated)'
             return { type: 'text', text: `Attached spreadsheet "${file.name}":\n\n${text}` }
         },
+        // ── Clarifying-question choices ─────────────────────────────
+        // One question: tapping an option answers immediately. Several:
+        // tap one per question, then Send (a free-typed answer still works).
+        pickOption(m, qi, label) {
+            const qs = (m.result && m.result.questions) || []
+            this.$set(this.picked, qi, this.picked[qi] === label ? undefined : label)
+            if (qs.length === 1 && this.picked[qi]) this.sendPicked(m)
+        },
+        sendPicked(m) {
+            const qs = (m.result && m.result.questions) || []
+            const parts = qs
+                .map((q, qi) => (this.picked[qi] ? `${q.question} ${this.picked[qi]}` : null))
+                .filter(Boolean)
+            if (!parts.length) return
+            this.input = parts.join('\n')
+            this.send()
+        },
         async send() {
             const text = (this.input || '').trim()
             if ((!text && !this.pending.length) || this.loading || this.attaching) return
+            this.picked = {}
 
             const attachBlocks = this.pending.map(p => p.block)
             let apiContent
@@ -457,6 +519,72 @@ export default {
 }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .bubble-text.err { color: #F56C6C; }
+/* Clarifying questions rendered as tappable choices */
+.ask-block { margin-top: 10px; }
+.ask-q + .ask-q { margin-top: 10px; }
+.ask-q-text { font-size: 13px; color: #303133; font-weight: 500; line-height: 1.5; margin-bottom: 6px; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    max-width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #dcdfe6;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: border-color .15s, background .15s;
+}
+.ask-opt:hover { border-color: #409EFF; background: #ecf5ff; }
+.ask-opt.is-picked { border-color: #409EFF; background: #ecf5ff; box-shadow: inset 0 0 0 1px #409EFF; }
+.ask-opt-label { font-size: 13px; color: #303133; line-height: 1.3; }
+.ask-opt-hint { font-size: 11px; color: #909399; line-height: 1.3; }
+.ask-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.ask-hint { font-size: 11px; color: #909399; }
+
+/* Clarifying questions rendered as tappable choices */
+.ask-block { margin-top: 10px; }
+.ask-q + .ask-q { margin-top: 10px; }
+.ask-q-text { font-size: 13px; color: #303133; font-weight: 500; line-height: 1.5; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ask-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    max-width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #dcdfe6;
+    border-radius: 14px;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    line-height: 1.3;
+    transition: border-color .15s, background-color .15s;
+}
+.ask-opt:hover { border-color: #409EFF; background: #ecf5ff; }
+.ask-opt.is-picked { border-color: #409EFF; background: #ecf5ff; box-shadow: inset 0 0 0 1px #409EFF; }
+.ask-opt-label { font-size: 13px; color: #303133; }
+.ask-opt-hint { font-size: 11px; color: #909399; white-space: normal; }
+.ask-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.ask-hint { font-size: 11px; color: #909399; }
+
+/* Follow-up questions / caveats under the summary */
+.bubble-details {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 6px;
+    padding-left: 10px;
+    border-left: 2px solid #dcdfe6;
+    color: #606266;
+    font-size: 13px;
+    line-height: 1.6;
+}
 
 /* Structured answer: table + single-product card + chart */
 .result-table { margin-top: 8px; width: 100%; max-width: 100%; }
@@ -474,6 +602,16 @@ export default {
 .ai-expand-title { font-size: 15px; font-weight: 600; color: #303133; }
 .ai-expand-title i { color: #409eff; margin-right: 4px; }
 .ai-expand-summary { font-size: 14px; color: #303133; line-height: 1.6; margin-bottom: 10px; }
+.ai-expand-details {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: -4px 0 12px;
+    padding-left: 10px;
+    border-left: 2px solid #dcdfe6;
+    color: #606266;
+    font-size: 13px;
+    line-height: 1.6;
+}
 .ai-expand-card { margin-top: 0; }
 .result-card {
     margin-top: 8px;
