@@ -38,7 +38,7 @@
                 <div class="bg-row">
                     <el-form-item class="bg-col">
                         <template slot="label">
-                            <el-switch v-model="form.showSelling" active-text="Selling Price" class="bg-switch" />
+                            <el-switch v-model="form.showSelling" active-text="Retail Price" class="bg-switch" />
                         </template>
                         <el-input v-model="form.sellingPrice" type="number" min="0" :disabled="!form.showSelling" placeholder="0.00">
                             <template slot="prepend">$</template>
@@ -158,10 +158,14 @@ export default {
                 const d = r.data || {}
                 this.form.sku = d.sku || item.sku
                 this.form.name = d.name || item.name || ''
-                this.form.sellingPrice = d.sellingPrice != null ? String(d.sellingPrice) : ''
+                // Retail Price comes from the cf_retail_price custom field in
+                // Zoho Inventory — empty when the product doesn't have it
+                // filled in yet, so the user can type it manually.
+                this.form.sellingPrice = d.retailPrice != null ? String(d.retailPrice) : ''
                 this.form.platinumPrice = d.platinumPrice != null ? String(d.platinumPrice) : ''
-                this.form.showSelling = d.sellingPrice != null
+                this.form.showSelling = d.retailPrice != null
                 this.form.showPlatinum = d.platinumPrice != null
+                if (d.retailPrice == null) this.$message.info('No Retail Price on this product in Zoho — toggle it on to enter one manually.')
                 if (d.platinumPrice == null) this.$message.info('No Platinum price found for this product — toggle it on to enter one manually.')
             } catch (e) {
                 const msg = (e.response && e.response.data && e.response.data.message) || e.message || 'Failed to load product data'
