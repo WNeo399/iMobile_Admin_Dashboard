@@ -315,8 +315,8 @@
         <!-- Upload List — create a manual dispatch record from an Excel file -->
         <el-dialog title="Upload Dispatch List" :visible.sync="uploadVisible" width="600px">
             <div class="od-up-hint">
-                Upload an Excel file with <b>SKU</b> (iMobile warehouse SKU), <b>Description</b> and
-                <b>Quantity</b> columns — <b>Barcode</b> is optional
+                Upload an Excel file with <b>SKU</b> (iMobile warehouse SKU), <b>Barcode</b>,
+                <b>Description</b> and <b>Quantity</b> columns
             </div>
             <el-form label-width="100px" size="small" class="od-up-form" @submit.native.prevent>
                 <el-form-item label="Sales Order">
@@ -347,10 +347,15 @@
             </el-form>
             <template v-if="uploadRows.length">
                 <div class="od-up-count">
-                    <b>{{ uploadRows.length }}</b> line items<span v-if="uploadSkipped"> · {{ uploadSkipped }} rows skipped (missing SKU or Quantity)</span>
+                    <b>{{ uploadRows.length }}</b> line items<template v-if="uploadPendingCount"> · <b>{{ uploadPendingCount }}</b> without SKU (map later)</template><span v-if="uploadSkipped"> · {{ uploadSkipped }} rows skipped</span>
                 </div>
                 <el-table :data="uploadRows.slice(0, 8)" size="mini" border>
-                    <el-table-column prop="sku" label="SKU" width="130" show-overflow-tooltip />
+                    <el-table-column label="SKU" width="130" show-overflow-tooltip>
+                        <template slot-scope="s">
+                            <template v-if="s.row.sku">{{ s.row.sku }}</template>
+                            <el-tag v-else size="mini" type="warning">Pending</el-tag>
+                        </template>
+                    </el-table-column>
                     <el-table-column prop="description" label="Description" min-width="200" show-overflow-tooltip />
                     <el-table-column prop="quantity" label="Qty" width="70" align="right" />
                 </el-table>
@@ -488,6 +493,9 @@ export default {
         }
     },
     computed: {
+        uploadPendingCount() {
+            return this.uploadRows.filter(r => !r.sku).length
+        },
         batchUnits() {
             return Object.values(this.batchQty).reduce((s, q) => s + (Number(q) || 0), 0)
         },
@@ -743,10 +751,11 @@ export default {
             this.$set(this.dispatchRecord, 'dispatchStatus', dispatched <= 0 ? 'pending' : dispatched < ordered ? 'partial' : 'dispatched')
         },
         // ── Inline barcode mapping in the dispatch dialog ────────────
-        // Only order lines with a barcode are map-driven; manual-upload
-        // lines carry their SKU from the uploaded file.
+        // Any line with a barcode can be mapped (or re-mapped) here — the
+        // save goes into the global SKU Mapping list AND stamps matching
+        // lines on dispatch records (never on sales orders).
         canMapLine(li) {
-            return !!(this.dispatchRecord && this.dispatchRecord.recordType !== 'manual' && li && li.sku)
+            return !!(li && li.sku)
         },
         skuDraft(row) {
             const d = this.skuDrafts[row.__idx]
@@ -795,9 +804,7 @@ export default {
                         this.$delete(this.skuDrafts, i)
                     }
                 })
-                this.$message.success(r.ordersUpdated > 1
-                    ? `Mapped — SKU Mapping updated, applied to ${r.ordersUpdated} orders`
-                    : 'Mapped — SKU Mapping updated')
+                this.$message.success('Mapped — SKU Mapping updated')
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to save mapping'))
             } finally {
@@ -986,11 +993,11 @@ export default {
                 const skuKey = key('sku')
                 const descKey = key('description')
                 const qtyKey = key('quantity')
-                // SKU, Description and Quantity are required — Barcode is
-                // optional (it only drives line matching when linking to a
-                // sales order). Name every required column that's missing.
+                // Description and Quantity columns are required — SKU and
+                // Barcode are both optional (each row just needs one of the
+                // two; rows without a SKU import as unmapped + a pending
+                // mapping). Name every required column that's missing.
                 const missing = [
-                    !skuKey && '"SKU"',
                     !descKey && '"Description"',
                     !qtyKey && '"Quantity"'
                 ].filter(Boolean)
@@ -998,22 +1005,27 @@ export default {
                     this.$message.warning(`The file is missing the ${missing.join(', ')} column${missing.length > 1 ? 's' : ''}.`)
                     return
                 }
+                if (!skuKey && !barcodeKey) {
+                    this.$message.warning('The file needs a "SKU" or a "Barcode" column (or both).')
+                    return
+                }
                 const parsed = []
                 let skipped = 0
                 for (const r of rows) {
                     // SKU cells can be numbers or carry stray whitespace /
                     // newlines in real files — normalise hard.
-                    const sku = String(r[skuKey] == null ? '' : r[skuKey]).trim()
+                    const sku = skuKey ? String(r[skuKey] == null ? '' : r[skuKey]).trim() : ''
+                    const barcode = barcodeKey ? String(r[barcodeKey] == null ? '' : r[barcodeKey]).trim() : ''
                     const quantity = Number(r[qtyKey])
-                    if (!sku || !isFinite(quantity) || quantity <= 0) { skipped++; continue }
+                    if ((!sku && !barcode) || !isFinite(quantity) || quantity <= 0) { skipped++; continue }
                     parsed.push({
                         sku,
                         quantity,
-                        barcode: barcodeKey ? String(r[barcodeKey] == null ? '' : r[barcodeKey]).trim() : '',
-                        description: descKey ? String(r[descKey] == null ? '' : r[descKey]).trim() : ''
+                        barcode,
+                        description: String(r[descKey] == null ? '' : r[descKey]).trim()
                     })
                 }
-                if (!parsed.length) { this.$message.warning('No usable rows — every row needs a SKU and a positive Quantity.'); return }
+                if (!parsed.length) { this.$message.warning('No usable rows — every row needs a positive Quantity and a SKU or Barcode.'); return }
                 this.uploadRows = parsed
                 this.uploadSkipped = skipped
             } catch (err) {
@@ -1033,6 +1045,8 @@ export default {
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const bits = [`Dispatch record ${invoiceNumber} created — ${r.lines} line items`]
+                if (r.mappingsSaved) bits.push(`${r.mappingsSaved} SKU mapping${r.mappingsSaved === 1 ? '' : 's'} saved`)
+                if (r.unmappedLines) bits.push(`${r.unmappedLines} line${r.unmappedLines === 1 ? '' : 's'} to map`)
                 if (r.linkedInvoiceNumber) bits.push(`linked to ${r.linkedInvoiceNumber}`)
                 if (r.customerName) bits.push(`customer ${r.customerName}`)
                 this.$message.success(bits.join(', '))

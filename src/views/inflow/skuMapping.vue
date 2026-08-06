@@ -352,13 +352,7 @@ export default {
                 if (row._origSku && !sku) this.pendingTotal += 1
                 row.sku = sku
                 row._origSku = sku
-                if (!sku) {
-                    this.$message.success('Saved as pending')
-                } else if (r.ordersUpdated > 0) {
-                    this.$message.success(`Saved — applied to ${r.ordersUpdated} existing order${r.ordersUpdated === 1 ? '' : 's'}`)
-                } else {
-                    this.$message.success('Saved')
-                }
+                this.$message.success(sku ? 'Saved' : 'Saved as pending')
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to save SKU'))
             } finally {
@@ -387,13 +381,7 @@ export default {
             try {
                 const r = await saveInflowSkuMapping({ barcode, sku, description: this.editForm.description.trim() })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                if (!sku) {
-                    this.$message.success('Saved as pending — fill in the SKU when known')
-                } else if (r.ordersUpdated > 0) {
-                    this.$message.success(`Mapping saved — applied to ${r.ordersUpdated} existing order${r.ordersUpdated === 1 ? '' : 's'}`)
-                } else {
-                    this.$message.success('Mapping saved')
-                }
+                this.$message.success(sku ? 'Mapping saved' : 'Saved as pending — fill in the SKU when known')
                 this.editVisible = false
                 this.load()
             } catch (e) {
@@ -471,7 +459,6 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const bits = [`${r.mappings} mappings imported`]
                 if (r.pending) bits.push(`${r.pending} pending (no SKU yet)`)
-                if (r.ordersUpdated) bits.push(`applied to ${r.ordersUpdated} existing order${r.ordersUpdated === 1 ? '' : 's'}`)
                 this.$message.success(bits.join(' — '))
                 this.importVisible = false
                 this.reload()
