@@ -366,8 +366,8 @@
                         <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
                     </el-select>
                 </el-form-item>
-                <el-form-item label="Invoice #" required>
-                    <el-input v-model="uploadInvoiceNo" placeholder="e.g. INV-12345" />
+                <el-form-item label="Title" required>
+                    <el-input v-model="uploadInvoiceNo" placeholder="e.g. INV-12345 or PO110960" />
                 </el-form-item>
                 <el-form-item label="File">
                     <input ref="uploadFile" type="file" accept=".xlsx,.xls,.csv" class="od-up-input" @change="onUploadFile" />
