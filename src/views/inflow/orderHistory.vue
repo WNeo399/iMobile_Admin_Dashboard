@@ -31,10 +31,23 @@
             <el-table-column label="Paid" width="110" align="right"><template slot-scope="s">{{ money(s.row.paidAmount) }}</template></el-table-column>
             <el-table-column label="Balance" width="120" align="right"><template slot-scope="s"><span :class="outClass(s.row.balance)">{{ money(s.row.balance) }}</span></template></el-table-column>
             <el-table-column label="Status" width="100" align="center"><template slot-scope="s"><el-tag size="mini" :type="statusTag(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template></el-table-column>
-            <el-table-column label="" width="130" align="right">
+            <!-- Dispatch progress for orders we're shipping against -->
+            <el-table-column label="Dispatch" width="140" align="center">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" @click="openDetail(s.row)">View</el-button>
-                    <el-button v-if="s.row.invoicePdfUrl" size="mini" type="text" icon="el-icon-document" @click="openPdf(s.row)">Invoice</el-button>
+                    <template v-if="s.row.dispatchLinked">
+                        <el-tag size="mini" :type="dispatchTag(s.row.dispatchStatus)" effect="plain">
+                            {{ dispatchLabel(s.row.dispatchStatus) }}
+                        </el-tag>
+                        <div class="oh-disp-qty">{{ s.row.dispatchDispatchedQty }} / {{ s.row.dispatchOrderedQty }} units</div>
+                    </template>
+                    <span v-else class="oh-count">—</span>
+                </template>
+            </el-table-column>
+            <el-table-column label="" width="220" align="right">
+                <template slot-scope="s">
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View Detail</el-button>
+                    <el-button v-if="s.row.dispatchLinked" size="mini" type="text" icon="el-icon-box"
+                        @click="openDispatchStatus(s.row)">Dispatch Status</el-button>
                 </template>
             </el-table-column>
             <template slot="empty"><span class="oh-empty">{{ orders.length ? 'No orders match your search.' : 'No orders yet.' }}</span></template>
@@ -66,6 +79,13 @@
                             </template>
                         </el-table-column>
                         <el-table-column prop="quantity" label="Qty" width="70" align="right" />
+                        <el-table-column v-if="detail.dispatchLinked" label="Dispatched" width="120" align="center">
+                            <template slot-scope="s">
+                                <el-tag size="mini" :type="dispatchTag(s.row.dispatchStatus)" effect="plain">
+                                    {{ Number(s.row.dispatchedQty) || 0 }} / {{ s.row.quantity }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
                         <el-table-column label="Subtotal" width="120" align="right"><template slot-scope="s">{{ money(s.row.subTotal) }}</template></el-table-column>
                     </el-table>
@@ -81,6 +101,64 @@
             </span>
         </el-dialog>
 
+        <!-- Dispatch Status — what's been packed and shipped for this order -->
+        <el-dialog :title="'Dispatch Status — ' + (dispatchOrder ? dispatchOrder.invoiceNumber : '')"
+            :visible.sync="dispatchVisible" width="800px" top="6vh" append-to-body>
+            <div v-loading="dispatchLoading">
+                <template v-if="orderDispatch">
+                    <div class="oh-ds-head">
+                        <el-tag size="mini" :type="dispatchTag(orderDispatch.dispatchStatus)">{{ dispatchLabel(orderDispatch.dispatchStatus) }}</el-tag>
+                        <span class="oh-ds-progress">{{ orderDispatch.dispatchedQty }} / {{ orderDispatch.orderedQty }} units dispatched</span>
+                    </div>
+
+                    <template v-if="(orderDispatch.batches || []).length">
+                        <div class="oh-sec">Batches <span class="oh-count">— expand a batch to see what was in it</span></div>
+                        <el-table :data="orderDispatch.batches" size="mini" border max-height="380">
+                            <el-table-column type="expand">
+                                <template slot-scope="b">
+                                    <el-table :data="b.row.lines" size="mini" border class="oh-batch-lines">
+                                        <el-table-column label="SKU" width="115" show-overflow-tooltip>
+                                            <template slot-scope="l">{{ l.row.sku || '—' }}</template>
+                                        </el-table-column>
+                                        <el-table-column label="Description" min-width="240" show-overflow-tooltip>
+                                            <template slot-scope="l">{{ l.row.description || '—' }}</template>
+                                        </el-table-column>
+                                        <el-table-column label="Qty" width="70" align="right">
+                                            <template slot-scope="l">{{ l.row.qty }}</template>
+                                        </el-table-column>
+                                    </el-table>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="Batch" width="70" align="center">
+                                <template slot-scope="b">#{{ b.row.batchNo }}</template>
+                            </el-table-column>
+                            <el-table-column label="Date" min-width="140">
+                                <template slot-scope="b">{{ dateOnly(b.row.at) }}</template>
+                            </el-table-column>
+                            <el-table-column label="Lines" width="70" align="right">
+                                <template slot-scope="b">{{ (b.row.lines || []).length }}</template>
+                            </el-table-column>
+                            <el-table-column label="Units" width="70" align="right">
+                                <template slot-scope="b">{{ b.row.units }}</template>
+                            </el-table-column>
+                            <el-table-column label="Tracking #" min-width="150" show-overflow-tooltip>
+                                <template slot-scope="b">{{ b.row.tracking || '—' }}</template>
+                            </el-table-column>
+                        </el-table>
+                    </template>
+                    <div v-else class="oh-ds-empty">
+                        <i class="el-icon-box oh-ds-empty-icon" />
+                        <div class="oh-ds-empty-title">Nothing dispatched yet</div>
+                        <div class="oh-ds-empty-sub">Your order is being prepared — shipments will appear here once they're packed.</div>
+                    </div>
+                </template>
+                <div v-else-if="!dispatchLoading" class="oh-empty">No dispatch information for this order.</div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="dispatchVisible = false">Close</el-button>
+            </span>
+        </el-dialog>
+
         <!-- Invoice PDF -->
         <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="60%" top="7vh">
             <div class="oh-pdf-wrap"><iframe v-if="pdfUrl" :src="pdfUrl" class="oh-pdf-frame" title="Invoice PDF" /></div>
@@ -93,7 +171,7 @@
 </template>
 
 <script>
-import { getInflowStatement, getInflowStatementOrder } from '@/api/inflow'
+import { getInflowStatement, getInflowStatementOrder, getInflowStatementOrderDispatch } from '@/api/inflow'
 
 export default {
     name: 'InflowOrderHistory',
@@ -108,6 +186,8 @@ export default {
             pageSize: 20,
             detailVisible: false, detail: null, detailLoading: false,
             liPage: 1, liPageSize: 10,
+            // Dispatch Status dialog (what's been packed for this order)
+            dispatchVisible: false, dispatchOrder: null, orderDispatch: null, dispatchLoading: false,
             pdfVisible: false, pdfUrl: '', pdfTitle: ''
         }
     },
@@ -170,9 +250,34 @@ export default {
             this.pdfTitle = row.invoiceNumber || ''
             this.pdfVisible = true
         },
+        async openDispatchStatus(row) {
+            this.dispatchOrder = row
+            this.orderDispatch = null
+            this.dispatchVisible = true
+            this.dispatchLoading = true
+            try {
+                const r = await getInflowStatementOrderDispatch(row._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.orderDispatch = r.dispatch || null
+            } catch (e) {
+                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || 'Failed to load dispatch status')
+            } finally {
+                this.dispatchLoading = false
+            }
+        },
         statusTag(s) { return { unpaid: 'danger', partial: 'warning', paid: 'success', credit: 'info' }[s] || 'info' },
         statusLabel(s) { return { unpaid: 'Unpaid', partial: 'Partial', paid: 'Paid', credit: 'Credit' }[s] || s },
+        // Dispatch wording is customer-facing: "Preparing" reads better than
+        // "Pending" for stock that hasn't been packed yet (matches the
+        // Dispatch Status page).
+        dispatchTag(s) { return { pending: 'info', partial: 'warning', dispatched: 'success' }[s] || 'info' },
+        dispatchLabel(s) { return { pending: 'Preparing', partial: 'Partially Dispatched', dispatched: 'Dispatched' }[s] || s },
         outClass(v) { const n = Number(v); if (n > 0) return 'owing'; if (n < 0) return 'neg'; return '' },
+        dateOnly(v) {
+            if (!v) return '—'
+            const d = new Date(v)
+            return isNaN(d) ? '—' : d.toLocaleDateString('en-AU')
+        },
         dateStr(o) {
             if (o && o.invoiceDateRaw) return o.invoiceDateRaw
             if (o && o.invoiceDate) { const d = new Date(o.invoiceDate); if (!isNaN(d)) return d.toLocaleDateString('en-AU') }
@@ -205,6 +310,18 @@ export default {
 .oh-desc { margin-bottom: 6px; }
 .oh-sec { font-weight: 600; font-size: 13px; color: #303133; margin: 14px 0 6px; }
 .oh-count { color: #909399; font-weight: normal; }
+.oh-disp-qty { font-size: 11px; color: #909399; line-height: 1.4; margin-top: 2px; }
+.oh-ds-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.oh-ds-progress { font-size: 12px; color: #909399; }
+.oh-batch-lines { margin: 4px 12px; width: calc(100% - 24px); }
+.oh-ds-empty {
+    margin-top: 14px; padding: 26px 16px;
+    border: 1px dashed #dcdfe6; border-radius: 8px;
+    background: #fafbfc; text-align: center;
+}
+.oh-ds-empty-icon { font-size: 30px; color: #c0c4cc; }
+.oh-ds-empty-title { margin-top: 8px; font-size: 14px; color: #606266; font-weight: 500; }
+.oh-ds-empty-sub { margin-top: 4px; font-size: 12px; color: #909399; line-height: 1.6; }
 .oh-li-desc { color: #303133; line-height: 1.3; }
 .oh-li-sku { font-size: 12px; color: #909399; line-height: 1.3; margin-top: 1px; }
 .oh-li-pager { margin-top: 8px; text-align: right; }

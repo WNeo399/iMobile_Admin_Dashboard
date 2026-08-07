@@ -77,6 +77,14 @@ export function importInflowSkuMap(rows) {
 export function deleteInflowSkuMapping(id) {
   return request({ url: `/inflow/skumap/${id}`, method: 'delete' })
 }
+// Bulk barcode → iMobile SKU lookup (completed mappings only).
+export function resolveInflowSkuMap(barcodes) {
+  return request({ url: '/inflow/skumap/resolve', method: 'post', data: { barcodes } })
+}
+// The dispatch record linked to a sales order (or null).
+export function getInflowOrderDispatch(id) {
+  return request({ url: `/inflow/salesorders/${id}/dispatch`, method: 'get' })
+}
 export function linkInflowDispatchUpload(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/link`, method: 'post', data })
 }
@@ -112,6 +120,10 @@ export function getInflowStatement() {
 }
 export function getInflowStatementOrder(id) {
   return request({ url: `/inflow/statement/order/${id}`, method: 'get' })
+}
+// Dispatch record + batches for one of the customer's own orders (portal).
+export function getInflowStatementOrderDispatch(id) {
+  return request({ url: `/inflow/statement/order/${id}/dispatch`, method: 'get' })
 }
 // Admin viewing a specific customer's statement (from the Customer page)
 export function getInflowCustomerStatement(name) {

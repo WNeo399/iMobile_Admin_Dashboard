@@ -55,10 +55,35 @@
             <el-table-column prop="status" label="Status" width="100" align="center">
                 <template slot-scope="s"><el-tag size="mini" :type="statusTag(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="" width="220" align="center">
+            <el-table-column label="" width="230" align="center">
                 <template slot-scope="s">
                     <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View Detail</el-button>
-                    <el-button size="mini" type="text" icon="el-icon-connection" @click="openLinkDispatch(s.row)">Link Dispatch</el-button>
+                    <!-- Orders that already have a dispatch record get the
+                         status action inline; everything else lives in the
+                         ··· menu. -->
+                    <el-button v-if="s.row.dispatchLinked" size="mini" type="text" icon="el-icon-box"
+                        @click="openDispatchStatus(s.row)">Dispatch Status</el-button>
+                    <!-- Hidden when it would open empty (e.g. a linked credit
+                         note, or a user without the payment permission). -->
+                    <el-dropdown v-if="hasRowMenu(s.row)" trigger="click" @command="(cmd) => cmd()">
+                        <el-button size="mini" type="text" icon="el-icon-more" class="io-more-btn" />
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item v-if="!s.row.dispatchLinked"
+                                :command="() => openDispatchStatus(s.row)" icon="el-icon-box">
+                                Create / Link Dispatch
+                            </el-dropdown-item>
+                            <el-dropdown-item v-if="s.row.status !== 'credit' && s.row.balance > 0"
+                                v-hasPermi="['inflow:order:payment']"
+                                :command="() => openApplyCredit(s.row)" icon="el-icon-wallet">
+                                Apply Credit
+                            </el-dropdown-item>
+                            <el-dropdown-item v-if="s.row.status !== 'credit'"
+                                v-hasPermi="['inflow:order:payment']"
+                                :command="() => openPayment(s.row)" icon="el-icon-money">
+                                Record Payment
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
                 </template>
             </el-table-column>
         </el-table>
@@ -93,6 +118,16 @@
                             </template>
                         </el-table-column>
                         <el-table-column prop="quantity" label="Qty" width="70" align="right" />
+                        <!-- Per-line dispatch progress, matched from the linked
+                             dispatch record. Batch-level detail lives behind
+                             the Dispatch Status action. -->
+                        <el-table-column v-if="detail.dispatchLinked" label="Dispatched" width="120" align="center">
+                            <template slot-scope="s">
+                                <el-tag size="mini" :type="dispatchTag(s.row.dispatchStatus)" effect="plain">
+                                    {{ Number(s.row.dispatchedQty) || 0 }} / {{ s.row.quantity }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
                         <el-table-column label="Subtotal" width="120" align="right"><template slot-scope="s">{{ money(s.row.subTotal) }}</template></el-table-column>
                     </el-table>
@@ -121,9 +156,9 @@
                 </template>
             </div>
             <span slot="footer">
+                <!-- Dispatch / credit / payment actions live in the table's
+                     ··· menu; the dialog stays a read-only view. -->
                 <el-button v-if="detail && detail.invoicePdfUrl" size="small" icon="el-icon-document" @click="openPdf(detail)">View Invoice</el-button>
-                <el-button v-if="detail && detail.status !== 'credit' && detail.balance > 0" v-hasPermi="['inflow:order:payment']" size="small" @click="openApplyCredit(detail)">Apply Credit</el-button>
-                <el-button v-if="detail && detail.status !== 'credit'" v-hasPermi="['inflow:order:payment']" type="primary" size="small" @click="openPayment(detail)">Record Payment</el-button>
                 <el-button size="small" @click="detailVisible = false">Close</el-button>
             </span>
         </el-dialog>
@@ -190,15 +225,140 @@
             </span>
         </el-dialog>
 
-        <!-- Link a manual dispatch record to this sales order -->
-        <el-dialog :title="'Link Dispatch — ' + (linkDispatchOrder ? linkDispatchOrder.invoiceNumber : '')"
-            :visible.sync="linkDispatchVisible" width="680px">
-            <div class="io-skumap-hint">
-                Pick an uploaded dispatch record to link to this sales order. The link just records
-                which order the dispatch list belongs to — the record stays on the Order Dispatch
-                page where the warehouse keeps working from it.
-            </div>
-            <div class="io-linkdisp-search">
+        <!-- Dispatch Status — linked: show progress; not linked: link an
+             existing record or create one from this order's line items. -->
+        <el-dialog :title="'Dispatch Status — ' + (linkDispatchOrder ? linkDispatchOrder.invoiceNumber : '')"
+            :visible.sync="linkDispatchVisible" width="820px" top="6vh" append-to-body>
+            <div v-loading="dispatchLoading">
+                <!-- ── Linked: the dispatch record's progress ── -->
+                <template v-if="orderDispatch">
+                    <div class="io-ds-head">
+                        <span class="io-ds-inv">{{ orderDispatch.invoiceNumber }}</span>
+                        <el-tag size="mini" :type="dispatchTag(orderDispatch.dispatchStatus)">{{ dispatchLabel(orderDispatch.dispatchStatus) }}</el-tag>
+                        <span class="io-ds-progress">{{ orderDispatch.dispatchedQty }} / {{ orderDispatch.orderedQty }} units dispatched</span>
+                        <span class="io-spacer" />
+                        <el-button size="mini" icon="el-icon-box" @click="goDispatchPage(orderDispatch)">Open in Order Dispatch</el-button>
+                    </div>
+
+                    <template v-if="(orderDispatch.dispatchBatches || []).length">
+                        <div class="io-sub">Batches <span class="io-count">— expand a batch to see what went in it</span></div>
+                        <el-table :data="orderDispatch.dispatchBatches" size="mini" border max-height="380">
+                            <!-- What was packed in this batch -->
+                            <el-table-column type="expand">
+                                <template slot-scope="b">
+                                    <el-table :data="b.row.lines" size="mini" border class="io-batch-lines">
+                                        <el-table-column label="iMobile SKU" width="115" show-overflow-tooltip>
+                                            <template slot-scope="l">
+                                                <b v-if="l.row.imbSku">{{ l.row.imbSku }}</b>
+                                                <span v-else class="io-count">— not mapped</span>
+                                            </template>
+                                        </el-table-column>
+                                        <el-table-column label="Barcode" width="105" show-overflow-tooltip>
+                                            <template slot-scope="l">{{ l.row.sku || '—' }}</template>
+                                        </el-table-column>
+                                        <el-table-column label="Description" min-width="220" show-overflow-tooltip>
+                                            <template slot-scope="l">{{ l.row.description || '—' }}</template>
+                                        </el-table-column>
+                                        <el-table-column label="Qty" width="70" align="right">
+                                            <template slot-scope="l">{{ l.row.qty }}</template>
+                                        </el-table-column>
+                                    </el-table>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="Batch" width="70" align="center">
+                                <template slot-scope="b">#{{ b.row.batchNo }}</template>
+                            </el-table-column>
+                            <el-table-column label="Date" min-width="140">
+                                <template slot-scope="b">{{ dateOnly(b.row.at) }}</template>
+                            </el-table-column>
+                            <el-table-column label="By" min-width="100" show-overflow-tooltip>
+                                <template slot-scope="b">{{ b.row.by || '—' }}</template>
+                            </el-table-column>
+                            <el-table-column label="Lines" width="70" align="right">
+                                <template slot-scope="b">{{ (b.row.lines || []).length }}</template>
+                            </el-table-column>
+                            <el-table-column label="Units" width="70" align="right">
+                                <template slot-scope="b">{{ b.row.units }}</template>
+                            </el-table-column>
+                            <el-table-column label="Tracking #" min-width="150" show-overflow-tooltip>
+                                <template slot-scope="b">{{ b.row.tracking || '—' }}</template>
+                            </el-table-column>
+                        </el-table>
+                    </template>
+                    <div v-else class="io-ds-empty">
+                        <i class="el-icon-box io-ds-empty-icon" />
+                        <div class="io-ds-empty-title">No batches dispatched yet</div>
+                        <div class="io-ds-empty-sub">
+                            The warehouse hasn't packed anything for this order.
+                            Batches appear here once they scan and record one.
+                        </div>
+                        <el-button size="mini" icon="el-icon-box" @click="goDispatchPage(orderDispatch)">Open in Order Dispatch</el-button>
+                    </div>
+                </template>
+
+                <!-- ── Not linked: create from this order, or link an existing record ── -->
+                <template v-else-if="!dispatchLoading">
+                    <el-tabs v-model="dispatchTab">
+                        <el-tab-pane label="Create from this order" name="create">
+                            <div class="io-skumap-hint">
+                                Creates a dispatch record from this order's line items, linked to this order.
+                                SKUs already in the <b>SKU Mapping</b> list are filled in — type any that are
+                                missing (or leave them and map later on the SKU Mapping page).
+                            </div>
+                            <el-table v-loading="createLoading" :data="createRows" size="mini" border max-height="320"
+                                empty-text="This order has no line items to dispatch.">
+                                <el-table-column label="iMobile SKU" width="230">
+                                    <template slot-scope="s">
+                                        <el-autocomplete
+                                            v-model="s.row.sku"
+                                            size="mini"
+                                            value-key="sku"
+                                            style="width:100%"
+                                            :fetch-suggestions="fetchSkuSuggestions"
+                                            :debounce="400"
+                                            :trigger-on-focus="false"
+                                            popper-class="io-sku-suggestions"
+                                            :placeholder="s.row.sku ? '' : 'Search product / SKU…'"
+                                            :class="{ 'io-sku-pending': !s.row.sku }"
+                                        >
+                                            <template slot-scope="{ item }">
+                                                <div class="sku-suggestion" :title="item.name">
+                                                    <div class="sku-suggestion-info">
+                                                        <div class="sku-suggestion-name">{{ item.name }}</div>
+                                                        <div class="sku-suggestion-sku">{{ item.sku || 'no SKU' }}</div>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </el-autocomplete>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="Barcode" min-width="120" show-overflow-tooltip>
+                                    <template slot-scope="s">{{ s.row.barcode || '—' }}</template>
+                                </el-table-column>
+                                <el-table-column label="Description" min-width="200" show-overflow-tooltip>
+                                    <template slot-scope="s">{{ s.row.description || '—' }}</template>
+                                </el-table-column>
+                                <el-table-column label="Qty" width="70" align="right">
+                                    <template slot-scope="s">{{ s.row.quantity }}</template>
+                                </el-table-column>
+                            </el-table>
+                            <div class="io-ds-create-foot">
+                                <span class="io-count">
+                                    {{ createRows.length }} line{{ createRows.length === 1 ? '' : 's' }}<template v-if="createUnmapped"> · <b>{{ createUnmapped }}</b> without a SKU (can be mapped later)</template>
+                                </span>
+                                <el-button type="primary" size="small" icon="el-icon-plus"
+                                    :loading="creatingDispatch" :disabled="!createRows.length"
+                                    @click="createDispatchFromOrder">Create Dispatch Record</el-button>
+                            </div>
+                        </el-tab-pane>
+
+                        <el-tab-pane label="Link an existing record" name="link">
+                            <div class="io-skumap-hint">
+                                Pick an uploaded dispatch record to link to this sales order. The link just records
+                                which order the dispatch list belongs to — the record stays on the Order Dispatch
+                                page where the warehouse keeps working from it.
+                            </div>
+                            <div class="io-linkdisp-search">
                 <el-input v-model="linkDispatchSearch" size="small" clearable
                     placeholder="Search dispatch records by invoice # / SKU…" prefix-icon="el-icon-search"
                     @keyup.enter.native="searchDispatchUploads" />
@@ -225,6 +385,10 @@
                     </template>
                 </el-table-column>
             </el-table>
+                        </el-tab-pane>
+                    </el-tabs>
+                </template>
+            </div>
             <span slot="footer">
                 <el-button size="small" @click="linkDispatchVisible = false">Close</el-button>
             </span>
@@ -244,7 +408,8 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowDispatchUploads, linkInflowDispatchUpload } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowDispatchUploads, linkInflowDispatchUpload, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload } from '@/api/inflow'
+import { searchProducts } from '@/api/zoho/products/product'
 
 export default {
     name: 'InflowSalesOrders',
@@ -268,10 +433,31 @@ export default {
             credits: [], creditsLoading: false, creditApply: {}, creditDate: this.today(),
             pdfVisible: false, pdfUrl: '', pdfTitle: '',
             linkDispatchVisible: false, linkDispatchOrder: null, linkDispatchSearch: '',
-            linkDispatchRows: [], linkDispatchLoading: false, linkDispatchSavingId: null
+            linkDispatchRows: [], linkDispatchLoading: false, linkDispatchSavingId: null,
+            // Dispatch Status dialog: the linked record (null = not linked),
+            // plus the "create from this order" working rows.
+            dispatchLoading: false, orderDispatch: null, dispatchTab: 'create',
+            createRows: [], createLoading: false, creatingDispatch: false
         }
     },
     computed: {
+        // Does this user hold the payment permission? Mirrors the matcher
+        // v-hasPermi uses, so the ··· menu's visibility agrees with the
+        // items it would contain.
+        canRecordPayment() {
+            const perms = (this.$store && this.$store.getters && this.$store.getters.permissions) || []
+            return perms.some(p => {
+                if (p === '*:*:*' || p === 'inflow:order:payment') return true
+                const g = String(p).split(':')
+                const r = ['inflow', 'order', 'payment']
+                if (g.length !== r.length) return false
+                return g.every((seg, i) => seg === '*' || seg === r[i])
+            })
+        },
+        // Lines that still have no iMobile SKU in the create-dispatch table.
+        createUnmapped() {
+            return this.createRows.filter(r => !String(r.sku || '').trim()).length
+        },
         // Total credit being applied across all credit notes in the Apply Credit dialog.
         creditsTotal() {
             return this.round2(this.credits.reduce((s, c) => s + (Number(this.creditApply[c._id]) || 0), 0))
@@ -468,15 +654,134 @@ export default {
                 }
             }).catch(() => {})
         },
-        // Link Dispatch — attach an uploaded dispatch record to this order
-        // (reverse direction of the Order Dispatch page's Link action).
-        // Purely a relationship; the record stays on the dispatch page.
-        openLinkDispatch(row) {
+        // Would the ··· menu have anything in it for this row?
+        hasRowMenu(row) {
+            if (!row) return false
+            if (!row.dispatchLinked) return true
+            if (row.status === 'credit') return false
+            return this.canRecordPayment
+        },
+        // Dispatch Status — linked: show the dispatch record's progress;
+        // not linked: offer to create one from this order or link an
+        // existing record. Linking is purely a relationship; the record
+        // lives on the Order Dispatch page.
+        async openDispatchStatus(row) {
             this.linkDispatchOrder = row
             this.linkDispatchSearch = ''
             this.linkDispatchRows = []
+            this.orderDispatch = null
+            this.createRows = []
+            this.dispatchTab = 'create'
             this.linkDispatchVisible = true
-            this.searchDispatchUploads()
+            this.dispatchLoading = true
+            try {
+                const r = await getInflowOrderDispatch(row._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.orderDispatch = r.dispatch || null
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to load dispatch status'))
+            } finally {
+                this.dispatchLoading = false
+            }
+            if (!this.orderDispatch) {
+                this.buildCreateRows(row)
+                this.searchDispatchUploads()
+            }
+        },
+        // Seed the create table from the order's line items, prefilling the
+        // SKUs already known to the SKU Mapping list.
+        async buildCreateRows(row) {
+            this.createLoading = true
+            try {
+                let items = row.lineItems
+                if (!Array.isArray(items)) {
+                    const r = await getInflowOrder(row._id)
+                    items = (r && r.order && r.order.lineItems) || []
+                }
+                const rows = items.map(li => ({
+                    barcode: (li && li.sku) || '',
+                    description: (li && li.description) || '',
+                    quantity: Number(li && li.quantity) || 0,
+                    sku: (li && li.imbSku) || ''
+                })).filter(r => r.quantity > 0)
+                const need = [...new Set(rows.filter(r => !r.sku && r.barcode).map(r => r.barcode))]
+                if (need.length) {
+                    const m = await resolveInflowSkuMap(need)
+                    const map = (m && m.map) || {}
+                    rows.forEach(r => { if (!r.sku && map[r.barcode]) r.sku = map[r.barcode] })
+                }
+                this.createRows = rows
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to prepare the dispatch lines'))
+            } finally {
+                this.createLoading = false
+            }
+        },
+        async createDispatchFromOrder() {
+            const order = this.linkDispatchOrder
+            if (!order || !this.createRows.length) return
+            this.creatingDispatch = true
+            try {
+                const r = await createInflowDispatchUpload({
+                    invoiceNumber: order.invoiceNumber,
+                    orderId: order._id,
+                    // The customer is inherited from the linked order server
+                    // side — sending the name would 404 for any customer not
+                    // in inflow_customers under exactly that spelling.
+                    rows: this.createRows.map(x => ({
+                        barcode: x.barcode,
+                        sku: String(x.sku || '').trim(),
+                        description: x.description,
+                        quantity: x.quantity
+                    }))
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const bits = [`Dispatch record created — ${r.lines} line items`]
+                if (r.unmappedLines) bits.push(`${r.unmappedLines} to map later`)
+                this.$message.success(bits.join(', '))
+                this.markOrderDispatched(order)
+                // Re-open on the status view so the user sees what was created.
+                this.openDispatchStatus(order)
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to create dispatch record'))
+            } finally {
+                this.creatingDispatch = false
+            }
+        },
+        // A dispatch record now exists for this order: reveal the row's
+        // Dispatch Status action and drop the detail dialog's create button
+        // without waiting for a reload.
+        markOrderDispatched(order) {
+            if (!order) return
+            this.$set(order, 'dispatchLinked', true)
+            const row = this.rows.find(r => String(r._id) === String(order._id))
+            if (row) this.$set(row, 'dispatchLinked', true)
+            if (this.detail && String(this.detail._id) === String(order._id)) {
+                this.$set(this.detail, 'dispatchLinked', true)
+            }
+        },
+        goDispatchPage(rec) {
+            this.linkDispatchVisible = false
+            this.$router.push({ path: '/inflow/orderDispatch', query: { search: (rec && rec.invoiceNumber) || '' } })
+        },
+        dispatchTag(s) { return { pending: 'danger', partial: 'warning', dispatched: 'success' }[s] || 'info' },
+        dispatchLabel(s) { return { pending: 'Pending', partial: 'Partial', dispatched: 'Dispatched' }[s] || s },
+        async fetchSkuSuggestions(query, cb) {
+            const q = (query || '').trim()
+            if (!q) { cb([]); return }
+            try {
+                const res = await searchProducts(q)
+                if (!res || !res.success) { cb([]); return }
+                cb((Array.isArray(res.data) ? res.data : []).map(p => ({
+                    name: p.name || p.product_name || p.title || '',
+                    sku: p.sku
+                        || (Array.isArray(p.skus) && p.skus[0] && p.skus[0].sku)
+                        || (p.variants && p.variants[0] && p.variants[0].sku)
+                        || ''
+                })))
+            } catch (e) {
+                cb([])
+            }
         },
         async searchDispatchUploads() {
             this.linkDispatchLoading = true
@@ -497,7 +802,9 @@ export default {
                 const r = await linkInflowDispatchUpload(record._id, { orderId: this.linkDispatchOrder._id })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(`Linked dispatch record ${record.invoiceNumber} to ${this.linkDispatchOrder.invoiceNumber}`)
-                this.linkDispatchVisible = false
+                this.markOrderDispatched(this.linkDispatchOrder)
+                // Show the freshly linked record's status rather than closing.
+                this.openDispatchStatus(this.linkDispatchOrder)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to link'))
             } finally {
@@ -557,6 +864,40 @@ export default {
 .io-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .io-pdf-open { margin-right: 12px; }
 .io-del { color: #F56C6C; }
+.io-more-btn { padding: 0 4px; }
+.el-dropdown { vertical-align: middle; }
 .io-skumap-hint { font-size: 13px; color: #606266; line-height: 1.6; margin-bottom: 12px; }
 .io-linkdisp-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.io-ds-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.io-ds-inv { font-weight: 600; font-size: 15px; color: #303133; }
+.io-ds-progress { font-size: 12px; color: #909399; }
+.io-spacer { flex: 1; }
+.io-ds-create-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.io-batch-lines { margin: 4px 12px; width: calc(100% - 24px); }
+.io-ds-empty {
+    margin-top: 14px;
+    padding: 26px 16px;
+    border: 1px dashed #dcdfe6;
+    border-radius: 8px;
+    background: #fafbfc;
+    text-align: center;
+}
+.io-ds-empty-icon { font-size: 30px; color: #c0c4cc; }
+.io-ds-empty-title { margin-top: 8px; font-size: 14px; color: #606266; font-weight: 500; }
+.io-ds-empty-sub { margin: 4px 0 12px; font-size: 12px; color: #909399; line-height: 1.6; }
+.io-sku-pending ::v-deep .el-input__inner { border-color: #E6A23C; }
+</style>
+
+<style>
+/* Zoho product suggestions for the create-dispatch SKU inputs — unscoped
+   because Element UI teleports the dropdown outside the component root. */
+.io-sku-suggestions { min-width: 460px !important; width: auto !important; }
+.io-sku-suggestions li { line-height: normal !important; padding: 6px 14px !important; }
+.io-sku-suggestions .sku-suggestion { padding: 4px 0; }
+.io-sku-suggestions .sku-suggestion-info { min-width: 0; line-height: 1.4; }
+.io-sku-suggestions .sku-suggestion-name {
+    font-weight: 500; font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.io-sku-suggestions .sku-suggestion-sku { color: #909399; font-size: 12px; }
 </style>
