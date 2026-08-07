@@ -12,32 +12,31 @@
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini" row-key="_id" height="calc(100vh - 210px)">
-            <el-table-column prop="invoiceNumber" label="Invoice #" min-width="180">
+            <el-table-column prop="invoiceNumber" label="Order Dispatch" min-width="180">
                 <template slot-scope="s">
                     <div class="od-inv">
-                        <!-- Sales orders (and manual records linked to one)
-                             jump to the Sales Orders page with the order's
-                             detail dialog opened. -->
-                        <el-link v-if="orderIdOf(s.row)" type="primary" :underline="false" class="od-inv-link"
-                            @click="goOrderDetail(s.row)">{{ s.row.invoiceNumber }}</el-link>
-                        <template v-else>{{ s.row.invoiceNumber }}</template>
-                        <el-tag v-if="s.row.recordType === 'manual'" size="mini" type="warning" class="od-manual-tag">Manual</el-tag>
+                        <!-- Opens this record's dispatch dialog. -->
+                        <el-link type="primary" :underline="false" class="od-inv-link"
+                            @click="openDispatch(s.row)">{{ s.row.invoiceNumber }}</el-link>
                     </div>
                     <div v-if="s.row.vendor" class="od-vendor" :title="s.row.vendor">{{ s.row.vendor }}</div>
                 </template>
             </el-table-column>
             <el-table-column prop="customerName" label="Customer" min-width="170" show-overflow-tooltip>
                 <template slot-scope="s">
-                    <template v-if="s.row.recordType === 'manual'">
-                        <div v-if="s.row.customerName">{{ s.row.customerName }}</div>
-                        <div v-if="s.row.linkedInvoiceNumber" class="od-linked">
-                            <i class="el-icon-connection" /> {{ s.row.linkedInvoiceNumber }}
-                        </div>
-                        <span v-if="!s.row.customerName && !s.row.linkedInvoiceNumber" class="od-dim">
-                            {{ s.row.createdBy ? `Uploaded by ${s.row.createdBy}` : 'Manual upload' }}
-                        </span>
-                    </template>
-                    <template v-else>{{ s.row.customerName || '—' }}</template>
+                    <div v-if="s.row.customerName">{{ s.row.customerName }}</div>
+                    <!-- The linked sales order — jumps to Sales Orders with
+                         that order's detail dialog opened. -->
+                    <el-link v-if="s.row.linkedInvoiceNumber && orderIdOf(s.row)" type="primary" :underline="false"
+                        class="od-linked" @click="goOrderDetail(s.row)">
+                        <i class="el-icon-connection" /> {{ s.row.linkedInvoiceNumber }}
+                    </el-link>
+                    <div v-else-if="s.row.linkedInvoiceNumber" class="od-linked">
+                        <i class="el-icon-connection" /> {{ s.row.linkedInvoiceNumber }}
+                    </div>
+                    <span v-if="!s.row.customerName && !s.row.linkedInvoiceNumber" class="od-dim">
+                        {{ s.row.createdBy ? `Uploaded by ${s.row.createdBy}` : 'Manual upload' }}
+                    </span>
                 </template>
             </el-table-column>
             <el-table-column label="Date" width="110">
@@ -82,7 +81,6 @@
         <el-dialog :visible.sync="dispatchVisible" width="920px" top="4vh" @close="resetDispatch">
             <div v-if="dispatchRecord" slot="title" class="od-dlg-title">
                 Dispatch — {{ dispatchRecord.invoiceNumber }}
-                <el-tag v-if="dispatchRecord.recordType === 'manual'" size="mini" type="warning">Manual</el-tag>
                 <el-tag size="mini" :type="dispatchTag(dispatchRecord.dispatchStatus)">{{ dispatchLabel(dispatchRecord.dispatchStatus) }}</el-tag>
                 <span class="od-dlg-progress">{{ dispatchRecord.dispatchedQty }} / {{ dispatchRecord.orderedQty }} units dispatched</span>
             </div>
@@ -269,6 +267,17 @@
                                             @click="saveTracking(b.row)"
                                         />
                                     </div>
+                                </template>
+                            </el-table-column>
+                            <!-- Zoho stock write-off created when the batch
+                                 was recorded. -->
+                            <el-table-column label="Stock Adj." width="120" align="center">
+                                <template slot-scope="b">
+                                    <el-tag v-if="b.row.inventoryAdjustmentId" size="mini" type="success" effect="plain"
+                                        :title="'Zoho inventory adjustment ' + b.row.inventoryAdjustmentId">Deducted</el-tag>
+                                    <el-tag v-else-if="b.row.inventoryAdjustmentError" size="mini" type="danger" effect="plain"
+                                        :title="b.row.inventoryAdjustmentError">Failed</el-tag>
+                                    <span v-else class="od-dim">—</span>
                                 </template>
                             </el-table-column>
                             <el-table-column label="" width="190" align="center">
@@ -753,10 +762,20 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.applyUpdatedRecord(r.record)
                 this.batchQty = {}
-                const msg = `Batch #${r.batch.batchNo} recorded — ${r.batch.units} units`
-                this.$message.success(r.mappingsRemoved
-                    ? `${msg} · ${r.mappingsRemoved} pending SKU mapping${r.mappingsRemoved === 1 ? '' : 's'} removed`
-                    : msg)
+                const bits = [`Batch #${r.batch.batchNo} recorded — ${r.batch.units} units`]
+                if (r.mappingsRemoved) bits.push(`${r.mappingsRemoved} pending SKU mapping${r.mappingsRemoved === 1 ? '' : 's'} removed`)
+                const adj = r.adjustment || {}
+                if (adj.id) bits.push('stock deducted in Zoho')
+                this.$message.success(bits.join(' · '))
+                // Stock deduction is best-effort — surface a failure clearly
+                // rather than letting it pass as a clean batch.
+                if (adj.error) {
+                    this.$message.warning(`Batch saved, but the Zoho stock deduction failed: ${adj.error}`)
+                } else if (adj.skipped) {
+                    this.$message.warning(`Batch saved, but no stock was deducted — ${adj.message}`)
+                } else if (adj.id && (adj.notFound || []).length) {
+                    this.$message.warning(`Stock deducted, except these SKUs weren't found in Zoho: ${adj.notFound.join(', ')}`)
+                }
                 this.openPackingList(this.dispatchRecord, r.batch)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to record batch'))
@@ -1231,7 +1250,6 @@ export default {
 .od-pager { margin-top: 10px; text-align: right; }
 .od-inv { line-height: 1.3; font-weight: 600; }
 .od-inv-link { font-weight: 600; font-size: inherit; }
-.od-manual-tag { margin-left: 6px; font-weight: normal; }
 .od-vendor { font-size: 11px; color: #909399; line-height: 1.3; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .od-dim { color: #C0C4CC; }
 .od-done { color: #67C23A; font-weight: 600; }
