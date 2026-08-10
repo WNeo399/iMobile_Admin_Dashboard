@@ -1,31 +1,566 @@
 <template>
-    <div class="rs-page">
-        <div class="rs-placeholder">
-            <i class="el-icon-box" />
-            <h2>Stock</h2>
-            <p>Refurbished Phones · Stock — placeholder page. Details to come.</p>
+    <div class="rs-stock app-container">
+        <div class="rs-filters">
+            <el-input v-model="query.search" size="small" clearable class="f-search"
+                placeholder="Search IMEI / serial / model / colour…" prefix-icon="el-icon-search"
+                @keyup.enter.native="reload" @clear="reload" />
+            <el-select v-model="query.grade" size="small" clearable placeholder="Grade" class="f-sel" @change="reload">
+                <el-option v-for="g in gradeFilterOptions" :key="g" :label="g" :value="g" />
+            </el-select>
+            <el-select v-model="query.stockSource" size="small" clearable filterable placeholder="Stock Source" class="f-sel-w" @change="reload">
+                <el-option v-for="l in filters.stockSources" :key="l" :label="l" :value="l" />
+            </el-select>
+            <el-select v-model="query.blackbeltChecked" size="small" clearable placeholder="Blackbelt" class="f-sel" @change="reload">
+                <el-option label="Checked" value="true" />
+                <el-option label="Not checked" value="false" />
+            </el-select>
+            <span class="rs-spacer" />
+            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
+            <el-button size="small" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
         </div>
+
+        <el-table v-loading="loading" :data="rows" border size="mini" height="calc(100vh - 210px)"
+            empty-text="No devices yet — add one to start the register.">
+            <el-table-column prop="imei" label="IMEI" min-width="170">
+                <template slot-scope="s">
+                    <div class="rs-imei"><b>{{ s.row.imei }}</b></div>
+                    <div class="rs-serial">{{ s.row.serialNumber || '—' }}</div>
+                </template>
+            </el-table-column>
+            <el-table-column prop="model" label="Model" min-width="170" show-overflow-tooltip>
+                <template slot-scope="s">{{ s.row.model || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="color" label="Colour" min-width="110" show-overflow-tooltip>
+                <template slot-scope="s">{{ s.row.color || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="storage" label="Storage" width="100" align="center">
+                <template slot-scope="s">{{ s.row.storage || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="grade" label="Grade" width="100" align="center">
+                <template slot-scope="s">
+                    <el-tag v-if="s.row.grade" size="mini" :type="gradeTag(s.row.grade)" effect="plain">{{ s.row.grade }}</el-tag>
+                    <span v-else class="rs-dim">—</span>
+                </template>
+            </el-table-column>
+            <el-table-column label="Battery" width="100" align="center">
+                <template slot-scope="s">
+                    <span v-if="s.row.batteryHealth == null" class="rs-dim">—</span>
+                    <span v-else :class="batteryClass(s.row.batteryHealth)"
+                        :title="s.row.batteryCycleCount != null ? s.row.batteryCycleCount + ' cycles' : ''">
+                        {{ s.row.batteryHealth }}%
+                    </span>
+                </template>
+            </el-table-column>
+            <el-table-column prop="costPrice" label="Cost Price" width="120" align="right">
+                <template slot-scope="s">{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
+            </el-table-column>
+            <el-table-column prop="stockSource" label="Stock Source" min-width="130" show-overflow-tooltip>
+                <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
+            </el-table-column>
+            <!-- Set by who recorded the device (supplier vs our staff) or by
+                 an Incoming Stocks receive — not editable here. -->
+            <el-table-column prop="status" label="Status" width="140" align="center">
+                <template slot-scope="s">
+                    <el-tag v-if="s.row.status" size="mini" effect="plain"
+                        :type="statusTag(s.row.status)">{{ s.row.status }}</el-tag>
+                    <span v-else class="rs-dim">—</span>
+                </template>
+            </el-table-column>
+            <el-table-column label="Blackbelt" width="100" align="center">
+                <template slot-scope="s">
+                    <!-- Read-only: the flag follows the Blackbelt lookup. -->
+                    <i v-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
+                        title="Blackbelt report found" />
+                    <i v-else class="el-icon-error rs-bb-no" title="No Blackbelt report" />
+                </template>
+            </el-table-column>
+            <el-table-column label="" width="110" align="center">
+                <template slot-scope="s">
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openEdit(s.row)">View</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-delete" class="rs-del" @click="remove(s.row)" />
+                </template>
+            </el-table-column>
+        </el-table>
+
+        <div class="rs-pager">
+            <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                :total="total" :page-size="query.pageSize" :page-sizes="[25, 50, 100, 200]"
+                :current-page="query.page" @current-change="onPage" @size-change="onSize" />
+        </div>
+
+        <!-- Add / Edit a device. Staff type only IMEI, grade and cost —
+             model / colour / storage are resolved from the IMEI. -->
+        <el-dialog :title="editRow ? 'Edit Device' : 'Add Device'" :visible.sync="editVisible" width="520px">
+            <div class="rs-dlg">
+                <!-- Existing devices split into Detail / History tabs; a new
+                     device has nothing to audit yet, so no tabs. -->
+                <el-tabs v-if="editRow" v-model="dlgTab" class="rs-tabs">
+                    <el-tab-pane label="Detail" name="detail" />
+                    <el-tab-pane name="history">
+                        <span slot="label">
+                            History
+                            <span v-if="deviceHistory.length" class="rs-tab-count">({{ deviceHistory.length }})</span>
+                        </span>
+                    </el-tab-pane>
+                </el-tabs>
+
+                <template v-if="!editRow || dlgTab === 'detail'">
+                <!-- 1 · IMEI + lookup -->
+                <div class="rs-step-label">IMEI</div>
+                <div class="rs-imei-row">
+                    <el-input
+                        ref="imeiInput"
+                        v-model="form.imei"
+                        size="small"
+                        placeholder="Scan or type the IMEI / serial"
+                        prefix-icon="el-icon-cpu"
+                        clearable
+                        @keyup.enter.native="lookupImei"
+                        @input="onImeiInput"
+                    />
+                    <el-button size="small" type="primary" plain icon="el-icon-search"
+                        :loading="lookingUp" :disabled="!imeiReady" @click="lookupImei">Look up</el-button>
+                </div>
+
+                <!-- 2 · resolved device identity (read-only) -->
+                <div v-if="lookupState === 'ok' || lookupState === 'known'" class="rs-ident">
+                    <div v-if="lookupState === 'known'" class="rs-ident-warn">
+                        <i class="el-icon-warning-outline" /> This IMEI is already in stock — saving will fail. Edit the existing device instead.
+                    </div>
+                    <div v-else-if="form.blackbeltChecked" class="rs-ident-ok">
+                        <i class="el-icon-circle-check" /> Blackbelt report found
+                    </div>
+                    <div class="rs-ident-grid">
+                        <div class="rs-ident-cell"><span>Model</span><b>{{ identModel || '—' }}</b></div>
+                        <div class="rs-ident-cell"><span>Colour</span><b>{{ form.color || '—' }}</b></div>
+                        <div class="rs-ident-cell"><span>Storage</span><b>{{ form.storage || '—' }}</b></div>
+                        <div class="rs-ident-cell">
+                            <span>Battery</span>
+                            <b :class="batteryClass(form.batteryHealth)">
+                                {{ form.batteryHealth == null ? '—' : form.batteryHealth + '%' }}
+                                <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ form.batteryCycleCount }} cycles</span>
+                            </b>
+                        </div>
+                        <div v-if="form.serialNumber" class="rs-ident-cell"><span>Serial</span><b>{{ form.serialNumber }}</b></div>
+                        <div v-if="form.stockSource" class="rs-ident-cell"><span>Stock Source</span><b>{{ form.stockSource }}</b></div>
+                    </div>
+                </div>
+                <el-alert v-else-if="lookupState === 'notConfigured'" type="info" :closable="false" show-icon
+                    class="rs-ident-alert" :title="lookupMessage" />
+                <el-alert v-else-if="lookupState === 'notFound'" type="warning" :closable="false" show-icon
+                    class="rs-ident-alert" :title="lookupMessage" />
+                <el-alert v-else-if="lookupState === 'error'" type="error" :closable="false" show-icon
+                    class="rs-ident-alert" :title="lookupMessage" />
+                <div v-else class="rs-ident-idle">
+                    Enter IMEI to look up device detail
+                </div>
+
+                <!-- 3 · what staff actually enter -->
+                <div class="rs-step-label">Details</div>
+                <el-form label-width="120px" size="small" class="rs-form" @submit.native.prevent>
+                    <el-form-item label="Grade">
+                        <el-radio-group v-model="form.grade" size="small" class="rs-grades">
+                            <el-radio-button v-for="g in gradeOptions" :key="g" :label="g" />
+                        </el-radio-group>
+                    </el-form-item>
+                    <el-form-item label="Cost Price">
+                        <el-input v-model="form.costPrice" class="rs-cost" placeholder="0.00"
+                            @input="onCostInput">
+                            <el-select slot="prepend" v-model="form.currency" class="rs-cur">
+                                <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
+                            </el-select>
+                        </el-input>
+                    </el-form-item>
+                    <el-form-item label="Note">
+                        <el-input v-model="form.note" type="textarea" :rows="2" resize="none" placeholder="Optional" />
+                    </el-form-item>
+                </el-form>
+                </template>
+
+                <!-- Audit trail — every edit, newest first. Mirrors the SQT
+                     case Status History timeline. -->
+                <div v-if="editRow && dlgTab === 'history'" class="rs-history">
+                    <el-timeline v-if="deviceHistory.length">
+                        <el-timeline-item v-for="(h, i) in deviceHistory" :key="i"
+                            :timestamp="histDate(h.at)" placement="top"
+                            :color="h.action === 'created' ? '#67C23A' : '#409EFF'">
+                            <div class="rs-hist-card">
+                                <div>
+                                    <el-tag size="mini" :type="h.action === 'created' ? 'success' : ''" effect="light">
+                                        {{ h.action === 'created' ? 'Created' : 'Updated' }}
+                                    </el-tag>
+                                    <span class="rs-hist-by"><i class="el-icon-user" /> {{ h.by || 'system' }}</span>
+                                </div>
+                                <div v-if="h.action === 'created' && h.note" class="rs-hist-note">{{ h.note }}</div>
+                                <div v-else-if="h.changes && h.changes.length" class="rs-hist-note">
+                                    <div v-for="(c, j) in h.changes" :key="j">{{ changeLine(c) }}</div>
+                                </div>
+                            </div>
+                        </el-timeline-item>
+                    </el-timeline>
+                    <div v-else class="rs-hist-empty">No history recorded for this device yet.</div>
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="editVisible = false">Cancel</el-button>
+                <el-button v-if="!editRow || dlgTab === 'detail'" type="primary" size="small"
+                    :loading="saving" :disabled="!imeiReady" @click="save">Save</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
 <script>
+import { getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice, deleteRefurbDevice, lookupRefurbDevice } from '@/api/refurbished'
+
+// The grading scale we actually use.
+const GRADES = ['A+', 'A', 'B+', 'B', 'C+', 'C']
+// Stock gets bought in several markets — cost is stored with its currency.
+const CURRENCIES = ['AUD', 'CNY', 'HKD']
+const SYMBOLS = { AUD: '$', CNY: '¥', HKD: 'HK$' }
+// Readable names for the fields a history entry can touch.
+const FIELD_LABELS = {
+    imei: 'IMEI', model: 'Model', color: 'Colour', storage: 'Storage', grade: 'Grade',
+    costPrice: 'Cost Price', currency: 'Currency', stockSource: 'Stock Source', status: 'Status',
+    blackbeltChecked: 'Blackbelt', note: 'Note', brand: 'Brand', serialNumber: 'Serial Number',
+    batteryHealth: 'Battery Health', batteryCycleCount: 'Battery Cycles',
+    batteryCapacity: 'Battery Capacity', aNumber: 'A Number', blackbeltReportId: 'Blackbelt Report'
+}
+
 export default {
-    name: 'RefurbishedStock'
+    name: 'RefurbishedStock',
+    data() {
+        return {
+            loading: false,
+            rows: [],
+            total: 0,
+            currencies: CURRENCIES,
+            filters: { models: [], grades: [], stockSources: [], storages: [], colors: [] },
+            query: {
+                page: 1, pageSize: 25, search: '',
+                grade: '', stockSource: '', blackbeltChecked: '',
+                sort: 'createdAt', order: 'desc'
+            },
+            // Add/Edit dialog
+            editVisible: false,
+            editRow: null,
+            dlgTab: 'detail',
+            form: {
+                imei: '', model: '', color: '', storage: '', grade: '',
+                costPrice: '', currency: 'AUD',
+                stockSource: '', blackbeltChecked: false, note: '',
+                brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
+                batteryCapacity: '', aNumber: '', blackbeltReportId: ''
+            },
+            saving: false,
+            // IMEI lookup: idle | ok | known (already in stock) |
+            // notConfigured (API not wired yet) | error
+            lookupState: 'idle',
+            lookupMessage: '',
+            lookingUp: false
+        }
+    },
+    computed: {
+        // A plausible code is enough to enable lookup / save; the backend
+        // does the authoritative check. Letters are allowed because iPads
+        // and Watches only have an alphanumeric Apple serial.
+        imeiReady() {
+            return /^[A-Z0-9]{10,20}$/.test(String(this.form.imei || '').replace(/[\s-]/g, '').toUpperCase())
+        },
+        // Blackbelt reports brand and model separately ("Apple" +
+        // "iPhone 14 Pro"); show them as one line without repeating the brand.
+        identModel() {
+            const brand = String(this.form.brand || '').trim()
+            const model = String(this.form.model || '').trim()
+            if (!brand) return model
+            if (!model) return brand
+            return model.toLowerCase().startsWith(brand.toLowerCase()) ? model : `${brand} ${model}`
+        },
+        // Fixed scale, plus whatever an older record happens to carry so
+        // editing it doesn't silently reassign the grade.
+        gradeOptions() {
+            const g = String(this.form.grade || '').trim()
+            return g && !GRADES.includes(g) ? GRADES.concat(g) : GRADES
+        },
+        gradeFilterOptions() {
+            return [...new Set(GRADES.concat(this.filters.grades))]
+        },
+        deviceHistory() {
+            const h = (this.editRow && this.editRow.history) || []
+            return h.slice().reverse() // newest first
+        }
+    },
+    created() {
+        this.loadFilters()
+        this.load()
+    },
+    activated() {
+        this.load()
+    },
+    methods: {
+        blankForm() {
+            return {
+                imei: '', model: '', color: '', storage: '', grade: '',
+                costPrice: '', currency: 'AUD',
+                stockSource: '', blackbeltChecked: false, note: '',
+                brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
+                batteryCapacity: '', aNumber: '', blackbeltReportId: ''
+            }
+        },
+        async load() {
+            this.loading = true
+            try {
+                const r = await getRefurbDevices(this.query)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.rows = r.rows || []
+                this.total = r.total || 0
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to load devices'))
+            } finally {
+                this.loading = false
+            }
+        },
+        async loadFilters() {
+            try {
+                const r = await getRefurbDeviceFilters()
+                if (r && r.success !== false) {
+                    this.filters = {
+                        models: r.models || [], grades: r.grades || [], stockSources: r.stockSources || [],
+                        storages: r.storages || [], colors: r.colors || []
+                    }
+                }
+            } catch (e) { /* non-fatal — the dropdowns just stay empty */ }
+        },
+        reload() { this.query.page = 1; this.load() },
+        onPage(p) { this.query.page = p; this.load() },
+        onSize(s) { this.query.pageSize = s; this.query.page = 1; this.load() },
+        // ── Add / Edit ───────────────────────────────────────────────
+        openEdit(row) {
+            this.editRow = row
+            this.dlgTab = 'detail'
+            this.form = row
+                ? {
+                    imei: row.imei || '', model: row.model || '', color: row.color || '',
+                    storage: row.storage || '', grade: row.grade || '',
+                    costPrice: row.costPrice == null ? '' : String(row.costPrice),
+                    currency: row.currency || 'AUD',
+                    stockSource: row.stockSource || '', blackbeltChecked: row.blackbeltChecked === true,
+                    note: row.note || '',
+                    brand: row.brand || '', serialNumber: row.serialNumber || '',
+                    batteryHealth: row.batteryHealth == null ? null : row.batteryHealth,
+                    batteryCycleCount: row.batteryCycleCount == null ? null : row.batteryCycleCount,
+                    batteryCapacity: row.batteryCapacity || '', aNumber: row.aNumber || '',
+                    blackbeltReportId: row.blackbeltReportId || ''
+                }
+                : this.blankForm()
+            // An existing device already has its identity — show it as
+            // resolved rather than asking the user to look it up again.
+            this.lookupState = row ? 'ok' : 'idle'
+            this.lookupMessage = ''
+            this.editVisible = true
+            if (!row) {
+                this.$nextTick(() => {
+                    const el = this.$refs.imeiInput
+                    if (el && el.focus) el.focus()
+                })
+            }
+        },
+        // Typing a different IMEI invalidates whatever was resolved before.
+        onImeiInput() {
+            if (this.editRow) return
+            if (this.lookupState !== 'idle') {
+                this.lookupState = 'idle'
+                this.lookupMessage = ''
+                Object.assign(this.form, {
+                    model: '', color: '', storage: '', stockSource: '', brand: '', serialNumber: '',
+                    batteryHealth: null, batteryCycleCount: null, batteryCapacity: '',
+                    aNumber: '', blackbeltReportId: '', blackbeltChecked: false
+                })
+            }
+        },
+        async lookupImei() {
+            if (!this.imeiReady || this.lookingUp) return
+            this.lookingUp = true
+            try {
+                const r = await lookupRefurbDevice(String(this.form.imei || '').replace(/[\s-]/g, ''))
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Lookup failed')
+                const d = r.device || {}
+                Object.assign(this.form, {
+                    imei: d.imei || this.form.imei,
+                    model: d.model || '',
+                    color: d.color || '',
+                    storage: d.storage || '',
+                    stockSource: d.stockSource || '',
+                    brand: d.brand || '',
+                    serialNumber: d.serialNumber || '',
+                    batteryHealth: d.batteryHealth == null ? null : d.batteryHealth,
+                    batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
+                    batteryCapacity: d.batteryCapacity || '',
+                    aNumber: d.aNumber || '',
+                    blackbeltReportId: r.blackbeltReportId || ''
+                })
+                if (r.alreadyInStock) {
+                    this.lookupState = 'known'
+                } else if (r.notConfigured) {
+                    this.lookupState = 'notConfigured'
+                    this.lookupMessage = r.message || 'Blackbelt lookup isn\'t configured.'
+                } else if (r.lookupError) {
+                    this.lookupState = 'error'
+                    this.lookupMessage = r.lookupError
+                } else if (r.found === false) {
+                    this.lookupState = 'notFound'
+                    this.lookupMessage = r.message || 'Blackbelt has no report for this device — enter the details manually or save as is.'
+                } else {
+                    this.lookupState = 'ok'
+                    // A Blackbelt report IS the check — tick it off.
+                    if (r.blackbeltChecked) this.form.blackbeltChecked = true
+                }
+            } catch (e) {
+                this.lookupState = 'error'
+                this.lookupMessage = this.msg(e, 'IMEI lookup failed')
+            } finally {
+                this.lookingUp = false
+            }
+        },
+        async save() {
+            const imei = String(this.form.imei || '').replace(/[\s-]/g, '').trim()
+            if (!imei) { this.$message.warning('IMEI is required.'); return }
+            this.saving = true
+            try {
+                const cost = String(this.form.costPrice || '').trim()
+                const payload = { ...this.form, imei, costPrice: cost === '' ? null : Number(cost) }
+                const r = this.editRow
+                    ? await updateRefurbDevice(this.editRow._id, payload)
+                    : await createRefurbDevice(payload)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.editRow ? 'Device updated' : 'Device added')
+                this.editVisible = false
+                this.loadFilters()
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to save device'))
+            } finally {
+                this.saving = false
+            }
+        },
+        remove(row) {
+            this.$confirm(`Remove device ${row.imei} from stock?`, 'Delete device', {
+                type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel'
+            }).then(async () => {
+                try {
+                    const r = await deleteRefurbDevice(row._id)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$message.success('Device removed')
+                    this.load()
+                } catch (e) {
+                    this.$message.error(this.msg(e, 'Failed to delete device'))
+                }
+            }).catch(() => {})
+        },
+        // Apple treats <80% as "service recommended"; 80-89 is worth a warning.
+        batteryClass(v) {
+            if (v == null) return ''
+            if (v >= 90) return 'rs-batt-good'
+            if (v >= 80) return 'rs-batt-ok'
+            return 'rs-batt-low'
+        },
+        changeLine(c) {
+            return `${FIELD_LABELS[c.field] || c.field}: ${this.histVal(c.field, c.from)} → ${this.histVal(c.field, c.to)}`
+        },
+        histVal(field, v) {
+            if (field === 'blackbeltChecked') return v ? 'Checked' : 'Not checked'
+            if (v === null || v === undefined || v === '') return '—'
+            return String(v)
+        },
+        histDate(v) {
+            const d = new Date(v)
+            return isNaN(d) ? '—' : d.toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            })
+        },
+        statusTag(st) {
+            if (st === 'In Stock') return 'success'
+            if (st === 'Supplier Stock') return 'warning'
+            return '' // Assigned To Exyon — blue
+        },
+        gradeTag(g) {
+            const k = String(g).trim().toUpperCase().charAt(0)
+            if (k === 'A') return 'success'
+            if (k === 'B') return ''
+            if (k === 'C') return 'warning'
+            return 'info'
+        },
+        money(v, cur) {
+            const n = Number(v)
+            if (!isFinite(n)) return '—'
+            const symbol = SYMBOLS[cur] || SYMBOLS.AUD
+            return symbol + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        },
+        // Free-typed amount — keep it to digits and a single decimal point.
+        onCostInput(v) {
+            const clean = String(v == null ? '' : v).replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')
+            if (clean !== v) this.form.costPrice = clean
+        },
+        msg(e, fallback) { return (e.response && e.response.data && e.response.data.message) || e.message || fallback }
+    }
 }
 </script>
 
-<style scoped>
-.rs-page {
-    padding: 24px;
-    min-height: calc(100vh - 84px);
-    background: #f6f8fb;
+<style lang="scss" scoped>
+.rs-stock { padding: 12px 16px; }
+.rs-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.f-search { width: 250px; }
+.f-sel { width: 130px; }
+.f-sel-w { width: 170px; }
+.rs-spacer { flex: 1; }
+.rs-pager { margin-top: 10px; text-align: right; }
+.rs-dim { color: #C0C4CC; }
+.rs-del { color: #F56C6C; }
+.rs-form ::v-deep .el-form-item__label { white-space: nowrap; }
+/* Add / Edit dialog */
+.rs-step-label { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.rs-imei-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.rs-imei-row .el-input { flex: 1; }
+.rs-ident {
+    border: 1px solid #ebeef5; border-radius: 8px; background: #fafbfc;
+    padding: 10px 12px; margin-bottom: 16px;
 }
-.rs-placeholder {
-    text-align: center;
-    color: #909399;
-    padding: 90px 0;
+.rs-ident-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.rs-ident-cell { display: flex; flex-direction: column; line-height: 1.4; min-width: 0; }
+.rs-ident-cell span { font-size: 11px; color: #909399; }
+.rs-ident-cell b { font-size: 13px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-ident-warn { font-size: 12px; color: #E6A23C; margin-bottom: 8px; line-height: 1.5; }
+.rs-ident-ok { font-size: 12px; color: #67C23A; margin-bottom: 8px; line-height: 1.5; }
+.rs-cycles { font-weight: normal; color: #909399; font-size: 11px; }
+/* IMEI over serial number in one column */
+.rs-imei { line-height: 1.35; }
+.rs-serial { font-size: 11px; color: #909399; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
+.rs-grades ::v-deep .el-radio-button__inner { padding: 7px 14px; }
+/* Cost price: currency picker sits in the input's prepend slot. Element
+   already positions a select there, via negative margins that offset the
+   prepend's own padding — overriding that padding breaks the layout, so
+   only the widths belong here. */
+.rs-cost { width: 240px; }
+.rs-cur { width: 92px; }
+.rs-bb-yes { color: #67C23A; font-size: 17px; }
+.rs-bb-no { color: #F56C6C; font-size: 17px; }
+.rs-batt-good { color: #67C23A; font-weight: 600; }
+.rs-batt-ok { color: #E6A23C; font-weight: 600; }
+.rs-batt-low { color: #F56C6C; font-weight: 600; }
+.rs-ident-alert { margin-bottom: 16px; }
+/* Dialog tabs (Detail / History) */
+.rs-tabs { margin-top: -8px; }
+.rs-tabs ::v-deep .el-tabs__header { margin-bottom: 14px; }
+.rs-tab-count { color: #909399; font-weight: normal; }
+/* History — audit-trail timeline, same look as SQT case Status History */
+.rs-history { max-height: 380px; min-height: 120px; overflow-y: auto; padding: 4px 4px 0 4px; }
+.rs-hist-by { margin-left: 10px; color: #909399; font-size: 12px; }
+.rs-hist-note { margin-top: 4px; color: #606266; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.rs-hist-empty { padding: 20px; text-align: center; color: #909399; font-size: 12px; }
+.rs-ident-idle {
+    font-size: 12px; color: #909399; line-height: 1.6;
+    border: 1px dashed #dcdfe6; border-radius: 8px;
+    padding: 12px; margin-bottom: 16px; text-align: center;
 }
-.rs-placeholder i { font-size: 52px; color: #c0c4cc; }
-.rs-placeholder h2 { margin: 16px 0 6px; color: #303133; font-weight: 600; }
-.rs-placeholder p { margin: 0; font-size: 13px; }
 </style>

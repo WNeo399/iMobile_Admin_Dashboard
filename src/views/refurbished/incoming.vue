@@ -1,0 +1,750 @@
+<template>
+    <div class="ri-page app-container">
+        <div class="ri-bar">
+            <span class="ri-title">Incoming Stocks</span>
+            <span class="ri-spacer" />
+            <el-button size="small" type="primary" plain icon="el-icon-upload2" @click="openUpload">Upload List</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="loadBatches">Refresh</el-button>
+        </div>
+
+        <el-table v-loading="loading" :data="batches" border size="mini"
+            empty-text="No incoming batches yet — upload a supplier list to start.">
+            <el-table-column label="Batch" min-width="200">
+                <template slot-scope="s">
+                    <el-button type="text" class="ri-link" @click="openBatch(s.row)">{{ s.row.title }}</el-button>
+                </template>
+            </el-table-column>
+            <el-table-column label="Devices" width="90" align="center">
+                <template slot-scope="s">{{ s.row.summary.total }}</template>
+            </el-table-column>
+            <el-table-column label="In Blackbelt" width="130" align="center">
+                <template slot-scope="s">
+                    <span v-if="s.row.summary.blackbeltPending" class="ri-dim">
+                        checking {{ s.row.summary.total - s.row.summary.blackbeltPending }}/{{ s.row.summary.total }}
+                    </span>
+                    <span v-else>{{ s.row.summary.inBlackbelt }} / {{ s.row.summary.total }}</span>
+                </template>
+            </el-table-column>
+            <el-table-column label="Received" width="110" align="center">
+                <template slot-scope="s">
+                    <span :class="s.row.summary.received === s.row.summary.total ? 'ri-ok' : ''">
+                        {{ s.row.summary.received }} / {{ s.row.summary.total }}
+                    </span>
+                </template>
+            </el-table-column>
+            <el-table-column label="In Stock" width="100" align="center">
+                <template slot-scope="s">{{ s.row.summary.committed }}</template>
+            </el-table-column>
+            <el-table-column label="Stock Source" width="120" align="center">
+                <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="Currency" width="90" align="center">
+                <template slot-scope="s">{{ s.row.currency }}</template>
+            </el-table-column>
+            <el-table-column label="Uploaded" width="160">
+                <template slot-scope="s">
+                    <div>{{ shortDate(s.row.createdAt) }}</div>
+                    <div v-if="s.row.createdBy" class="ri-sub">{{ s.row.createdBy }}</div>
+                </template>
+            </el-table-column>
+            <el-table-column label="" width="150" align="center">
+                <template slot-scope="s">
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openBatch(s.row)">Receive Stock</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-delete" class="ri-del" @click="removeBatch(s.row)" />
+                </template>
+            </el-table-column>
+        </el-table>
+
+        <!-- ── Upload a supplier list ───────────────────────────────── -->
+        <el-dialog title="Upload Incoming List" :visible.sync="uploadVisible" width="720px">
+            <div class="ri-up">
+                <el-form label-width="110px" size="small" class="ri-up-form" @submit.native.prevent>
+                    <el-form-item label="File">
+                        <input ref="uploadFile" type="file" accept=".xlsx,.xls,.csv" class="ri-file"
+                            @change="onFile" />
+                        <div class="ri-hint">
+                            Columns are matched by name: model, color, capacity, IMEI (or serial), battery, price, grade.
+                        </div>
+                    </el-form-item>
+                    <el-form-item label="Title">
+                        <el-input v-model="upload.title" placeholder="e.g. AU260804" maxlength="120" />
+                    </el-form-item>
+                    <el-form-item label="Stock Source">
+                        <el-select v-model="upload.stockSource" placeholder="Select a stock source" style="width: 100%">
+                            <el-option v-for="s in stockSources" :key="s" :label="s" :value="s" />
+                        </el-select>
+                        <div class="ri-hint">Fixed for the batch — receiving won't change it.</div>
+                    </el-form-item>
+                    <el-form-item label="Currency">
+                        <el-radio-group v-model="upload.currency" size="small">
+                            <el-radio-button v-for="c in currencies" :key="c" :label="c" />
+                        </el-radio-group>
+                        <span class="ri-hint ri-inline">Applies to the price column for the whole batch.</span>
+                    </el-form-item>
+                </el-form>
+
+                <div v-if="parsed.rows.length || parsed.bad.length" class="ri-preview">
+                    <div class="ri-preview-head">
+                        <b>{{ parsed.rows.length }}</b> device{{ parsed.rows.length === 1 ? '' : 's' }} ready
+                        <span v-if="parsed.bad.length" class="ri-warn">· {{ parsed.bad.length }} row(s) will be skipped</span>
+                    </div>
+                    <el-table :data="parsed.rows.slice(0, 8)" size="mini" border>
+                        <el-table-column prop="code" label="IMEI / Serial" min-width="150" />
+                        <el-table-column prop="model" label="Model" min-width="110" />
+                        <el-table-column prop="color" label="Colour" min-width="100" />
+                        <el-table-column prop="capacity" label="Capacity" width="90" align="center" />
+                        <el-table-column label="Battery" width="80" align="center">
+                            <template slot-scope="s">{{ s.row.battery == null ? '—' : s.row.battery + '%' }}</template>
+                        </el-table-column>
+                        <el-table-column label="Price" width="100" align="right">
+                            <template slot-scope="s">{{ money(s.row.price, upload.currency) }}</template>
+                        </el-table-column>
+                        <el-table-column label="Grade" width="70" align="center">
+                            <template slot-scope="s">{{ s.row.grade || '—' }}</template>
+                        </el-table-column>
+                    </el-table>
+                    <div v-if="parsed.rows.length > 8" class="ri-hint">…and {{ parsed.rows.length - 8 }} more.</div>
+                    <div v-if="parsed.bad.length" class="ri-bad">
+                        <div v-for="b in parsed.bad.slice(0, 5)" :key="b.row">
+                            Row {{ b.row }}: {{ b.reason }}<template v-if="b.code"> ({{ b.code }})</template>
+                        </div>
+                        <div v-if="parsed.bad.length > 5">…and {{ parsed.bad.length - 5 }} more.</div>
+                    </div>
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="uploadVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="uploading"
+                    :disabled="!parsed.rows.length || !upload.title" @click="submitUpload">
+                    Create Batch
+                </el-button>
+            </span>
+        </el-dialog>
+
+        <!-- ── Stock take ───────────────────────────────────────────── -->
+        <el-dialog :title="batch ? batch.title : ''" :visible.sync="takeVisible" width="1080px"
+            top="4vh" :before-close="onTakeBeforeClose" @closed="onTakeClosed">
+            <div v-if="batch" class="ri-take">
+                <div class="ri-stats">
+                    <div class="ri-stat"><span>Stock Source</span><b>{{ batch.stockSource || '—' }}</b></div>
+                    <div class="ri-stat"><span>Expected</span><b>{{ batch.summary.listed }}</b></div>
+                    <div class="ri-stat"><span>Scanned</span><b class="ri-ok">{{ checkedCodes.length }}</b></div>
+                    <div class="ri-stat"><span>Remaining</span><b>{{ remaining }}</b></div>
+                    <div class="ri-stat"><span>In Blackbelt</span><b>{{ batch.summary.inBlackbelt }}</b></div>
+                    <div class="ri-stat"><span>Added to Stock</span><b>{{ batch.summary.committed }}</b></div>
+                    <div v-if="unlistedCount" class="ri-stat">
+                        <span>Not on list</span><b class="ri-warn">{{ unlistedCount }}</b>
+                    </div>
+                </div>
+
+                <el-alert v-if="batch.summary.blackbeltPending" type="info" :closable="false" show-icon
+                    class="ri-alert">
+                    Checking Blackbelt — {{ batch.summary.total - batch.summary.blackbeltPending }} of
+                    {{ batch.summary.total }} done. You can start scanning now.
+                </el-alert>
+
+                <div class="ri-scan">
+                    <el-input ref="scanInput" v-model="scanCode" size="small" class="ri-scan-input"
+                        placeholder="Scan IMEI or serial…" prefix-icon="el-icon-full-screen" clearable
+                        @keyup.enter.native="doScan" />
+                    <span class="ri-spacer" />
+                    <el-radio-group v-model="lineFilter" size="small">
+                        <el-radio-button label="all">All</el-radio-button>
+                        <el-radio-button label="remaining">Remaining</el-radio-button>
+                        <el-radio-button label="scanned">Scanned</el-radio-button>
+                        <el-radio-button label="received">Received</el-radio-button>
+                    </el-radio-group>
+                </div>
+                <div v-if="scanMessage" :class="['ri-scan-msg', 'ri-msg-' + scanTone]">{{ scanMessage }}</div>
+
+                <el-table :data="visibleLines" border size="mini" height="46vh"
+                    :row-class-name="rowClass" empty-text="Nothing to show for this filter.">
+                    <!-- Ticked by scanning (or by hand when a barcode won't
+                         read); persisted rows are locked. -->
+                    <el-table-column width="44" align="center">
+                        <template slot-scope="s">
+                            <el-checkbox :value="isChecked(s.row)" :disabled="isPersisted(s.row)"
+                                @change="v => toggleCheck(s.row, v)" />
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="IMEI / Serial" min-width="160">
+                        <template slot-scope="s">
+                            <b>{{ s.row.code }}</b>
+                            <el-tag v-if="s.row.unlisted" size="mini" type="warning" effect="plain">not on list</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Model" min-width="140" show-overflow-tooltip>
+                        <template slot-scope="s">{{ bbModel(s.row) || s.row.model || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Colour" min-width="100" show-overflow-tooltip>
+                        <template slot-scope="s">{{ (s.row.bbDevice && s.row.bbDevice.color) || s.row.color || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Capacity" width="90" align="center">
+                        <template slot-scope="s">{{ (s.row.bbDevice && s.row.bbDevice.storage) || s.row.capacity || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Battery" width="80" align="center">
+                        <template slot-scope="s">{{ battery(s.row) == null ? '—' : battery(s.row) + '%' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Price" width="100" align="right">
+                        <template slot-scope="s">{{ money(s.row.price, batch.currency) }}</template>
+                    </el-table-column>
+                    <el-table-column label="Blackbelt" width="95" align="center">
+                        <template slot-scope="s">
+                            <i v-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" title="Report found" />
+                            <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" title="No report" />
+                            <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning ri-warn-i"
+                                :title="s.row.bbMessage || 'Lookup failed'" />
+                            <!-- Local extras are checked when the batch is committed. -->
+                            <span v-else-if="!s.row.bbStatus" class="ri-dim" title="Checked when added to stock">—</span>
+                            <i v-else class="el-icon-loading ri-dim" title="Checking…" />
+                        </template>
+                    </el-table-column>
+                    <!-- Sheet-provided grades are fixed; a device without one
+                         gets picked here and is saved at commit. -->
+                    <el-table-column label="Grade" width="92" align="center">
+                        <template slot-scope="s">
+                            <el-tag v-if="s.row.grade" size="mini" effect="plain">{{ s.row.grade }}</el-tag>
+                            <span v-else-if="isPersisted(s.row)" class="ri-dim">—</span>
+                            <el-select v-else :value="gradePicks[s.row.code] || ''" size="mini" class="ri-grade-sel"
+                                placeholder="—" clearable @input="v => setGrade(s.row, v)">
+                                <el-option v-for="g in grades" :key="g" :label="g" :value="g" />
+                            </el-select>
+                        </template>
+                    </el-table-column>
+                    <!-- "Received" only once Add Received to Stock has run —
+                         a scan on its own is just the ticked checkbox. -->
+                    <el-table-column label="Status" width="130" align="center">
+                        <template slot-scope="s">
+                            <span v-if="s.row.deviceId" class="ri-ok"><i class="el-icon-check" /> Received</span>
+                            <span v-else-if="s.row.alreadyInStock" class="ri-warn" title="This code is already in the register">
+                                already in stock
+                            </span>
+                            <span v-else-if="s.row.received" class="ri-ok"><i class="el-icon-check" /> Received</span>
+                            <span v-else class="ri-dim">—</span>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+            <span slot="footer" class="ri-foot">
+                <el-button v-if="batch && batch.summary.blackbeltUnresolved" size="small" icon="el-icon-refresh"
+                    :loading="rechecking" @click="recheck">Re-check Blackbelt</el-button>
+                <span class="ri-spacer" />
+                <span v-if="checkedCodes.length" class="ri-foot-note">{{ checkedCodes.length }} scanned, not yet added</span>
+                <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">Close</el-button>
+                <!-- Same commit, different destination: stock we keep vs
+                     stock received on Exyon's behalf. -->
+                <el-button size="small" :loading="committing === 'exyon'"
+                    :disabled="!checkedCodes.length || committing === 'stock'"
+                    @click="commit('exyon')">Assign to Exyon</el-button>
+                <el-button type="primary" size="small" :loading="committing === 'stock'"
+                    :disabled="!checkedCodes.length || committing === 'exyon'"
+                    @click="commit()">Received</el-button>
+            </span>
+        </el-dialog>
+    </div>
+</template>
+
+<script>
+import {
+    getIncomingBatches, createIncomingBatch, getIncomingBatch,
+    commitIncoming, recheckIncoming, deleteIncomingBatch
+} from '@/api/refurbished'
+
+const GRADES = ['A+', 'A', 'B+', 'B', 'C+', 'C']
+const CURRENCIES = ['AUD', 'CNY', 'HKD']
+// Where the batch's stock comes from — fixed at upload, stamped on every
+// device received against it.
+const STOCK_SOURCES = ['HK', 'iMobile', 'DICO', 'Exyon']
+const SYMBOLS = { AUD: '$', CNY: '¥', HKD: 'HK$' }
+const CODE_RE = /^[A-Z0-9]{10,20}$/
+
+// Supplier sheets never agree on header spelling or padding, so match on a
+// squashed lowercase form rather than an exact key.
+const COLUMNS = {
+    code: ['imei', 'imeiserial', 'serial', 'serialnumber', 'imeisn', 'sn'],
+    model: ['model', 'modelname', 'device', 'description'],
+    color: ['color', 'colour'],
+    capacity: ['capacity', 'storage', 'memory', 'size'],
+    battery: ['battery', 'batteryhealth', 'bh'],
+    price: ['price', 'cost', 'costprice', 'unitprice'],
+    grade: ['grade', 'condition'],
+    no: ['no', 'number', 'item', 'sn.']
+}
+
+function squash(k) {
+    return String(k == null ? '' : k).toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+export default {
+    name: 'RefurbishedIncoming',
+    data() {
+        return {
+            loading: false,
+            batches: [],
+            grades: GRADES,
+            currencies: CURRENCIES,
+            stockSources: STOCK_SOURCES,
+            // Upload dialog
+            uploadVisible: false,
+            uploading: false,
+            upload: { title: '', currency: 'AUD', stockSource: 'iMobile' },
+            parsed: { rows: [], bad: [] },
+            // Stock take dialog. Scanning is purely local: `checkedCodes`
+            // holds what's been scanned (newest first — the table surfaces
+            // them in this order) and `localExtras` holds rows scanned that
+            // aren't on the supplier's list. Nothing touches the server
+            // until Add Received to Stock.
+            takeVisible: false,
+            batch: null,
+            scanCode: '',
+            scanMessage: '',
+            scanTone: 'ok',
+            lineFilter: 'all',
+            checkedCodes: [],
+            localExtras: [],
+            // Grades picked in the dialog for lines the sheet left blank,
+            // keyed by code. Saved at commit.
+            gradePicks: {},
+            // null | 'stock' | 'exyon' — which commit button is in flight.
+            committing: null,
+            rechecking: false,
+            pollTimer: null
+        }
+    },
+    computed: {
+        remaining() {
+            if (!this.batch) return 0
+            return (this.batch.lines || [])
+                .filter(l => !l.unlisted && !l.received && !l.deviceId && !this.checkedCodes.includes(l.code))
+                .length
+        },
+        unlistedCount() {
+            if (!this.batch) return 0
+            return this.batch.summary.unlisted + this.localExtras.length
+        },
+        // Scanned-but-uncommitted rows float to the top, most recent scan
+        // first; everything else keeps the list's own order.
+        visibleLines() {
+            const all = [...this.localExtras, ...((this.batch && this.batch.lines) || [])]
+            const pos = l => (this.isPersisted(l) ? -1 : this.checkedCodes.indexOf(l.code))
+            const scanned = all.filter(l => pos(l) >= 0).sort((a, b) => pos(a) - pos(b))
+            const rest = all.filter(l => pos(l) < 0)
+            const rows = [...scanned, ...rest]
+            if (this.lineFilter === 'remaining') return rows.filter(l => !this.isChecked(l))
+            // Scanned = ticked this session, not yet committed; Received =
+            // already persisted by an earlier Add Received to Stock.
+            if (this.lineFilter === 'scanned') return rows.filter(l => this.isChecked(l) && !this.isPersisted(l))
+            if (this.lineFilter === 'received') return rows.filter(l => this.isPersisted(l))
+            return rows
+        }
+    },
+    created() {
+        this.loadBatches()
+    },
+    activated() {
+        this.loadBatches()
+    },
+    beforeDestroy() {
+        this.stopPolling()
+    },
+    methods: {
+        // ── Batch list ───────────────────────────────────────────────
+        async loadBatches() {
+            this.loading = true
+            try {
+                const r = await getIncomingBatches()
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.batches = r.rows || []
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to load batches'))
+            } finally {
+                this.loading = false
+            }
+        },
+        removeBatch(row) {
+            const inStock = row.summary.committed
+            const warn = inStock
+                ? `${inStock} device(s) from this batch are already in stock and will stay there. Delete the batch record?`
+                : `Delete "${row.title}"?`
+            this.$confirm(warn, 'Delete batch', {
+                type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel'
+            }).then(async () => {
+                try {
+                    const r = await deleteIncomingBatch(row._id)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$message.success('Batch deleted')
+                    this.loadBatches()
+                } catch (e) {
+                    this.$message.error(this.msg(e, 'Failed to delete'))
+                }
+            }).catch(() => {})
+        },
+
+        // ── Upload ───────────────────────────────────────────────────
+        openUpload() {
+            this.upload = { title: '', currency: 'AUD', stockSource: 'iMobile' }
+            this.parsed = { rows: [], bad: [] }
+            this.uploadVisible = true
+            this.$nextTick(() => {
+                if (this.$refs.uploadFile) this.$refs.uploadFile.value = ''
+            })
+        },
+        async onFile(e) {
+            const file = e.target.files && e.target.files[0]
+            if (!file) return
+            try {
+                const XLSX = await import('xlsx')
+                const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+                const sheet = wb.Sheets[wb.SheetNames[0]]
+                const rows = sheet ? XLSX.utils.sheet_to_json(sheet, { defval: '' }) : []
+                this.parsed = this.mapRows(rows)
+                if (!this.upload.title) {
+                    // "stock AU260804(1).xlsx" → "stock AU260804"
+                    this.upload.title = String(file.name)
+                        .replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)\s*$/, '').trim()
+                }
+                if (!this.parsed.rows.length) {
+                    this.$message.warning('No usable rows found — check the column headings.')
+                }
+            } catch (err) {
+                this.$message.error('Could not read that file')
+            }
+        },
+        // Header names vary between suppliers, so resolve each column once
+        // and then read every row through that map.
+        mapRows(rows) {
+            const out = { rows: [], bad: [] }
+            if (!rows.length) return out
+            const keys = Object.keys(rows[0])
+            const map = {}
+            for (const field of Object.keys(COLUMNS)) {
+                map[field] = keys.find(k => COLUMNS[field].includes(squash(k))) || null
+            }
+            if (!map.code) {
+                out.bad.push({ row: 0, code: '', reason: 'No IMEI / serial column found' })
+                return out
+            }
+            const seen = new Set()
+            rows.forEach((r, i) => {
+                const raw = map.code ? r[map.code] : ''
+                const code = String(raw == null ? '' : raw).replace(/[\s-]/g, '').trim().toUpperCase()
+                if (!code) return // blank filler row — not worth reporting
+                if (!CODE_RE.test(code)) {
+                    out.bad.push({ row: i + 2, code, reason: 'Not a valid IMEI or serial' })
+                    return
+                }
+                if (seen.has(code)) {
+                    out.bad.push({ row: i + 2, code, reason: 'Duplicated in this file' })
+                    return
+                }
+                seen.add(code)
+                out.rows.push({
+                    no: map.no ? this.toNum(r[map.no]) : i + 1,
+                    code,
+                    // Suppliers mix casings ("iphone 13", "space Grey") —
+                    // uppercase so the register reads uniformly.
+                    model: map.model ? String(r[map.model] || '').trim().toUpperCase() : '',
+                    color: map.color ? String(r[map.color] || '').trim().toUpperCase() : '',
+                    capacity: map.capacity ? String(r[map.capacity] || '').trim().toUpperCase() : '',
+                    battery: map.battery ? this.batteryPercent(r[map.battery]) : null,
+                    price: map.price ? this.toNum(r[map.price]) : null,
+                    grade: map.grade ? this.parseGrade(r[map.grade]) : ''
+                })
+            })
+            return out
+        },
+        toNum(v) {
+            if (v === '' || v == null) return null
+            const n = Number(String(v).replace(/[^0-9.-]/g, ''))
+            return isFinite(n) ? n : null
+        },
+        // Sheets mix fractions (0.93, 1) with whole percentages (93, 100).
+        batteryPercent(v) {
+            const n = this.toNum(v)
+            if (n === null || n <= 0) return null
+            const pct = n <= 1 ? Math.round(n * 100) : Math.round(n)
+            return pct > 0 && pct <= 100 ? pct : null
+        },
+        // Grades on our scale come through; anything else stays blank for
+        // the Stock page to fill in later.
+        parseGrade(v) {
+            const g = String(v == null ? '' : v).toUpperCase().replace(/\s+/g, '')
+            return GRADES.includes(g) ? g : ''
+        },
+        async submitUpload() {
+            this.uploading = true
+            try {
+                const r = await createIncomingBatch({
+                    title: this.upload.title,
+                    currency: this.upload.currency,
+                    stockSource: this.upload.stockSource,
+                    rows: this.parsed.rows
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(`Batch created with ${r.accepted} device(s)`)
+                this.uploadVisible = false
+                await this.loadBatches()
+                const created = this.batches.find(b => String(b._id) === String(r.id))
+                if (created) this.openBatch(created)
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to create the batch'))
+            } finally {
+                this.uploading = false
+            }
+        },
+
+        // ── Stock take ───────────────────────────────────────────────
+        async openBatch(row) {
+            this.scanCode = ''
+            this.scanMessage = ''
+            this.lineFilter = 'all'
+            this.checkedCodes = []
+            this.localExtras = []
+            this.gradePicks = {}
+            this.takeVisible = true
+            await this.refreshBatch(row._id)
+            this.focusScan()
+            this.startPolling()
+        },
+        async refreshBatch(id) {
+            try {
+                const r = await getIncomingBatch(id || this.batch._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.batch = r.batch
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to load the batch'))
+            }
+        },
+        // Only while Blackbelt is still working through the list.
+        startPolling() {
+            this.stopPolling()
+            this.pollTimer = setInterval(async () => {
+                if (!this.batch || !this.takeVisible) return this.stopPolling()
+                if (!this.batch.summary.blackbeltPending) return this.stopPolling()
+                await this.refreshBatch()
+            }, 4000)
+        },
+        stopPolling() {
+            if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
+        },
+        // Scans live only in this dialog — warn before throwing them away.
+        onTakeBeforeClose(done) {
+            if (!this.checkedCodes.length) return done()
+            this.$confirm(
+                `${this.checkedCodes.length} scanned device(s) haven't been added to stock yet — close anyway?`,
+                'Unsaved scans',
+                { type: 'warning', confirmButtonText: 'Close', cancelButtonText: 'Stay' }
+            ).then(() => done()).catch(() => {})
+        },
+        onTakeClosed() {
+            this.stopPolling()
+            this.batch = null
+            this.checkedCodes = []
+            this.localExtras = []
+            this.gradePicks = {}
+            this.loadBatches()
+        },
+        focusScan() {
+            this.$nextTick(() => {
+                const el = this.$refs.scanInput
+                if (el && el.focus) el.focus()
+            })
+        },
+        // A scan is entirely local: tick the row's checkbox and float it to
+        // the top. The server hears about it at Add Received to Stock.
+        doScan() {
+            const code = String(this.scanCode || '').replace(/[\s-]/g, '').trim().toUpperCase()
+            this.scanCode = ''
+            this.focusScan()
+            if (!code) return
+            if (!CODE_RE.test(code)) {
+                this.say('error', `"${code}" isn't a valid IMEI or serial`)
+                return
+            }
+            const line = (this.batch.lines || []).find(l => l.code === code)
+            if (line && this.isPersisted(line)) {
+                this.say('warn', `${code} was already received`)
+                return
+            }
+            if (this.checkedCodes.includes(code)) {
+                this.say('warn', `${code} was already scanned`)
+                return
+            }
+            this.checkedCodes.unshift(code)
+            if (line) {
+                if (line.alreadyInStock) this.say('warn', `${code} scanned — but it's already in stock, so it will be skipped`)
+                else this.say('ok', `${code} scanned`)
+            } else if (this.localExtras.some(l => l.code === code)) {
+                this.say('warn', `${code} was already scanned`)
+            } else {
+                this.localExtras.unshift({
+                    no: null, code, model: '', color: '', capacity: '',
+                    battery: null, price: null, grade: '', bbStatus: '',
+                    bbMessage: '', bbReportId: '', bbDevice: null,
+                    received: false, unlisted: true, alreadyInStock: false,
+                    deviceId: null, __local: true
+                })
+                this.say('warn', `${code} isn't on the supplier's list — added as an extra`)
+            }
+        },
+        // Persisted = the server already knows (committed or received) —
+        // the checkbox is locked for those.
+        isPersisted(row) {
+            return !!(row.deviceId || row.received)
+        },
+        isChecked(row) {
+            return this.isPersisted(row) || this.checkedCodes.includes(row.code)
+        },
+        setGrade(row, v) {
+            this.$set(this.gradePicks, row.code, v || '')
+        },
+        toggleCheck(row, v) {
+            if (this.isPersisted(row)) return
+            if (v) {
+                if (!this.checkedCodes.includes(row.code)) this.checkedCodes.unshift(row.code)
+            } else {
+                const i = this.checkedCodes.indexOf(row.code)
+                if (i >= 0) this.checkedCodes.splice(i, 1)
+                // An unchecked extra has no reason to stay on the list.
+                const x = this.localExtras.findIndex(l => l.code === row.code)
+                if (x >= 0) this.localExtras.splice(x, 1)
+            }
+        },
+        async commit(assign) {
+            if (!this.checkedCodes.length || this.committing) return
+            this.committing = assign === 'exyon' ? 'exyon' : 'stock'
+            try {
+                // Oldest scan first, so stock records are created in the
+                // order the devices physically went through.
+                const codes = [...this.checkedCodes].reverse()
+                const grades = {}
+                for (const c of codes) {
+                    if (this.gradePicks[c]) grades[c] = this.gradePicks[c]
+                }
+                const r = await commitIncoming(this.batch._id, { codes, grades, assign: assign || undefined })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const skipped = (r.skipped || []).length
+                this.$message.success(
+                    (assign === 'exyon'
+                        ? `${r.created} device(s) assigned to Exyon`
+                        : `${r.created} device(s) added to stock under ${this.batch.stockSource || 'iMobile'}`) +
+                    (skipped ? ` · ${skipped} skipped` : '')
+                )
+                if (skipped) {
+                    this.$notify.warning({
+                        title: 'Some devices were skipped',
+                        message: r.skipped.map(s => `${s.code}: ${s.reason}`).join('\n'),
+                        duration: 0
+                    })
+                }
+                this.checkedCodes = []
+                this.localExtras = []
+            this.gradePicks = {}
+                await this.refreshBatch()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to add to stock'))
+            } finally {
+                this.committing = null
+            }
+        },
+        async recheck() {
+            this.rechecking = true
+            try {
+                const r = await recheckIncoming(this.batch._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(r.queued ? `Re-checking ${r.queued} device(s)` : (r.message || 'Nothing to re-check'))
+                await this.refreshBatch()
+                this.startPolling()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to re-check'))
+            } finally {
+                this.rechecking = false
+            }
+        },
+
+        // ── Presentation ─────────────────────────────────────────────
+        say(tone, message) {
+            this.scanTone = tone
+            this.scanMessage = message
+        },
+        money(v, cur) {
+            const n = Number(v)
+            if (v == null || !isFinite(n)) return '—'
+            const symbol = SYMBOLS[cur] || SYMBOLS.AUD
+            return symbol + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        },
+        bbModel(row) {
+            const bb = row.bbDevice
+            if (!bb) return ''
+            const brand = String(bb.brand || '').trim()
+            const model = String(bb.model || '').trim()
+            if (!brand) return model
+            if (!model) return brand
+            return model.toLowerCase().startsWith(brand.toLowerCase()) ? model : `${brand} ${model}`
+        },
+        battery(row) {
+            const bb = row.bbDevice
+            if (bb && bb.batteryHealth != null) return bb.batteryHealth
+            return row.battery
+        },
+        rowClass({ row }) {
+            if (this.isPersisted(row)) return 'ri-row-stock'
+            if (this.checkedCodes.includes(row.code)) return 'ri-row-got'
+            if (row.alreadyInStock) return 'ri-row-warn'
+            return ''
+        },
+        shortDate(v) {
+            if (!v) return '—'
+            const d = new Date(v)
+            return isNaN(d) ? '—' : d.toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            })
+        },
+        msg(e, fallback) { return (e.response && e.response.data && e.response.data.message) || e.message || fallback }
+    }
+}
+</script>
+
+<style lang="scss" scoped>
+.ri-page { padding: 12px 16px; }
+.ri-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ri-title { font-size: 15px; font-weight: 600; color: #303133; }
+.ri-spacer { flex: 1; }
+.ri-sub { font-size: 11px; color: #909399; }
+.ri-dim { color: #C0C4CC; }
+.ri-ok { color: #67C23A; font-weight: 600; }
+.ri-warn { color: #E6A23C; font-weight: 600; }
+.ri-del { color: #F56C6C; }
+.ri-link { padding: 0; font-weight: 600; }
+/* Upload dialog */
+.ri-up-form ::v-deep .el-form-item__label { white-space: nowrap; }
+.ri-file { font-size: 12px; }
+.ri-hint { font-size: 11px; color: #909399; line-height: 1.6; }
+.ri-inline { margin-left: 10px; }
+.ri-preview { border-top: 1px solid #ebeef5; padding-top: 12px; margin-top: 4px; }
+.ri-preview-head { font-size: 12px; color: #606266; margin-bottom: 8px; }
+.ri-bad {
+    margin-top: 8px; padding: 8px 10px; border-radius: 4px; background: #fdf6ec;
+    font-size: 11px; color: #E6A23C; line-height: 1.7;
+}
+/* Stock take */
+.ri-stats { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 10px; }
+.ri-stat { display: flex; flex-direction: column; line-height: 1.4; }
+.ri-stat span { font-size: 11px; color: #909399; }
+.ri-stat b { font-size: 18px; color: #303133; }
+.ri-alert { margin-bottom: 10px; }
+.ri-scan { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.ri-scan-input { width: 260px; }
+.ri-scan-msg { font-size: 12px; margin-bottom: 8px; padding: 5px 10px; border-radius: 4px; }
+.ri-msg-ok { background: #f0f9eb; color: #67C23A; }
+.ri-msg-warn { background: #fdf6ec; color: #E6A23C; }
+.ri-msg-error { background: #fef0f0; color: #F56C6C; }
+.ri-yes { color: #67C23A; font-size: 16px; }
+.ri-no { color: #F56C6C; font-size: 16px; }
+.ri-warn-i { color: #E6A23C; font-size: 16px; }
+.ri-foot { display: flex; align-items: center; gap: 10px; }
+.ri-foot-note { font-size: 12px; color: #909399; }
+.ri-take ::v-deep .ri-row-got td { background: #f0f9eb !important; }
+.ri-take ::v-deep .ri-row-stock td { background: #ecf5ff !important; }
+.ri-take ::v-deep .ri-row-warn td { background: #fdf6ec !important; }
+</style>

@@ -172,6 +172,15 @@
                     </el-select>
                     <div class="form-hint">This login sees only this customer's statement.</div>
                 </el-form-item>
+                <!-- Where this supplier's stock comes from. Refurbished
+                     devices they add are stamped with it; iMobile staff get
+                     "iMobile". -->
+                <el-form-item v-if="selectedRoleIsPhoneSupplier" label="Stock Source" prop="stockSource">
+                    <el-select v-model="form.stockSource" clearable placeholder="Select a stock source" style="width: 100%">
+                        <el-option v-for="s in stockSources" :key="s" :label="s" :value="s" />
+                    </el-select>
+                    <div class="form-hint">Used as the stock source on refurbished devices this user adds.</div>
+                </el-form-item>
                 <el-form-item label="Active" prop="active">
                     <el-switch v-model="form.active" />
                 </el-form-item>
@@ -215,6 +224,7 @@ function emptyForm() {
         role: '',
         shopIds: [],
         inflowCustomerName: '',
+        stockSource: '',
         active: true
     }
 }
@@ -235,6 +245,9 @@ export default {
             roleGroups: [],
             shops: [],
             inflowCustomers: [],
+            // Same list the Incoming Stocks upload offers — a stock source
+            // means the same thing in both places.
+            stockSources: ['HK', 'iMobile', 'DICO', 'Exyon'],
             // queryParams.role holds the comma-separated role(s) the
             // backend should filter on. The tree drives this — the inline
             // search bar no longer shows a Role dropdown.
@@ -283,6 +296,9 @@ export default {
         },
         selectedRoleIsInflowCustomer() {
             return this.form.role === 'inflow-customer'
+        },
+        selectedRoleIsPhoneSupplier() {
+            return this.form.role === 'phone-supplier'
         },
         // Bridges the single-shop select to the form.shopIds array so the
         // model stays a consistent array type regardless of role.
@@ -428,6 +444,7 @@ export default {
                 role: row.role || '',
                 shopIds: (row.shopIds || []).map(String),
                 inflowCustomerName: row.inflowCustomerName || '',
+                stockSource: row.stockSource || '',
                 active: row.active !== false
             }
             this.dialogTitle = 'Edit User'
@@ -483,6 +500,9 @@ export default {
                     }
                     if (this.selectedRoleIsInflowCustomer) {
                         payload.inflowCustomerName = this.form.inflowCustomerName || ''
+                    }
+                    if (this.selectedRoleIsPhoneSupplier) {
+                        payload.stockSource = this.form.stockSource || ''
                     }
                     if (this.form._id) {
                         await updateUser(this.form._id, payload)

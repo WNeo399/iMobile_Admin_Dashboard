@@ -466,14 +466,14 @@ export const moduleRoutes = [
     ]
   },
   {
-    // Refurbished Phones — rebuilt around the Stock page (the old Scraper /
+    // Refurbished Device — rebuilt around the Stock page (the old Scraper /
     // AI pages now live under ExEngine and System). refurb:stock:view =
     // admin + iMobile Admin (refurb:*:*); grant it to widen.
     path: "/refurbishedPhones",
     component: Layout,
     redirect: "noRedirect",
     alwaysShow: true,
-    meta: { title: "Refurbished Phones", icon: "el-icon-mobile-phone" },
+    meta: { title: "Refurbished Device", icon: "el-icon-mobile-phone" },
     children: [
       {
         path: "/refurbished/stock",
@@ -483,6 +483,19 @@ export const moduleRoutes = [
           title: "Stock",
           icon: "el-icon-box",
           permissions: ["refurb:stock:view"]
+        }
+      },
+      {
+        // Supplier shipments counted in by the warehouse, then pushed into
+        // Stock under the iMobile location. exclusiveRoles = strict match,
+        // so this is Admin-only until we decide who else needs it.
+        path: "/refurbished/incoming",
+        component: (resolve) => require(["@/views/refurbished/incoming"], resolve),
+        name: "RefurbishedIncoming",
+        meta: {
+          title: "Incoming Stocks",
+          icon: "el-icon-download",
+          exclusiveRoles: ["admin"]
         }
       }
     ]
