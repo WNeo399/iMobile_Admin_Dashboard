@@ -147,6 +147,10 @@
                     <el-input ref="scanInput" v-model="scanCode" size="small" class="ri-scan-input"
                         placeholder="Scan IMEI or serial…" prefix-icon="el-icon-full-screen" clearable
                         @keyup.enter.native="doScan" />
+                    <!-- For shipments trusted without a unit-by-unit scan. -->
+                    <el-button size="small" plain icon="el-icon-finished" :disabled="!selectableCount"
+                        @click="selectAllRemaining">Select All Remaining<template v-if="selectableCount"> ({{ selectableCount }})</template></el-button>
+                    <el-button v-if="checkedCodes.length" size="small" plain @click="clearSelection">Clear</el-button>
                     <span class="ri-spacer" />
                     <el-radio-group v-model="lineFilter" size="small">
                         <el-radio-button label="all">All</el-radio-button>
@@ -321,6 +325,13 @@ export default {
         unlistedCount() {
             if (!this.batch) return 0
             return this.batch.summary.unlisted + this.localExtras.length
+        },
+        // Listed devices that are neither received nor selected yet.
+        selectableCount() {
+            if (!this.batch) return 0
+            return (this.batch.lines || [])
+                .filter(l => !this.isPersisted(l) && !this.checkedCodes.includes(l.code))
+                .length
         },
         // Scanned-but-uncommitted rows float to the top, most recent scan
         // first; everything else keeps the list's own order.
@@ -597,6 +608,21 @@ export default {
         },
         setGrade(row, v) {
             this.$set(this.gradePicks, row.code, v || '')
+        },
+        // Tick every unreceived listed device at once. Appended after any
+        // hand-scanned rows, in list order, so real scans keep the top.
+        selectAllRemaining() {
+            const add = (this.batch.lines || [])
+                .filter(l => !this.isPersisted(l) && !this.checkedCodes.includes(l.code))
+                .map(l => l.code)
+            if (!add.length) return
+            this.checkedCodes = this.checkedCodes.concat(add)
+            this.say('ok', `${add.length} device(s) selected`)
+        },
+        clearSelection() {
+            this.checkedCodes = []
+            this.localExtras = []
+            this.scanMessage = ''
         },
         toggleCheck(row, v) {
             if (this.isPersisted(row)) return

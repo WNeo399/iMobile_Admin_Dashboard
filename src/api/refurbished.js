@@ -59,8 +59,10 @@ export function getIncomingBatch(id) {
 }
 // Scanning is client-side; this is the one write of a stock take — the
 // scanned codes are marked received and turned into stock records together.
+// A bulk receive touches every device, and any unlisted extras get a live
+// Blackbelt lookup, so it gets far more than the 10s default timeout.
 export function commitIncoming(id, data) {
-  return request({ url: `/refurbished/incoming/${id}/commit`, method: 'post', data })
+  return request({ url: `/refurbished/incoming/${id}/commit`, method: 'post', data, timeout: 120000 })
 }
 export function recheckIncoming(id) {
   return request({ url: `/refurbished/incoming/${id}/recheck`, method: 'post' })
