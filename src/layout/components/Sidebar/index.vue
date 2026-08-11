@@ -4,11 +4,10 @@
         <el-scrollbar :class="settings.sideTheme" wrap-class="scrollbar-wrapper">
             <el-menu
                 :default-active="activeMenu"
-                :default-openeds="defaultOpeneds"
                 :collapse="isCollapse"
                 :background-color="settings.sideTheme === 'theme-dark' ? variables.menuBackground : variables.menuLightBackground"
                 :text-color="settings.sideTheme === 'theme-dark' ? variables.menuColor : variables.menuLightColor"
-                :unique-opened="false"
+                :unique-opened="true"
                 :active-text-color="settings.theme"
                 :collapse-transition="false"
                 mode="vertical"
@@ -43,13 +42,6 @@ export default {
                 return meta.activeMenu
             }
             return path
-        },
-        // Submenu paths that should be open on first render. Combined with
-        // unique-opened:false above, this leaves the iMobile group expanded
-        // so its children (Inventory → Stock Monitoring / Collections) are
-        // visible without an extra click.
-        defaultOpeneds() {
-            return ['/imobile', '/imobile/inventory']
         },
         showLogo() {
             return this.$store.state.settings.sidebarLogo

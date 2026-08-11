@@ -91,141 +91,6 @@ export const constantRoutes = [
 // `meta.permissions` lists the permission(s) that grant access to a route.
 export const moduleRoutes = [
   {
-    // ExEngine group — Devices + Accessories sub-sections. Structure scaffold;
-    // pages are placeholders for now. NOTE: no permissions/roles set yet, so it
-    // group renders for anyone whose permissions keep at least one child:
-    // Devices/Accessories are exengine:* (admin-only), Scraper is
-    // refurb:offer:view (admin, iMobile Admin, Phone Supplier).
-    path: "/exengine",
-    component: Layout,
-    redirect: "noRedirect",
-    hidden: false,
-    alwaysShow: true,
-    meta: { title: "ExEngine", icon: "el-icon-cpu" },
-    children: [
-      {
-        path: "devices",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Devices", icon: "el-icon-mobile-phone" },
-        children: [
-          {
-            path: "/exengine/devices/insights",
-            component: (resolve) => require(["@/views/exengine/devices/insights/index"], resolve),
-            name: "ExEngineInsights",
-            // Admin-only for now — only admin's wildcard carries exengine:*.
-            meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["exengine:insights:view"] }
-          }
-        ]
-      },
-      {
-        path: "accessories",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Accessories", icon: "el-icon-headset" },
-        children: [
-          {
-            // Placeholder so the Accessories tab renders — rename / replace when
-            // its real pages are defined.
-            path: "/exengine/accessories/overview",
-            component: (resolve) => require(["@/views/exengine/accessories/overview/index"], resolve),
-            name: "ExEngineAccessoriesOverview",
-            meta: { title: "Overview", icon: "el-icon-menu", permissions: ["exengine:accessories:view"] }
-          }
-        ]
-      },
-      {
-        // Scraper — scraped refurbished-market data (Reebelo / JB) from the
-        // external MySQL DB. Moved here from the retired Refurbished Phones
-        // group; the /refurbished/* URLs are kept so links keep working.
-        path: "scraper",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Scraper", icon: "el-icon-connection" },
-        children: [
-          {
-            path: "/refurbished/scraper/dashboard",
-            component: (resolve) => require(["@/views/refurbished/dashboard"], resolve),
-            name: "RefurbishedDashboard",
-            meta: {
-              title: "Dashboard",
-              icon: "el-icon-data-analysis",
-              permissions: ["refurb:offer:view"]
-            }
-          },
-          {
-            path: "/refurbished/scraper/reebelo",
-            component: (resolve) => require(["@/views/refurbished/list"], resolve),
-            name: "RefurbishedList",
-            meta: {
-              title: "Reebelo",
-              icon: "el-icon-tickets",
-              permissions: ["refurb:offer:view"]
-            }
-          }
-        ]
-      }
-    ]
-  },
-  {
-    // Consignment — devices placed with partner shops. Insights + Shops are
-    // admin-side; Devices is shared with the consignment-shop logins (whose
-    // data is scoped server-side to their own shop).
-    path: "/consignment",
-    component: Layout,
-    redirect: "noRedirect",
-    hidden: false,
-    alwaysShow: true,
-    meta: { title: "Consignment", icon: "el-icon-box" },
-    children: [
-      {
-        path: "insights",
-        component: (resolve) => require(["@/views/consignment/insights"], resolve),
-        name: "ConsignmentInsights",
-        meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
-      },
-      {
-        path: "devices",
-        component: (resolve) => require(["@/views/consignment/devices"], resolve),
-        name: "ConsignmentDevices",
-        meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
-      },
-      {
-        path: "shops",
-        component: (resolve) => require(["@/views/consignment/shops"], resolve),
-        name: "ConsignmentShops",
-        meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
-      }
-    ]
-  },
-  {
-    // Blackbelt — admin-only for now (only admin's wildcard carries
-    // blackbelt:*). Page contents to be defined; placeholders meanwhile.
-    path: "/blackbelt",
-    component: Layout,
-    redirect: "noRedirect",
-    hidden: false,
-    alwaysShow: true,
-    meta: { title: "Blackbelt", icon: "el-icon-medal" },
-    children: [
-      {
-        path: "accounts",
-        component: (resolve) => require(["@/views/blackbelt/accounts"], resolve),
-        name: "BlackbeltAccounts",
-        meta: { title: "Accounts", icon: "el-icon-office-building", permissions: ["blackbelt:account:view"] }
-      },
-      {
-        path: "invoices",
-        component: (resolve) => require(["@/views/blackbelt/invoices"], resolve),
-        name: "BlackbeltInvoices",
-        meta: { title: "Invoices", icon: "el-icon-tickets", permissions: ["blackbelt:invoice:view"] }
-      }
-    ]
-  },
-  {
     // iMobile group — top-level umbrella for iMobile-specific modules.
     // New modules (Sales, Customers, etc.) can be added as siblings of
     // `inventory` later without touching the deepest leaves.
@@ -466,36 +331,67 @@ export const moduleRoutes = [
     ]
   },
   {
-    // Refurbished Device — rebuilt around the Stock page (the old Scraper /
-    // AI pages now live under ExEngine and System). refurb:stock:view =
-    // admin + iMobile Admin (refurb:*:*); grant it to widen.
-    path: "/refurbishedPhones",
+    path: "/sqt",
     component: Layout,
     redirect: "noRedirect",
+    hidden: false,
     alwaysShow: true,
-    meta: { title: "Refurbished Device", icon: "el-icon-mobile-phone" },
+    meta: { title: "SQT", icon: "el-icon-s-cooperation" },
     children: [
       {
-        path: "/refurbished/stock",
-        component: (resolve) => require(["@/views/refurbished/stock"], resolve),
-        name: "RefurbishedStock",
+        path: "cases",
+        component: (resolve) => require(["@/views/sqt/cases/index"], resolve),
+        name: "SqtCases",
         meta: {
-          title: "Stock",
-          icon: "el-icon-box",
-          permissions: ["refurb:stock:view"]
+          title: "Cases",
+          icon: "el-icon-tickets",
+          permissions: ["sqt:case:list"]
         }
       },
       {
-        // Supplier shipments counted in by the warehouse, then pushed into
-        // Stock under the iMobile location. exclusiveRoles = strict match,
-        // so this is Admin-only until we decide who else needs it.
-        path: "/refurbished/incoming",
-        component: (resolve) => require(["@/views/refurbished/incoming"], resolve),
-        name: "RefurbishedIncoming",
+        // Return tracking dashboard — outstanding parts/devices to recover
+        // from shops on terminal cases. HQ-only (sqt:case:trackReturn), so the
+        // menu link is hidden from shop roles.
+        path: "returns",
+        component: (resolve) => require(["@/views/sqt/returns/index"], resolve),
+        name: "SqtReturns",
         meta: {
-          title: "Incoming Stocks",
-          icon: "el-icon-download",
-          exclusiveRoles: ["admin"]
+          title: "Returns",
+          icon: "el-icon-refresh-left",
+          permissions: ["sqt:case:trackReturn"]
+        }
+      },
+      {
+        path: "shops",
+        component: (resolve) => require(["@/views/sqt/shops/index"], resolve),
+        name: "SqtShops",
+        meta: {
+          title: "Shops",
+          icon: "el-icon-office-building",
+          permissions: ["sqt:shop:list"]
+        }
+      },
+      {
+        path: "models",
+        component: (resolve) => require(["@/views/sqt/models/index"], resolve),
+        name: "SqtModels",
+        meta: {
+          title: "Models",
+          // CPU icon reads as "device spec sheet" and keeps Models visually
+          // distinct from the iMobile parent (which uses mobile-phone).
+          icon: "el-icon-cpu",
+          permissions: ["sqt:model:list"]
+        }
+      },
+      {
+        path: "models/:id",
+        component: (resolve) => require(["@/views/sqt/models/detail"], resolve),
+        name: "SqtModelDetail",
+        hidden: true,
+        meta: {
+          title: "Model Detail",
+          activeMenu: "/sqt/models",
+          permissions: ["sqt:model:list"]
         }
       }
     ]
@@ -633,68 +529,172 @@ export const moduleRoutes = [
     ]
   },
   {
-    path: "/sqt",
+    // Refurbished Device — rebuilt around the Stock page (the old Scraper /
+    // AI pages now live under ExEngine and System). refurb:stock:view =
+    // admin + iMobile Admin (refurb:*:*); grant it to widen.
+    path: "/refurbishedPhones",
+    component: Layout,
+    redirect: "noRedirect",
+    alwaysShow: true,
+    meta: { title: "Refurbished Device", icon: "el-icon-mobile-phone" },
+    children: [
+      {
+        path: "/refurbished/stock",
+        component: (resolve) => require(["@/views/refurbished/stock"], resolve),
+        name: "RefurbishedStock",
+        meta: {
+          title: "Stock",
+          icon: "el-icon-box",
+          permissions: ["refurb:stock:view"]
+        }
+      },
+      {
+        // Supplier shipments counted in by the warehouse, then pushed into
+        // Stock under the iMobile location. exclusiveRoles = strict match,
+        // so this is Admin-only until we decide who else needs it.
+        path: "/refurbished/incoming",
+        component: (resolve) => require(["@/views/refurbished/incoming"], resolve),
+        name: "RefurbishedIncoming",
+        meta: {
+          title: "Incoming Stocks",
+          icon: "el-icon-download",
+          exclusiveRoles: ["admin"]
+        }
+      }
+    ]
+  },
+  {
+    // Blackbelt — admin-only for now (only admin's wildcard carries
+    // blackbelt:*). Page contents to be defined; placeholders meanwhile.
+    path: "/blackbelt",
     component: Layout,
     redirect: "noRedirect",
     hidden: false,
     alwaysShow: true,
-    meta: { title: "SQT", icon: "el-icon-s-cooperation" },
+    meta: { title: "Blackbelt", icon: "el-icon-medal" },
     children: [
       {
-        path: "cases",
-        component: (resolve) => require(["@/views/sqt/cases/index"], resolve),
-        name: "SqtCases",
-        meta: {
-          title: "Cases",
-          icon: "el-icon-tickets",
-          permissions: ["sqt:case:list"]
-        }
+        path: "accounts",
+        component: (resolve) => require(["@/views/blackbelt/accounts"], resolve),
+        name: "BlackbeltAccounts",
+        meta: { title: "Accounts", icon: "el-icon-office-building", permissions: ["blackbelt:account:view"] }
       },
       {
-        // Return tracking dashboard — outstanding parts/devices to recover
-        // from shops on terminal cases. HQ-only (sqt:case:trackReturn), so the
-        // menu link is hidden from shop roles.
-        path: "returns",
-        component: (resolve) => require(["@/views/sqt/returns/index"], resolve),
-        name: "SqtReturns",
-        meta: {
-          title: "Returns",
-          icon: "el-icon-refresh-left",
-          permissions: ["sqt:case:trackReturn"]
-        }
+        path: "invoices",
+        component: (resolve) => require(["@/views/blackbelt/invoices"], resolve),
+        name: "BlackbeltInvoices",
+        meta: { title: "Invoices", icon: "el-icon-tickets", permissions: ["blackbelt:invoice:view"] }
+      }
+    ]
+  },
+  {
+    // ExEngine group — Devices + Accessories sub-sections. Structure scaffold;
+    // pages are placeholders for now. NOTE: no permissions/roles set yet, so it
+    // group renders for anyone whose permissions keep at least one child:
+    // Devices/Accessories are exengine:* (admin-only), Scraper is
+    // refurb:offer:view (admin, iMobile Admin, Phone Supplier).
+    path: "/exengine",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "ExEngine", icon: "el-icon-cpu" },
+    children: [
+      {
+        path: "devices",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Devices", icon: "el-icon-mobile-phone" },
+        children: [
+          {
+            path: "/exengine/devices/insights",
+            component: (resolve) => require(["@/views/exengine/devices/insights/index"], resolve),
+            name: "ExEngineInsights",
+            // Admin-only for now — only admin's wildcard carries exengine:*.
+            meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["exengine:insights:view"] }
+          }
+        ]
+      },
+      {
+        path: "accessories",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Accessories", icon: "el-icon-headset" },
+        children: [
+          {
+            // Placeholder so the Accessories tab renders — rename / replace when
+            // its real pages are defined.
+            path: "/exengine/accessories/overview",
+            component: (resolve) => require(["@/views/exengine/accessories/overview/index"], resolve),
+            name: "ExEngineAccessoriesOverview",
+            meta: { title: "Overview", icon: "el-icon-menu", permissions: ["exengine:accessories:view"] }
+          }
+        ]
+      },
+      {
+        // Scraper — scraped refurbished-market data (Reebelo / JB) from the
+        // external MySQL DB. Moved here from the retired Refurbished Phones
+        // group; the /refurbished/* URLs are kept so links keep working.
+        path: "scraper",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Scraper", icon: "el-icon-connection" },
+        children: [
+          {
+            path: "/refurbished/scraper/dashboard",
+            component: (resolve) => require(["@/views/refurbished/dashboard"], resolve),
+            name: "RefurbishedDashboard",
+            meta: {
+              title: "Dashboard",
+              icon: "el-icon-data-analysis",
+              permissions: ["refurb:offer:view"]
+            }
+          },
+          {
+            path: "/refurbished/scraper/reebelo",
+            component: (resolve) => require(["@/views/refurbished/list"], resolve),
+            name: "RefurbishedList",
+            meta: {
+              title: "Reebelo",
+              icon: "el-icon-tickets",
+              permissions: ["refurb:offer:view"]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    // Consignment — devices placed with partner shops. Insights + Shops are
+    // admin-side; Devices is shared with the consignment-shop logins (whose
+    // data is scoped server-side to their own shop).
+    path: "/consignment",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "Consignment", icon: "el-icon-box" },
+    children: [
+      {
+        path: "insights",
+        component: (resolve) => require(["@/views/consignment/insights"], resolve),
+        name: "ConsignmentInsights",
+        meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
+      },
+      {
+        path: "devices",
+        component: (resolve) => require(["@/views/consignment/devices"], resolve),
+        name: "ConsignmentDevices",
+        meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
       },
       {
         path: "shops",
-        component: (resolve) => require(["@/views/sqt/shops/index"], resolve),
-        name: "SqtShops",
-        meta: {
-          title: "Shops",
-          icon: "el-icon-office-building",
-          permissions: ["sqt:shop:list"]
-        }
-      },
-      {
-        path: "models",
-        component: (resolve) => require(["@/views/sqt/models/index"], resolve),
-        name: "SqtModels",
-        meta: {
-          title: "Models",
-          // CPU icon reads as "device spec sheet" and keeps Models visually
-          // distinct from the iMobile parent (which uses mobile-phone).
-          icon: "el-icon-cpu",
-          permissions: ["sqt:model:list"]
-        }
-      },
-      {
-        path: "models/:id",
-        component: (resolve) => require(["@/views/sqt/models/detail"], resolve),
-        name: "SqtModelDetail",
-        hidden: true,
-        meta: {
-          title: "Model Detail",
-          activeMenu: "/sqt/models",
-          permissions: ["sqt:model:list"]
-        }
+        component: (resolve) => require(["@/views/consignment/shops"], resolve),
+        name: "ConsignmentShops",
+        meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
       }
     ]
   },
