@@ -132,7 +132,7 @@
                 <!-- Line items with live batch column (display order: scanned
                      line on top, completed lines at the bottom on open) -->
                 <el-table ref="linesTable" :data="displayLines" size="mini" border max-height="380" :row-class-name="lineRowClass">
-                    <el-table-column label="iMobile SKU" min-width="200">
+                    <el-table-column label="iMobile SKU" min-width="150">
                         <template slot-scope="li">
                             <!--
                                 Same inline editor as the SKU Mapping page:
@@ -186,10 +186,10 @@
                             </template>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Barcode" min-width="125" show-overflow-tooltip>
+                    <el-table-column label="Barcode" min-width="100" show-overflow-tooltip>
                         <template slot-scope="li">{{ li.row.sku || '—' }}</template>
                     </el-table-column>
-                    <el-table-column label="Description" min-width="210" show-overflow-tooltip>
+                    <el-table-column label="Description" min-width="285" show-overflow-tooltip>
                         <template slot-scope="li">{{ li.row.description || '—' }}</template>
                     </el-table-column>
                     <el-table-column label="Ordered" width="76" align="right">
@@ -347,8 +347,9 @@
         <!-- Upload List — create a manual dispatch record from an Excel file -->
         <el-dialog title="Upload Dispatch List" :visible.sync="uploadVisible" width="600px">
             <div class="od-up-hint">
-                Upload an Excel file with <b>SKU</b> (iMobile warehouse SKU), <b>Barcode</b>,
-                <b>Description</b> and <b>Quantity</b> columns
+                Upload an Excel file with <b>Description</b> and <b>Quantity</b> columns.
+                <b>SKU</b> (iMobile warehouse SKU) and <b>Barcode</b> are optional —
+                lines without a barcode can't be scanned, only recorded by hand.
             </div>
             <el-form label-width="100px" size="small" class="od-up-form" @submit.native.prevent>
                 <el-form-item label="Sales Order">
@@ -456,7 +457,7 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping } from '@/api/inflow'
+import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName } from '@/utils/dispatchPackingListPdf'
 
@@ -801,12 +802,13 @@ export default {
             this.$set(this.dispatchRecord, 'dispatchedQty', dispatched)
             this.$set(this.dispatchRecord, 'dispatchStatus', dispatched <= 0 ? 'pending' : dispatched < ordered ? 'partial' : 'dispatched')
         },
-        // ── Inline barcode mapping in the dispatch dialog ────────────
-        // Any line with a barcode can be mapped (or re-mapped) here — the
-        // save goes into the global SKU Mapping list AND stamps matching
-        // lines on dispatch records (never on sales orders).
+        // ── Inline SKU editing in the dispatch dialog ────────────────
+        // Any line can take a SKU here. With a barcode the save goes into
+        // the global SKU Mapping list AND stamps matching lines on dispatch
+        // records (never on sales orders); without one there's nothing to
+        // hang a mapping on, so the SKU lands on this line only.
         canMapLine(li) {
-            return !!(li && li.sku)
+            return !!li
         },
         skuDraft(row) {
             const d = this.skuDrafts[row.__idx]
@@ -840,6 +842,16 @@ export default {
             const barcode = line.sku
             this.savingLineIdx = idx
             try {
+                if (!barcode) {
+                    // No barcode → nothing to map globally. The SKU lands on
+                    // this one line and SKU Mapping is left alone.
+                    const r = await setInflowDispatchLineSku(this.dispatchRecord._id, { lineIndex: idx, sku })
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$set(line, 'imbSku', sku)
+                    this.$delete(this.skuDrafts, idx)
+                    this.$message.success('SKU saved on this line')
+                    return
+                }
                 const r = await saveInflowSkuMapping({
                     barcode,
                     sku,
@@ -1075,20 +1087,16 @@ export default {
                 const skuKey = key('sku')
                 const descKey = key('description')
                 const qtyKey = key('quantity')
-                // Description and Quantity columns are required — SKU and
-                // Barcode are both optional (each row just needs one of the
-                // two; rows without a SKU import as unmapped + a pending
-                // mapping). Name every required column that's missing.
+                // Only Description and Quantity columns are required — SKU
+                // and Barcode are both fully optional. Rows without them
+                // import as description-only lines (recordable by hand, not
+                // scannable). Name every required column that's missing.
                 const missing = [
                     !descKey && '"Description"',
                     !qtyKey && '"Quantity"'
                 ].filter(Boolean)
                 if (missing.length) {
                     this.$message.warning(`The file is missing the ${missing.join(', ')} column${missing.length > 1 ? 's' : ''}.`)
-                    return
-                }
-                if (!skuKey && !barcodeKey) {
-                    this.$message.warning('The file needs a "SKU" or a "Barcode" column (or both).')
                     return
                 }
                 const parsed = []
@@ -1098,16 +1106,12 @@ export default {
                     // newlines in real files — normalise hard.
                     const sku = skuKey ? String(r[skuKey] == null ? '' : r[skuKey]).trim() : ''
                     const barcode = barcodeKey ? String(r[barcodeKey] == null ? '' : r[barcodeKey]).trim() : ''
+                    const description = String(r[descKey] == null ? '' : r[descKey]).trim()
                     const quantity = Number(r[qtyKey])
-                    if ((!sku && !barcode) || !isFinite(quantity) || quantity <= 0) { skipped++; continue }
-                    parsed.push({
-                        sku,
-                        quantity,
-                        barcode,
-                        description: String(r[descKey] == null ? '' : r[descKey]).trim()
-                    })
+                    if ((!sku && !barcode && !description) || !isFinite(quantity) || quantity <= 0) { skipped++; continue }
+                    parsed.push({ sku, quantity, barcode, description })
                 }
-                if (!parsed.length) { this.$message.warning('No usable rows — every row needs a positive Quantity and a SKU or Barcode.'); return }
+                if (!parsed.length) { this.$message.warning('No usable rows — every row needs a positive Quantity and a SKU, Barcode or Description.'); return }
                 this.uploadRows = parsed
                 this.uploadSkipped = skipped
             } catch (err) {

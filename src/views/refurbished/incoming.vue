@@ -17,14 +17,6 @@
             <el-table-column label="Devices" width="90" align="center">
                 <template slot-scope="s">{{ s.row.summary.total }}</template>
             </el-table-column>
-            <el-table-column label="In Blackbelt" width="130" align="center">
-                <template slot-scope="s">
-                    <span v-if="s.row.summary.blackbeltPending" class="ri-dim">
-                        checking {{ s.row.summary.total - s.row.summary.blackbeltPending }}/{{ s.row.summary.total }}
-                    </span>
-                    <span v-else>{{ s.row.summary.inBlackbelt }} / {{ s.row.summary.total }}</span>
-                </template>
-            </el-table-column>
             <el-table-column label="Received" width="110" align="center">
                 <template slot-scope="s">
                     <span :class="s.row.summary.received === s.row.summary.total ? 'ri-ok' : ''">
@@ -137,10 +129,14 @@
                     </div>
                 </div>
 
-                <el-alert v-if="batch.summary.blackbeltPending" type="info" :closable="false" show-icon
-                    class="ri-alert">
+                <el-alert v-if="sweepRunning" type="info" :closable="false" show-icon class="ri-alert">
                     Checking Blackbelt — {{ batch.summary.total - batch.summary.blackbeltPending }} of
-                    {{ batch.summary.total }} done. You can start scanning now.
+                    {{ batch.summary.total }} done. You can keep scanning.
+                </el-alert>
+                <el-alert v-else-if="batch.summary.blackbeltPending" type="info" :closable="false" show-icon
+                    class="ri-alert">
+                    {{ batch.summary.blackbeltPending }} device(s) haven't been checked against Blackbelt —
+                    select rows and use the Check Blackbelt button below.
                 </el-alert>
 
                 <div class="ri-scan">
@@ -162,13 +158,16 @@
                 <div v-if="scanMessage" :class="['ri-scan-msg', 'ri-msg-' + scanTone]">{{ scanMessage }}</div>
 
                 <el-table :data="visibleLines" border size="mini" height="46vh"
-                    :row-class-name="rowClass" empty-text="Nothing to show for this filter.">
-                    <!-- Ticked by scanning (or by hand when a barcode won't
-                         read); persisted rows are locked. -->
+                    :row-key="r => r.code" :row-class-name="rowClass"
+                    empty-text="Nothing to show for this filter." @row-click="onRowClick">
+                    <!-- Ticked by scanning or by clicking anywhere on the row;
+                         persisted rows are locked. The checkbox is display
+                         only — the row click is the single toggle path, which
+                         is what keeps its state honest when rows reorder. -->
                     <el-table-column width="44" align="center">
                         <template slot-scope="s">
-                            <el-checkbox :value="isChecked(s.row)" :disabled="isPersisted(s.row)"
-                                @change="v => toggleCheck(s.row, v)" />
+                            <el-checkbox class="ri-row-check" :value="isChecked(s.row)"
+                                :disabled="isPersisted(s.row)" />
                         </template>
                     </el-table-column>
                     <el-table-column label="IMEI / Serial" min-width="160">
@@ -200,7 +199,8 @@
                                 :title="s.row.bbMessage || 'Lookup failed'" />
                             <!-- Local extras are checked when the batch is committed. -->
                             <span v-else-if="!s.row.bbStatus" class="ri-dim" title="Checked when added to stock">—</span>
-                            <i v-else class="el-icon-loading ri-dim" title="Checking…" />
+                            <i v-else-if="sweepRunning" class="el-icon-loading ri-dim" title="Checking…" />
+                            <span v-else class="ri-dim" title="Not checked yet">—</span>
                         </template>
                     </el-table-column>
                     <!-- Sheet-provided grades are fixed; a device without one
@@ -230,19 +230,34 @@
                 </el-table>
             </div>
             <span slot="footer" class="ri-foot">
-                <el-button v-if="batch && batch.summary.blackbeltUnresolved" size="small" icon="el-icon-refresh"
-                    :loading="rechecking" @click="recheck">Re-check Blackbelt</el-button>
+                <el-button v-if="batch && (checkableCount || sweepRunning)" size="small" icon="el-icon-connection"
+                    :loading="rechecking" :disabled="sweepRunning || !checkableCount"
+                    @click="recheck">{{ sweepRunning ? 'Checking…' : `Check Blackbelt (${checkableCount})` }}</el-button>
                 <span class="ri-spacer" />
                 <span v-if="checkedCodes.length" class="ri-foot-note">{{ checkedCodes.length }} scanned, not yet added</span>
                 <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">Close</el-button>
-                <!-- Same commit, different destination: stock we keep vs
-                     stock received on Exyon's behalf. -->
-                <el-button size="small" :loading="committing === 'exyon'"
-                    :disabled="!checkedCodes.length || committing === 'stock'"
-                    @click="commit('exyon')">Assign to Exyon</el-button>
-                <el-button type="primary" size="small" :loading="committing === 'stock'"
-                    :disabled="!checkedCodes.length || committing === 'exyon'"
-                    @click="commit()">Received</el-button>
+                <el-button type="primary" size="small" :disabled="!checkedCodes.length"
+                    @click="openReceive">Received</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- ── Receive confirmation ─────────────────────────────────── -->
+        <!-- The location is asked here, with no preselection, so it's a
+             conscious choice rather than a footer control nobody notices. -->
+        <el-dialog title="Receive Stock" :visible.sync="receiveVisible" width="380px" append-to-body>
+            <div class="ri-recv">
+                <div class="ri-recv-line">
+                    <b>{{ checkedCodes.length }}</b> device(s) will be added to stock.
+                </div>
+                <div class="ri-recv-label">Location</div>
+                <el-select v-model="receiveLocation" placeholder="Select a location" style="width: 100%">
+                    <el-option v-for="l in receiveLocations" :key="l" :label="l" :value="l" />
+                </el-select>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="receiveVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="committing" :disabled="!receiveLocation"
+                    @click="commit">Confirm</el-button>
             </span>
         </el-dialog>
     </div>
@@ -309,8 +324,12 @@ export default {
             // Grades picked in the dialog for lines the sheet left blank,
             // keyed by code. Saved at commit.
             gradePicks: {},
-            // null | 'stock' | 'exyon' — which commit button is in flight.
-            committing: null,
+            // Receive confirmation popup — the location is deliberately not
+            // preselected so it's always an explicit choice.
+            receiveVisible: false,
+            receiveLocation: '',
+            receiveLocations: ['iMobile', 'Assigned To Exyon'],
+            committing: false,
             rechecking: false,
             pollTimer: null
         }
@@ -325,6 +344,20 @@ export default {
         unlistedCount() {
             if (!this.batch) return 0
             return this.batch.summary.unlisted + this.localExtras.length
+        },
+        sweepRunning() {
+            return !!(this.batch && this.batch.blackbelt && this.batch.blackbelt.running)
+        },
+        // Selected rows that Blackbelt hasn't answered "found" for — what a
+        // Check Blackbelt click will actually look up. Local extras are
+        // excluded: they don't exist server-side until commit.
+        checkableCount() {
+            if (!this.batch) return 0
+            const byCode = new Map((this.batch.lines || []).map(l => [l.code, l]))
+            return this.checkedCodes.filter(c => {
+                const l = byCode.get(c)
+                return l && l.bbStatus !== 'found'
+            }).length
         },
         // Listed devices that are neither received nor selected yet.
         selectableCount() {
@@ -526,12 +559,12 @@ export default {
                 this.$message.error(this.msg(e, 'Failed to load the batch'))
             }
         },
-        // Only while Blackbelt is still working through the list.
+        // Only while a Blackbelt sweep is actually running.
         startPolling() {
             this.stopPolling()
             this.pollTimer = setInterval(async () => {
                 if (!this.batch || !this.takeVisible) return this.stopPolling()
-                if (!this.batch.summary.blackbeltPending) return this.stopPolling()
+                if (!this.sweepRunning) return this.stopPolling()
                 await this.refreshBatch()
             }, 4000)
         },
@@ -636,9 +669,24 @@ export default {
                 if (x >= 0) this.localExtras.splice(x, 1)
             }
         },
-        async commit(assign) {
-            if (!this.checkedCodes.length || this.committing) return
-            this.committing = assign === 'exyon' ? 'exyon' : 'stock'
+        onRowClick(row, column, event) {
+            if (this.isPersisted(row)) return
+            // Clicks inside real controls (the grade select) keep their own
+            // behavior; everywhere else on the row toggles the selection.
+            if (event && event.target && event.target.closest &&
+                event.target.closest('.el-select, .el-select-dropdown, input:not(.el-checkbox__original), button, a')) {
+                return
+            }
+            this.toggleCheck(row, !this.checkedCodes.includes(row.code))
+        },
+        openReceive() {
+            if (!this.checkedCodes.length) return
+            this.receiveLocation = ''
+            this.receiveVisible = true
+        },
+        async commit() {
+            if (!this.checkedCodes.length || this.committing || !this.receiveLocation) return
+            this.committing = true
             try {
                 // Oldest scan first, so stock records are created in the
                 // order the devices physically went through.
@@ -647,13 +695,11 @@ export default {
                 for (const c of codes) {
                     if (this.gradePicks[c]) grades[c] = this.gradePicks[c]
                 }
-                const r = await commitIncoming(this.batch._id, { codes, grades, assign: assign || undefined })
+                const r = await commitIncoming(this.batch._id, { codes, grades, location: this.receiveLocation })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const skipped = (r.skipped || []).length
                 this.$message.success(
-                    (assign === 'exyon'
-                        ? `${r.created} device(s) assigned to Exyon`
-                        : `${r.created} device(s) added to stock under ${this.batch.stockSource || 'iMobile'}`) +
+                    `${r.created} device(s) received to ${this.receiveLocation}` +
                     (skipped ? ` · ${skipped} skipped` : '')
                 )
                 if (skipped) {
@@ -663,22 +709,24 @@ export default {
                         duration: 0
                     })
                 }
+                this.receiveVisible = false
                 this.checkedCodes = []
                 this.localExtras = []
-            this.gradePicks = {}
+                this.gradePicks = {}
                 await this.refreshBatch()
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to add to stock'))
             } finally {
-                this.committing = null
+                this.committing = false
             }
         },
         async recheck() {
+            if (!this.checkableCount) return
             this.rechecking = true
             try {
-                const r = await recheckIncoming(this.batch._id)
+                const r = await recheckIncoming(this.batch._id, { codes: this.checkedCodes })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(r.queued ? `Re-checking ${r.queued} device(s)` : (r.message || 'Nothing to re-check'))
+                this.$message.success(r.queued ? `Checking ${r.queued} device(s) against Blackbelt` : (r.message || 'Nothing to check'))
                 await this.refreshBatch()
                 this.startPolling()
             } catch (e) {
@@ -769,7 +817,14 @@ export default {
 .ri-no { color: #F56C6C; font-size: 16px; }
 .ri-warn-i { color: #E6A23C; font-size: 16px; }
 .ri-foot { display: flex; align-items: center; gap: 10px; }
+/* Receive confirmation popup */
+.ri-recv-line { font-size: 13px; color: #303133; margin-bottom: 14px; }
+.ri-recv-label { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
 .ri-foot-note { font-size: 12px; color: #909399; }
+/* Row click is the toggle — the checkbox only displays the state, and the
+   pointer cursor advertises the click. */
+.ri-row-check { pointer-events: none; }
+.ri-take ::v-deep .el-table__row { cursor: pointer; }
 .ri-take ::v-deep .ri-row-got td { background: #f0f9eb !important; }
 .ri-take ::v-deep .ri-row-stock td { background: #ecf5ff !important; }
 .ri-take ::v-deep .ri-row-warn td { background: #fdf6ec !important; }

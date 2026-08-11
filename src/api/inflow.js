@@ -41,6 +41,10 @@ export function getInflowDispatch(query) {
 export function setInflowDispatchQty(id, data) {
   return request({ url: `/inflow/dispatch/${id}/qty`, method: 'post', data })
 }
+// Set the SKU on one barcode-less line only — no SKU Mapping record.
+export function setInflowDispatchLineSku(id, data) {
+  return request({ url: `/inflow/dispatch/${id}/line-sku`, method: 'post', data })
+}
 // Record one warehouse dispatch batch (scanned picks): { lines: [{lineIndex, qty}], type? }
 export function createInflowDispatchBatch(id, data) {
   return request({ url: `/inflow/dispatch/${id}/batch`, method: 'post', data })

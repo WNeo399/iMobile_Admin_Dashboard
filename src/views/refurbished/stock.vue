@@ -10,9 +10,8 @@
             <el-select v-model="query.stockSource" size="small" clearable filterable placeholder="Stock Source" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.stockSources" :key="l" :label="l" :value="l" />
             </el-select>
-            <el-select v-model="query.blackbeltChecked" size="small" clearable placeholder="Blackbelt" class="f-sel" @change="reload">
-                <el-option label="Checked" value="true" />
-                <el-option label="Not checked" value="false" />
+            <el-select v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
+                <el-option v-for="l in filters.locations" :key="l" :label="l" :value="l" />
             </el-select>
             <span class="rs-spacer" />
             <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
@@ -58,20 +57,21 @@
             <el-table-column prop="stockSource" label="Stock Source" min-width="130" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
             </el-table-column>
-            <!-- Set by who recorded the device (supplier vs our staff) or by
-                 an Incoming Stocks receive — not editable here. -->
-            <el-table-column prop="status" label="Status" width="140" align="center">
+            <!-- Set by who recorded the device (supplier vs our staff) or
+                 picked when receiving through Incoming Stocks. -->
+            <el-table-column prop="location" label="Location" width="140" align="center">
                 <template slot-scope="s">
-                    <el-tag v-if="s.row.status" size="mini" effect="plain"
-                        :type="statusTag(s.row.status)">{{ s.row.status }}</el-tag>
+                    <el-tag v-if="s.row.location" size="mini" effect="plain"
+                        :type="locationTag(s.row.location)">{{ s.row.location }}</el-tag>
                     <span v-else class="rs-dim">—</span>
                 </template>
             </el-table-column>
             <el-table-column label="Blackbelt" width="100" align="center">
                 <template slot-scope="s">
-                    <!-- Read-only: the flag follows the Blackbelt lookup. -->
+                    <!-- Read-only: the flag follows the Blackbelt lookup.
+                         The tooltip carries the report's verdict. -->
                     <i v-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
-                        title="Blackbelt report found" />
+                        :title="s.row.blackbeltStatus || 'Blackbelt report found'" />
                     <i v-else class="el-icon-error rs-bb-no" title="No Blackbelt report" />
                 </template>
             </el-table-column>
@@ -91,12 +91,16 @@
 
         <!-- Add / Edit a device. Staff type only IMEI, grade and cost —
              model / colour / storage are resolved from the IMEI. -->
-        <el-dialog :title="editRow ? 'Edit Device' : 'Add Device'" :visible.sync="editVisible" width="520px">
+        <!-- The report tab reproduces an A4-ish document, so it gets a wider
+             dialog than the entry form needs. -->
+        <el-dialog :title="editRow ? 'Device Detail' : 'Add Device'" :visible.sync="editVisible"
+            :width="dlgTab === 'report' ? '780px' : '520px'">
             <div class="rs-dlg">
                 <!-- Existing devices split into Detail / History tabs; a new
                      device has nothing to audit yet, so no tabs. -->
                 <el-tabs v-if="editRow" v-model="dlgTab" class="rs-tabs">
                     <el-tab-pane label="Detail" name="detail" />
+                    <el-tab-pane v-if="editRow.blackbeltReportId" label="Blackbelt Report" name="report" />
                     <el-tab-pane name="history">
                         <span slot="label">
                             History
@@ -106,7 +110,56 @@
                 </el-tabs>
 
                 <template v-if="!editRow || dlgTab === 'detail'">
-                <!-- 1 · IMEI + lookup -->
+                <!-- Existing device: the IMEI / serial is the register's key
+                     and can't be changed, so it renders as a header, not an
+                     input. -->
+                <template v-if="editRow">
+                    <div class="rs-view-head">
+                        <div class="rs-view-imei">
+                            <b>{{ form.imei }}</b>
+                            <el-tag v-if="editRow.location" size="mini" effect="plain"
+                                :type="locationTag(editRow.location)">{{ editRow.location }}</el-tag>
+                            <el-tag v-if="form.stockSource" size="mini" effect="plain" type="info">{{ form.stockSource }}</el-tag>
+                        </div>
+                        <div class="rs-view-sub">
+                            {{ identModel || 'Unknown model' }}<template v-if="form.color"> · {{ form.color }}</template><template v-if="form.storage"> · {{ form.storage }}</template>
+                        </div>
+                        <!-- Report availability — the verdict itself lives in
+                             the Blackbelt Report tab. -->
+                        <div class="rs-bb-line">
+                            <template v-if="editRow.blackbeltReportId">
+                                <i class="el-icon-success rs-bb-yes" />
+                                <span class="rs-bb-ok-text">Blackbelt report ready</span>
+                            </template>
+                            <template v-else>
+                                <i class="el-icon-error rs-bb-no" />
+                                <span class="rs-dim">No Blackbelt report</span>
+                                <el-button size="mini" type="primary" plain class="rs-bb-check-btn"
+                                    :loading="bbChecking" @click="bbCheck">Check Blackbelt</el-button>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="rs-ident">
+                        <div class="rs-ident-grid">
+                            <div class="rs-ident-cell"><span>Serial</span><b>{{ form.serialNumber || '—' }}</b></div>
+                            <div class="rs-ident-cell">
+                                <span>Battery</span>
+                                <b :class="batteryClass(form.batteryHealth)">
+                                    {{ form.batteryHealth == null ? '—' : form.batteryHealth + '%' }}
+                                    <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ form.batteryCycleCount }} cycles</span>
+                                </b>
+                            </div>
+                            <div class="rs-ident-cell"><span>A Number</span><b>{{ form.aNumber || '—' }}</b></div>
+                            <div class="rs-ident-cell">
+                                <span>Added</span>
+                                <b>{{ histDate(editRow.createdAt) }}<span v-if="editRow.createdBy" class="rs-cycles"> · {{ editRow.createdBy }}</span></b>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- New device: IMEI-first entry with Blackbelt lookup -->
+                <template v-else>
                 <div class="rs-step-label">IMEI</div>
                 <div class="rs-imei-row">
                     <el-input
@@ -123,7 +176,7 @@
                         :loading="lookingUp" :disabled="!imeiReady" @click="lookupImei">Look up</el-button>
                 </div>
 
-                <!-- 2 · resolved device identity (read-only) -->
+                <!-- resolved device identity (read-only) -->
                 <div v-if="lookupState === 'ok' || lookupState === 'known'" class="rs-ident">
                     <div v-if="lookupState === 'known'" class="rs-ident-warn">
                         <i class="el-icon-warning-outline" /> This IMEI is already in stock — saving will fail. Edit the existing device instead.
@@ -155,8 +208,9 @@
                 <div v-else class="rs-ident-idle">
                     Enter IMEI to look up device detail
                 </div>
+                </template>
 
-                <!-- 3 · what staff actually enter -->
+                <!-- what staff actually enter -->
                 <div class="rs-step-label">Details</div>
                 <el-form label-width="120px" size="small" class="rs-form" @submit.native.prevent>
                     <el-form-item label="Grade">
@@ -201,6 +255,75 @@
                     </el-timeline>
                     <div v-else class="rs-hist-empty">No history recorded for this device yet.</div>
                 </div>
+
+                <!-- Full Blackbelt report, fetched live by the stored id and
+                     laid out like Blackbelt's own Analyst Report PDF -->
+                <div v-if="editRow && dlgTab === 'report'" v-loading="reportLoading" class="rs-report">
+                    <template v-if="report">
+                        <div class="rs-report-head">
+                            <div>
+                                <div class="rs-report-title">Analyst Report</div>
+                                <div class="rs-report-id">
+                                    Report #{{ report.analyst.reportId || editRow.blackbeltReportId }}<template
+                                        v-if="report.analyst.finishDate"> · {{ report.analyst.finishDate }}</template>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rs-rep-sec">Device Information</div>
+                        <div class="rs-rep-grid">
+                            <div v-for="c in reportDeviceRows" :key="c[0]"
+                                :class="['rs-rep-cell', c[2] && 'rs-rep-wide']">
+                                <span class="rs-rep-label">{{ c[0] }}:</span>
+                                <span class="rs-rep-value" :title="c[1]">{{ c[1] }}</span>
+                            </div>
+                        </div>
+
+                        <div class="rs-rep-sec">Battery Information</div>
+                        <div class="rs-rep-grid">
+                            <div v-for="c in reportBatteryRows" :key="c[0]" class="rs-rep-cell">
+                                <span class="rs-rep-label">{{ c[0] }}:</span>
+                                <span class="rs-rep-value"
+                                    :class="c[0] === 'Health' ? batteryClass(parseInt(c[1])) : ''"
+                                    :title="c[1]">{{ c[1] }}</span>
+                            </div>
+                        </div>
+
+                        <div class="rs-rep-sec">Device Testing Information</div>
+                        <div class="rs-rep-grid rs-rep-tests">
+                            <div v-for="t in report.tests" :key="t.name" class="rs-rep-cell">
+                                <span class="rs-rep-label">{{ prettyName(t.name) }}:</span>
+                                <i :class="['rs-rep-vicon', testIcon(t.result), testClass(t.result)]" :title="t.result" />
+                            </div>
+                        </div>
+                        <div class="rs-legend">
+                            <span><i class="el-icon-success rs-verdict-pass" /> PASS</span>
+                            <span><i class="el-icon-error rs-verdict-fail" /> FAIL</span>
+                            <span><i class="el-icon-question rs-verdict-na" /> NOT TESTED</span>
+                        </div>
+
+                        <template v-if="report.parts.length">
+                            <div class="rs-rep-sec">Genuine Parts</div>
+                            <div class="rs-rep-grid rs-rep-tests">
+                                <div v-for="p in report.parts" :key="p.name" class="rs-rep-cell">
+                                    <span class="rs-rep-label">{{ prettyName(p.name) }}:</span>
+                                    <span :class="['rs-rep-verdict', p.status === 'Genuine' ? 'rs-verdict-pass' : 'rs-verdict-warn']">
+                                        {{ p.status || p.result || '—' }}
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div class="rs-rep-sec">Analyst Information</div>
+                        <div class="rs-rep-grid">
+                            <div v-for="c in reportAnalystRows" :key="c[0]" class="rs-rep-cell">
+                                <span class="rs-rep-label">{{ c[0] }}:</span>
+                                <span class="rs-rep-value" :title="c[1]">{{ c[1] }}</span>
+                            </div>
+                        </div>
+                    </template>
+                    <div v-else-if="!reportLoading" class="rs-hist-empty">{{ reportError || 'No report loaded.' }}</div>
+                </div>
             </div>
             <span slot="footer">
                 <el-button size="small" @click="editVisible = false">Cancel</el-button>
@@ -212,7 +335,10 @@
 </template>
 
 <script>
-import { getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice, deleteRefurbDevice, lookupRefurbDevice } from '@/api/refurbished'
+import {
+    getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
+    deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt
+} from '@/api/refurbished'
 
 // The grading scale we actually use.
 const GRADES = ['A+', 'A', 'B+', 'B', 'C+', 'C']
@@ -222,7 +348,7 @@ const SYMBOLS = { AUD: '$', CNY: '¥', HKD: 'HK$' }
 // Readable names for the fields a history entry can touch.
 const FIELD_LABELS = {
     imei: 'IMEI', model: 'Model', color: 'Colour', storage: 'Storage', grade: 'Grade',
-    costPrice: 'Cost Price', currency: 'Currency', stockSource: 'Stock Source', status: 'Status',
+    costPrice: 'Cost Price', currency: 'Currency', stockSource: 'Stock Source', location: 'Location',
     blackbeltChecked: 'Blackbelt', note: 'Note', brand: 'Brand', serialNumber: 'Serial Number',
     batteryHealth: 'Battery Health', batteryCycleCount: 'Battery Cycles',
     batteryCapacity: 'Battery Capacity', aNumber: 'A Number', blackbeltReportId: 'Blackbelt Report'
@@ -236,22 +362,28 @@ export default {
             rows: [],
             total: 0,
             currencies: CURRENCIES,
-            filters: { models: [], grades: [], stockSources: [], storages: [], colors: [] },
+            filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [] },
             query: {
                 page: 1, pageSize: 25, search: '',
-                grade: '', stockSource: '', blackbeltChecked: '',
+                grade: '', stockSource: '', location: '',
                 sort: 'createdAt', order: 'desc'
             },
             // Add/Edit dialog
             editVisible: false,
             editRow: null,
             dlgTab: 'detail',
+            // Blackbelt report (Report tab) — fetched lazily per device.
+            report: null,
+            reportLoading: false,
+            reportError: '',
+            // Per-device Blackbelt re-check in flight
+            bbChecking: false,
             form: {
                 imei: '', model: '', color: '', storage: '', grade: '',
                 costPrice: '', currency: 'AUD',
                 stockSource: '', blackbeltChecked: false, note: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
-                batteryCapacity: '', aNumber: '', blackbeltReportId: ''
+                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: ''
             },
             saving: false,
             // IMEI lookup: idle | ok | known (already in stock) |
@@ -289,6 +421,53 @@ export default {
         deviceHistory() {
             const h = (this.editRow && this.editRow.history) || []
             return h.slice().reverse() // newest first
+        },
+        // Rows mirror Blackbelt's Analyst Report PDF; the third element
+        // marks values too long for half a row (they span the full width).
+        reportDeviceRows() {
+            const d = (this.report && this.report.device) || {}
+            return [
+                ['Manufacturer', d.manufacturer],
+                ['Model', d.model && d.modelNumber ? `${d.model} (${d.modelNumber})` : (d.model || d.modelNumber)],
+                ['Operating System', d.os], ['Version', d.osVersion],
+                ['Serial Number', d.serialNumber], ['IMEI/MEID', d.imei],
+                ['IMEI 2', d.imei2],
+                ['A Number', d.aNumber], ['Device Storage', d.storage],
+                ['RAM', d.ram], ['Device Color', d.color],
+                ['MLB Serial Number', d.mlbSerial], ['Region Info', d.region],
+                ['FMIP', d.fmip], ['MDM Status', d.mdmStatus],
+                ['CPU Name', d.cpuName], ['CPU Speed', d.cpuSpeed],
+                ['Country Origin', d.countryOrigin],
+                ['EID', d.eid, true],
+                ['Manufacture Date', d.manufactureDate],
+                ['Device ID', d.deviceId, true]
+            ].filter(c => c[1])
+        },
+        reportBatteryRows() {
+            const b = (this.report && this.report.battery) || {}
+            return [
+                ['Serial', b.serial], ['Manufacturer Date', b.manufacturerDate],
+                ['Temperature', b.temperature], ['Design Capacity', b.designCapacity],
+                ['Actual Design Capacity', b.actualDesignCapacity], ['Full Charge Capacity', b.fullChargeCapacity],
+                ['Cycle Count', b.cycleCount], ['Health', b.health]
+            ].filter(c => c[1])
+        },
+        reportAnalystRows() {
+            const a = (this.report && this.report.analyst) || {}
+            return [
+                ['Start Date', a.startDate], ['Start Time', a.startTime],
+                ['Finish Date', a.finishDate], ['Finish Time', a.finishTime],
+                ['Device Analyst Version', a.deviceAnalystVersion],
+                ['Analyst Application Version', a.appVersion],
+                ['Operator/User Name', a.operator], ['License Id', a.licenseId],
+                ['Profile Name', a.profileName],
+                ['Status', (this.report && this.report.status) || '']
+            ].filter(c => c[1])
+        }
+    },
+    watch: {
+        dlgTab(tab) {
+            if (tab === 'report') this.loadReport()
         }
     },
     created() {
@@ -305,7 +484,7 @@ export default {
                 costPrice: '', currency: 'AUD',
                 stockSource: '', blackbeltChecked: false, note: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
-                batteryCapacity: '', aNumber: '', blackbeltReportId: ''
+                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: ''
             }
         },
         async load() {
@@ -327,7 +506,7 @@ export default {
                 if (r && r.success !== false) {
                     this.filters = {
                         models: r.models || [], grades: r.grades || [], stockSources: r.stockSources || [],
-                        storages: r.storages || [], colors: r.colors || []
+                        storages: r.storages || [], colors: r.colors || [], locations: r.locations || []
                     }
                 }
             } catch (e) { /* non-fatal — the dropdowns just stay empty */ }
@@ -339,6 +518,8 @@ export default {
         openEdit(row) {
             this.editRow = row
             this.dlgTab = 'detail'
+            this.report = null
+            this.reportError = ''
             this.form = row
                 ? {
                     imei: row.imei || '', model: row.model || '', color: row.color || '',
@@ -351,7 +532,8 @@ export default {
                     batteryHealth: row.batteryHealth == null ? null : row.batteryHealth,
                     batteryCycleCount: row.batteryCycleCount == null ? null : row.batteryCycleCount,
                     batteryCapacity: row.batteryCapacity || '', aNumber: row.aNumber || '',
-                    blackbeltReportId: row.blackbeltReportId || ''
+                    blackbeltReportId: row.blackbeltReportId || '',
+                    blackbeltStatus: row.blackbeltStatus || ''
                 }
                 : this.blankForm()
             // An existing device already has its identity — show it as
@@ -375,7 +557,7 @@ export default {
                 Object.assign(this.form, {
                     model: '', color: '', storage: '', stockSource: '', brand: '', serialNumber: '',
                     batteryHealth: null, batteryCycleCount: null, batteryCapacity: '',
-                    aNumber: '', blackbeltReportId: '', blackbeltChecked: false
+                    aNumber: '', blackbeltReportId: '', blackbeltStatus: '', blackbeltChecked: false
                 })
             }
         },
@@ -398,7 +580,8 @@ export default {
                     batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
                     batteryCapacity: d.batteryCapacity || '',
                     aNumber: d.aNumber || '',
-                    blackbeltReportId: r.blackbeltReportId || ''
+                    blackbeltReportId: r.blackbeltReportId || '',
+                    blackbeltStatus: r.blackbeltStatus || ''
                 })
                 if (r.alreadyInStock) {
                     this.lookupState = 'known'
@@ -465,6 +648,79 @@ export default {
             if (v >= 80) return 'rs-batt-ok'
             return 'rs-batt-low'
         },
+        // Re-ask Blackbelt for a device added before its report existed.
+        async bbCheck() {
+            if (this.bbChecking || !this.editRow) return
+            this.bbChecking = true
+            try {
+                const r = await checkRefurbDeviceBlackbelt(this.editRow._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (!r.found) {
+                    this.$message.info(r.message || 'Blackbelt still has no report for this device.')
+                    return
+                }
+                this.$message.success('Blackbelt report found')
+                // Fresh doc from the server; replacing the reference keeps
+                // every new field reactive.
+                this.editRow = { ...this.editRow, ...r.device }
+                Object.assign(this.form, {
+                    blackbeltChecked: true,
+                    blackbeltStatus: r.device.blackbeltStatus || '',
+                    brand: r.device.brand || this.form.brand,
+                    model: r.device.model || this.form.model,
+                    color: r.device.color || this.form.color,
+                    storage: r.device.storage || this.form.storage,
+                    serialNumber: r.device.serialNumber || this.form.serialNumber,
+                    batteryHealth: r.device.batteryHealth != null ? r.device.batteryHealth : this.form.batteryHealth,
+                    batteryCycleCount: r.device.batteryCycleCount != null ? r.device.batteryCycleCount : this.form.batteryCycleCount,
+                    aNumber: r.device.aNumber || this.form.aNumber,
+                    blackbeltReportId: r.device.blackbeltReportId || ''
+                })
+                this.report = null // the Report tab should fetch fresh
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Blackbelt check failed'))
+            } finally {
+                this.bbChecking = false
+            }
+        },
+        async loadReport() {
+            if (this.report || this.reportLoading || !this.editRow) return
+            this.reportLoading = true
+            this.reportError = ''
+            try {
+                const r = await getRefurbDeviceReport(this.editRow._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (!r.hasReport) {
+                    this.reportError = r.message || 'No Blackbelt report for this device.'
+                    return
+                }
+                this.report = r.report
+            } catch (e) {
+                this.reportError = this.msg(e, 'Failed to load the report')
+            } finally {
+                this.reportLoading = false
+            }
+        },
+        testClass(result) {
+            const v = String(result || '').toUpperCase()
+            if (v === 'PASS') return 'rs-verdict-pass'
+            if (v === 'FAIL') return 'rs-verdict-fail'
+            if (v === 'WARNING') return 'rs-verdict-warn'
+            return 'rs-verdict-na'
+        },
+        // NOT TESTED and NOT SUPPORTED ON DEVICE both read as "no answer".
+        testIcon(result) {
+            const v = String(result || '').toUpperCase()
+            if (v === 'PASS') return 'el-icon-success'
+            if (v === 'FAIL') return 'el-icon-error'
+            if (v === 'WARNING') return 'el-icon-warning'
+            return 'el-icon-question'
+        },
+        // "MultiTouchScreen" → "Multi Touch Screen"; all-caps names stay.
+        prettyName(name) {
+            return String(name || '').replace(/([a-z])([A-Z])/g, '$1 $2')
+        },
         changeLine(c) {
             return `${FIELD_LABELS[c.field] || c.field}: ${this.histVal(c.field, c.from)} → ${this.histVal(c.field, c.to)}`
         },
@@ -479,9 +735,9 @@ export default {
                 year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
             })
         },
-        statusTag(st) {
-            if (st === 'In Stock') return 'success'
-            if (st === 'Supplier Stock') return 'warning'
+        locationTag(loc) {
+            if (loc === 'iMobile') return 'success'
+            if (loc === 'Supplier Stock') return 'warning'
             return '' // Assigned To Exyon — blue
         },
         gradeTag(g) {
@@ -549,6 +805,43 @@ export default {
 .rs-batt-ok { color: #E6A23C; font-weight: 600; }
 .rs-batt-low { color: #F56C6C; font-weight: 600; }
 .rs-ident-alert { margin-bottom: 16px; }
+/* Existing-device header: IMEI is the key, shown, never edited */
+.rs-view-head { margin-bottom: 12px; }
+.rs-view-imei { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rs-view-imei b { font-size: 17px; letter-spacing: .02em; color: #303133; }
+.rs-view-sub { font-size: 13px; color: #606266; margin-top: 3px; }
+.rs-bb-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+.rs-bb-line i { font-size: 15px; }
+.rs-bb-line .el-button { margin-left: 6px; }
+.rs-bb-ok-text { color: #67C23A; font-weight: 600; }
+.rs-bb-check-btn { padding: 3px 8px; font-size: 11px; }
+/* Blackbelt report tab — laid out like the Analyst Report PDF */
+.rs-report { min-height: 160px; max-height: 66vh; overflow-y: auto; padding-right: 6px; }
+.rs-report-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.rs-report-title { font-size: 16px; font-weight: 700; color: #303133; }
+.rs-report-id { font-size: 12px; color: #909399; margin-top: 2px; }
+.rs-rep-sec {
+    font-size: 13px; font-weight: 700; color: #303133;
+    border-bottom: 2px solid #303133; padding-bottom: 4px; margin: 18px 0 10px;
+}
+.rs-rep-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 28px; }
+.rs-rep-tests { grid-template-columns: 1fr 1fr 1fr; }
+.rs-rep-cell { display: flex; gap: 6px; font-size: 12px; line-height: 1.8; min-width: 0; }
+.rs-rep-wide { grid-column: 1 / -1; }
+.rs-rep-label { color: #909399; white-space: nowrap; }
+.rs-rep-value {
+    color: #303133; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rs-rep-verdict { font-weight: 700; font-size: 11px; align-self: center; white-space: nowrap; }
+.rs-verdict-pass { color: #67C23A; }
+.rs-verdict-fail { color: #F56C6C; }
+.rs-verdict-warn { color: #E6A23C; }
+.rs-verdict-na { color: #909399; }
+.rs-rep-vicon { font-size: 14px; align-self: center; cursor: default; }
+.rs-legend { display: flex; gap: 18px; margin-top: 10px; font-size: 11px; color: #606266; }
+.rs-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rs-legend i { font-size: 13px; }
 /* Dialog tabs (Detail / History) */
 .rs-tabs { margin-top: -8px; }
 .rs-tabs ::v-deep .el-tabs__header { margin-bottom: 14px; }

@@ -46,6 +46,15 @@ export function deleteRefurbDevice(id) {
 export function lookupRefurbDevice(imei) {
   return request({ url: '/refurbished/devices/lookup', method: 'get', params: { imei } })
 }
+// Full Blackbelt report for a device — fetched live via the stored report
+// id (auth + download can take a few seconds).
+export function getRefurbDeviceReport(id) {
+  return request({ url: `/refurbished/devices/${id}/report`, method: 'get', timeout: 30000 })
+}
+// Re-ask Blackbelt about a device that had no report when it was added.
+export function checkRefurbDeviceBlackbelt(id) {
+  return request({ url: `/refurbished/devices/${id}/blackbelt-check`, method: 'post', timeout: 30000 })
+}
 
 // ── Incoming Stocks — supplier shipments counted in by the warehouse ──
 export function getIncomingBatches() {
@@ -64,8 +73,8 @@ export function getIncomingBatch(id) {
 export function commitIncoming(id, data) {
   return request({ url: `/refurbished/incoming/${id}/commit`, method: 'post', data, timeout: 120000 })
 }
-export function recheckIncoming(id) {
-  return request({ url: `/refurbished/incoming/${id}/recheck`, method: 'post' })
+export function recheckIncoming(id, data) {
+  return request({ url: `/refurbished/incoming/${id}/recheck`, method: 'post', data })
 }
 export function deleteIncomingBatch(id) {
   return request({ url: `/refurbished/incoming/${id}`, method: 'delete' })
