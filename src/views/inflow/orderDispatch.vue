@@ -4,6 +4,10 @@
             <el-input v-model="query.search" size="small" clearable class="f-search"
                 placeholder="Search invoice / customer / SKU…" prefix-icon="el-icon-search"
                 @keyup.enter.native="reload" @clear="reload" />
+            <el-select v-model="query.customer" size="small" clearable filterable
+                placeholder="Customer" class="f-customer" @change="reload">
+                <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
+            </el-select>
             <span class="od-spacer" />
             <span class="od-meta">{{ total.toLocaleString() }} orders</span>
             <el-button size="small" icon="el-icon-upload2" @click="openUpload">Upload List</el-button>
@@ -127,6 +131,9 @@
                         <el-radio-button label="remaining">Remaining ({{ remainingCount }})</el-radio-button>
                         <el-radio-button label="fulfilled">Fulfilled ({{ fulfilledCount }})</el-radio-button>
                     </el-radio-group>
+                    <span class="od-spacer" />
+                    <el-button size="mini" icon="el-icon-printer" :disabled="!remainingCount"
+                        @click="openRemainingList">Print Remaining</el-button>
                 </div>
 
                 <!-- Line items with live batch column (display order: scanned
@@ -459,7 +466,7 @@
 <script>
 import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
-import { buildPackingListPdf, packingListFileName } from '@/utils/dispatchPackingListPdf'
+import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
 
 export default {
     name: 'InflowOrderDispatch',
@@ -468,7 +475,7 @@ export default {
             loading: false,
             rows: [],
             total: 0,
-            query: { page: 1, pageSize: 25, search: '' },
+            query: { page: 1, pageSize: 25, search: '', customer: '' },
             // Dispatch dialog + scan-to-batch state. batchQty maps
             // lineIndex → qty for the batch being built.
             dispatchVisible: false,
@@ -501,12 +508,14 @@ export default {
             batchEditNo: null,
             batchEditLines: [],
             batchEditSaving: false,
-            // Packing list preview
+            // PDF preview (packing list / remaining items). packBuild is a
+            // closure that rebuilds the current document — print and
+            // download rerun it, so one dialog serves both kinds.
             packVisible: false,
             packTitle: '',
             packUrl: '',
-            packRecord: null,
-            packBatch: null,
+            packBuild: null,
+            packFileName: '',
             // InFlow customer names, for the customer link pickers.
             customerOptions: [],
             customerSaving: false,
@@ -1002,28 +1011,60 @@ export default {
                 this.batchEditSaving = false
             }
         },
-        // ── Packing list ─────────────────────────────────────────────
+        // ── PDF preview (packing list / remaining items) ─────────────
         openPackingList(record, batch) {
+            const rec = { invoiceNumber: record.invoiceNumber, customerName: record.customerName, recordType: record.recordType }
+            this.showPdf(
+                () => buildPackingListPdf({ record: rec, batch }),
+                packingListFileName(rec, batch),
+                `Packing List — ${record.invoiceNumber} · Batch #${batch.batchNo}`
+            )
+        },
+        // Everything still to dispatch on the open record, for the bench.
+        openRemainingList() {
+            const record = this.dispatchRecord
+            if (!record) return
+            const lines = (record.lineItems || [])
+                .map(li => {
+                    const ordered = Number(li.quantity) || 0
+                    const dispatched = Math.min(Number(li.dispatchedQty) || 0, ordered)
+                    return {
+                        imbSku: li.imbSku || '',
+                        sku: li.sku || '',
+                        description: li.description || '',
+                        ordered,
+                        dispatched,
+                        remaining: ordered - dispatched
+                    }
+                })
+                .filter(l => l.remaining > 0)
+            if (!lines.length) { this.$message.info('Nothing remaining — every line is fulfilled.'); return }
+            const rec = { invoiceNumber: record.invoiceNumber, customerName: record.customerName }
+            this.showPdf(
+                () => buildRemainingListPdf({ record: rec, lines }),
+                remainingListFileName(rec),
+                `Remaining Items — ${record.invoiceNumber}`
+            )
+        },
+        showPdf(build, fileName, title) {
             this.cleanupPack()
-            this.packRecord = { invoiceNumber: record.invoiceNumber, customerName: record.customerName, recordType: record.recordType }
-            this.packBatch = batch
-            const doc = buildPackingListPdf({ record: this.packRecord, batch })
-            this.packUrl = doc.output('bloburl') + '#toolbar=0'
-            this.packTitle = `Packing List — ${record.invoiceNumber} · Batch #${batch.batchNo}`
+            this.packBuild = build
+            this.packFileName = fileName
+            this.packUrl = build().output('bloburl') + '#toolbar=0'
+            this.packTitle = title
             this.packVisible = true
         },
         printPackingList() {
-            if (!this.packRecord || !this.packBatch) return
-            const doc = buildPackingListPdf({ record: this.packRecord, batch: this.packBatch })
+            if (!this.packBuild) return
+            const doc = this.packBuild()
             doc.autoPrint()
             const url = doc.output('bloburl')
             const w = window.open(url)
             if (!w) this.$message.warning('Pop-up blocked — use Download instead.')
         },
         downloadPackingList() {
-            if (!this.packRecord || !this.packBatch) return
-            const doc = buildPackingListPdf({ record: this.packRecord, batch: this.packBatch })
-            doc.save(packingListFileName(this.packRecord, this.packBatch))
+            if (!this.packBuild) return
+            this.packBuild().save(this.packFileName)
         },
         cleanupPack() {
             if (this.packUrl) {
@@ -1249,6 +1290,7 @@ export default {
 .inflow-dispatch { padding: 12px 16px; }
 .od-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .f-search { width: 260px; }
+.f-customer { width: 220px; }
 .od-spacer { flex: 1; }
 .od-meta { font-size: 12px; color: #909399; margin-right: 6px; white-space: nowrap; }
 .od-pager { margin-top: 10px; text-align: right; }
@@ -1261,7 +1303,7 @@ export default {
 .od-dlg-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #303133; }
 .od-dlg-progress { font-size: 12px; font-weight: normal; color: #909399; }
 .od-scan-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.od-line-filter { margin-bottom: 8px; }
+.od-line-filter { display: flex; align-items: center; margin-bottom: 8px; }
 .od-scan-input { flex: 1; max-width: 460px; }
 .od-batch-units { font-size: 13px; color: #606266; margin-right: 4px; white-space: nowrap; }
 .od-batch-qty { width: 110px; }
