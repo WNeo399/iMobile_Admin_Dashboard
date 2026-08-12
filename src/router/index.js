@@ -327,6 +327,19 @@ export const moduleRoutes = [
             }
           }
         ]
+      },
+      {
+        // Exploded Diagrams — manage the diagrams behind the embeddable
+        // parts-diagram widget (upload image, draw polygon hotspots,
+        // publish). Admin-only until the permission is granted wider.
+        path: "/imobile/explodedDiagrams",
+        component: (resolve) => require(["@/views/imobile/explodedDiagrams/index"], resolve),
+        name: "ExplodedDiagrams",
+        meta: {
+          title: "Exploded Diagrams",
+          icon: "el-icon-picture-outline",
+          permissions: ["exploded:diagram:manage"]
+        }
       }
     ]
   },

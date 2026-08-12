@@ -247,6 +247,12 @@ const KNOWN_WIDGETS = [
         label: 'Special Order',
         description:
             "Embeddable form on customer-facing sites where shoppers can submit special-order requests (name, description, images). Submissions land in the imb_special_orders collection and show up under iMobile → Special Order for triage."
+    },
+    {
+        value: 'exploded-diagram',
+        label: 'Exploded Diagram',
+        description:
+            "Embeddable parts-diagram viewer: shoppers pick a Brand and Model and get the interactive exploded diagram with clickable part areas. Diagrams are managed under iMobile → Exploded Diagrams; the allowlist controls which sites' browsers may load the data."
     }
 ]
 
