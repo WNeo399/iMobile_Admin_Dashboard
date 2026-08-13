@@ -269,7 +269,7 @@ import {
     commitIncoming, recheckIncoming, deleteIncomingBatch
 } from '@/api/refurbished'
 
-const GRADES = ['A+', 'A', 'B+', 'B', 'C+', 'C']
+const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
 // Where the batch's stock comes from — fixed at upload, stamped on every
 // device received against it.

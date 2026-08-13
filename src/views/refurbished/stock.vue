@@ -341,7 +341,7 @@ import {
 } from '@/api/refurbished'
 
 // The grading scale we actually use.
-const GRADES = ['A+', 'A', 'B+', 'B', 'C+', 'C']
+const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 // Stock gets bought in several markets — cost is stored with its currency.
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
 const SYMBOLS = { AUD: '$', CNY: '¥', HKD: 'HK$' }

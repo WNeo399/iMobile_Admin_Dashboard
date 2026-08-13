@@ -54,6 +54,26 @@ export function addCaseNote(id, data) {
   });
 }
 
+// Upload one photo attachment (FormData with an `image` file). The backend
+// compresses to JPEG and stores it on S3. Multipart Content-Type must be set
+// explicitly — the axios default (application/json) strips the boundary.
+export function uploadCaseAttachment(id, formData) {
+  return request({
+    url: `/sqt/cases/${id}/attachments`,
+    method: "post",
+    data: formData,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 60000,
+  });
+}
+
+export function deleteCaseAttachment(id, attachmentId) {
+  return request({
+    url: `/sqt/cases/${id}/attachments/${attachmentId}`,
+    method: "delete",
+  });
+}
+
 export function updateCaseDevice(id, data) {
   return request({
     url: `/sqt/cases/${id}/device`,

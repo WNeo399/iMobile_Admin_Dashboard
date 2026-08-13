@@ -1520,59 +1520,81 @@
                     </div>
                 </el-tab-pane>
 
-                <el-tab-pane name="status">
+                <el-tab-pane name="history">
                     <span slot="label">
-                        Status History
-                        <span v-if="detailStatusHistory.length" class="tab-count">
-                            ({{ detailStatusHistory.length }})
+                        History
+                        <span v-if="detailHistory.length" class="tab-count">
+                            ({{ detailHistory.length }})
                         </span>
                     </span>
-                    <el-timeline v-if="detailStatusHistory.length">
+                    <el-timeline v-if="detailHistory.length">
                         <el-timeline-item
-                            v-for="(h, idx) in detailStatusHistory"
+                            v-for="(h, idx) in detailHistory"
                             :key="idx"
                             :timestamp="formatDateTime(h.at)"
                             placement="top"
-                            :color="statusColor(h.status)"
+                            :color="h.kind === 'status' ? statusColor(h.status) : '#c0c4cc'"
                         >
                             <div class="history-card">
-                                <div>
-                                    <el-tag size="mini" :type="badgeType(h.status)" effect="light">
-                                        {{ statusLabel(h.status) }}
-                                    </el-tag>
-                                    <span class="history-by">
-                                        <i class="el-icon-user" /> {{ h.updatedBy || 'system' }}
-                                    </span>
-                                </div>
-                                <div v-if="h.note" class="history-note">{{ h.note }}</div>
+                                <template v-if="h.kind === 'status'">
+                                    <div>
+                                        <el-tag size="mini" :type="badgeType(h.status)" effect="light">
+                                            {{ statusLabel(h.status) }}
+                                        </el-tag>
+                                        <span class="history-by">
+                                            <i class="el-icon-user" /> {{ h.updatedBy || 'system' }}
+                                        </span>
+                                    </div>
+                                    <div v-if="h.note" class="history-note">{{ h.note }}</div>
+                                </template>
+                                <template v-else>
+                                    <div>
+                                        <el-tag size="mini" type="info" effect="plain">Note</el-tag>
+                                        <span class="history-by">
+                                            <i class="el-icon-user" /> {{ h.addedBy || 'Admin' }}
+                                        </span>
+                                    </div>
+                                    <div class="history-note">{{ h.text }}</div>
+                                </template>
                             </div>
                         </el-timeline-item>
                     </el-timeline>
-                    <div v-else class="empty-block">No status history.</div>
+                    <div v-else class="empty-block">No history yet.</div>
                 </el-tab-pane>
 
-                <el-tab-pane name="notes">
+                <el-tab-pane name="attachments">
                     <span slot="label">
-                        Note History
-                        <span v-if="detailNotes.length" class="tab-count">
-                            ({{ detailNotes.length }})
+                        Attachments
+                        <span v-if="detailAttachments.length" class="tab-count">
+                            ({{ detailAttachments.length }})
                         </span>
                     </span>
-                    <div class="notes-list" v-if="detailNotes.length">
-                        <div v-for="(n, idx) in detailNotes" :key="idx" class="note-item">
-                            <div class="note-text">{{ n.text }}</div>
-                            <div class="note-meta">
-                                <i class="el-icon-user" />
-                                {{ n.addedBy || 'Admin' }}
-                                <span class="note-meta-sep">·</span>
-                                <i class="el-icon-time" />
-                                {{ formatDateTime(n.at) }}
+                    <div v-if="canUploadAttachment" class="att-toolbar">
+                        <el-button size="mini" type="primary" icon="el-icon-camera"
+                            :loading="uploadingAttachment" @click="pickAttachments">
+                            Upload Photos
+                        </el-button>
+                        <span class="att-hint">
+                            Images up to 15&nbsp;MB each — compressed automatically
+                        </span>
+                    </div>
+                    <div v-if="detailAttachments.length" class="att-grid">
+                        <div v-for="a in detailAttachments" :key="a.id" class="att-card">
+                            <img :src="a.url" class="att-thumb" @click="openAttachmentPreview(a)" />
+                            <el-button v-if="canDeleteAttachment(a)" class="att-del"
+                                type="danger" icon="el-icon-delete" circle size="mini"
+                                @click.stop="removeAttachment(a)" />
+                            <div class="att-meta">
+                                <span><i class="el-icon-user" /> {{ a.uploadedBy || 'Admin' }}</span>
+                                <span><i class="el-icon-time" /> {{ formatDateTime(a.at) }}</span>
                             </div>
                         </div>
                     </div>
                     <div v-else class="empty-block">
-                        <i class="el-icon-document" /> No notes yet.
+                        <i class="el-icon-picture-outline" /> No photos yet.
                     </div>
+                    <input ref="attInput" type="file" accept="image/*" multiple
+                        style="display:none" @change="onAttachmentsPicked" />
                 </el-tab-pane>
             </el-tabs>
 
@@ -1580,12 +1602,19 @@
                 <el-button @click="detailDialogOpen = false">Close</el-button>
             </div>
         </el-dialog>
+
+        <!-- Attachment photo preview -->
+        <el-dialog :visible.sync="attPreview.open" :title="attPreview.title"
+            width="760px" append-to-body class="att-preview-dialog">
+            <img v-if="attPreview.url" :src="attPreview.url"
+                style="width:100%;display:block;border-radius:6px" />
+        </el-dialog>
     </div>
 </template>
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile, markCaseReturns } from '@/api/sqt/cases'
+import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile, markCaseReturns, uploadCaseAttachment, deleteCaseAttachment } from '@/api/sqt/cases'
 import { checkPermi } from '@/utils/permission'
 import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
 import { listShops } from '@/api/sqt/shops'
@@ -1743,6 +1772,10 @@ export default {
             detailActiveTab: 'basic',
             deviceEdit: { description: '', imei: '' },
             deviceSubmitting: false,
+
+            // Photo attachments (Attachments tab)
+            uploadingAttachment: false,
+            attPreview: { open: false, url: '', title: '' },
 
             // Return tracking — editable working copy of the open case's
             // returnTracking, seeded on dialog open. parts: [{...received}],
@@ -1950,20 +1983,26 @@ export default {
             if (!this.detailCase) return 'Case Detail'
             return `Case — ${this.caseLabel(this.detailCase)}`
         },
-        detailStatusHistory() {
-            if (!this.detailCase || !Array.isArray(this.detailCase.statusHistory)) return []
-            // newest first
-            return [...this.detailCase.statusHistory].reverse()
-        },
-        detailNotes() {
-            if (!this.detailCase || !Array.isArray(this.detailCase.notes)) return []
-            // newest first
-            return [...this.detailCase.notes].reverse()
+        // Status changes + notes merged into one stream, newest first. Each
+        // entry carries `kind` so the template can render them differently.
+        detailHistory() {
+            if (!this.detailCase) return []
+            const status = (this.detailCase.statusHistory || []).map(h => ({ ...h, kind: 'status' }))
+            const notes = (this.detailCase.notes || []).map(n => ({ ...n, kind: 'note' }))
+            return [...status, ...notes].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
         },
         detailSentOrders() {
             if (!this.detailCase || !Array.isArray(this.detailCase.zohoOrders)) return []
             // newest first
             return [...this.detailCase.zohoOrders].reverse()
+        },
+        detailAttachments() {
+            if (!this.detailCase || !Array.isArray(this.detailCase.attachments)) return []
+            // newest first
+            return [...this.detailCase.attachments].reverse()
+        },
+        canUploadAttachment() {
+            return checkPermi(['sqt:case:attachment'])
         },
         // ── Return tracking (Returns tab) ──────────────────────────────
         detailReturnTracking() {
@@ -2375,7 +2414,9 @@ export default {
         // request a specific tab. Falls back to 'basic' if the requested tab
         // isn't available for this case (no active return tracking).
         resolveDetailTab(row, tab) {
-            const requested = tab || 'basic'
+            let requested = tab || 'basic'
+            // The old separate tabs merged into one — keep deep links working.
+            if (requested === 'status' || requested === 'notes') requested = 'history'
             const hasReturns = !!(row && row.returnTracking && row.returnTracking.active)
             return requested === 'returns' && !hasReturns ? 'basic' : requested
         },
@@ -2414,6 +2455,80 @@ export default {
                 this.$message.error(msg)
             } finally {
                 this.deviceSubmitting = false
+            }
+        },
+        // ── Photo attachments (Attachments tab) ────────────────────────
+        pickAttachments() {
+            const input = this.$refs.attInput
+            if (!input) return
+            input.value = '' // allow re-picking the same file
+            input.click()
+        },
+        async onAttachmentsPicked(e) {
+            const files = Array.from((e.target && e.target.files) || [])
+            if (!files.length || !this.detailCase) return
+            this.uploadingAttachment = true
+            let uploaded = 0
+            try {
+                // Sequential — keeps memory sane and error messages per-file.
+                for (const file of files) {
+                    try {
+                        const fd = new FormData()
+                        fd.append('image', file)
+                        const res = await uploadCaseAttachment(this.detailCase._id, fd)
+                        this.applyCaseUpdate(res.data)
+                        uploaded++
+                    } catch (err) {
+                        const msg = (err.response && err.response.data && err.response.data.message) || 'Upload failed'
+                        this.$message.error(`${file.name}: ${msg}`)
+                    }
+                }
+                if (uploaded) {
+                    this.$message.success(uploaded === 1 ? 'Photo uploaded' : `${uploaded} photos uploaded`)
+                }
+            } finally {
+                this.uploadingAttachment = false
+            }
+        },
+        openAttachmentPreview(a) {
+            const when = a.at ? this.formatDateTime(a.at) : ''
+            this.attPreview = {
+                open: true,
+                url: a.url,
+                title: [a.name || 'Photo', a.uploadedBy, when].filter(Boolean).join(' — ')
+            }
+        },
+        // Shop-scoped users may delete only their own uploads (the backend
+        // enforces the same rule); unscoped roles may delete any.
+        canDeleteAttachment(a) {
+            if (!checkPermi(['sqt:case:attachment'])) return false
+            const shopScoped = Array.isArray(this.$store.getters.accessibleShopIds)
+            if (!shopScoped) return true
+            const me = (this.$store.state.user && this.$store.state.user.name) || ''
+            return !!me && a.uploadedBy === me
+        },
+        async removeAttachment(a) {
+            try {
+                await this.$confirm('Remove this photo from the case?', 'Confirm', {
+                    type: 'warning', confirmButtonText: 'Remove', cancelButtonText: 'Cancel'
+                })
+            } catch (e) { return }
+            try {
+                const res = await deleteCaseAttachment(this.detailCase._id, a.id)
+                this.applyCaseUpdate(res.data)
+                this.$message.success('Photo removed')
+            } catch (err) {
+                const msg = (err.response && err.response.data && err.response.data.message) || 'Failed to remove the photo'
+                this.$message.error(msg)
+            }
+        },
+        // Sync an updated case doc into both the dialog and the table row.
+        applyCaseUpdate(updated) {
+            if (!updated || !updated._id) return
+            const idx = this.list.findIndex(c => c._id === updated._id)
+            if (idx !== -1) this.$set(this.list, idx, updated)
+            if (this.detailCase && this.detailCase._id === updated._id) {
+                this.detailCase = updated
             }
         },
         // ── Return tracking (Returns tab) ──────────────────────────────
@@ -3409,6 +3524,57 @@ export default {
     color: #909399;
     background: #fafafa;
     border-radius: 4px;
+}
+
+/* ── Attachments tab ─────────────────────────────────────────────────── */
+.att-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.att-hint {
+    font-size: 12px;
+    color: #909399;
+}
+.att-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.att-card {
+    position: relative;
+    width: 132px;
+}
+.att-thumb {
+    width: 132px;
+    height: 132px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    background: #f5f7fa;
+    cursor: zoom-in;
+    display: block;
+}
+.att-del {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.att-card:hover .att-del {
+    opacity: 1;
+}
+.att-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 11px;
+    color: #909399;
+    line-height: 1.35;
+    margin-top: 4px;
+    word-break: break-word;
 }
 
 /* ── Returns tab ─────────────────────────────────────────────────────── */
