@@ -86,6 +86,10 @@ export function createRefurbSalesOrder(data) {
 export function updateRefurbSalesOrder(id, data) {
   return request({ url: `/refurbished/sales-orders/${id}`, method: 'put', data })
 }
+// The remark stays editable after confirmation (everything else is locked).
+export function updateRefurbSalesOrderNotes(id, notes) {
+  return request({ url: `/refurbished/sales-orders/${id}/notes`, method: 'put', data: { notes } })
+}
 // Confirming locks the order — a confirmed order can no longer be edited.
 export function confirmRefurbSalesOrder(id) {
   return request({ url: `/refurbished/sales-orders/${id}/confirm`, method: 'post' })

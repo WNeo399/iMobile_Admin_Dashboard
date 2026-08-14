@@ -235,7 +235,18 @@
                         <span>{{ money(detail.total, detail.currency) }}</span>
                     </div>
                 </div>
-                <div v-if="detail.notes" class="rso-notes">{{ detail.notes }}</div>
+                <!-- The remark stays editable after confirmation — it's
+                     commentary, not part of the sale. -->
+                <div v-if="detail.status !== 'Cancelled'" class="rso-note-edit">
+                    <div class="rso-note-head">
+                        <label>Remark</label>
+                        <el-button v-if="noteDirty" size="mini" type="primary" plain
+                            :loading="savingNote" @click="saveNote">Save Remark</el-button>
+                    </div>
+                    <el-input v-model="noteDraft" type="textarea" :rows="2" maxlength="1000"
+                        size="small" placeholder="Add a remark…" />
+                </div>
+                <div v-else-if="detail.notes" class="rso-notes">{{ detail.notes }}</div>
             </div>
             <div slot="footer">
                 <el-button v-if="detail" size="small" icon="el-icon-document"
@@ -268,7 +279,7 @@
 <script>
 import {
     getRefurbSalesOrders, createRefurbSalesOrder, updateRefurbSalesOrder,
-    confirmRefurbSalesOrder,
+    confirmRefurbSalesOrder, updateRefurbSalesOrderNotes,
     getRefurbCustomers, createRefurbCustomer, getRefurbDevices
 } from '@/api/refurbished'
 import { buildRefurbSalesOrderPdf, salesOrderPdfFileName } from '@/utils/refurbSalesOrderPdf'
@@ -307,6 +318,9 @@ export default {
 
             detailVisible: false,
             detail: null,
+            // Remark editing from the detail dialog (allowed once confirmed).
+            noteDraft: '',
+            savingNote: false,
 
             // Invoice preview (jsPDF blob in an iframe — print / download
             // from the footer, same pattern as the Blackbelt invoices page).
@@ -322,6 +336,9 @@ export default {
         },
         formGst() {
             return this.form.gst ? Math.round(this.formSubTotal * GST_RATE * 100) / 100 : 0
+        },
+        noteDirty() {
+            return !!this.detail && this.noteDraft !== (this.detail.notes || '')
         }
     },
     created() {
@@ -577,7 +594,23 @@ export default {
         // ── detail / cancel ─────────────────────────────────────────
         openDetail(row) {
             this.detail = row
+            this.noteDraft = row.notes || ''
             this.detailVisible = true
+        },
+        async saveNote() {
+            if (!this.detail || !this.noteDirty) return
+            this.savingNote = true
+            try {
+                const r = await updateRefurbSalesOrderNotes(this.detail._id, this.noteDraft)
+                this.detail = r.order
+                this.noteDraft = r.order.notes || ''
+                this.$message.success('Remark saved')
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to save the remark'))
+            } finally {
+                this.savingNote = false
+            }
         },
     }
 }
@@ -679,6 +712,20 @@ export default {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 10px 20px;
+
+    label { font-size: 11px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: 0.04em; }
+}
+.rso-note-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.rso-note-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 28px;
 
     label { font-size: 11px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: 0.04em; }
 }
