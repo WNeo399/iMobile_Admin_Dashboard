@@ -56,6 +56,45 @@ export function checkRefurbDeviceBlackbelt(id) {
   return request({ url: `/refurbished/devices/${id}/blackbelt-check`, method: 'post', timeout: 30000 })
 }
 
+// ── Customers — buyers of refurbished stock ───────────────────────────
+export function getRefurbCustomers(query) {
+  return request({ url: '/refurbished/customers', method: 'get', params: query })
+}
+export function createRefurbCustomer(data) {
+  return request({ url: '/refurbished/customers', method: 'post', data })
+}
+export function updateRefurbCustomer(id, data) {
+  return request({ url: `/refurbished/customers/${id}`, method: 'put', data })
+}
+export function deleteRefurbCustomer(id) {
+  return request({ url: `/refurbished/customers/${id}`, method: 'delete' })
+}
+
+// ── Sales Orders — selling devices out of the stock register ──────────
+export function getRefurbSalesOrders(query) {
+  return request({ url: '/refurbished/sales-orders', method: 'get', params: query })
+}
+export function getRefurbSalesOrder(id) {
+  return request({ url: `/refurbished/sales-orders/${id}`, method: 'get' })
+}
+// Creating marks every device on the order Sold.
+export function createRefurbSalesOrder(data) {
+  return request({ url: '/refurbished/sales-orders', method: 'post', data })
+}
+// Editing reconciles the device set: dropped devices go back In Stock,
+// added ones are marked Sold. Active orders only.
+export function updateRefurbSalesOrder(id, data) {
+  return request({ url: `/refurbished/sales-orders/${id}`, method: 'put', data })
+}
+// Confirming locks the order — a confirmed order can no longer be edited.
+export function confirmRefurbSalesOrder(id) {
+  return request({ url: `/refurbished/sales-orders/${id}/confirm`, method: 'post' })
+}
+// Cancelling puts the order's devices back In Stock.
+export function cancelRefurbSalesOrder(id) {
+  return request({ url: `/refurbished/sales-orders/${id}/cancel`, method: 'post' })
+}
+
 // ── Incoming Stocks — supplier shipments counted in by the warehouse ──
 export function getIncomingBatches() {
   return request({ url: '/refurbished/incoming', method: 'get' })
@@ -72,6 +111,12 @@ export function getIncomingBatch(id) {
 // Blackbelt lookup, so it gets far more than the 10s default timeout.
 export function commitIncoming(id, data) {
   return request({ url: `/refurbished/incoming/${id}/commit`, method: 'post', data, timeout: 120000 })
+}
+// Sell scanned units straight off a shipment — creates the stock records
+// (at the iMobile location, status Sold) and the sales order in one call,
+// so it gets the same generous timeout as a bulk receive.
+export function sellIncoming(id, data) {
+  return request({ url: `/refurbished/incoming/${id}/sell`, method: 'post', data, timeout: 120000 })
 }
 export function recheckIncoming(id, data) {
   return request({ url: `/refurbished/incoming/${id}/recheck`, method: 'post', data })

@@ -573,6 +573,28 @@ export const moduleRoutes = [
           icon: "el-icon-download",
           exclusiveRoles: ["admin"]
         }
+      },
+      {
+        // Selling stock: RSO-numbered orders that mark devices Sold.
+        path: "/refurbished/sales-orders",
+        component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),
+        name: "RefurbishedSalesOrders",
+        meta: {
+          title: "Sales Orders",
+          icon: "el-icon-sell",
+          permissions: ["refurb:sale:view"]
+        }
+      },
+      {
+        // Buyer registry referenced by sales orders.
+        path: "/refurbished/customers",
+        component: (resolve) => require(["@/views/refurbished/customers"], resolve),
+        name: "RefurbishedCustomers",
+        meta: {
+          title: "Customers",
+          icon: "el-icon-user",
+          permissions: ["refurb:sale:view"]
+        }
       }
     ]
   },

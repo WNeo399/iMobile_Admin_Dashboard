@@ -1574,9 +1574,6 @@
                             :loading="uploadingAttachment" @click="pickAttachments">
                             Upload Photos
                         </el-button>
-                        <span class="att-hint">
-                            Images up to 15&nbsp;MB each — compressed automatically
-                        </span>
                     </div>
                     <div v-if="detailAttachments.length" class="att-grid">
                         <div v-for="a in detailAttachments" :key="a.id" class="att-card">
@@ -3532,10 +3529,6 @@ export default {
     align-items: center;
     gap: 10px;
     margin-bottom: 12px;
-}
-.att-hint {
-    font-size: 12px;
-    color: #909399;
 }
 .att-grid {
     display: flex;

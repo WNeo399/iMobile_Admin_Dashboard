@@ -13,6 +13,10 @@
             <el-select v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.locations" :key="l" :label="l" :value="l" />
             </el-select>
+            <el-select v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
+                <el-option label="In Stock" value="In Stock" />
+                <el-option label="Sold" value="Sold" />
+            </el-select>
             <span class="rs-spacer" />
             <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
             <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
@@ -75,10 +79,20 @@
                     <i v-else class="el-icon-error rs-bb-no" title="No Blackbelt report" />
                 </template>
             </el-table-column>
+            <!-- Sale status — devices recorded before the field existed are
+                 unsold, so an empty status renders as In Stock. -->
+            <el-table-column label="Status" width="100" align="center">
+                <template slot-scope="s">
+                    <el-tag v-if="s.row.status === 'Sold'" size="mini" type="danger" effect="plain"
+                        :title="soldTitle(s.row)">Sold</el-tag>
+                    <el-tag v-else size="mini" type="success" effect="plain">In Stock</el-tag>
+                </template>
+            </el-table-column>
             <el-table-column label="" width="110" align="center">
                 <template slot-scope="s">
                     <el-button size="mini" type="text" icon="el-icon-view" @click="openEdit(s.row)">View</el-button>
-                    <el-button size="mini" type="text" icon="el-icon-delete" class="rs-del" @click="remove(s.row)" />
+                    <el-button v-if="s.row.status !== 'Sold'" size="mini" type="text"
+                        icon="el-icon-delete" class="rs-del" @click="remove(s.row)" />
                 </template>
             </el-table-column>
         </el-table>
@@ -365,7 +379,7 @@ export default {
             filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [] },
             query: {
                 page: 1, pageSize: 25, search: '',
-                grade: '', stockSource: '', location: '',
+                grade: '', stockSource: '', location: '', status: '',
                 sort: 'createdAt', order: 'desc'
             },
             // Add/Edit dialog
@@ -739,6 +753,10 @@ export default {
             if (loc === 'iMobile') return 'success'
             if (loc === 'Supplier Stock') return 'warning'
             return '' // Assigned To Exyon — blue
+        },
+        soldTitle(row) {
+            const so = row.salesOrder || {}
+            return [so.orderNo, so.customerName].filter(Boolean).join(' — ') || 'Sold'
         },
         gradeTag(g) {
             const k = String(g).trim().toUpperCase().charAt(0)

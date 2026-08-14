@@ -236,6 +236,8 @@
                 <span class="ri-spacer" />
                 <span v-if="checkedCodes.length" class="ri-foot-note">{{ checkedCodes.length }} scanned, not yet added</span>
                 <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">Close</el-button>
+                <el-button size="small" type="warning" plain icon="el-icon-sell"
+                    :disabled="!checkedCodes.length" @click="openSell">Sell</el-button>
                 <el-button type="primary" size="small" :disabled="!checkedCodes.length"
                     @click="openReceive">Received</el-button>
             </span>
@@ -260,17 +262,106 @@
                     @click="commit">Confirm</el-button>
             </span>
         </el-dialog>
+
+        <!-- ── Sell straight off the shipment ───────────────────────── -->
+        <!-- No location question: units sold on arrival are still filed at
+             iMobile — "sold" is carried by the status, not the location. -->
+        <el-dialog title="Sell Devices" :visible.sync="sellVisible" width="820px" append-to-body
+            :close-on-click-modal="false">
+            <div class="ri-sell">
+                <div class="ri-sell-head">
+                    <div class="ri-sell-field ri-grow">
+                        <label>Customer</label>
+                        <div class="ri-cust-line">
+                            <el-select v-model="sellForm.customerId" size="small" filterable class="ri-grow"
+                                placeholder="Select a customer…">
+                                <el-option v-for="c in customers" :key="c._id" :value="c._id"
+                                    :label="c.name + (c.phone ? ' · ' + c.phone : '')" />
+                            </el-select>
+                            <el-button size="small" icon="el-icon-plus"
+                                @click="quickCustomerOpen = !quickCustomerOpen">New</el-button>
+                        </div>
+                    </div>
+                    <div class="ri-sell-field">
+                        <label>Currency</label>
+                        <el-select v-model="sellForm.currency" size="small" style="width:100px">
+                            <el-option v-for="c in ['AUD', 'CNY', 'HKD']" :key="c" :label="c" :value="c" />
+                        </el-select>
+                    </div>
+                </div>
+
+                <div v-if="quickCustomerOpen" class="ri-quick-cust">
+                    <el-input v-model="quickCustomer.name" size="small" placeholder="Customer name *" class="qc-name" />
+                    <el-input v-model="quickCustomer.phone" size="small" placeholder="Phone" class="qc-small" />
+                    <el-input v-model="quickCustomer.email" size="small" placeholder="Email" class="qc-small" />
+                    <el-button size="small" type="primary" plain :loading="quickCustomerSaving"
+                        @click="saveQuickCustomer">Add</el-button>
+                </div>
+
+                <el-table :data="sellRows" border size="mini" max-height="300">
+                    <el-table-column label="IMEI / Serial" min-width="150">
+                        <template slot-scope="s"><b>{{ s.row.code }}</b></template>
+                    </el-table-column>
+                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                        <template slot-scope="s">
+                            {{ [s.row.model, s.row.capacity, s.row.color].filter(Boolean).join(' · ') || '—' }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Grade" width="70" align="center">
+                        <template slot-scope="s">{{ gradeOf(s.row) || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Cost" width="110" align="right">
+                        <template slot-scope="s">
+                            {{ s.row.price == null ? '—' : (batch ? batch.currency : '') + ' ' + Number(s.row.price).toFixed(2) }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Sale Price" width="140" align="center">
+                        <template slot-scope="s">
+                            <el-input-number v-model="sellPrices[s.row.code]" size="mini" :min="0" :precision="2"
+                                :controls="false" style="width:110px" />
+                        </template>
+                    </el-table-column>
+                </el-table>
+                <div class="ri-sell-totals">
+                    <div class="ri-total-row">
+                        <span>{{ sellRows.length }} device(s) · Sub Total</span>
+                        <span>{{ sellForm.currency }} {{ sellSubTotal.toFixed(2) }}</span>
+                    </div>
+                    <div class="ri-total-row">
+                        <span><el-checkbox v-model="sellForm.gst">GST (10%)</el-checkbox></span>
+                        <span>{{ sellForm.currency }} {{ sellGst.toFixed(2) }}</span>
+                    </div>
+                    <div class="ri-total-row ri-total-grand">
+                        <span>Total</span>
+                        <span>{{ sellForm.currency }} {{ (sellSubTotal + sellGst).toFixed(2) }}</span>
+                    </div>
+                </div>
+
+                <div class="ri-sell-field">
+                    <label>Notes</label>
+                    <el-input v-model="sellForm.notes" type="textarea" :rows="2" maxlength="1000" size="small" />
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="sellVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="selling" :disabled="!sellForm.customerId"
+                    @click="sell">Create Sale</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
 <script>
 import {
     getIncomingBatches, createIncomingBatch, getIncomingBatch,
-    commitIncoming, recheckIncoming, deleteIncomingBatch
+    commitIncoming, sellIncoming, recheckIncoming, deleteIncomingBatch,
+    getRefurbCustomers, createRefurbCustomer
 } from '@/api/refurbished'
 
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
+// Australian GST — sale prices are entered ex-GST and GST is added on top.
+const GST_RATE = 0.1
 // Where the batch's stock comes from — fixed at upload, stamped on every
 // device received against it.
 const STOCK_SOURCES = ['HK', 'iMobile', 'DICO', 'Exyon']
@@ -331,7 +422,19 @@ export default {
             receiveLocations: ['iMobile', 'Assigned To Exyon'],
             committing: false,
             rechecking: false,
-            pollTimer: null
+            pollTimer: null,
+
+            // Sell straight off the shipment — creates the stock records and
+            // the sales order together. No location question: sold units are
+            // still filed at iMobile.
+            sellVisible: false,
+            selling: false,
+            sellForm: { customerId: '', currency: 'AUD', notes: '', gst: true },
+            sellPrices: {},
+            customers: [],
+            quickCustomerOpen: false,
+            quickCustomer: { name: '', phone: '', email: '' },
+            quickCustomerSaving: false
         }
     },
     computed: {
@@ -380,6 +483,20 @@ export default {
             if (this.lineFilter === 'scanned') return rows.filter(l => this.isChecked(l) && !this.isPersisted(l))
             if (this.lineFilter === 'received') return rows.filter(l => this.isPersisted(l))
             return rows
+        },
+        // The scanned lines being sold, oldest scan first — the same order
+        // the sale is submitted in.
+        sellRows() {
+            const all = [...this.localExtras, ...((this.batch && this.batch.lines) || [])]
+            const byCode = new Map(all.map(l => [l.code, l]))
+            return [...this.checkedCodes].reverse().map(c => byCode.get(c) || { code: c })
+        },
+        sellSubTotal() {
+            const n = this.sellRows.reduce((s, r) => s + (Number(this.sellPrices[r.code]) || 0), 0)
+            return Math.round(n * 100) / 100
+        },
+        sellGst() {
+            return this.sellForm.gst ? Math.round(this.sellSubTotal * GST_RATE * 100) / 100 : 0
         }
     },
     created() {
@@ -684,6 +801,93 @@ export default {
             this.receiveLocation = ''
             this.receiveVisible = true
         },
+        // The grade a line will be stocked under: the sheet's value wins,
+        // then whatever was picked in the dialog (same rule as the server).
+        gradeOf(row) {
+            return (row && row.grade) || this.gradePicks[row && row.code] || ''
+        },
+        async openSell() {
+            if (!this.checkedCodes.length) return
+            this.sellForm = { customerId: '', currency: 'AUD', notes: '', gst: true }
+            // Seed a key per code: Vue 2 can't track keys added to an object
+            // after the fact, so the running total would ignore later edits.
+            const seeded = {}
+            for (const c of this.checkedCodes) seeded[c] = undefined
+            this.sellPrices = seeded
+            this.quickCustomerOpen = false
+            this.quickCustomer = { name: '', phone: '', email: '' }
+            this.sellVisible = true
+            try {
+                const r = await getRefurbCustomers()
+                this.customers = r.customers || []
+            } catch (e) {
+                this.customers = []
+            }
+        },
+        async saveQuickCustomer() {
+            const name = (this.quickCustomer.name || '').trim()
+            if (!name) { this.$message.warning('Customer name is required'); return }
+            this.quickCustomerSaving = true
+            try {
+                const r = await createRefurbCustomer(this.quickCustomer)
+                this.customers.push(r.customer)
+                this.customers.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                this.sellForm.customerId = r.customer._id
+                this.quickCustomerOpen = false
+                this.quickCustomer = { name: '', phone: '', email: '' }
+                this.$message.success(`Customer "${r.customer.name}" added`)
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to add the customer'))
+            } finally {
+                this.quickCustomerSaving = false
+            }
+        },
+        async sell() {
+            if (!this.checkedCodes.length || this.selling || !this.sellForm.customerId) return
+            this.selling = true
+            try {
+                // Oldest scan first, matching the receive flow.
+                const codes = [...this.checkedCodes].reverse()
+                const grades = {}
+                const prices = {}
+                for (const c of codes) {
+                    if (this.gradePicks[c]) grades[c] = this.gradePicks[c]
+                    if (this.sellPrices[c] != null && this.sellPrices[c] !== '') prices[c] = this.sellPrices[c]
+                }
+                const r = await sellIncoming(this.batch._id, {
+                    codes,
+                    grades,
+                    prices,
+                    customerId: this.sellForm.customerId,
+                    currency: this.sellForm.currency,
+                    notes: this.sellForm.notes,
+                    gstRate: this.sellForm.gst ? GST_RATE : 0
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const skipped = (r.skipped || []).length
+                this.$message.success(
+                    `${r.order.orderNo} created — ${r.created} device(s) sold` +
+                    (skipped ? ` · ${skipped} skipped` : '')
+                )
+                if (skipped) {
+                    this.$notify.warning({
+                        title: 'Some devices were skipped',
+                        message: r.skipped.map(s => `${s.code}: ${s.reason}`).join('\n'),
+                        duration: 0
+                    })
+                }
+                this.sellVisible = false
+                this.checkedCodes = []
+                this.localExtras = []
+                this.gradePicks = {}
+                this.sellPrices = {}
+                await this.refreshBatch()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to create the sale'))
+            } finally {
+                this.selling = false
+            }
+        },
         async commit() {
             if (!this.checkedCodes.length || this.committing || !this.receiveLocation) return
             this.committing = true
@@ -821,6 +1025,38 @@ export default {
 .ri-recv-line { font-size: 13px; color: #303133; margin-bottom: 14px; }
 .ri-recv-label { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
 .ri-foot-note { font-size: 12px; color: #909399; }
+/* Sell-off-the-shipment dialog */
+.ri-sell { display: flex; flex-direction: column; gap: 14px; }
+.ri-sell-head { display: flex; gap: 14px; align-items: flex-end; }
+.ri-sell-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    label { font-size: 12px; font-weight: 600; color: #606266; }
+}
+.ri-grow { flex: 1; }
+.ri-cust-line { display: flex; gap: 8px; }
+.ri-quick-cust {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    background: #f8f9fb;
+    border: 1px dashed #dcdfe6;
+    border-radius: 6px;
+
+    .qc-name { flex: 1.4; }
+    .qc-small { flex: 1; }
+}
+.ri-sell-totals { margin-left: auto; width: 280px; font-size: 13px; color: #606266; }
+.ri-total-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0; }
+.ri-total-grand {
+    border-top: 1px solid #ebeef5;
+    margin-top: 4px;
+    padding-top: 6px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #303133;
+}
 /* Row click is the toggle — the checkbox only displays the state, and the
    pointer cursor advertises the click. */
 .ri-row-check { pointer-events: none; }
