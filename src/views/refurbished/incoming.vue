@@ -176,14 +176,33 @@
                             <el-tag v-if="s.row.unlisted" size="mini" type="warning" effect="plain">not on list</el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Model" min-width="140" show-overflow-tooltip>
-                        <template slot-scope="s">{{ bbModel(s.row) || s.row.model || '—' }}</template>
+                    <!-- Blackbelt owns the identity of a unit it has a report
+                         on. Everything else is the supplier's own wording, so
+                         it can be corrected here before the stock record is
+                         created. Saved at receive, like the grade picks. -->
+                    <el-table-column label="Model" min-width="150" show-overflow-tooltip>
+                        <template slot-scope="s">
+                            <span v-if="bbModel(s.row)">{{ bbModel(s.row) }}</span>
+                            <span v-else-if="isPersisted(s.row)">{{ s.row.model || '—' }}</span>
+                            <el-input v-else :value="detailValue(s.row, 'model')" size="mini" placeholder="—"
+                                @input="v => setDetail(s.row, 'model', v)" />
+                        </template>
                     </el-table-column>
-                    <el-table-column label="Colour" min-width="100" show-overflow-tooltip>
-                        <template slot-scope="s">{{ (s.row.bbDevice && s.row.bbDevice.color) || s.row.color || '—' }}</template>
+                    <el-table-column label="Colour" min-width="115" show-overflow-tooltip>
+                        <template slot-scope="s">
+                            <span v-if="s.row.bbDevice && s.row.bbDevice.color">{{ s.row.bbDevice.color }}</span>
+                            <span v-else-if="isPersisted(s.row)">{{ s.row.color || '—' }}</span>
+                            <el-input v-else :value="detailValue(s.row, 'color')" size="mini" placeholder="—"
+                                @input="v => setDetail(s.row, 'color', v)" />
+                        </template>
                     </el-table-column>
-                    <el-table-column label="Capacity" width="90" align="center">
-                        <template slot-scope="s">{{ (s.row.bbDevice && s.row.bbDevice.storage) || s.row.capacity || '—' }}</template>
+                    <el-table-column label="Capacity" width="100" align="center">
+                        <template slot-scope="s">
+                            <span v-if="s.row.bbDevice && s.row.bbDevice.storage">{{ s.row.bbDevice.storage }}</span>
+                            <span v-else-if="isPersisted(s.row)">{{ s.row.capacity || '—' }}</span>
+                            <el-input v-else :value="detailValue(s.row, 'capacity')" size="mini" placeholder="—"
+                                @input="v => setDetail(s.row, 'capacity', v)" />
+                        </template>
                     </el-table-column>
                     <el-table-column label="Battery" width="80" align="center">
                         <template slot-scope="s">{{ battery(s.row) == null ? '—' : battery(s.row) + '%' }}</template>
@@ -233,6 +252,8 @@
                 <el-button v-if="batch && (checkableCount || sweepRunning)" size="small" icon="el-icon-connection"
                     :loading="rechecking" :disabled="sweepRunning || !checkableCount"
                     @click="recheck">{{ sweepRunning ? 'Checking…' : `Check Blackbelt (${checkableCount})` }}</el-button>
+                <el-button size="small" icon="el-icon-download" :loading="exporting"
+                    @click="downloadReceived">Download Received</el-button>
                 <span class="ri-spacer" />
                 <span v-if="checkedCodes.length" class="ri-foot-note">{{ checkedCodes.length }} scanned, not yet added</span>
                 <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">Close</el-button>
@@ -355,8 +376,11 @@
 import {
     getIncomingBatches, createIncomingBatch, getIncomingBatch,
     commitIncoming, sellIncoming, recheckIncoming, deleteIncomingBatch,
-    getRefurbCustomers, createRefurbCustomer
+    getIncomingReceived, getRefurbCustomers, createRefurbCustomer
 } from '@/api/refurbished'
+// xlsx-js-style — the styled SheetJS fork the other dashboard exports use,
+// so the download looks like the rest of them.
+import * as XLSX from 'xlsx-js-style'
 
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
@@ -415,6 +439,9 @@ export default {
             // Grades picked in the dialog for lines the sheet left blank,
             // keyed by code. Saved at commit.
             gradePicks: {},
+            // Model / colour / capacity corrections for lines Blackbelt has
+            // no report on, keyed by code. Saved at commit, same as grades.
+            detailPicks: {},
             // Receive confirmation popup — the location is deliberately not
             // preselected so it's always an explicit choice.
             receiveVisible: false,
@@ -422,6 +449,7 @@ export default {
             receiveLocations: ['iMobile', 'Assigned To Exyon'],
             committing: false,
             rechecking: false,
+            exporting: false,
             pollTimer: null,
 
             // Sell straight off the shipment — creates the stock records and
@@ -662,6 +690,7 @@ export default {
             this.checkedCodes = []
             this.localExtras = []
             this.gradePicks = {}
+            this.detailPicks = {}
             this.takeVisible = true
             await this.refreshBatch(row._id)
             this.focusScan()
@@ -703,6 +732,7 @@ export default {
             this.checkedCodes = []
             this.localExtras = []
             this.gradePicks = {}
+            this.detailPicks = {}
             this.loadBatches()
         },
         focusScan() {
@@ -758,6 +788,33 @@ export default {
         },
         setGrade(row, v) {
             this.$set(this.gradePicks, row.code, v || '')
+        },
+        // Identity corrections for lines Blackbelt has nothing on. The cell
+        // starts on the supplier's own wording and is only overridden once
+        // someone types; stored uppercase like the rest of the module.
+        detailValue(row, field) {
+            const pick = this.detailPicks[row.code]
+            if (pick && pick[field] !== undefined) return pick[field]
+            return row[field] || ''
+        },
+        setDetail(row, field, v) {
+            const pick = { ...(this.detailPicks[row.code] || {}) }
+            pick[field] = String(v == null ? '' : v).toUpperCase()
+            this.$set(this.detailPicks, row.code, pick)
+        },
+        // Only the codes being received, and only fields actually typed.
+        pickedDetails(codes) {
+            const out = {}
+            for (const c of codes) {
+                const pick = this.detailPicks[c]
+                if (!pick) continue
+                const kept = {}
+                for (const k of ['model', 'color', 'capacity']) {
+                    if (pick[k] !== undefined) kept[k] = pick[k]
+                }
+                if (Object.keys(kept).length) out[c] = kept
+            }
+            return out
         },
         // Tick every unreceived listed device at once. Appended after any
         // hand-scanned rows, in list order, so real scans keep the top.
@@ -857,6 +914,7 @@ export default {
                 const r = await sellIncoming(this.batch._id, {
                     codes,
                     grades,
+                    details: this.pickedDetails(codes),
                     prices,
                     customerId: this.sellForm.customerId,
                     currency: this.sellForm.currency,
@@ -880,6 +938,8 @@ export default {
                 this.checkedCodes = []
                 this.localExtras = []
                 this.gradePicks = {}
+                this.detailPicks = {}
+            this.detailPicks = {}
                 this.sellPrices = {}
                 await this.refreshBatch()
             } catch (e) {
@@ -899,7 +959,9 @@ export default {
                 for (const c of codes) {
                     if (this.gradePicks[c]) grades[c] = this.gradePicks[c]
                 }
-                const r = await commitIncoming(this.batch._id, { codes, grades, location: this.receiveLocation })
+                const r = await commitIncoming(this.batch._id, {
+                    codes, grades, details: this.pickedDetails(codes), location: this.receiveLocation
+                })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const skipped = (r.skipped || []).length
                 this.$message.success(
@@ -917,11 +979,91 @@ export default {
                 this.checkedCodes = []
                 this.localExtras = []
                 this.gradePicks = {}
+                this.detailPicks = {}
+            this.detailPicks = {}
                 await this.refreshBatch()
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to add to stock'))
             } finally {
                 this.committing = false
+            }
+        },
+        // Everything counted in against this batch, with where it ended up:
+        // location, and the sales order / customer if it has been sold.
+        async downloadReceived() {
+            if (!this.batch || this.exporting) return
+            this.exporting = true
+            try {
+                const r = await getIncomingReceived(this.batch._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const rows = r.rows || []
+                if (!rows.length) {
+                    this.$message.warning('Nothing has been received against this batch yet.')
+                    return
+                }
+
+                const header = [
+                    'IMEI / Serial', 'Model', 'Colour', 'Capacity', 'Grade', 'Battery',
+                    'Cost Price', 'Currency', 'Stock Source', 'Location', 'Status',
+                    'Sales Order', 'Customer', 'Received', 'Received By', 'Note'
+                ]
+                const data = rows.map(x => ({
+                    'IMEI / Serial': x.code,
+                    Model: x.model || '',
+                    Colour: x.color || '',
+                    Capacity: x.storage || '',
+                    Grade: x.grade || '',
+                    Battery: x.batteryHealth == null ? '' : `${x.batteryHealth}%`,
+                    'Cost Price': x.costPrice == null ? '' : Number(x.costPrice),
+                    Currency: x.currency || '',
+                    'Stock Source': x.stockSource || '',
+                    Location: x.location || '',
+                    Status: x.status || '',
+                    'Sales Order': x.orderNo || '',
+                    Customer: x.customerName || '',
+                    Received: this.shortDate(x.receivedAt),
+                    'Received By': x.receivedBy || '',
+                    Note: [
+                        x.unlisted ? 'not on list' : '',
+                        x.alreadyInStock ? 'already in stock' : '',
+                        x.inRegister ? '' : 'not in register'
+                    ].filter(Boolean).join(', ')
+                }))
+
+                const ws = XLSX.utils.json_to_sheet(data, { header })
+                const headerStyle = {
+                    font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+                    fill: { fgColor: { rgb: '409EFF' } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: {
+                        top: { style: 'thin', color: { rgb: 'DCDCDC' } },
+                        bottom: { style: 'thin', color: { rgb: 'DCDCDC' } },
+                        left: { style: 'thin', color: { rgb: 'DCDCDC' } },
+                        right: { style: 'thin', color: { rgb: 'DCDCDC' } }
+                    }
+                }
+                const range = XLSX.utils.decode_range(ws['!ref'])
+                for (let col = range.s.c; col <= range.e.c; col++) {
+                    const addr = XLSX.utils.encode_cell({ r: 0, c: col })
+                    if (ws[addr]) ws[addr].s = headerStyle
+                }
+                ws['!cols'] = [
+                    { wch: 20 }, { wch: 22 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 9 },
+                    { wch: 11 }, { wch: 9 }, { wch: 13 }, { wch: 18 }, { wch: 10 },
+                    { wch: 13 }, { wch: 26 }, { wch: 18 }, { wch: 16 }, { wch: 20 }
+                ]
+
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, 'Received')
+                const slug = String(r.title || this.batch.title || 'batch').replace(/[^\w-]+/g, '_').slice(0, 40)
+                const today = new Date().toISOString().split('T')[0]
+                XLSX.writeFile(wb, `incoming-received_${slug}_${today}.xlsx`)
+                this.$message.success(`${rows.length} device(s) exported`)
+            } catch (e) {
+                console.error('Received export failed:', e)
+                this.$message.error(this.msg(e, 'Failed to download the received list'))
+            } finally {
+                this.exporting = false
             }
         },
         async recheck() {

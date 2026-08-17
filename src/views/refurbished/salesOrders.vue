@@ -249,6 +249,10 @@
                 <div v-else-if="detail.notes" class="rso-notes">{{ detail.notes }}</div>
             </div>
             <div slot="footer">
+                <el-button v-if="detail && detail.status !== 'Cancelled'" size="small"
+                    icon="el-icon-refresh" :loading="refreshingLines"
+                    title="Re-read model / colour / storage from the device register"
+                    @click="refreshLines">Refresh Device Details</el-button>
                 <el-button v-if="detail" size="small" icon="el-icon-document"
                     @click="previewInvoice(detail)">Invoice</el-button>
                 <el-button v-if="detail && isPending(detail)" size="small" icon="el-icon-edit"
@@ -279,7 +283,7 @@
 <script>
 import {
     getRefurbSalesOrders, createRefurbSalesOrder, updateRefurbSalesOrder,
-    confirmRefurbSalesOrder, updateRefurbSalesOrderNotes,
+    confirmRefurbSalesOrder, updateRefurbSalesOrderNotes, refreshRefurbSalesOrderLines,
     getRefurbCustomers, createRefurbCustomer, getRefurbDevices
 } from '@/api/refurbished'
 import { buildRefurbSalesOrderPdf, salesOrderPdfFileName } from '@/utils/refurbSalesOrderPdf'
@@ -321,6 +325,7 @@ export default {
             // Remark editing from the detail dialog (allowed once confirmed).
             noteDraft: '',
             savingNote: false,
+            refreshingLines: false,
 
             // Invoice preview (jsPDF blob in an iframe — print / download
             // from the footer, same pattern as the Blackbelt invoices page).
@@ -596,6 +601,24 @@ export default {
             this.detail = row
             this.noteDraft = row.notes || ''
             this.detailVisible = true
+        },
+        // Pull corrected device details (model / colour / storage …) onto the
+        // order's lines — an order carries a snapshot from when it was
+        // raised, so Stock edits made afterwards don't reach it by themselves.
+        async refreshLines() {
+            if (!this.detail || this.refreshingLines) return
+            this.refreshingLines = true
+            try {
+                const r = await refreshRefurbSalesOrderLines(this.detail._id)
+                this.detail = r.order
+                if (r.updated) this.$message.success(`${r.updated} line(s) updated from the device register`)
+                else this.$message.info('Already up to date')
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to refresh the device details'))
+            } finally {
+                this.refreshingLines = false
+            }
         },
         async saveNote() {
             if (!this.detail || !this.noteDirty) return

@@ -117,7 +117,7 @@
                             <el-table-column type="expand">
                                 <template slot-scope="b">
                                     <el-table :data="b.row.lines" size="mini" border class="oh-batch-lines">
-                                        <el-table-column label="SKU" width="115" show-overflow-tooltip>
+                                        <el-table-column label="Barcode" width="140" show-overflow-tooltip>
                                             <template slot-scope="l">{{ l.row.sku || '—' }}</template>
                                         </el-table-column>
                                         <el-table-column label="Description" min-width="240" show-overflow-tooltip>

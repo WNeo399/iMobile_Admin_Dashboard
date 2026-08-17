@@ -142,10 +142,15 @@ const RCOL = {
     dispatched: PAGE_W - MARGIN - 62,
     remaining: PAGE_W - MARGIN
 }
-const RDESC_W = RCOL.ordered - 54 - RCOL.desc
+// Customer-facing copies drop the internal warehouse SKU and give the
+// space to the description.
+const RCOL_PUBLIC = { ...RCOL, barcode: MARGIN + 26, desc: MARGIN + 124 }
 
-export function buildRemainingListPdf({ record, lines }) {
+// hideInternalSku = customer copy (portal): no "iMobile SKU" column.
+export function buildRemainingListPdf({ record, lines, hideInternalSku = false }) {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+    const C = hideInternalSku ? RCOL_PUBLIC : RCOL
+    const RDESC_W = C.ordered - 54 - C.desc
 
     const header = (pageNo) => {
         doc.setTextColor(DARK)
@@ -155,7 +160,7 @@ export function buildRemainingListPdf({ record, lines }) {
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(10)
         doc.setTextColor(GREY)
-        doc.text(`Page ${pageNo}`, RCOL.remaining, 64, { align: 'right' })
+        doc.text(`Page ${pageNo}`, C.remaining, 64, { align: 'right' })
 
         doc.setTextColor(DARK)
         doc.setFontSize(11)
@@ -177,16 +182,16 @@ export function buildRemainingListPdf({ record, lines }) {
         y += 8
         doc.setFontSize(10)
         doc.setTextColor(GREY)
-        doc.text('#', RCOL.idx, y)
-        doc.text('iMobile SKU', RCOL.sku, y)
-        doc.text('Barcode', RCOL.barcode, y)
-        doc.text('Description', RCOL.desc, y)
-        doc.text('Ordered', RCOL.ordered, y, { align: 'right' })
-        doc.text('Sent', RCOL.dispatched, y, { align: 'right' })
-        doc.text('Left', RCOL.remaining, y, { align: 'right' })
+        doc.text('#', C.idx, y)
+        if (!hideInternalSku) doc.text('iMobile SKU', C.sku, y)
+        doc.text('Barcode', C.barcode, y)
+        doc.text('Description', C.desc, y)
+        doc.text('Ordered', C.ordered, y, { align: 'right' })
+        doc.text('Sent', C.dispatched, y, { align: 'right' })
+        doc.text('Left', C.remaining, y, { align: 'right' })
         y += 6
         doc.setDrawColor(180)
-        doc.line(MARGIN, y, RCOL.remaining, y)
+        doc.line(MARGIN, y, C.remaining, y)
         return y + 16
     }
 
@@ -204,17 +209,19 @@ export function buildRemainingListPdf({ record, lines }) {
             doc.setFontSize(10)
         }
         doc.setTextColor(GREY)
-        doc.text(String(i + 1), RCOL.idx, y)
+        doc.text(String(i + 1), C.idx, y)
         doc.setTextColor(DARK)
+        if (!hideInternalSku) {
+            doc.setFont('helvetica', 'bold')
+            doc.text(l.imbSku || '—', C.sku, y)
+            doc.setFont('helvetica', 'normal')
+        }
+        doc.text(l.sku || '—', C.barcode, y)
+        doc.text(descLines, C.desc, y)
+        doc.text(String(l.ordered), C.ordered, y, { align: 'right' })
+        doc.text(String(l.dispatched), C.dispatched, y, { align: 'right' })
         doc.setFont('helvetica', 'bold')
-        doc.text(l.imbSku || '—', RCOL.sku, y)
-        doc.setFont('helvetica', 'normal')
-        doc.text(l.sku || '—', RCOL.barcode, y)
-        doc.text(descLines, RCOL.desc, y)
-        doc.text(String(l.ordered), RCOL.ordered, y, { align: 'right' })
-        doc.text(String(l.dispatched), RCOL.dispatched, y, { align: 'right' })
-        doc.setFont('helvetica', 'bold')
-        doc.text(String(l.remaining), RCOL.remaining, y, { align: 'right' })
+        doc.text(String(l.remaining), C.remaining, y, { align: 'right' })
         doc.setFont('helvetica', 'normal')
         y += rowH
     })
@@ -222,12 +229,12 @@ export function buildRemainingListPdf({ record, lines }) {
     // total
     y += 4
     doc.setDrawColor(180)
-    doc.line(MARGIN, y, RCOL.remaining, y)
+    doc.line(MARGIN, y, C.remaining, y)
     y += 18
     doc.setFontSize(11)
     doc.setFont('helvetica', 'bold')
     const totalLeft = (lines || []).reduce((s, l) => s + (Number(l.remaining) || 0), 0)
-    doc.text(`Units remaining: ${totalLeft}`, RCOL.remaining, y, { align: 'right' })
+    doc.text(`Units remaining: ${totalLeft}`, C.remaining, y, { align: 'right' })
     doc.setFont('helvetica', 'normal')
 
     return doc

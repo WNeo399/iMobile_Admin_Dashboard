@@ -150,7 +150,13 @@ function tableHead(doc, y) {
 
 export function buildRefurbSalesOrderPdf(order) {
     const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' })
-    const lines = Array.isArray(order.lines) ? order.lines : []
+    // Items print grouped by model (then colour / grade, since those trail
+    // the description) rather than in the order they were picked. Sorted on
+    // a copy so the stored order keeps its own line order.
+    const lines = [...(Array.isArray(order.lines) ? order.lines : [])].sort((a, b) =>
+        describeLine(a).localeCompare(describeLine(b), 'en', { numeric: true, sensitivity: 'base' }) ||
+        String(a.imei || '').localeCompare(String(b.imei || ''))
+    )
     const cur = order.currency || 'AUD'
 
     let y = header(doc, order)

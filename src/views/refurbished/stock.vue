@@ -199,9 +199,13 @@
                         <i class="el-icon-circle-check" /> Blackbelt report found
                     </div>
                     <div class="rs-ident-grid">
-                        <div class="rs-ident-cell"><span>Model</span><b>{{ identModel || '—' }}</b></div>
-                        <div class="rs-ident-cell"><span>Colour</span><b>{{ form.color || '—' }}</b></div>
-                        <div class="rs-ident-cell"><span>Storage</span><b>{{ form.storage || '—' }}</b></div>
+                        <!-- Without a Blackbelt report these are typed in the
+                             Details form below instead of shown here. -->
+                        <template v-if="!canEditIdentity">
+                            <div class="rs-ident-cell"><span>Model</span><b>{{ identModel || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>Colour</span><b>{{ form.color || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>Storage</span><b>{{ form.storage || '—' }}</b></div>
+                        </template>
                         <div class="rs-ident-cell">
                             <span>Battery</span>
                             <b :class="batteryClass(form.batteryHealth)">
@@ -227,6 +231,22 @@
                 <!-- what staff actually enter -->
                 <div class="rs-step-label">Details</div>
                 <el-form label-width="120px" size="small" class="rs-form" @submit.native.prevent>
+                    <!-- Blackbelt owns the identity when it has a report on the
+                         unit; without one these are entered by hand. -->
+                    <template v-if="canEditIdentity">
+                        <el-form-item label="Model">
+                            <el-input :value="form.model" placeholder="e.g. IPHONE 13"
+                                @input="v => form.model = upper(v)" />
+                        </el-form-item>
+                        <el-form-item label="Colour">
+                            <el-input :value="form.color" placeholder="e.g. BLACK"
+                                @input="v => form.color = upper(v)" />
+                        </el-form-item>
+                        <el-form-item label="Storage">
+                            <el-input :value="form.storage" placeholder="e.g. 128GB"
+                                @input="v => form.storage = upper(v)" />
+                        </el-form-item>
+                    </template>
                     <el-form-item label="Grade">
                         <el-radio-group v-model="form.grade" size="small" class="rs-grades">
                             <el-radio-button v-for="g in gradeOptions" :key="g" :label="g" />
@@ -422,6 +442,12 @@ export default {
             if (!brand) return model
             if (!model) return brand
             return model.toLowerCase().startsWith(brand.toLowerCase()) ? model : `${brand} ${model}`
+        },
+        // Blackbelt is the source of truth for a unit it holds a report on.
+        // Everything else — no report, or a lookup that came back empty —
+        // gets model / colour / storage typed in by hand.
+        canEditIdentity() {
+            return this.editRow ? !this.editRow.blackbeltReportId : !this.form.blackbeltChecked
         },
         // Fixed scale, plus whatever an older record happens to carry so
         // editing it doesn't silently reassign the grade.
@@ -775,6 +801,12 @@ export default {
         onCostInput(v) {
             const clean = String(v == null ? '' : v).replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')
             if (clean !== v) this.form.costPrice = clean
+        },
+        // Identity fields are stored uppercase across the module (Blackbelt
+        // reports them that way, and incoming sheets are uppercased on
+        // import), so typed values follow the same shape.
+        upper(v) {
+            return String(v == null ? '' : v).toUpperCase()
         },
         msg(e, fallback) { return (e.response && e.response.data && e.response.data.message) || e.message || fallback }
     }

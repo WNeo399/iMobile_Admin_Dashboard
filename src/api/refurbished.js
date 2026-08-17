@@ -86,6 +86,11 @@ export function createRefurbSalesOrder(data) {
 export function updateRefurbSalesOrder(id, data) {
   return request({ url: `/refurbished/sales-orders/${id}`, method: 'put', data })
 }
+// Re-read model / colour / storage etc. from the device register onto the
+// order's lines (prices and the device set are untouched).
+export function refreshRefurbSalesOrderLines(id) {
+  return request({ url: `/refurbished/sales-orders/${id}/refresh-lines`, method: 'post' })
+}
 // The remark stays editable after confirmation (everything else is locked).
 export function updateRefurbSalesOrderNotes(id, notes) {
   return request({ url: `/refurbished/sales-orders/${id}/notes`, method: 'put', data: { notes } })
@@ -121,6 +126,11 @@ export function commitIncoming(id, data) {
 // so it gets the same generous timeout as a bulk receive.
 export function sellIncoming(id, data) {
   return request({ url: `/refurbished/incoming/${id}/sell`, method: 'post', data, timeout: 120000 })
+}
+// Everything received against a batch, joined to its location in the
+// register and the sales order it went out on (if any).
+export function getIncomingReceived(id) {
+  return request({ url: `/refurbished/incoming/${id}/received`, method: 'get' })
 }
 export function recheckIncoming(id, data) {
   return request({ url: `/refurbished/incoming/${id}/recheck`, method: 'post', data })
