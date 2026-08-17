@@ -35,17 +35,38 @@
                         value-format="yyyy-MM-dd" :picker-options="pickerOptions" class="stmt-range" />
                     <el-radio-group v-model="statusMode" size="small">
                         <el-radio-button label="all">All</el-radio-button>
+                        <el-radio-button label="credits">Credits</el-radio-button>
+                        <el-radio-button label="paid">Paid</el-radio-button>
                         <el-radio-button label="outstanding">Outstanding</el-radio-button>
                     </el-radio-group>
                     <span class="stmt-flex" />
                     <span class="stmt-count">{{ filteredOrders.length }} of {{ orders.length }} invoices</span>
                 </div>
 
+                <!-- Each card filters the table below it; the figures stay on
+                     the vendor + date scope so they don't collapse to zero
+                     once a card is picked. -->
                 <div class="stmt-kpis" v-loading="loading">
-                    <div class="kpi"><div class="kpi-val">{{ money(filteredSummary.invoiced) }}</div><div class="kpi-lbl">Invoiced</div></div>
-                    <div class="kpi"><div class="kpi-val neg">{{ money(Math.abs(filteredSummary.credits)) }}</div><div class="kpi-lbl">Credits</div></div>
-                    <div class="kpi"><div class="kpi-val">{{ money(filteredSummary.paid) }}</div><div class="kpi-lbl">Paid</div></div>
-                    <div class="kpi"><div class="kpi-val" :class="outClass(filteredSummary.outstanding)">{{ money(filteredSummary.outstanding) }}</div><div class="kpi-lbl">Outstanding</div></div>
+                    <div class="kpi" :class="{ 'kpi-on': statusMode === 'all' }"
+                        title="Show all invoices" @click="statusMode = 'all'">
+                        <div class="kpi-val">{{ money(filteredSummary.invoiced) }}</div>
+                        <div class="kpi-lbl">Invoiced</div>
+                    </div>
+                    <div class="kpi" :class="{ 'kpi-on': statusMode === 'credits' }"
+                        title="Show credit notes only" @click="statusMode = 'credits'">
+                        <div class="kpi-val neg">{{ money(Math.abs(filteredSummary.credits)) }}</div>
+                        <div class="kpi-lbl">Credits</div>
+                    </div>
+                    <div class="kpi" :class="{ 'kpi-on': statusMode === 'paid' }"
+                        title="Show fully paid invoices" @click="statusMode = 'paid'">
+                        <div class="kpi-val">{{ money(filteredSummary.paid) }}</div>
+                        <div class="kpi-lbl">Paid</div>
+                    </div>
+                    <div class="kpi" :class="{ 'kpi-on': statusMode === 'outstanding' }"
+                        title="Show invoices with a balance" @click="statusMode = 'outstanding'">
+                        <div class="kpi-val" :class="outClass(filteredSummary.outstanding)">{{ money(filteredSummary.outstanding) }}</div>
+                        <div class="kpi-lbl">Outstanding</div>
+                    </div>
                 </div>
 
                 <div class="stmt-table-wrap" v-loading="loading">
@@ -176,18 +197,29 @@ export default {
                 .map(g => ({ id: g.id, label: g.label, count: g.count, outstanding: g.total - g.paid }))
                 .sort((a, b) => (b.outstanding - a.outstanding) || a.label.localeCompare(b.label))
         },
-        // Invoices for the selected vendor after the date-range + All/Outstanding filters.
-        filteredOrders() {
+        // Invoices for the selected vendor within the date range — the scope
+        // the KPI figures are measured over, before a card narrows the table.
+        scopedOrders() {
             let rows = this.vendorFilter ? this.orders.filter(o => this.vendorLabel(o) === this.vendorFilter) : this.orders
             const r = this.dateRange
             if (r && r[0]) { const f = this.startOfDay(r[0]); rows = rows.filter(o => { const d = this.orderDate(o); return d && d.getTime() >= f }) }
             if (r && r[1]) { const t = this.endOfDay(r[1]); rows = rows.filter(o => { const d = this.orderDate(o); return d && d.getTime() <= t }) }
-            if (this.statusMode === 'outstanding') rows = rows.filter(o => Math.abs(Number(o.balance) || 0) > 0.005)
+            return rows
+        },
+        // …then narrowed by whichever KPI card / toggle is active.
+        filteredOrders() {
+            const rows = this.scopedOrders
+            if (this.statusMode === 'credits') return rows.filter(o => this.isCreditRow(o))
+            if (this.statusMode === 'paid') {
+                return rows.filter(o => !this.isCreditRow(o) &&
+                    (o.status === 'paid' || Math.abs(Number(o.balance) || 0) <= 0.005))
+            }
+            if (this.statusMode === 'outstanding') return rows.filter(o => Math.abs(Number(o.balance) || 0) > 0.005)
             return rows
         },
         filteredSummary() {
             let invoiced = 0, credits = 0, paid = 0, total = 0
-            for (const o of this.filteredOrders) {
+            for (const o of this.scopedOrders) {
                 const t = Number(o.totalAmount) || 0
                 total += t
                 paid += Number(o.paidAmount) || 0
@@ -281,6 +313,11 @@ export default {
         endOfDay(v) { const d = new Date(v); d.setHours(23, 59, 59, 999); return d.getTime() },
         statusTag(s) { return { unpaid: 'danger', partial: 'warning', paid: 'success', credit: 'info' }[s] || 'info' },
         statusLabel(s) { return { unpaid: 'Unpaid', partial: 'Partial', paid: 'Paid', credit: 'Credit' }[s] || s },
+        // A credit note: flagged as one, tagged Credit, or simply a negative
+        // total — which is what the Credits figure adds up.
+        isCreditRow(o) {
+            return !!o.isCreditNote || o.status === 'credit' || (Number(o.totalAmount) || 0) < 0
+        },
         outClass(v) { const n = Number(v); if (n > 0) return 'owing'; if (n < 0) return 'neg'; return '' },
         dateStr(o) {
             if (o && o.invoiceDateRaw) return o.invoiceDateRaw
@@ -484,7 +521,18 @@ export default {
 .stmt-flex { flex: 1; }
 .stmt-count { font-size: 12px; color: #909399; white-space: nowrap; }
 .stmt-kpis { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
-.kpi { flex: 1; min-width: 140px; background: #fff; border: 1px solid #ebeef5; border-radius: 6px; padding: 14px 16px; }
+.kpi {
+    flex: 1;
+    min-width: 140px;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+}
+.kpi:hover { border-color: #c6e2ff; box-shadow: 0 2px 8px rgba(64, 158, 255, .12); }
+.kpi-on { border-color: #409EFF; box-shadow: 0 0 0 1px #409EFF inset; }
 .kpi-val { font-size: 22px; font-weight: 600; color: #303133; line-height: 1.2; }
 .kpi-lbl { font-size: 12px; color: #909399; margin-top: 4px; }
 .stmt-table-wrap { min-height: 60px; }
