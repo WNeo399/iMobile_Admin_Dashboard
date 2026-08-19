@@ -138,3 +138,57 @@ export function recheckIncoming(id, data) {
 export function deleteIncomingBatch(id) {
   return request({ url: `/refurbished/incoming/${id}`, method: 'delete' })
 }
+
+// ── Repairers — the workshops we send faulty devices to ───────────────
+export function getRepairers(query) {
+  return request({ url: '/refurbished/repairers', method: 'get', params: query })
+}
+export function createRepairer(data) {
+  return request({ url: '/refurbished/repairers', method: 'post', data })
+}
+export function updateRepairer(id, data) {
+  return request({ url: `/refurbished/repairers/${id}`, method: 'put', data })
+}
+export function deleteRepairer(id) {
+  return request({ url: `/refurbished/repairers/${id}`, method: 'delete' })
+}
+
+// ── For Repair — batches of devices sent out and reconciled back ──────
+export function getRepairBatches() {
+  return request({ url: '/refurbished/repairs', method: 'get' })
+}
+export function createRepairBatch(data) {
+  return request({ url: '/refurbished/repairs', method: 'post', data, timeout: 60000 })
+}
+export function getRepairBatch(id) {
+  return request({ url: `/refurbished/repairs/${id}`, method: 'get' })
+}
+// Marks the ticked devices as gone to the repairer (registered ones flip
+// to Out for Repair, remembering where they were).
+export function sendRepairBatch(id, data) {
+  return request({ url: `/refurbished/repairs/${id}/send`, method: 'post', data, timeout: 120000 })
+}
+// Devices came back: outcome + repair cost per device, then into stock at
+// the chosen location, or straight onto a sales order.
+export function returnRepairBatch(id, data) {
+  return request({ url: `/refurbished/repairs/${id}/return`, method: 'post', data, timeout: 120000 })
+}
+export function recheckRepairBatch(id, data) {
+  return request({ url: `/refurbished/repairs/${id}/recheck`, method: 'post', data, timeout: 120000 })
+}
+// force=true also puts any device still out for repair back where it was —
+// without it the call reports what is in the way instead of deleting.
+export function deleteRepairBatch(id, force) {
+  return request({
+    url: `/refurbished/repairs/${id}`,
+    method: 'delete',
+    params: force ? { force: true } : {}
+  })
+}
+
+// The batch list is edited locally at the bench — scanned extras, typed
+// corrections, dropped rows — and written down in one call. Sending
+// flushes through here first, so nothing has to be saved separately.
+export function saveRepairLines(id, changes) {
+  return request({ url: `/refurbished/repairs/${id}/lines`, method: 'post', data: changes, timeout: 60000 })
+}

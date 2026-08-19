@@ -24,9 +24,6 @@
                     </span>
                 </template>
             </el-table-column>
-            <el-table-column label="In Stock" width="100" align="center">
-                <template slot-scope="s">{{ s.row.summary.committed }}</template>
-            </el-table-column>
             <el-table-column label="Stock Source" width="120" align="center">
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
             </el-table-column>
@@ -284,6 +281,26 @@
             </span>
         </el-dialog>
 
+        <!-- ── Which received stock to download ─────────────────────── -->
+        <el-dialog title="Download Received" :visible.sync="exportVisible" width="420px" append-to-body>
+            <div class="ri-exp">
+                <div class="ri-exp-label">Include</div>
+                <el-checkbox-group v-model="exportPicks" class="ri-exp-list">
+                    <el-checkbox v-for="b in exportBuckets" :key="b.key" :label="b.key" class="ri-exp-item">
+                        {{ b.key }} <span class="ri-dim">({{ b.count }})</span>
+                    </el-checkbox>
+                </el-checkbox-group>
+                <div class="ri-exp-total">
+                    <b>{{ exportSelectedRows.length }}</b> of {{ exportRows.length }} device(s) will be exported
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="exportVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :disabled="!exportSelectedRows.length"
+                    icon="el-icon-download" @click="runReceivedExport">Download</el-button>
+            </span>
+        </el-dialog>
+
         <!-- ── Sell straight off the shipment ───────────────────────── -->
         <!-- No location question: units sold on arrival are still filed at
              iMobile — "sold" is carried by the status, not the location. -->
@@ -450,6 +467,12 @@ export default {
             committing: false,
             rechecking: false,
             exporting: false,
+            // Received export — rows are fetched first so the picker can show
+            // a real count per group before anything is written to a file.
+            exportVisible: false,
+            exportRows: [],
+            exportTitle: '',
+            exportPicks: [],
             pollTimer: null,
 
             // Sell straight off the shipment — creates the stock records and
@@ -525,6 +548,27 @@ export default {
         },
         sellGst() {
             return this.sellForm.gst ? Math.round(this.sellSubTotal * GST_RATE * 100) / 100 : 0
+        },
+        // The groups actually present in this batch's received stock, each
+        // with its count — built from the rows so an empty group never shows.
+        exportBuckets() {
+            const counts = new Map()
+            for (const x of this.exportRows) {
+                const k = this.receivedBucket(x)
+                counts.set(k, (counts.get(k) || 0) + 1)
+            }
+            // Sold first, then the shelves in the order they're offered at
+            // receive, then anything unexpected.
+            const order = ['Sold', 'iMobile', 'Assigned To Exyon']
+            return [...counts.keys()]
+                .sort((a, b) => {
+                    const ia = order.indexOf(a), ib = order.indexOf(b)
+                    return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib) || a.localeCompare(b)
+                })
+                .map(k => ({ key: k, count: counts.get(k) }))
+        },
+        exportSelectedRows() {
+            return this.exportRows.filter(x => this.exportPicks.includes(this.receivedBucket(x)))
         }
     },
     created() {
@@ -989,7 +1033,8 @@ export default {
             }
         },
         // Everything counted in against this batch, with where it ended up:
-        // location, and the sales order / customer if it has been sold.
+        // location, and the sales order / customer if it has been sold. The
+        // picker chooses which of those groups end up in the file.
         async downloadReceived() {
             if (!this.batch || this.exporting) return
             this.exporting = true
@@ -1001,7 +1046,30 @@ export default {
                     this.$message.warning('Nothing has been received against this batch yet.')
                     return
                 }
-
+                this.exportRows = rows
+                this.exportTitle = r.title || this.batch.title || 'batch'
+                // Everything ticked to start, so the plain download is the
+                // whole batch — what the button did before the picker existed.
+                this.exportPicks = this.exportBuckets.map(b => b.key)
+                this.exportVisible = true
+            } catch (e) {
+                console.error('Received export failed:', e)
+                this.$message.error(this.msg(e, 'Failed to load the received list'))
+            } finally {
+                this.exporting = false
+            }
+        },
+        // Which group a received device falls in. Sold wins over its shelf —
+        // "iMobile" means still sitting there, not sold from there.
+        receivedBucket(x) {
+            if (x.status === 'Sold') return 'Sold'
+            if (x.location) return x.location
+            return 'Other'
+        },
+        runReceivedExport() {
+            const rows = this.exportSelectedRows
+            if (!rows.length) return
+            try {
                 const header = [
                     'IMEI / Serial', 'Model', 'Colour', 'Capacity', 'Grade', 'Battery',
                     'Cost Price', 'Currency', 'Stock Source', 'Location', 'Status',
@@ -1055,15 +1123,15 @@ export default {
 
                 const wb = XLSX.utils.book_new()
                 XLSX.utils.book_append_sheet(wb, ws, 'Received')
-                const slug = String(r.title || this.batch.title || 'batch').replace(/[^\w-]+/g, '_').slice(0, 40)
-                const today = new Date().toISOString().split('T')[0]
-                XLSX.writeFile(wb, `incoming-received_${slug}_${today}.xlsx`)
+                // Batch titles carry dates ("… 13/08/2026"), so strip what a
+                // filesystem won't take before naming the file.
+                const name = String(this.exportTitle || 'Batch').replace(/[\/:*?"<>|]+/g, '-').trim()
+                XLSX.writeFile(wb, `${name} Received.xlsx`)
                 this.$message.success(`${rows.length} device(s) exported`)
+                this.exportVisible = false
             } catch (e) {
                 console.error('Received export failed:', e)
-                this.$message.error(this.msg(e, 'Failed to download the received list'))
-            } finally {
-                this.exporting = false
+                this.$message.error(this.msg(e, 'Failed to build the received list'))
             }
         },
         async recheck() {
@@ -1189,6 +1257,11 @@ export default {
     .qc-name { flex: 1.4; }
     .qc-small { flex: 1; }
 }
+.ri-exp { display: flex; flex-direction: column; gap: 10px; }
+.ri-exp-label { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .04em; }
+.ri-exp-list { display: flex; flex-direction: column; gap: 8px; }
+.ri-exp-item { margin-left: 0 !important; }
+.ri-exp-total { font-size: 12px; color: #606266; border-top: 1px solid #ebeef5; padding-top: 10px; }
 .ri-sell-totals { margin-left: auto; width: 280px; font-size: 13px; color: #606266; }
 .ri-total-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0; }
 .ri-total-grand {

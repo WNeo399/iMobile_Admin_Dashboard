@@ -16,6 +16,7 @@
             <el-select v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
                 <el-option label="In Stock" value="In Stock" />
                 <el-option label="Sold" value="Sold" />
+                <el-option label="Out for Repair" value="Out for Repair" />
             </el-select>
             <span class="rs-spacer" />
             <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
@@ -85,6 +86,8 @@
                 <template slot-scope="s">
                     <el-tag v-if="s.row.status === 'Sold'" size="mini" type="danger" effect="plain"
                         :title="soldTitle(s.row)">Sold</el-tag>
+                    <el-tag v-else-if="s.row.status === 'Out for Repair'" size="mini" type="warning"
+                        effect="plain">Out for Repair</el-tag>
                     <el-tag v-else size="mini" type="success" effect="plain">In Stock</el-tag>
                 </template>
             </el-table-column>
@@ -699,7 +702,18 @@ export default {
                     this.$message.info(r.message || 'Blackbelt still has no report for this device.')
                     return
                 }
-                this.$message.success('Blackbelt report found')
+                this.$message.success(r.message || 'Blackbelt report found')
+                // Blackbelt wins, so anything it replaced is worth naming —
+                // a model or colour changing under you needs an explanation.
+                if ((r.corrected || []).length) {
+                    this.$notify.info({
+                        title: 'Corrected from Blackbelt',
+                        message: r.corrected
+                            .map(c => `${c.label}: "${c.from}" -> "${c.to}"`)
+                            .join('\n'),
+                        duration: 0
+                    })
+                }
                 // Fresh doc from the server; replacing the reference keeps
                 // every new field reactive.
                 this.editRow = { ...this.editRow, ...r.device }

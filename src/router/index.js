@@ -328,19 +328,6 @@ export const moduleRoutes = [
           }
         ]
       },
-      {
-        // Exploded Diagrams — manage the diagrams behind the embeddable
-        // parts-diagram widget (upload image, draw polygon hotspots,
-        // publish). Admin-only until the permission is granted wider.
-        path: "/imobile/explodedDiagrams",
-        component: (resolve) => require(["@/views/imobile/explodedDiagrams/index"], resolve),
-        name: "ExplodedDiagrams",
-        meta: {
-          title: "Exploded Diagrams",
-          icon: "el-icon-picture-outline",
-          permissions: ["exploded:diagram:manage"]
-        }
-      }
     ]
   },
   {
@@ -575,6 +562,29 @@ export const moduleRoutes = [
         }
       },
       {
+        // Faulty devices sent to a workshop and reconciled back in. The
+        // list may include units we do not hold in the register.
+        path: "/refurbished/repairs",
+        component: (resolve) => require(["@/views/refurbished/repairs"], resolve),
+        name: "RefurbishedRepairs",
+        meta: {
+          title: "For Repair",
+          icon: "el-icon-set-up",
+          permissions: ["refurb:repair:view"]
+        }
+      },
+      {
+        // The small managed list of workshops.
+        path: "/refurbished/repairers",
+        component: (resolve) => require(["@/views/refurbished/repairers"], resolve),
+        name: "RefurbishedRepairers",
+        meta: {
+          title: "Repairers",
+          icon: "el-icon-s-custom",
+          permissions: ["refurb:repair:view"]
+        }
+      },
+      {
         // Selling stock: RSO-numbered orders that mark devices Sold.
         path: "/refurbished/sales-orders",
         component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),
@@ -619,6 +629,56 @@ export const moduleRoutes = [
         component: (resolve) => require(["@/views/blackbelt/invoices"], resolve),
         name: "BlackbeltInvoices",
         meta: { title: "Invoices", icon: "el-icon-tickets", permissions: ["blackbelt:invoice:view"] }
+      }
+    ]
+  },
+  {
+    // Point of Sale — distributors embed our parts widget on their own
+    // site and sell to their customers; orders land in their portal and,
+    // once confirmed, become Zoho sales orders. Self-contained module:
+    // backend routes/posRoutes, pos_* collections, pos:* permissions.
+    path: "/pos",
+    component: Layout,
+    redirect: "noRedirect",
+    alwaysShow: true,
+    meta: { title: "POS", icon: "el-icon-shopping-cart-full" },
+    children: [
+      {
+        // Businesses embedding the widget — contact details, the sites
+        // allowed to load it, their public key and Zoho contact.
+        path: "distributors",
+        component: (resolve) => require(["@/views/pos/distributors"], resolve),
+        name: "PosDistributors",
+        meta: {
+          title: "Distributors",
+          icon: "el-icon-office-building",
+          permissions: ["pos:distributor:view"]
+        }
+      },
+      {
+        // Each distributor's own customers. Scoped by distributor, so the
+        // same email can hold an account with two of them without their
+        // data mixing. Created by the distributor, never self-registered.
+        path: "customers",
+        component: (resolve) => require(["@/views/pos/customers"], resolve),
+        name: "PosCustomers",
+        meta: {
+          title: "Customers",
+          icon: "el-icon-user",
+          permissions: ["pos:customer:view"]
+        }
+      },
+      {
+        // The catalogue behind the widget: upload an image, draw polygon
+        // hotspots, link products, publish.
+        path: "/imobile/explodedDiagrams",
+        component: (resolve) => require(["@/views/imobile/explodedDiagrams/index"], resolve),
+        name: "ExplodedDiagrams",
+        meta: {
+          title: "Exploded Diagrams",
+          icon: "el-icon-picture-outline",
+          permissions: ["exploded:diagram:manage"]
+        }
       }
     ]
   },
