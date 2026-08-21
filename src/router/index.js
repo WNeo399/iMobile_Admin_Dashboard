@@ -562,6 +562,18 @@ export const moduleRoutes = [
         }
       },
       {
+        // Supplier shipments to iMobile — suppliers create them, the
+        // warehouse receives through Incoming Stocks.
+        path: "/refurbished/supply",
+        component: (resolve) => require(["@/views/refurbished/supplyBatches"], resolve),
+        name: "RefurbishedSupplyBatches",
+        meta: {
+          title: "Supply Batches",
+          icon: "el-icon-truck",
+          permissions: ["refurb:supply:view"]
+        }
+      },
+      {
         // Selling stock: RSO-numbered orders that mark devices Sold.
         path: "/refurbished/sales-orders",
         component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),

@@ -144,6 +144,23 @@ export function deleteIncomingBatch(id) {
   return request({ url: `/refurbished/incoming/${id}`, method: 'delete' })
 }
 
+// ── Supply Batches — supplier shipments to iMobile ────────────────────
+// Creating one flips the devices to Not Yet Received / In Transit and
+// opens the matching Incoming Stocks record for the warehouse.
+export function getSupplyBatches() {
+  return request({ url: '/refurbished/supply', method: 'get' })
+}
+export function getSupplyBatch(id) {
+  return request({ url: `/refurbished/supply/${id}`, method: 'get' })
+}
+export function createSupplyBatch(data) {
+  return request({ url: '/refurbished/supply', method: 'post', data, timeout: 120000 })
+}
+// Only while nothing has been received — devices go back where they were.
+export function cancelSupplyBatch(id) {
+  return request({ url: `/refurbished/supply/${id}/cancel`, method: 'post' })
+}
+
 // ── Repairers — the workshops we send faulty devices to ───────────────
 export function getRepairers(query) {
   return request({ url: '/refurbished/repairers', method: 'get', params: query })

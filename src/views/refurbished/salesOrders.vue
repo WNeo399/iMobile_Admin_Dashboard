@@ -403,6 +403,11 @@ export default {
         }
     },
     computed: {
+        // How many of the open order's lines were returned — drives the
+        // Returned column and the note under the table.
+        returnedCount() {
+            return ((this.detail && this.detail.lines) || []).filter(l => l.returned).length
+        },
         formSubTotal() {
             return Math.round(this.form.lines.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100
         },
@@ -681,9 +686,6 @@ export default {
             } finally {
                 line.bbChecking = false
             }
-        },
-        returnedCount() {
-            return ((this.detail && this.detail.lines) || []).filter(l => l.returned).length
         },
         // Draft rows get a warm wash so what's about to be created in the
         // register is visible at a glance.
