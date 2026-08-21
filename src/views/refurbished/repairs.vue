@@ -3,6 +3,7 @@
         <div class="fr-bar">
             <span class="fr-title">For Repair</span>
             <span class="fr-spacer" />
+            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openNew">New Batch</el-button>
             <el-button size="small" type="primary" plain icon="el-icon-upload2" @click="openUpload">Upload List</el-button>
             <el-button size="small" icon="el-icon-refresh" @click="loadBatches">Refresh</el-button>
         </div>
@@ -46,6 +47,123 @@
                 </template>
             </el-table-column>
         </el-table>
+
+        <!-- ── New batch from stock ─────────────────────────────────
+             For sending our own shelf stock to a repairer — pick In Stock
+             devices and type the fault per line, no sheet involved. -->
+        <el-dialog title="New Repair Batch" :visible.sync="newVisible" width="860px" top="6vh">
+            <div class="fr-new">
+                <div class="fr-new-row">
+                    <div class="fr-new-field fr-grow">
+                        <label>Title</label>
+                        <el-input v-model="newForm.title" size="small" maxlength="120" />
+                    </div>
+                    <div class="fr-new-field fr-grow">
+                        <label>Repairer</label>
+                        <el-select v-model="newForm.repairerId" size="small" filterable
+                            placeholder="Select a repairer" class="fr-full">
+                            <el-option v-for="r in repairers" :key="r._id" :label="r.name" :value="r._id" />
+                        </el-select>
+                    </div>
+                    <div class="fr-new-field">
+                        <label>Currency</label>
+                        <el-select v-model="newForm.currency" size="small" style="width:90px">
+                            <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
+                        </el-select>
+                    </div>
+                </div>
+
+                <div class="fr-new-field">
+                    <label>Add devices <span class="fr-dim">— search In&nbsp;Stock by IMEI / serial / model</span></label>
+                    <el-input v-model="newSearch" size="small" clearable placeholder="Scan or type, then Enter…"
+                        prefix-icon="el-icon-search" @keyup.enter.native="searchStock" @clear="newResults = []">
+                        <el-button slot="append" icon="el-icon-search" :loading="newSearching" @click="searchStock" />
+                    </el-input>
+                    <div v-if="newResults.length" class="fr-new-picker">
+                        <div v-for="d in newResults" :key="d._id" class="fr-new-pick-row">
+                            <div class="fr-new-pick-info">
+                                <b>{{ d.imei }}</b>
+                                <span>{{ [d.model, d.storage, d.color, d.grade].filter(Boolean).join(' · ') || '—' }}</span>
+                            </div>
+                            <el-button size="mini" type="primary" plain icon="el-icon-plus"
+                                :disabled="isOnNew(d)" @click="addToNew(d)">
+                                {{ isOnNew(d) ? 'Added' : 'Add' }}
+                            </el-button>
+                        </div>
+                    </div>
+                    <div v-else-if="newSearched && !newSearching" class="fr-dim fr-new-noresult">
+                        No In Stock devices match.
+                    </div>
+                </div>
+
+                <el-table v-if="newForm.lines.length" :data="newForm.lines" border size="mini" max-height="300"
+                    :row-class-name="newRowClass">
+                    <el-table-column label="IMEI" min-width="150">
+                        <template slot-scope="s">
+                            <div><b>{{ s.row.imei }}</b></div>
+                            <!-- A code that isn't in the register: created in
+                                 Stock as Repairing when the batch is made. -->
+                            <div v-if="s.row.bbChecking" class="fr-li-sub fr-dim">
+                                <i class="el-icon-loading" /> checking Blackbelt…
+                            </div>
+                            <div v-else-if="s.row.isNew" :class="['fr-li-sub', s.row.bbFound ? 'fr-li-ok' : 'fr-li-warn']">
+                                <i :class="s.row.bbFound ? 'el-icon-success' : 'el-icon-warning'" />
+                                new — {{ s.row.bbFound ? 'Blackbelt found' : 'no Blackbelt report' }}
+                            </div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Device" min-width="280">
+                        <template slot-scope="s">
+                            <!-- With a Blackbelt report the identity is its
+                                 answer — typing only remains for devices it
+                                 doesn't know. -->
+                            <div v-if="s.row.isNew && !s.row.bbFound && !s.row.bbChecking" class="fr-line-edit">
+                                <el-input :value="s.row.model" size="mini" placeholder="Model *" class="fle-model"
+                                    @input="v => s.row.model = v.toUpperCase()" />
+                                <el-input :value="s.row.color" size="mini" placeholder="Colour" class="fle-small"
+                                    @input="v => s.row.color = v.toUpperCase()" />
+                                <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
+                                    default-first-option placeholder="Storage" class="fle-small">
+                                    <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
+                                </el-select>
+                            </div>
+                            <template v-else>
+                                {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
+                            </template>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Grade" width="95" align="center">
+                        <template slot-scope="s">
+                            <el-select v-if="s.row.isNew" v-model="s.row.grade" size="mini" clearable placeholder="—"
+                                class="fr-full">
+                                <el-option v-for="g in grades" :key="g" :label="g" :value="g" />
+                            </el-select>
+                            <template v-else>{{ s.row.grade || '—' }}</template>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Issues" min-width="220">
+                        <template slot-scope="s">
+                            <el-input v-model="s.row.issues" size="mini" placeholder="Fault to fix" />
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="" width="50" align="center">
+                        <template slot-scope="s">
+                            <el-button size="mini" type="text" icon="el-icon-close" class="fr-del"
+                                @click="newForm.lines.splice(s.$index, 1)" />
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+            <span slot="footer">
+                <span v-if="newForm.lines.length" class="fr-foot-note">
+                    {{ newForm.lines.length }} device{{ newForm.lines.length === 1 ? '' : 's' }}
+                </span>
+                <el-button size="small" @click="newVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="newCreating"
+                    :disabled="!newForm.title || !newForm.repairerId || !newForm.lines.length"
+                    @click="submitNew">Create Batch</el-button>
+            </span>
+        </el-dialog>
 
         <!-- ── Upload a repair list ─────────────────────────────────── -->
         <el-dialog title="Upload Repair List" :visible.sync="uploadVisible" width="760px">
@@ -379,13 +497,14 @@
 import {
     getRepairBatches, createRepairBatch, getRepairBatch, sendRepairBatch,
     returnRepairBatch, recheckRepairBatch, deleteRepairBatch,
-    getRepairers, getRefurbCustomers,
+    getRepairers, getRefurbCustomers, getRefurbDevices, lookupRefurbDevice,
     saveRepairLines
 } from '@/api/refurbished'
 import { buildRepairListPdf, repairListFileName, REPAIR_LIST_GROUPS } from '@/utils/repairListPdf'
 import * as XLSX from 'xlsx-js-style'
 
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
+const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
 const STOCK_SOURCES = ['HK', 'iMobile', 'DICO', 'Exyon']
 const RECEIVE_LOCATIONS = ['iMobile', 'Assigned To Exyon']
@@ -417,9 +536,19 @@ export default {
             repairers: [],
             customers: [],
             grades: GRADES,
+            storageOptions: STORAGES,
             currencies: CURRENCIES,
             stockSources: STOCK_SOURCES,
             receiveLocations: RECEIVE_LOCATIONS,
+
+            // New batch straight from shelf stock — no sheet.
+            newVisible: false,
+            newCreating: false,
+            newForm: { title: '', repairerId: '', currency: 'AUD', lines: [] },
+            newSearch: '',
+            newResults: [],
+            newSearching: false,
+            newSearched: false,
 
             uploadVisible: false,
             uploading: false,
@@ -582,6 +711,173 @@ export default {
             }
         },
 
+        // ── new batch from stock ─────────────────────────────────────
+        openNew() {
+            const d = new Date()
+            const p = x => String(x).padStart(2, '0')
+            this.newForm = {
+                title: `Repair ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`,
+                repairerId: '',
+                currency: 'AUD',
+                lines: []
+            }
+            this.newSearch = ''
+            this.newResults = []
+            this.newSearched = false
+            this.newVisible = true
+            this.loadRepairers()
+        },
+        async searchStock() {
+            const q = this.newSearch.trim()
+            if (!q) { this.newResults = []; this.newSearched = false; return }
+            this.newSearching = true
+            try {
+                const r = await getRefurbDevices({ search: q, status: 'In Stock', page: 1, pageSize: 20 })
+                this.newResults = r.rows || []
+                this.newSearched = true
+                // A scan that matches exactly one device goes straight in.
+                if (this.newResults.length === 1 && !this.isOnNew(this.newResults[0])) {
+                    this.addToNew(this.newResults[0])
+                    this.newSearch = ''
+                    this.newResults = []
+                    this.newSearched = false
+                }
+                // A code-shaped scan with no hit joins the list as a new
+                // record — Blackbelt asked in the background, details edited
+                // on the line, created in Stock when the batch is made.
+                if (!this.newResults.length) {
+                    const code = q.replace(/[\s-]/g, '').toUpperCase()
+                    if (/^[A-Z0-9]{10,20}$/.test(code)) {
+                        this.addDraftToNew(code)
+                        this.newSearch = ''
+                        this.newSearched = false
+                    }
+                }
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Search failed'))
+            } finally {
+                this.newSearching = false
+            }
+        },
+        newRowClass({ row }) {
+            return row.isNew ? 'fr-row-new' : ''
+        },
+        // Same flow as the sales-order dialog: the unknown code joins the
+        // table immediately and Blackbelt fills what it can.
+        async addDraftToNew(code) {
+            if (this.newForm.lines.some(l => String(l.imei).toUpperCase() === code)) {
+                this.$message.warning(code + ' is already on the list')
+                return
+            }
+            const line = {
+                imei: code,
+                isNew: true,
+                model: '', color: '', storage: '', grade: '',
+                costPrice: null,
+                issues: '',
+                bbChecking: true,
+                bbFound: false,
+                bb: {}
+            }
+            this.newForm.lines.push(line)
+            try {
+                const r = await lookupRefurbDevice(code)
+                if (r && r.alreadyInStock) {
+                    // In the register but not In Stock — sold, away, or on
+                    // another list. Not ours to send from here.
+                    const i = this.newForm.lines.indexOf(line)
+                    if (i >= 0) this.newForm.lines.splice(i, 1)
+                    this.$message.warning(code + ' is already in the register but not In Stock — check it on the Stock page.')
+                    return
+                }
+                const d = (r && r.device) || {}
+                line.model = d.model || ''
+                line.color = d.color || ''
+                line.storage = d.storage || ''
+                line.bb = {
+                    brand: d.brand || '',
+                    model: d.model || '',
+                    color: d.color || '',
+                    storage: d.storage || '',
+                    serialNumber: d.serialNumber || '',
+                    batteryHealth: d.batteryHealth == null ? null : d.batteryHealth,
+                    batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
+                    batteryCapacity: d.batteryCapacity || '',
+                    aNumber: d.aNumber || '',
+                    reportStatus: (r && r.blackbeltStatus) || ''
+                }
+                line.bbReportId = (r && r.blackbeltReportId) || ''
+                line.bbFound = !!(r && r.found)
+            } catch (e) {
+                // Lookup failing is not fatal — the line stays editable.
+            } finally {
+                line.bbChecking = false
+            }
+        },
+        isOnNew(d) {
+            return this.newForm.lines.some(l => l.imei === d.imei)
+        },
+        addToNew(d) {
+            if (this.isOnNew(d)) return
+            this.newForm.lines.push({
+                imei: d.imei,
+                model: d.model || '',
+                color: d.color || '',
+                storage: d.storage || '',
+                grade: d.grade || '',
+                costPrice: d.costPrice == null ? null : d.costPrice,
+                issues: ''
+            })
+        },
+        // The regular create endpoint takes it from here — these codes are
+        // register devices, so they link up and no ghosts are created.
+        async submitNew() {
+            const stillChecking = this.newForm.lines.find(l => l.bbChecking)
+            if (stillChecking) {
+                this.$message.warning(`Still checking ${stillChecking.imei} against Blackbelt — one moment`)
+                return
+            }
+            const noModel = this.newForm.lines.find(l => l.isNew && !String(l.model || '').trim())
+            if (noModel) {
+                this.$message.warning(`Enter a model for ${noModel.imei}`)
+                return
+            }
+            this.newCreating = true
+            try {
+                const rows = this.newForm.lines.map(l => ({
+                    code: l.imei,
+                    model: l.model,
+                    color: l.color,
+                    storage: l.storage,
+                    grade: l.grade,
+                    deviceCost: l.costPrice,
+                    productName: [l.model, l.storage, l.color].filter(Boolean).join(' '),
+                    issues: l.issues,
+                    // The Blackbelt answer the draft already fetched rides
+                    // along so the created record carries it.
+                    ...(l.isNew && l.bbFound
+                        ? { bbStatus: 'found', bbReportId: l.bbReportId || '', bbDevice: l.bb }
+                        : {})
+                }))
+                const r = await createRepairBatch({
+                    title: this.newForm.title,
+                    repairerId: this.newForm.repairerId,
+                    currency: this.newForm.currency,
+                    stockSource: 'iMobile',
+                    rows
+                })
+                this.$message.success(`Batch created with ${rows.length} device(s)`)
+                this.newVisible = false
+                this.loadBatches()
+                // Straight into the batch, ready to scan and send.
+                this.openBatch({ _id: r.id })
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to create the batch'))
+            } finally {
+                this.newCreating = false
+            }
+        },
+
         // ── upload ───────────────────────────────────────────────────
         openUpload() {
             this.upload = { title: '', repairerId: '', stockSource: 'iMobile', currency: 'AUD' }
@@ -651,7 +947,7 @@ export default {
                 const r = await createRepairBatch({ ...this.upload, rows: this.parsed.rows })
                 this.$message.success(
                     `${this.parsed.rows.length} device(s) added` +
-                    (r.inRegister ? ` · ${r.inRegister} already in the register` : '')
+                    (r.onRegister ? ` · ${r.onRegister} added to Stock as Repairing` : '')
                 )
                 this.uploadVisible = false
                 this.loadBatches()
@@ -1104,6 +1400,46 @@ export default {
 .fr-print-wrap { height: 62vh; border: 1px solid #ebeef5; border-radius: 4px; background: #f5f7fa; }
 .fr-print-frame { width: 100%; height: 100%; border: 0; }
 .fr-print-empty { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 13px; color: #909399; }
+
+.fr-new { display: flex; flex-direction: column; gap: 12px; }
+.fr-li-sub { font-size: 11px; line-height: 1.4; margin-top: 1px; }
+.fr-li-ok { color: #67c23a; }
+.fr-li-warn { color: #e6a23c; }
+.fr-line-edit { display: flex; gap: 6px; }
+.fle-model { flex: 1; min-width: 120px; }
+.fle-small { width: 100px; }
+::v-deep .el-table .fr-row-new > td { background: #fdf9ee; }
+::v-deep .el-table .fr-row-new:hover > td { background: #faf3e0; }
+.fr-new-row { display: flex; gap: 14px; align-items: flex-end; }
+.fr-new-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    label { font-size: 12px; font-weight: 600; color: #606266; }
+}
+.fr-new-picker {
+    margin-top: 8px;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    max-height: 180px;
+    overflow: auto;
+}
+.fr-new-pick-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 10px;
+
+    + .fr-new-pick-row { border-top: 1px solid #f2f4f7; }
+}
+.fr-new-pick-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    span { font-size: 12px; color: #909399; }
+}
+.fr-new-noresult { padding: 8px 2px; font-size: 12px; }
 
 .fr-ret { display: flex; flex-direction: column; gap: 12px; }
 .fr-ret-foot { display: flex; align-items: flex-end; gap: 16px; }

@@ -597,8 +597,9 @@ export default {
         removeBatch(row) {
             const inStock = row.summary.committed
             const warn = inStock
-                ? `${inStock} device(s) from this batch are already in stock and will stay there. Delete the batch record?`
-                : `Delete "${row.title}"?`
+                ? `${inStock} device(s) from this batch are already in stock and will stay there; ` +
+                  'unreceived ones leave the register with the batch. Delete the batch record?'
+                : `Delete "${row.title}"? Unreceived devices it put on the register are removed too.`
             this.$confirm(warn, 'Delete batch', {
                 type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel'
             }).then(async () => {
@@ -714,7 +715,10 @@ export default {
                     rows: this.parsed.rows
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(`Batch created with ${r.accepted} device(s)`)
+                this.$message.success(
+                    `Batch created with ${r.accepted} device(s)` +
+                    (r.onRegister ? ` · ${r.onRegister} added to Stock as Not Yet Received` : '')
+                )
                 this.uploadVisible = false
                 await this.loadBatches()
                 const created = this.batches.find(b => String(b._id) === String(r.id))

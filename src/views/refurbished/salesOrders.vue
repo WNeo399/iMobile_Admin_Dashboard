@@ -50,7 +50,7 @@
                 <template slot-scope="s">
                     <el-button v-if="!isPending(s.row)" size="mini" type="text" icon="el-icon-view"
                         @click="openDetail(s.row)">View</el-button>
-                    <el-button v-if="isPending(s.row)" size="mini" type="text"
+                    <el-button v-if="editable(s.row)" size="mini" type="text"
                         icon="el-icon-edit" @click="openEdit(s.row)">Edit</el-button>
                     <el-button v-if="isPending(s.row)" size="mini" type="text"
                         icon="el-icon-check" @click="confirmOrder(s.row)">Confirm</el-button>
@@ -66,7 +66,7 @@
 
         <!-- ── Create / Edit ──────────────────────────────────────── -->
         <el-dialog :title="editing ? `Edit ${editing.orderNo}` : 'New Sales Order'"
-            :visible.sync="createVisible" width="760px" :close-on-click-modal="false">
+            :visible.sync="createVisible" width="920px" :close-on-click-modal="false">
             <div class="rso-form">
                 <div class="rso-row">
                     <div class="rso-field rso-grow">
@@ -119,17 +119,62 @@
                     </div>
                 </div>
 
-                <el-table v-if="form.lines.length" :data="form.lines" border size="mini" max-height="260">
+                <el-table v-if="form.lines.length" :data="form.lines" border size="mini" max-height="300"
+                    :row-class-name="lineRowClass">
                     <el-table-column label="IMEI" min-width="150">
-                        <template slot-scope="s"><b>{{ s.row.imei }}</b></template>
-                    </el-table-column>
-                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
                         <template slot-scope="s">
-                            {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
+                            <div><b>{{ s.row.imei }}</b></div>
+                            <!-- A row scanned in but not yet in the register:
+                                 created in stock when the order is saved. -->
+                            <div v-if="s.row.bbChecking" class="rso-li-sub rso-dim">
+                                <i class="el-icon-loading" /> checking Blackbelt…
+                            </div>
+                            <div v-else-if="s.row.isNew" :class="['rso-li-sub', s.row.bbFound ? 'rso-li-ok' : 'rso-li-warn']">
+                                <i :class="s.row.bbFound ? 'el-icon-success' : 'el-icon-warning'" />
+                                new — {{ s.row.bbFound ? 'Blackbelt found' : 'no Blackbelt report' }}
+                            </div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="70" align="center">
-                        <template slot-scope="s">{{ s.row.grade || '—' }}</template>
+                    <el-table-column label="Device" min-width="300">
+                        <template slot-scope="s">
+                            <!-- With a Blackbelt report the identity is its
+                                 answer — typing only remains for devices it
+                                 doesn't know. -->
+                            <div v-if="s.row.isNew && !s.row.bbFound && !s.row.bbChecking" class="rso-line-edit">
+                                <el-input :value="s.row.model" size="mini" placeholder="Model *" class="le-model"
+                                    @input="v => s.row.model = v.toUpperCase()" />
+                                <el-input :value="s.row.color" size="mini" placeholder="Colour" class="le-small"
+                                    @input="v => s.row.color = v.toUpperCase()" />
+                                <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
+                                    default-first-option placeholder="Storage" class="le-small">
+                                    <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
+                                </el-select>
+                            </div>
+                            <template v-else>
+                                {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
+                            </template>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Grade" width="95" align="center">
+                        <template slot-scope="s">
+                            <el-select v-if="s.row.isNew" v-model="s.row.grade" size="mini" clearable placeholder="—"
+                                class="le-grade">
+                                <el-option v-for="g in gradeOptions" :key="g" :label="g" :value="g" />
+                            </el-select>
+                            <template v-else>{{ s.row.grade || '—' }}</template>
+                        </template>
+                    </el-table-column>
+                    <!-- Cost comes off the register, not the order — an
+                         order snapshot never stores it. A scanned-in device
+                         has no cost yet, so its cell is the place to type
+                         one; it lands on the register record at save. -->
+                    <el-table-column label="Cost" width="110" align="right">
+                        <template slot-scope="s">
+                            <el-input-number v-if="s.row.isNew" v-model="s.row.costPrice" size="mini" :min="0"
+                                :precision="2" :controls="false" class="le-cost" placeholder="Cost" />
+                            <span v-else-if="s.row.costPrice != null">{{ money(s.row.costPrice, s.row.costCurrency) }}</span>
+                            <span v-else class="rso-dim">—</span>
+                        </template>
                     </el-table-column>
                     <el-table-column label="Sale Price" width="150" align="center">
                         <template slot-scope="s">
@@ -220,7 +265,22 @@
                     <el-table-column label="Price" width="110" align="right">
                         <template slot-scope="s">{{ s.row.price == null ? '—' : money(s.row.price, detail.currency) }}</template>
                     </el-table-column>
+                    <!-- The record of a return (the action itself lives on
+                         the Stock page, on the Sold device). -->
+                    <el-table-column v-if="returnedCount" label="" width="95" align="center">
+                        <template slot-scope="s">
+                            <el-tooltip v-if="s.row.returned" placement="top"
+                                :content="returnTitle(s.row)">
+                                <el-tag size="mini" type="info" effect="plain">Returned</el-tag>
+                            </el-tooltip>
+                        </template>
+                    </el-table-column>
                 </el-table>
+                <div v-if="returnedCount" class="rso-returned-note">
+                    {{ returnedCount }} of {{ detail.lines.length }} device{{ detail.lines.length === 1 ? '' : 's' }}
+                    returned — the order keeps its lines; the devices are back in stock.
+                    Returns are made from the Stock page.
+                </div>
                 <div class="rso-totals">
                     <div class="rso-total-row">
                         <span>Sub Total</span>
@@ -255,7 +315,7 @@
                     @click="refreshLines">Refresh Device Details</el-button>
                 <el-button v-if="detail" size="small" icon="el-icon-document"
                     @click="previewInvoice(detail)">Invoice</el-button>
-                <el-button v-if="detail && isPending(detail)" size="small" icon="el-icon-edit"
+                <el-button v-if="detail && editable(detail)" size="small" icon="el-icon-edit"
                     @click="openEdit(detail)">Edit</el-button>
                 <el-button v-if="detail && isPending(detail)" size="small" type="success" plain
                     icon="el-icon-check" @click="confirmOrder(detail)">Confirm</el-button>
@@ -284,13 +344,18 @@
 import {
     getRefurbSalesOrders, createRefurbSalesOrder, updateRefurbSalesOrder,
     confirmRefurbSalesOrder, updateRefurbSalesOrderNotes, refreshRefurbSalesOrderLines,
-    getRefurbCustomers, createRefurbCustomer, getRefurbDevices
+    getRefurbCustomers, createRefurbCustomer, getRefurbDevices,
+    lookupRefurbDevice, createRefurbDevice
 } from '@/api/refurbished'
 import { buildRefurbSalesOrderPdf, salesOrderPdfFileName } from '@/utils/refurbSalesOrderPdf'
 
 // Australian GST. Line prices are entered ex-GST and GST is added on top;
 // the rate actually used is stored on each order by the server.
 const GST_RATE = 0.1
+// Mirrors the Stock page's pickers for the quick-add path.
+const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
+const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
+const CODE_RE = /^[A-Z0-9]{10,20}$/
 
 export default {
     name: 'RefurbSalesOrders',
@@ -319,6 +384,8 @@ export default {
             pickerResults: [],
             pickerLoading: false,
             pickerSearched: false,
+            gradeOptions: GRADES,
+            storageOptions: STORAGES,
 
             detailVisible: false,
             detail: null,
@@ -389,9 +456,13 @@ export default {
         orderSubTotal(o) {
             return o.subTotal == null ? o.total : o.subTotal
         },
-        // Only a pending order can be edited or confirmed.
+        // Only a pending order can be confirmed. Editing also reaches
+        // Confirmed orders — at the price of reopening them.
         isPending(o) {
             return !!o && o.status === 'Pending'
+        },
+        editable(o) {
+            return !!o && o.status !== 'Cancelled'
         },
         statusTag(status) {
             if (status === 'Confirmed') return 'success'
@@ -421,23 +492,39 @@ export default {
             this.openOrderDialog()
         },
         async openEdit(order) {
-            if (!this.isPending(order)) return
+            if (!this.editable(order)) return
+            // Editing a confirmed order reopens it — make sure that's
+            // wanted before the form even opens.
+            if (order.status === 'Confirmed') {
+                try {
+                    await this.$confirm(
+                        `${order.orderNo} is confirmed. Editing reopens it — it goes back to Pending and must be confirmed again.`,
+                        'Reopen this order?',
+                        { type: 'warning', confirmButtonText: 'Edit anyway', cancelButtonText: 'Cancel' }
+                    )
+                } catch (e) { return }
+            }
             this.editing = order
             this.form = {
                 customerId: String(order.customerId),
                 currency: order.currency || 'AUD',
                 notes: order.notes || '',
                 gst: !!order.gstRate,
-                lines: (order.lines || []).map(l => ({
+                lines: (order.lines || []).filter(l => !l.returned).map(l => ({
                     deviceId: String(l.deviceId),
                     imei: l.imei,
                     model: l.model,
                     storage: l.storage,
                     color: l.color,
                     grade: l.grade,
+                    // Filled from the register just below — the order's own
+                    // snapshot never carries cost.
+                    costPrice: null,
+                    costCurrency: '',
                     price: l.price == null ? undefined : l.price
                 }))
             }
+            this.fillLineCosts()
             this.detailVisible = false
             this.openOrderDialog()
         },
@@ -488,6 +575,17 @@ export default {
                 )
                 this.pickerResults = [...back, ...(r.rows || [])]
                 this.pickerSearched = true
+                // A code-shaped scan with no hit joins the order straight
+                // away as a new stock record: Blackbelt is asked in the
+                // background and the details are edited on the line itself.
+                if (!this.pickerResults.length) {
+                    const code = q.replace(/[\s-]/g, '').toUpperCase()
+                    if (CODE_RE.test(code)) {
+                        this.addDraftLine(code)
+                        this.pickerSearch = ''
+                        this.pickerSearched = false
+                    }
+                }
                 // A scan that matches exactly one device goes straight in.
                 if (this.pickerResults.length === 1 && !this.isPicked(this.pickerResults[0])) {
                     this.addLine(this.pickerResults[0])
@@ -500,6 +598,97 @@ export default {
             } finally {
                 this.pickerLoading = false
             }
+        },
+        // ── returns ─────────────────────────────────────────────────
+        returnTitle(line) {
+            const bits = [this.formatDateTime(line.returnedAt)]
+            if (line.returnedBy) bits.push(line.returnedBy)
+            if (line.returnReason) bits.push(line.returnReason)
+            if (line.returnNote) bits.push(line.returnNote)
+            return bits.filter(Boolean).join(' · ')
+        },
+        // Cost lives on the register record, so an opened order re-reads it
+        // for its lines in one ids= call. Best-effort: a failure just leaves
+        // the column blank.
+        async fillLineCosts() {
+            const ids = this.form.lines.map(l => l.deviceId).filter(Boolean)
+            if (!ids.length) return
+            try {
+                const r = await getRefurbDevices({ ids: ids.join(','), pageSize: 200 })
+                const byId = new Map((r.rows || []).map(d => [String(d._id), d]))
+                for (const l of this.form.lines) {
+                    const d = byId.get(String(l.deviceId))
+                    if (d) {
+                        l.costPrice = d.costPrice == null ? null : d.costPrice
+                        l.costCurrency = d.currency || ''
+                    }
+                }
+            } catch (e) { /* cost column stays blank */ }
+        },
+        // A scanned code that isn't in the register joins the order as a
+        // draft line: Blackbelt is asked immediately, the details are typed
+        // on the line if it has no report, and the stock record is created
+        // when the order is saved.
+        async addDraftLine(code) {
+            if (this.form.lines.some(l => String(l.imei).toUpperCase() === code)) {
+                this.$message.warning(code + ' is already on the order')
+                return
+            }
+            // Every field seeded now — Vue 2 can't track keys added later.
+            const line = {
+                deviceId: null,
+                isNew: true,
+                imei: code,
+                model: '', color: '', storage: '', grade: '',
+                costPrice: undefined,
+                costCurrency: '',
+                price: undefined,
+                bbChecking: true,
+                bbFound: false,
+                bb: {}
+            }
+            this.form.lines.push(line)
+            try {
+                const r = await lookupRefurbDevice(code)
+                if (r && r.alreadyInStock) {
+                    // In the register but not In Stock — sold, or away at a
+                    // repairer. A duplicate record must not be created.
+                    const i = this.form.lines.indexOf(line)
+                    if (i >= 0) this.form.lines.splice(i, 1)
+                    this.$message.warning(code + ' is already in the register but not In Stock — check it on the Stock page.')
+                    return
+                }
+                const d = (r && r.device) || {}
+                line.model = d.model || ''
+                line.color = d.color || ''
+                line.storage = d.storage || ''
+                // Passed through to the create so the register record comes
+                // out the same as one added from the Stock page.
+                line.bb = {
+                    brand: d.brand || '',
+                    serialNumber: d.serialNumber || '',
+                    batteryHealth: d.batteryHealth == null ? null : d.batteryHealth,
+                    batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
+                    batteryCapacity: d.batteryCapacity || '',
+                    aNumber: d.aNumber || '',
+                    blackbeltChecked: (r && r.blackbeltChecked) === true,
+                    blackbeltReportId: (r && r.blackbeltReportId) || '',
+                    blackbeltStatus: (r && r.blackbeltStatus) || ''
+                }
+                line.bbFound = !!(r && r.found)
+            } catch (e) {
+                // Lookup failing is not fatal — the line stays editable.
+            } finally {
+                line.bbChecking = false
+            }
+        },
+        returnedCount() {
+            return ((this.detail && this.detail.lines) || []).filter(l => l.returned).length
+        },
+        // Draft rows get a warm wash so what's about to be created in the
+        // register is visible at a glance.
+        lineRowClass({ row }) {
+            return row.isNew ? 'rso-row-new' : ''
         },
         isPicked(d) {
             return this.form.lines.some(l => String(l.deviceId) === String(d._id))
@@ -516,6 +705,8 @@ export default {
                 storage: d.storage,
                 color: d.color,
                 grade: d.grade,
+                costPrice: d.costPrice == null ? null : d.costPrice,
+                costCurrency: d.currency || '',
                 price: prev ? prev.price : undefined
             })
         },
@@ -530,6 +721,15 @@ export default {
         async save() {
             if (!this.form.customerId) { this.$message.warning('Select a customer'); return }
             if (!this.form.lines.length) { this.$message.warning('Add at least one device'); return }
+            const stillChecking = this.form.lines.find(l => l.bbChecking)
+            if (stillChecking) { this.$message.warning(`Still checking ${stillChecking.imei} against Blackbelt — one moment`); return }
+            const drafts = this.form.lines.filter(l => l.isNew && !l.deviceId)
+            for (const l of drafts) {
+                if (!String(l.model || '').trim()) {
+                    this.$message.warning(`Enter a model for ${l.imei}`)
+                    return
+                }
+            }
             const payload = {
                 customerId: this.form.customerId,
                 currency: this.form.currency,
@@ -539,6 +739,27 @@ export default {
             }
             this.creating = true
             try {
+                // Scanned-in devices go into the register first, so the
+                // order only ever references real stock records. A line
+                // that gets its id keeps it — if a later step fails, the
+                // retry doesn't create the device twice.
+                for (const l of drafts) {
+                    const r = await createRefurbDevice({
+                        imei: l.imei,
+                        model: l.model,
+                        color: l.color,
+                        storage: l.storage,
+                        grade: l.grade,
+                        costPrice: l.costPrice,
+                        currency: this.form.currency,
+                        ...l.bb
+                    })
+                    if (!r || r.success === false) throw new Error((r && r.message) || `Could not add ${l.imei} to stock`)
+                    l.deviceId = String(r.id)
+                }
+                // Rebuilt after the creates so every draft line carries its
+                // new register id.
+                payload.lines = this.form.lines.map(l => ({ deviceId: l.deviceId, price: l.price }))
                 if (this.editing) {
                     const r = await updateRefurbSalesOrder(this.editing._id, payload)
                     this.$message.success(`${r.order.orderNo} updated`)
@@ -704,6 +925,19 @@ export default {
         span { font-size: 12px; color: #909399; }
     }
 }
+.rso-line-edit { display: flex; gap: 6px; }
+.le-model { flex: 1; min-width: 120px; }
+.le-small { width: 100px; }
+.le-grade { width: 100%; }
+.le-cost { width: 74px; }
+.rso-li-sub { font-size: 11px; line-height: 1.4; margin-top: 1px; }
+.rso-returned-note { font-size: 12px; color: #909399; margin-top: 6px; }
+.rso-li-ok { color: #67c23a; }
+.rso-li-warn { color: #e6a23c; }
+// Row wash for lines that will create a register record on save. Element
+// paints cell backgrounds per <td>, so the override lands there.
+::v-deep .el-table .rso-row-new > td { background: #fdf9ee; }
+::v-deep .el-table .rso-row-new:hover > td { background: #faf3e0; }
 .rso-noresult { padding: 8px 2px; }
 .rso-totals {
     margin-left: auto;

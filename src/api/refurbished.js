@@ -99,6 +99,11 @@ export function updateRefurbSalesOrderNotes(id, notes) {
 export function confirmRefurbSalesOrder(id) {
   return request({ url: `/refurbished/sales-orders/${id}/confirm`, method: 'post' })
 }
+// A sold device came back: record-only return — the device goes back In
+// Stock, the confirmed order keeps its line flagged returned.
+export function returnRefurbSalesOrderDevice(id, data) {
+  return request({ url: `/refurbished/sales-orders/${id}/return-device`, method: 'post', data })
+}
 // Cancelling puts the order's devices back In Stock.
 export function cancelRefurbSalesOrder(id) {
   return request({ url: `/refurbished/sales-orders/${id}/cancel`, method: 'post' })

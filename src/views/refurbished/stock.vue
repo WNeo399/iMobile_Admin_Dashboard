@@ -7,16 +7,20 @@
             <el-select v-model="query.grade" size="small" clearable placeholder="Grade" class="f-sel" @change="reload">
                 <el-option v-for="g in gradeFilterOptions" :key="g" :label="g" :value="g" />
             </el-select>
-            <el-select v-model="query.stockSource" size="small" clearable filterable placeholder="Stock Source" class="f-sel-w" @change="reload">
+            <!-- A supplier's whole register is one source at one place, so
+                 these two filters would only ever offer a single option. -->
+            <el-select v-if="!isSupplier" v-model="query.stockSource" size="small" clearable filterable placeholder="Stock Source" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.stockSources" :key="l" :label="l" :value="l" />
             </el-select>
-            <el-select v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
+            <el-select v-if="!isSupplier" v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.locations" :key="l" :label="l" :value="l" />
             </el-select>
             <el-select v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
                 <el-option label="In Stock" value="In Stock" />
                 <el-option label="Sold" value="Sold" />
                 <el-option label="Out for Repair" value="Out for Repair" />
+                <el-option label="Not Yet Received" value="Not Yet Received" />
+                <el-option label="Repairing" value="Repairing" />
             </el-select>
             <span class="rs-spacer" />
             <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
@@ -88,12 +92,21 @@
                         :title="soldTitle(s.row)">Sold</el-tag>
                     <el-tag v-else-if="s.row.status === 'Out for Repair'" size="mini" type="warning"
                         effect="plain">Out for Repair</el-tag>
+                    <el-tag v-else-if="s.row.status === 'Not Yet Received'" size="mini" type="info"
+                        effect="plain">Not Yet Received</el-tag>
+                    <el-tag v-else-if="s.row.status === 'Repairing'" size="mini" type="warning"
+                        effect="plain">Repairing</el-tag>
                     <el-tag v-else size="mini" type="success" effect="plain">In Stock</el-tag>
                 </template>
             </el-table-column>
-            <el-table-column label="" width="110" align="center">
+            <el-table-column label="" width="130" align="center">
                 <template slot-scope="s">
                     <el-button size="mini" type="text" icon="el-icon-view" @click="openEdit(s.row)">View</el-button>
+                    <!-- A sold unit that came back: record-only return — the
+                         order keeps its line, the device rejoins stock. -->
+                    <el-button v-if="s.row.status === 'Sold' && s.row.salesOrder && !isSupplier"
+                        size="mini" type="text" icon="el-icon-back"
+                        @click="openReturn(s.row)">Return</el-button>
                     <el-button v-if="s.row.status !== 'Sold'" size="mini" type="text"
                         icon="el-icon-delete" class="rs-del" @click="remove(s.row)" />
                 </template>
@@ -105,6 +118,44 @@
                 :total="total" :page-size="query.pageSize" :page-sizes="[25, 50, 100, 200]"
                 :current-page="query.page" @current-change="onPage" @size-change="onSize" />
         </div>
+
+        <!-- ── Return a sold device ──────────────────────────────────
+             Record-only: the device goes back In Stock; its sales order
+             stays Confirmed with the line flagged returned. -->
+        <el-dialog title="Return Device" :visible.sync="returnVisible" width="440px">
+            <div v-if="returnRow" class="rs-ret">
+                <div class="rs-ret-dev">
+                    <b>{{ returnRow.imei }}</b>
+                    <span class="rs-dim">
+                        {{ [returnRow.model, returnRow.storage, returnRow.color].filter(Boolean).join(' · ') }}
+                    </span>
+                    <span class="rs-dim">
+                        Sold on <b>{{ returnRow.salesOrder.orderNo }}</b> to {{ returnRow.salesOrder.customerName }}
+                    </span>
+                </div>
+                <div class="rs-ret-field">
+                    <label>Reason *</label>
+                    <el-select v-model="returnForm.reason" size="small" filterable allow-create
+                        default-first-option placeholder="Pick or type a reason" class="rs-full">
+                        <el-option v-for="r in returnReasons" :key="r" :label="r" :value="r" />
+                    </el-select>
+                </div>
+                <div class="rs-ret-field">
+                    <label>Note</label>
+                    <el-input v-model="returnForm.note" type="textarea" :rows="2" maxlength="500" size="small"
+                        placeholder="Optional detail" />
+                </div>
+                <div class="rs-ret-hint">
+                    The device goes back In Stock and can be sold again. {{ returnRow.salesOrder.orderNo }}
+                    keeps its line, marked returned — totals and the invoice are unchanged.
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="returnVisible = false">Cancel</el-button>
+                <el-button size="small" type="primary" :loading="returning" :disabled="!returnForm.reason"
+                    @click="submitReturn">Return to Stock</el-button>
+            </span>
+        </el-dialog>
 
         <!-- Add / Edit a device. Staff type only IMEI, grade and cost —
              model / colour / storage are resolved from the IMEI. -->
@@ -246,8 +297,12 @@
                                 @input="v => form.color = upper(v)" />
                         </el-form-item>
                         <el-form-item label="Storage">
-                            <el-input :value="form.storage" placeholder="e.g. 128GB"
-                                @input="v => form.storage = upper(v)" />
+                            <!-- allow-create keeps an odd size from Blackbelt
+                                 (or an old record) selectable, not wiped. -->
+                            <el-select v-model="form.storage" clearable filterable allow-create
+                                default-first-option placeholder="Select storage" class="rs-full">
+                                <el-option v-for="s in storageOptions" :key="s" :label="s" :value="s" />
+                            </el-select>
                         </el-form-item>
                     </template>
                     <el-form-item label="Grade">
@@ -374,11 +429,15 @@
 <script>
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
-    deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt
+    deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
+    returnRefurbSalesOrderDevice
 } from '@/api/refurbished'
 
 // The grading scale we actually use.
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
+// The sizes phones and tablets actually ship in, 16GB to 2TB. The picker
+// also accepts a typed value for anything outside the ladder.
+const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
 // Stock gets bought in several markets — cost is stored with its currency.
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
 const SYMBOLS = { AUD: '$', CNY: '¥', HKD: 'HK$' }
@@ -399,12 +458,20 @@ export default {
             rows: [],
             total: 0,
             currencies: CURRENCIES,
+            storageOptions: STORAGES,
             filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [] },
             query: {
                 page: 1, pageSize: 25, search: '',
                 grade: '', stockSource: '', location: '', status: '',
                 sort: 'createdAt', order: 'desc'
             },
+            // Returning a sold device off its order (record only).
+            returnVisible: false,
+            returnRow: null,
+            returning: false,
+            returnForm: { reason: '', note: '' },
+            returnReasons: ['Change of mind', 'Faulty on arrival', 'Wrong device', 'Customer dispute'],
+
             // Add/Edit dialog
             editVisible: false,
             editRow: null,
@@ -431,6 +498,9 @@ export default {
         }
     },
     computed: {
+        isSupplier() {
+            return (this.$store.getters.roles || []).includes('phone-supplier')
+        },
         // A plausible code is enough to enable lookup / save; the backend
         // does the authoritative check. Letters are allowed because iPads
         // and Watches only have an alphanumeric Apple serial.
@@ -555,6 +625,30 @@ export default {
             } catch (e) { /* non-fatal — the dropdowns just stay empty */ }
         },
         reload() { this.query.page = 1; this.load() },
+
+        // ── return a sold device ─────────────────────────────────────
+        openReturn(row) {
+            this.returnRow = row
+            this.returnForm = { reason: '', note: '' }
+            this.returnVisible = true
+        },
+        async submitReturn() {
+            this.returning = true
+            try {
+                const r = await returnRefurbSalesOrderDevice(this.returnRow.salesOrder.id, {
+                    deviceId: this.returnRow._id,
+                    reason: this.returnForm.reason,
+                    note: this.returnForm.note
+                })
+                this.$message.success(r.message || 'Returned to stock')
+                this.returnVisible = false
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to return the device'))
+            } finally {
+                this.returning = false
+            }
+        },
         onPage(p) { this.query.page = p; this.load() },
         onSize(s) { this.query.pageSize = s; this.query.page = 1; this.load() },
         // ── Add / Edit ───────────────────────────────────────────────
@@ -835,6 +929,16 @@ export default {
 .f-sel-w { width: 170px; }
 .rs-spacer { flex: 1; }
 .rs-pager { margin-top: 10px; text-align: right; }
+.rs-full { width: 100%; }
+.rs-ret { display: flex; flex-direction: column; gap: 12px; }
+.rs-ret-dev { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.rs-ret-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    label { font-size: 12px; font-weight: 600; color: #606266; }
+}
+.rs-ret-hint { font-size: 12px; color: #909399; line-height: 1.5; }
 .rs-dim { color: #C0C4CC; }
 .rs-del { color: #F56C6C; }
 .rs-form ::v-deep .el-form-item__label { white-space: nowrap; }
