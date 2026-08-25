@@ -8,6 +8,14 @@
                 placeholder="Customer" class="f-customer" @change="reload">
                 <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
             </el-select>
+            <!-- Defaults to everything still open — dispatched records are
+                 finished paperwork and only show when ticked. Empty = all. -->
+            <el-select v-model="query.status" size="small" class="f-status" multiple collapse-tags
+                placeholder="All statuses" @change="reload">
+                <el-option label="Pending" value="pending" />
+                <el-option label="Partial" value="partial" />
+                <el-option label="Dispatched" value="dispatched" />
+            </el-select>
             <span class="od-spacer" />
             <span class="od-meta">{{ total.toLocaleString() }} orders</span>
             <el-button size="small" icon="el-icon-upload2" @click="openUpload">Upload List</el-button>
@@ -475,7 +483,7 @@ export default {
             loading: false,
             rows: [],
             total: 0,
-            query: { page: 1, pageSize: 25, search: '', customer: '' },
+            query: { page: 1, pageSize: 25, search: '', customer: '', status: ['pending', 'partial'] },
             // Dispatch dialog + scan-to-batch state. batchQty maps
             // lineIndex → qty for the batch being built.
             dispatchVisible: false,
@@ -601,7 +609,8 @@ export default {
         async load() {
             this.loading = true
             try {
-                const r = await getInflowDispatch(this.query)
+                // The status ticks travel as a comma list.
+                const r = await getInflowDispatch({ ...this.query, status: (this.query.status || []).join(',') })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.rows = r.rows || []
                 this.total = r.total || 0
@@ -1290,7 +1299,8 @@ export default {
 .inflow-dispatch { padding: 12px 16px; }
 .od-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .f-search { width: 260px; }
-.f-customer { width: 220px; }
+.f-customer { width: 200px; }
+.f-status { width: 210px; }
 .od-spacer { flex: 1; }
 .od-meta { font-size: 12px; color: #909399; margin-right: 6px; white-space: nowrap; }
 .od-pager { margin-top: 10px; text-align: right; }
