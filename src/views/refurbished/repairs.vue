@@ -664,6 +664,11 @@ export default {
     created() {
         this.loadBatches()
         this.loadRepairers()
+        // Landed here from the Stock page's Bulk Action.
+        if (this.$route.query.create) {
+            this.$router.replace({ query: {} })
+            this.openNew()
+        }
     },
     methods: {
         msg(e, fallback) {

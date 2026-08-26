@@ -56,6 +56,11 @@ export function checkRefurbDeviceBlackbelt(id) {
   return request({ url: `/refurbished/devices/${id}/blackbelt-check`, method: 'post', timeout: 30000 })
 }
 
+// Bulk shelf move off the Stock page — In Stock devices only.
+export function bulkAssignLocation(data) {
+  return request({ url: '/refurbished/devices/bulk-location', method: 'post', data, timeout: 120000 })
+}
+
 // ── Customers — buyers of refurbished stock ───────────────────────────
 export function getRefurbCustomers(query) {
   return request({ url: '/refurbished/customers', method: 'get', params: query })

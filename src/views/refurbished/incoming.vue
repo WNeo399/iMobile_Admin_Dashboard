@@ -155,7 +155,7 @@
                 <div v-if="scanMessage" :class="['ri-scan-msg', 'ri-msg-' + scanTone]">{{ scanMessage }}</div>
 
                 <el-table :data="visibleLines" border size="mini" height="46vh"
-                    :row-key="r => r.code" :row-class-name="rowClass"
+                    :row-key="r => r.code" :row-class-name="rowClass" :span-method="lineSpan"
                     empty-text="Nothing to show for this filter." @row-click="onRowClick">
                     <!-- Ticked by scanning or by clicking anywhere on the row;
                          persisted rows are locked. The checkbox is display
@@ -163,7 +163,13 @@
                          is what keeps its state honest when rows reorder. -->
                     <el-table-column width="44" align="center">
                         <template slot-scope="s">
-                            <el-checkbox class="ri-row-check" :value="isChecked(s.row)"
+                            <!-- A group header spans the whole row (lineSpan
+                                 collapses the other cells). -->
+                            <div v-if="s.row.__group" class="ri-group">
+                                {{ s.row.model }}
+                                <span class="ri-dim">· {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}</span>
+                            </div>
+                            <el-checkbox v-else class="ri-row-check" :value="isChecked(s.row)"
                                 :disabled="isPersisted(s.row)" />
                         </template>
                     </el-table-column>
@@ -524,16 +530,38 @@ export default {
         // first; everything else keeps the list's own order.
         visibleLines() {
             const all = [...this.localExtras, ...((this.batch && this.batch.lines) || [])]
-            const pos = l => (this.isPersisted(l) ? -1 : this.checkedCodes.indexOf(l.code))
-            const scanned = all.filter(l => pos(l) >= 0).sort((a, b) => pos(a) - pos(b))
-            const rest = all.filter(l => pos(l) < 0)
-            const rows = [...scanned, ...rest]
-            if (this.lineFilter === 'remaining') return rows.filter(l => !this.isChecked(l))
+            let rows = all
+            if (this.lineFilter === 'remaining') rows = rows.filter(l => !this.isChecked(l))
             // Scanned = ticked this session, not yet committed; Received =
             // already persisted by an earlier Add Received to Stock.
-            if (this.lineFilter === 'scanned') return rows.filter(l => this.isChecked(l) && !this.isPersisted(l))
-            if (this.lineFilter === 'received') return rows.filter(l => this.isPersisted(l))
-            return rows
+            else if (this.lineFilter === 'scanned') rows = rows.filter(l => this.isChecked(l) && !this.isPersisted(l))
+            else if (this.lineFilter === 'received') rows = rows.filter(l => this.isPersisted(l))
+
+            // Grouped by model (Blackbelt's name winning, like the Model
+            // cell), each group under a full-width header row; the most
+            // recent scans still float to the top of their own group.
+            const keyOf = l => this.bbModel(l) || String(l.model || '').trim() || '(No model)'
+            const groups = new Map()
+            for (const l of rows) {
+                const k = keyOf(l)
+                if (!groups.has(k)) groups.set(k, [])
+                groups.get(k).push(l)
+            }
+            const names = [...groups.keys()].sort((a, b) => {
+                if (a === '(No model)') return 1
+                if (b === '(No model)') return -1
+                return a.localeCompare(b)
+            })
+            const pos = l => (this.isPersisted(l) ? -1 : this.checkedCodes.indexOf(l.code))
+            const out = []
+            for (const name of names) {
+                const members = groups.get(name)
+                const scanned = members.filter(l => pos(l) >= 0).sort((a, b) => pos(a) - pos(b))
+                const rest = members.filter(l => pos(l) < 0)
+                out.push({ __group: true, code: '__group__' + name, model: name, count: members.length })
+                out.push(...scanned, ...rest)
+            }
+            return out
         },
         // The scanned lines being sold, oldest scan first — the same order
         // the sale is submitted in.
@@ -892,7 +920,7 @@ export default {
             }
         },
         onRowClick(row, column, event) {
-            if (this.isPersisted(row)) return
+            if (row.__group || this.isPersisted(row)) return
             // Clicks inside real controls (the grade select) keep their own
             // behavior; everywhere else on the row toggles the selection.
             if (event && event.target && event.target.closest &&
@@ -1179,7 +1207,13 @@ export default {
             if (bb && bb.batteryHealth != null) return bb.batteryHealth
             return row.battery
         },
+        // A group header's first cell swallows the whole row.
+        lineSpan({ row, columnIndex }) {
+            if (!row.__group) return [1, 1]
+            return columnIndex === 0 ? [1, 99] : [0, 0]
+        },
         rowClass({ row }) {
+            if (row.__group) return 'ri-row-group'
             if (this.isPersisted(row)) return 'ri-row-stock'
             if (this.checkedCodes.includes(row.code)) return 'ri-row-got'
             if (row.alreadyInStock) return 'ri-row-warn'
@@ -1279,6 +1313,9 @@ export default {
 /* Row click is the toggle — the checkbox only displays the state, and the
    pointer cursor advertises the click. */
 .ri-row-check { pointer-events: none; }
+.ri-group { font-size: 12px; font-weight: 700; color: #303133; text-align: left; padding-left: 6px; white-space: nowrap; }
+::v-deep .el-table .ri-row-group > td { background: #f4f6fa; cursor: default; }
+::v-deep .el-table .ri-row-group:hover > td { background: #f4f6fa; }
 .ri-take ::v-deep .el-table__row { cursor: pointer; }
 .ri-take ::v-deep .ri-row-got td { background: #f0f9eb !important; }
 .ri-take ::v-deep .ri-row-stock td { background: #ecf5ff !important; }

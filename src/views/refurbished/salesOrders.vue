@@ -420,6 +420,11 @@ export default {
     },
     created() {
         this.load()
+        // Landed here from the Stock page's Bulk Action.
+        if (this.$route.query.create) {
+            this.$router.replace({ query: {} })
+            this.openCreate()
+        }
     },
     methods: {
         msg(e, fallback) {

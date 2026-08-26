@@ -562,8 +562,9 @@ export const moduleRoutes = [
         }
       },
       {
-        // Supplier shipments to iMobile — suppliers create them, the
-        // warehouse receives through Incoming Stocks.
+        // Supplier shipments to iMobile — suppliers create them, staff can
+        // watch them here too; the warehouse receives the auto-created
+        // record through Incoming Stocks.
         path: "/refurbished/supply",
         component: (resolve) => require(["@/views/refurbished/supplyBatches"], resolve),
         name: "RefurbishedSupplyBatches",

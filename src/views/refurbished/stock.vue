@@ -7,23 +7,46 @@
             <el-select v-model="query.grade" size="small" clearable placeholder="Grade" class="f-sel" @change="reload">
                 <el-option v-for="g in gradeFilterOptions" :key="g" :label="g" :value="g" />
             </el-select>
-            <!-- A supplier's whole register is one source at one place, so
-                 these two filters would only ever offer a single option. -->
+            <!-- A supplier's register is all one source, so that filter
+                 stays ours — but their devices move between shelf, road and
+                 iMobile, so location is worth filtering for everyone. -->
             <el-select v-if="!isSupplier" v-model="query.stockSource" size="small" clearable filterable placeholder="Stock Source" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.stockSources" :key="l" :label="l" :value="l" />
             </el-select>
-            <el-select v-if="!isSupplier" v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
+            <el-select v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.locations" :key="l" :label="l" :value="l" />
             </el-select>
-            <el-select v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
+            <!-- Suppliers work one undifferentiated shelf — status is an
+                 internal view, so the filter and column stay ours. -->
+            <el-select v-if="!isSupplier" v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
                 <el-option label="In Stock" value="In Stock" />
+                <el-option label="With Supplier" value="With Supplier" />
                 <el-option label="Sold" value="Sold" />
                 <el-option label="Out for Repair" value="Out for Repair" />
                 <el-option label="Not Yet Received" value="Not Yet Received" />
                 <el-option label="Repairing" value="Repairing" />
             </el-select>
             <span class="rs-spacer" />
+            <!-- Single-device add stays its own button; the menu's Add
+                 Device is the bulk version (scan many, create together). -->
             <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
+            <!-- One entry point for the flows that start from stock. The
+                 menu is role-shaped: staff get the full set, suppliers get
+                 what their permissions can actually do. -->
+            <el-dropdown size="small" trigger="click" @command="bulkCommand">
+                <el-button size="small" type="primary" plain>
+                    Bulk Action <i class="el-icon-arrow-down el-icon--right" />
+                </el-button>
+                <el-dropdown-menu slot="dropdown">
+                    <el-dropdown-item command="bulk-add" icon="el-icon-plus">Add Device</el-dropdown-item>
+                    <template v-if="!isSupplier">
+                        <el-dropdown-item command="sale" icon="el-icon-sell">Create Sales Order</el-dropdown-item>
+                        <el-dropdown-item command="exyon" icon="el-icon-position">Assign To Exyon</el-dropdown-item>
+                        <el-dropdown-item command="repair" icon="el-icon-set-up">Create Repair Batch</el-dropdown-item>
+                    </template>
+                    <el-dropdown-item v-else command="supply" icon="el-icon-truck">Create Supply Batch</el-dropdown-item>
+                </el-dropdown-menu>
+            </el-dropdown>
             <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
             <el-button size="small" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
         </div>
@@ -86,10 +109,12 @@
             </el-table-column>
             <!-- Sale status — devices recorded before the field existed are
                  unsold, so an empty status renders as In Stock. -->
-            <el-table-column label="Status" width="100" align="center">
+            <el-table-column v-if="!isSupplier" label="Status" width="110" align="center">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.status === 'Sold'" size="mini" type="danger" effect="plain"
                         :title="soldTitle(s.row)">Sold</el-tag>
+                    <el-tag v-else-if="s.row.status === 'With Supplier'" size="mini" type="info"
+                        effect="plain">With Supplier</el-tag>
                     <el-tag v-else-if="s.row.status === 'Out for Repair'" size="mini" type="warning"
                         effect="plain">Out for Repair</el-tag>
                     <el-tag v-else-if="s.row.status === 'Not Yet Received'" size="mini" type="info"
@@ -107,7 +132,10 @@
                     <el-button v-if="s.row.status === 'Sold' && s.row.salesOrder && !isSupplier"
                         size="mini" type="text" icon="el-icon-back"
                         @click="openReturn(s.row)">Return</el-button>
-                    <el-button v-if="s.row.status !== 'Sold'" size="mini" type="text"
+                    <!-- A supplier's shelf is named after their source, so
+                         location === stockSource means it's still with them. -->
+                    <el-button v-if="s.row.status !== 'Sold' && (!isSupplier || s.row.location === s.row.stockSource)"
+                        size="mini" type="text"
                         icon="el-icon-delete" class="rs-del" @click="remove(s.row)" />
                 </template>
             </el-table-column>
@@ -118,6 +146,134 @@
                 :total="total" :page-size="query.pageSize" :page-sizes="[25, 50, 100, 200]"
                 :current-page="query.page" @current-change="onPage" @size-change="onSize" />
         </div>
+
+        <!-- ── Bulk Add Devices ──────────────────────────────────────
+             Scan codes one after another; each is checked against the
+             register (duplicates refused) and Blackbelt (identity filled
+             where it has a report, typed where it doesn't), then the whole
+             list is created in one go. -->
+        <el-dialog title="Bulk Add Devices" :visible.sync="baVisible" width="980px" top="5vh"
+            :close-on-click-modal="false" @closed="baRows = []">
+            <div class="rs-exy">
+                <div class="rs-exy-bar">
+                    <el-input ref="baInput" v-model="baCode" size="small" class="rs-exy-input"
+                        placeholder="Scan or type IMEI / serial, then Enter…" prefix-icon="el-icon-full-screen"
+                        clearable :disabled="baSaving" @keyup.enter.native="baScan" />
+                    <el-select v-model="baCurrency" size="small" style="width:90px" :disabled="baSaving">
+                        <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
+                    </el-select>
+                    <el-button v-if="baRows.length" size="small" plain :disabled="baSaving"
+                        @click="baRows = []">Clear</el-button>
+                </div>
+                <div v-if="baMsg" :class="['rs-exy-msg', 'rs-exy-' + baTone]">{{ baMsg }}</div>
+                <el-table :data="baRows" border size="mini" max-height="400"
+                    empty-text="Nothing yet — scan a device to start the list.">
+                    <el-table-column label="IMEI" min-width="150">
+                        <template slot-scope="s">
+                            <div><b>{{ s.row.imei }}</b></div>
+                            <div v-if="s.row.bbChecking" class="rs-ba-sub rs-dim">
+                                <i class="el-icon-loading" /> checking Blackbelt…
+                            </div>
+                            <div v-else :class="['rs-ba-sub', s.row.bbFound ? 'rs-ba-ok' : 'rs-ba-warn']">
+                                <i :class="s.row.bbFound ? 'el-icon-success' : 'el-icon-warning'" />
+                                {{ s.row.bbFound ? 'Blackbelt found' : 'no Blackbelt report' }}
+                            </div>
+                            <div v-if="s.row.err" class="rs-ba-sub rs-ba-err">{{ s.row.err }}</div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Device" min-width="300">
+                        <template slot-scope="s">
+                            <!-- Blackbelt's answer is the identity; typing is
+                                 only for devices it doesn't know. -->
+                            <div v-if="!s.row.bbFound && !s.row.bbChecking" class="rs-ba-edit">
+                                <el-input :value="s.row.model" size="mini" placeholder="Model *" class="bae-model"
+                                    @input="v => s.row.model = v.toUpperCase()" />
+                                <el-input :value="s.row.color" size="mini" placeholder="Colour" class="bae-small"
+                                    @input="v => s.row.color = v.toUpperCase()" />
+                                <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
+                                    default-first-option placeholder="Storage" class="bae-small">
+                                    <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
+                                </el-select>
+                            </div>
+                            <template v-else>
+                                {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
+                            </template>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Grade" width="95" align="center">
+                        <template slot-scope="s">
+                            <el-select v-model="s.row.grade" size="mini" clearable placeholder="—" class="rs-full">
+                                <el-option v-for="g in grades" :key="g" :label="g" :value="g" />
+                            </el-select>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Cost" width="100" align="center">
+                        <template slot-scope="s">
+                            <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2"
+                                :controls="false" class="bae-cost" />
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="" width="46" align="center">
+                        <template slot-scope="s">
+                            <el-button size="mini" type="text" icon="el-icon-close" class="rs-del"
+                                :disabled="baSaving" @click="baRows.splice(s.$index, 1)" />
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+            <span slot="footer">
+                <span v-if="baRows.length" class="rs-exy-count">
+                    {{ baRows.length }} device{{ baRows.length === 1 ? '' : 's' }}
+                </span>
+                <el-button size="small" :disabled="baSaving" @click="baVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="baSaving" :disabled="!baRows.length"
+                    @click="submitBulkAdd">Add to Stock</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- ── Assign To Exyon ───────────────────────────────────────
+             Scan In Stock devices into a list, then move the lot in one
+             call. Sold / away devices are refused at scan time. -->
+        <el-dialog title="Assign To Exyon" :visible.sync="exyonVisible" width="720px" top="6vh"
+            @closed="exyonRows = []">
+            <div class="rs-exy">
+                <div class="rs-exy-bar">
+                    <el-input ref="exyonInput" v-model="exyonCode" size="small" class="rs-exy-input"
+                        placeholder="Scan or type IMEI / serial, then Enter…" prefix-icon="el-icon-full-screen"
+                        clearable @keyup.enter.native="exyonScan" />
+                    <el-button v-if="exyonRows.length" size="small" plain @click="exyonRows = []">Clear</el-button>
+                </div>
+                <div v-if="exyonMsg" :class="['rs-exy-msg', 'rs-exy-' + exyonTone]">{{ exyonMsg }}</div>
+                <el-table :data="exyonRows" border size="mini" max-height="340"
+                    empty-text="Nothing yet — scan a device to start the list.">
+                    <el-table-column label="IMEI" min-width="150">
+                        <template slot-scope="s"><b>{{ s.row.imei }}</b></template>
+                    </el-table-column>
+                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                        <template slot-scope="s">
+                            {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Current Location" width="150" align="center">
+                        <template slot-scope="s">{{ s.row.location || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="" width="50" align="center">
+                        <template slot-scope="s">
+                            <el-button size="mini" type="text" icon="el-icon-close" class="rs-del"
+                                @click="exyonRows.splice(s.$index, 1)" />
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+            <span slot="footer">
+                <span v-if="exyonRows.length" class="rs-exy-count">
+                    {{ exyonRows.length }} device{{ exyonRows.length === 1 ? '' : 's' }}
+                </span>
+                <el-button size="small" @click="exyonVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="exyonSaving" :disabled="!exyonRows.length"
+                    @click="submitExyon">Assign To Exyon</el-button>
+            </span>
+        </el-dialog>
 
         <!-- ── Return a sold device ──────────────────────────────────
              Record-only: the device goes back In Stock; its sales order
@@ -327,19 +483,23 @@
                 <!-- Audit trail — every edit, newest first. Mirrors the SQT
                      case Status History timeline. -->
                 <div v-if="editRow && dlgTab === 'history'" class="rs-history">
+                    <!-- Most entries carry their whole story in the action
+                         text ("Sold on RSO-10010 to …", "Sent for repair —
+                         …"); histMeta turns that into a category tag and
+                         keeps the full sentence underneath. -->
                     <el-timeline v-if="deviceHistory.length">
                         <el-timeline-item v-for="(h, i) in deviceHistory" :key="i"
                             :timestamp="histDate(h.at)" placement="top"
-                            :color="h.action === 'created' ? '#67C23A' : '#409EFF'">
+                            :color="histMeta(h).color">
                             <div class="rs-hist-card">
                                 <div>
-                                    <el-tag size="mini" :type="h.action === 'created' ? 'success' : ''" effect="light">
-                                        {{ h.action === 'created' ? 'Created' : 'Updated' }}
+                                    <el-tag size="mini" :type="histMeta(h).type" effect="light">
+                                        {{ histMeta(h).label }}
                                     </el-tag>
                                     <span class="rs-hist-by"><i class="el-icon-user" /> {{ h.by || 'system' }}</span>
                                 </div>
-                                <div v-if="h.action === 'created' && h.note" class="rs-hist-note">{{ h.note }}</div>
-                                <div v-else-if="h.changes && h.changes.length" class="rs-hist-note">
+                                <div v-if="histMeta(h).text" class="rs-hist-note">{{ histMeta(h).text }}</div>
+                                <div v-if="h.changes && h.changes.length" class="rs-hist-note">
                                     <div v-for="(c, j) in h.changes" :key="j">{{ changeLine(c) }}</div>
                                 </div>
                             </div>
@@ -430,7 +590,7 @@
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
-    returnRefurbSalesOrderDevice
+    returnRefurbSalesOrderDevice, bulkAssignLocation
 } from '@/api/refurbished'
 
 // The grading scale we actually use.
@@ -458,6 +618,7 @@ export default {
             rows: [],
             total: 0,
             currencies: CURRENCIES,
+            grades: GRADES,
             storageOptions: STORAGES,
             filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [] },
             query: {
@@ -465,6 +626,23 @@ export default {
                 grade: '', stockSource: '', location: '', status: '',
                 sort: 'createdAt', order: 'desc'
             },
+            // Bulk Add — scan many codes, create them together.
+            baVisible: false,
+            baCode: '',
+            baRows: [],
+            baCurrency: 'AUD',
+            baMsg: '',
+            baTone: 'ok',
+            baSaving: false,
+
+            // Assign To Exyon — scan a list, move it in one call.
+            exyonVisible: false,
+            exyonCode: '',
+            exyonRows: [],
+            exyonMsg: '',
+            exyonTone: 'ok',
+            exyonSaving: false,
+
             // Returning a sold device off its order (record only).
             returnVisible: false,
             returnRow: null,
@@ -625,6 +803,209 @@ export default {
             } catch (e) { /* non-fatal — the dropdowns just stay empty */ }
         },
         reload() { this.query.page = 1; this.load() },
+
+        // ── bulk action menu ─────────────────────────────────────────
+        bulkCommand(cmd) {
+            if (cmd === 'bulk-add') this.openBulkAdd()
+            else if (cmd === 'exyon') this.openExyon()
+            // The create dialogs live on their own pages — land there with
+            // the dialog already open.
+            else if (cmd === 'sale') this.$router.push({ path: '/refurbished/sales-orders', query: { create: '1' } })
+            else if (cmd === 'repair') this.$router.push({ path: '/refurbished/repairs', query: { create: '1' } })
+            else if (cmd === 'supply') this.$router.push({ path: '/refurbished/supply', query: { create: '1' } })
+        },
+        // ── bulk add ─────────────────────────────────────────────────
+        openBulkAdd() {
+            this.baRows = []
+            this.baCode = ''
+            this.baMsg = ''
+            this.baCurrency = 'AUD'
+            this.baVisible = true
+            this.$nextTick(() => {
+                const el = this.$refs.baInput
+                if (el && el.focus) el.focus()
+            })
+        },
+        baSay(tone, msg) {
+            this.baTone = tone
+            this.baMsg = msg
+        },
+        async baScan() {
+            const code = String(this.baCode || '').replace(/[\s-]/g, '').trim().toUpperCase()
+            this.baCode = ''
+            if (!code) return
+            if (!/^[A-Z0-9]{10,20}$/.test(code)) {
+                this.baSay('error', '"' + code + '" is not a valid IMEI or serial')
+                return
+            }
+            if (this.baRows.some(r => String(r.imei).toUpperCase() === code)) {
+                this.baSay('warn', code + ' is already on the list')
+                return
+            }
+            // Seeded in full — Vue 2 can't track keys added later.
+            const row = {
+                imei: code,
+                model: '', color: '', storage: '', grade: '',
+                costPrice: undefined,
+                bbChecking: true,
+                bbFound: false,
+                err: '',
+                bb: {}
+            }
+            this.baRows.unshift(row)
+            this.baSay('ok', code + ' added — checking Blackbelt…')
+            try {
+                const r = await lookupRefurbDevice(code)
+                if (r && r.alreadyInStock) {
+                    const i = this.baRows.indexOf(row)
+                    if (i >= 0) this.baRows.splice(i, 1)
+                    this.baSay('error', code + ' is already in the stock register')
+                    return
+                }
+                const d = (r && r.device) || {}
+                row.model = d.model || ''
+                row.color = d.color || ''
+                row.storage = d.storage || ''
+                // Passed through to the create so the record matches one
+                // added from the single-device dialog.
+                row.bb = {
+                    brand: d.brand || '',
+                    serialNumber: d.serialNumber || '',
+                    batteryHealth: d.batteryHealth == null ? null : d.batteryHealth,
+                    batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
+                    batteryCapacity: d.batteryCapacity || '',
+                    aNumber: d.aNumber || '',
+                    blackbeltChecked: (r && r.blackbeltChecked) === true,
+                    blackbeltReportId: (r && r.blackbeltReportId) || '',
+                    blackbeltStatus: (r && r.blackbeltStatus) || ''
+                }
+                row.bbFound = !!(r && r.found)
+                if (row.bbFound) this.baSay('ok', code + ' — ' + (d.model || 'report found'))
+                else this.baSay('warn', code + ' — no Blackbelt report, enter the details')
+            } catch (e) {
+                this.baSay('error', 'Lookup failed for ' + code + ' — details can be typed in')
+            } finally {
+                row.bbChecking = false
+                this.$nextTick(() => {
+                    const el = this.$refs.baInput
+                    if (el && el.focus) el.focus()
+                })
+            }
+        },
+        // Creates the list one record at a time — a failure keeps its row
+        // (with the reason on it) while the successes leave the list, so a
+        // retry only touches what actually failed.
+        async submitBulkAdd() {
+            const checking = this.baRows.find(r => r.bbChecking)
+            if (checking) {
+                this.$message.warning(`Still checking ${checking.imei} against Blackbelt — one moment`)
+                return
+            }
+            const noModel = this.baRows.find(r => !String(r.model || '').trim())
+            if (noModel) {
+                this.$message.warning(`Enter a model for ${noModel.imei}`)
+                return
+            }
+            this.baSaving = true
+            let created = 0
+            const failed = []
+            for (const row of this.baRows) {
+                try {
+                    const r = await createRefurbDevice({
+                        imei: row.imei,
+                        model: row.model,
+                        color: row.color,
+                        storage: row.storage,
+                        grade: row.grade,
+                        costPrice: row.costPrice,
+                        currency: this.baCurrency,
+                        ...row.bb
+                    })
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    created++
+                } catch (e) {
+                    row.err = this.msg(e, 'Failed to add')
+                    failed.push(row)
+                }
+            }
+            this.baSaving = false
+            this.baRows = failed
+            if (created) this.$message.success(`${created} device(s) added to stock`)
+            if (failed.length) {
+                this.baSay('error', `${failed.length} device(s) failed — fix and press Add to Stock again`)
+            } else {
+                this.baVisible = false
+            }
+            this.load()
+        },
+
+        openExyon() {
+            this.exyonRows = []
+            this.exyonCode = ''
+            this.exyonMsg = ''
+            this.exyonVisible = true
+            this.$nextTick(() => {
+                const el = this.$refs.exyonInput
+                if (el && el.focus) el.focus()
+            })
+        },
+        exySay(tone, msg) {
+            this.exyonTone = tone
+            this.exyonMsg = msg
+        },
+        async exyonScan() {
+            const code = String(this.exyonCode || '').replace(/[\s-]/g, '').trim().toUpperCase()
+            this.exyonCode = ''
+            if (!code) return
+            if (this.exyonRows.some(r =>
+                String(r.imei).toUpperCase() === code ||
+                String(r.serialNumber || '').toUpperCase() === code)) {
+                this.exySay('warn', code + ' is already on the list')
+                return
+            }
+            try {
+                const r = await getRefurbDevices({ search: code, pageSize: 10 })
+                const hit = (r.rows || []).find(d =>
+                    String(d.imei).toUpperCase() === code ||
+                    String(d.serialNumber || '').toUpperCase() === code)
+                if (!hit) { this.exySay('error', code + ' is not in the stock register'); return }
+                if (hit.status && hit.status !== 'In Stock') {
+                    this.exySay('error', code + ' is ' + hit.status + ' — only In Stock devices can move')
+                    return
+                }
+                if (hit.location === 'Assigned To Exyon') {
+                    this.exySay('warn', code + ' is already at Assigned To Exyon')
+                    return
+                }
+                this.exyonRows.unshift(hit)
+                this.exySay('ok', code + ' added — ' + (hit.model || 'unknown model'))
+            } catch (e) {
+                this.exySay('error', 'Lookup failed — try again')
+            }
+        },
+        async submitExyon() {
+            this.exyonSaving = true
+            try {
+                const r = await bulkAssignLocation({
+                    location: 'Assigned To Exyon',
+                    deviceIds: this.exyonRows.map(d => d._id)
+                })
+                this.$message.success(r.message || 'Moved')
+                if ((r.skipped || []).length) {
+                    this.$notify.warning({
+                        title: 'Some devices were skipped',
+                        message: r.skipped.map(s => `${s.imei}: ${s.reason}`).join('\n'),
+                        duration: 0
+                    })
+                }
+                this.exyonVisible = false
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to move the devices'))
+            } finally {
+                this.exyonSaving = false
+            }
+        },
 
         // ── return a sold device ─────────────────────────────────────
         openReturn(row) {
@@ -877,6 +1258,37 @@ export default {
             if (v === null || v === undefined || v === '') return '—'
             return String(v)
         },
+        // Category, colour and display text for one history entry. The
+        // writers put the specifics in `action` ("Sold on RSO-10010 to …"),
+        // so the full sentence is always shown; the tag is just a scent.
+        histMeta(h) {
+            const a = String(h.action || '')
+            if (a === 'created') {
+                return { label: 'Created', type: 'success', color: '#67C23A', text: h.note || '' }
+            }
+            if (a === 'updated') {
+                return { label: 'Updated', type: '', color: '#409EFF', text: h.note || '' }
+            }
+            const rules = [
+                [/^Sold on/i, 'Sold', 'danger', '#F56C6C'],
+                [/^Returned from repair/i, 'Back from Repair', 'warning', '#E6A23C'],
+                [/^Returned from/i, 'Customer Return', 'warning', '#E6A23C'],
+                [/^Removed from/i, 'Off Order', 'info', '#909399'],
+                [/^Sent for repair/i, 'To Repairer', 'warning', '#E6A23C'],
+                [/^Sent to iMobile/i, 'Supply Sent', 'warning', '#E6A23C'],
+                [/^Received/i, 'Received', 'success', '#67C23A'],
+                [/^Moved to/i, 'Moved', 'info', '#909399'],
+                [/cancelled/i, 'Cancelled', 'info', '#909399'],
+                [/^Repair batch/i, 'Repair', 'info', '#909399'],
+                [/reassigned/i, 'Reassigned', 'info', '#909399']
+            ]
+            for (const [re, label, type, color] of rules) {
+                if (re.test(a)) {
+                    return { label, type, color, text: a + (h.note ? ' · ' + h.note : '') }
+                }
+            }
+            return { label: 'Updated', type: '', color: '#409EFF', text: a + (h.note ? ' · ' + h.note : '') }
+        },
         histDate(v) {
             const d = new Date(v)
             return isNaN(d) ? '—' : d.toLocaleString(undefined, {
@@ -930,6 +1342,24 @@ export default {
 .rs-spacer { flex: 1; }
 .rs-pager { margin-top: 10px; text-align: right; }
 .rs-full { width: 100%; }
+.rs-ba-sub { font-size: 11px; line-height: 1.4; margin-top: 1px; }
+.rs-ba-ok { color: #67c23a; }
+.rs-ba-warn { color: #e6a23c; }
+.rs-ba-err { color: #f56c6c; }
+.rs-ba-edit { display: flex; gap: 6px; }
+.bae-model { flex: 1; min-width: 120px; }
+.bae-small { width: 100px; }
+.bae-cost { width: 84px; }
+
+.rs-exy { display: flex; flex-direction: column; gap: 10px; }
+.rs-exy-bar { display: flex; align-items: center; gap: 10px; }
+.rs-exy-input { width: 300px; }
+.rs-exy-msg { font-size: 12px; padding: 5px 10px; border-radius: 4px; }
+.rs-exy-ok { background: #f0f9eb; color: #67c23a; }
+.rs-exy-warn { background: #fdf6ec; color: #e6a23c; }
+.rs-exy-error { background: #fef0f0; color: #f56c6c; }
+.rs-exy-count { font-size: 12px; color: #909399; margin-right: 10px; }
+
 .rs-ret { display: flex; flex-direction: column; gap: 12px; }
 .rs-ret-dev { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
 .rs-ret-field {

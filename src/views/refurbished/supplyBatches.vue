@@ -3,12 +3,13 @@
         <div class="sb-bar">
             <span class="sb-title">Supply Batches</span>
             <span class="sb-spacer" />
-            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">New Batch</el-button>
+            <!-- Creation is the supplier's act — staff watch and receive. -->
+            <el-button v-if="isSupplier" size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">New Batch</el-button>
             <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini"
-            empty-text="No supply batches yet — create one to send devices to iMobile.">
+            :empty-text="isSupplier ? 'No supply batches yet — create one to send devices to iMobile.' : 'No supply batches yet.'">
             <el-table-column label="Batch" width="120">
                 <template slot-scope="s">
                     <el-button type="text" class="sb-link" @click="openDetail(s.row)">{{ s.row.batchNo }}</el-button>
@@ -27,7 +28,10 @@
                     </span>
                 </template>
             </el-table-column>
-            <el-table-column label="Notes" min-width="180" show-overflow-tooltip>
+            <el-table-column label="Tracking" min-width="130" show-overflow-tooltip>
+                <template slot-scope="s">{{ s.row.tracking || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="Notes" min-width="160" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.notes || '—' }}</template>
             </el-table-column>
             <el-table-column label="Created" width="160">
@@ -76,7 +80,7 @@
                         </div>
                     </div>
                     <div v-else-if="pickerSearched && !pickerLoading" class="sb-dim sb-noresult">
-                        No In Stock devices match — only devices already in stock can be sent.
+                        No matching devices — only units on your shelf (or In Stock) can be sent.
                     </div>
                 </div>
 
@@ -105,14 +109,17 @@
                     </el-table-column>
                 </el-table>
 
+                <div class="sb-row">
+                    <div class="sb-field sb-grow">
+                        <label>Tracking Number</label>
+                        <el-input v-model="form.tracking" size="small" maxlength="100" clearable
+                            placeholder="Optional — the courier's tracking number" />
+                    </div>
+                </div>
                 <div class="sb-field">
                     <label>Notes</label>
                     <el-input v-model="form.notes" type="textarea" :rows="2" maxlength="1000" size="small"
-                        placeholder="Optional — courier, tracking, anything the warehouse should know" />
-                </div>
-                <div class="sb-hint">
-                    Creating the batch marks these devices <b>Not Yet Received · In Transit</b> and opens an
-                    Incoming Stocks record for the warehouse to receive them. Stock source is unchanged.
+                        placeholder="Optional — courier, anything the warehouse should know" />
                 </div>
             </div>
             <span slot="footer">
@@ -132,6 +139,7 @@
                     <div v-if="!isSupplier"><label>Stock Source</label><div>{{ detail.stockSource }}</div></div>
                     <div><label>Created</label><div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div></div>
                     <div><label>Received</label><div>{{ detail.received }} / {{ detail.total }}</div></div>
+                    <div v-if="detail.tracking"><label>Tracking</label><div>{{ detail.tracking }}</div></div>
                     <div v-if="detail.status === 'Cancelled'">
                         <label>Cancelled</label>
                         <div>{{ formatDateTime(detail.cancelledAt) }} · {{ detail.cancelledBy || '—' }}</div>
@@ -178,7 +186,7 @@ export default {
 
             createVisible: false,
             creating: false,
-            form: { notes: '', lines: [] },
+            form: { notes: '', tracking: '', lines: [] },
             pickerSearch: '',
             pickerResults: [],
             pickerLoading: false,
@@ -195,6 +203,11 @@ export default {
     },
     created() {
         this.load()
+        // Landed here from the Stock page's Bulk Action (suppliers only).
+        if (this.$route.query.create) {
+            this.$router.replace({ query: {} })
+            if (this.isSupplier) this.openCreate()
+        }
     },
     methods: {
         msg(e, fallback) {
@@ -221,7 +234,7 @@ export default {
 
         // ── create ───────────────────────────────────────────────────
         openCreate() {
-            this.form = { notes: '', lines: [] }
+            this.form = { notes: '', tracking: '', lines: [] }
             this.pickerSearch = ''
             this.pickerResults = []
             this.pickerSearched = false
@@ -234,7 +247,8 @@ export default {
             if (!q) { this.pickerResults = []; this.pickerSearched = false; return }
             this.pickerLoading = true
             try {
-                const r = await getRefurbDevices({ search: q, status: 'In Stock', page: 1, pageSize: 20 })
+                // Our In Stock units and the supplier's own shelf both board.
+                const r = await getRefurbDevices({ search: q, status: 'In Stock,With Supplier', page: 1, pageSize: 20 })
                 this.pickerResults = r.rows || []
                 this.pickerSearched = true
                 // A scan that matches exactly one device goes straight in.
@@ -271,6 +285,7 @@ export default {
             try {
                 const r = await createSupplyBatch({
                     notes: this.form.notes,
+                    tracking: this.form.tracking,
                     deviceIds: this.form.lines.map(l => l.deviceId)
                 })
                 this.$message.success(r.message || 'Supply batch created')
@@ -333,6 +348,8 @@ export default {
 .sb-foot-note { font-size: 12px; color: #909399; margin-right: 10px; }
 
 .sb-form { display: flex; flex-direction: column; gap: 12px; }
+.sb-row { display: flex; gap: 14px; }
+.sb-grow { flex: 1; }
 .sb-field {
     display: flex;
     flex-direction: column;
@@ -362,7 +379,6 @@ export default {
     span { font-size: 12px; color: #909399; }
 }
 .sb-noresult { padding: 8px 2px; font-size: 12px; }
-.sb-hint { font-size: 12px; color: #909399; line-height: 1.5; }
 
 .sb-detail { display: flex; flex-direction: column; gap: 12px; }
 .sb-detail-grid {
