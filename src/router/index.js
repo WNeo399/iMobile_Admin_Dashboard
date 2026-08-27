@@ -549,6 +549,29 @@ export const moduleRoutes = [
         }
       },
       {
+        // Selling stock: RSO-numbered orders that mark devices Sold.
+        path: "/refurbished/sales-orders",
+        component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),
+        name: "RefurbishedSalesOrders",
+        meta: {
+          title: "Sales Orders",
+          icon: "el-icon-sell",
+          permissions: ["refurb:sale:view"]
+        }
+      },
+      {
+        // Devices coming back from a customer — picked from what that
+        // customer currently holds, and back into stock on create.
+        path: "/refurbished/sales-returns",
+        component: (resolve) => require(["@/views/refurbished/salesReturns"], resolve),
+        name: "RefurbishedSalesReturns",
+        meta: {
+          title: "Sales Return",
+          icon: "el-icon-refresh-left",
+          permissions: ["refurb:sale:view"]
+        }
+      },
+      {
         // Supplier shipments counted in by the warehouse, then pushed into
         // Stock under the iMobile location. exclusiveRoles = strict match,
         // so this is Admin-only until we decide who else needs it.
@@ -572,17 +595,6 @@ export const moduleRoutes = [
           title: "Supply Batches",
           icon: "el-icon-truck",
           permissions: ["refurb:supply:view"]
-        }
-      },
-      {
-        // Selling stock: RSO-numbered orders that mark devices Sold.
-        path: "/refurbished/sales-orders",
-        component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),
-        name: "RefurbishedSalesOrders",
-        meta: {
-          title: "Sales Orders",
-          icon: "el-icon-sell",
-          permissions: ["refurb:sale:view"]
         }
       },
       {

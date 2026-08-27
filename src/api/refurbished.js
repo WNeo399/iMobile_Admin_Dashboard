@@ -114,6 +114,28 @@ export function cancelRefurbSalesOrder(id) {
   return request({ url: `/refurbished/sales-orders/${id}/cancel`, method: 'post' })
 }
 
+// ── Sales Returns — devices coming back from a customer ───────────────
+// Raised against the customer; creating one puts the devices back In
+// Stock and flags the line on the order they went out on.
+export function getSalesReturns(query) {
+  return request({ url: '/refurbished/sales-returns', method: 'get', params: query })
+}
+export function getSalesReturn(id) {
+  return request({ url: `/refurbished/sales-returns/${id}`, method: 'get' })
+}
+// Everything the customer currently holds on confirmed orders — the only
+// devices a return can be raised for.
+export function getCustomerSoldDevices(customerId) {
+  return request({ url: '/refurbished/sales-returns/sold', method: 'get', params: { customerId } })
+}
+// Scan-first: who currently holds this IMEI / serial.
+export function lookupSoldDevice(code) {
+  return request({ url: '/refurbished/sales-returns/lookup', method: 'get', params: { code } })
+}
+export function createSalesReturn(data) {
+  return request({ url: '/refurbished/sales-returns', method: 'post', data, timeout: 120000 })
+}
+
 // ── Incoming Stocks — supplier shipments counted in by the warehouse ──
 export function getIncomingBatches() {
   return request({ url: '/refurbished/incoming', method: 'get' })
