@@ -176,9 +176,21 @@
                         <div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div>
                     </div>
                 </div>
-                <el-table :data="detail.lines" border size="mini" max-height="340">
+                <el-table :data="groupedDetailLines" border size="mini" max-height="340"
+                    :row-class-name="r => (r.row.__group ? 'sr-row-grouphead' : '')" :span-method="lineSpan"
+                    @row-click="toggleGroup">
                     <el-table-column label="IMEI" min-width="150">
-                        <template slot-scope="s"><b>{{ s.row.imei }}</b></template>
+                        <template slot-scope="s">
+                            <div v-if="s.row.__group" class="sr-group">
+                                <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
+                                {{ s.row.model }}
+                                <span class="sr-dim">
+                                    · {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}
+                                    · {{ money(s.row.value, detail.currency) }}
+                                </span>
+                            </div>
+                            <b v-else>{{ s.row.imei }}</b>
+                        </template>
                     </el-table-column>
                     <el-table-column label="Device" min-width="200" show-overflow-tooltip>
                         <template slot-scope="s">
@@ -241,6 +253,9 @@ import {
     lookupSoldDevice, getRefurbCustomers
 } from '@/api/refurbished'
 import { buildSalesReturnPdf, salesReturnPdfFileName } from '@/utils/salesReturnPdf'
+// Same model grouping the supply lists use — one rule for how device
+// lists fold, wherever they appear.
+import { groupSupplyLines as groupByModel } from '@/utils/supplyBatchPdf'
 import * as XLSX from 'xlsx-js-style'
 
 // Mirrors the backend whitelist; the same shelves the receive dialog offers.
@@ -272,6 +287,8 @@ export default {
 
             detailVisible: false,
             detail: null,
+            // Model groups folded shut in the detail table, by name.
+            collapsedDetailGroups: {},
 
             // PDF preview — the doc is kept so Print and Download work off
             // the same build rather than re-rendering.
@@ -282,6 +299,26 @@ export default {
         }
     },
     computed: {
+        // The detail table shows the lines under full-width model headers
+        // (lineSpan collapses the other cells), so a return of thirty
+        // phones reads as a handful of models rather than thirty rows.
+        groupedDetailLines() {
+            const out = []
+            for (const g of groupByModel((this.detail && this.detail.lines) || [])) {
+                const collapsed = !!this.collapsedDetailGroups[g.name]
+                out.push({
+                    __group: true,
+                    model: g.name,
+                    count: g.rows.length,
+                    // Sale value of the group, summed the way the footer
+                    // total is — one currency per return.
+                    value: Math.round(g.rows.reduce((t, r) => t + (Number(r.price) || 0), 0) * 100) / 100,
+                    collapsed
+                })
+                if (!collapsed) out.push(...g.rows)
+            }
+            return out
+        },
         visibleSold() {
             const q = this.scanCode.trim().toLowerCase()
             const rows = q
@@ -607,10 +644,20 @@ export default {
         },
 
         // ── detail ───────────────────────────────────────────────────
+        lineSpan({ row, columnIndex }) {
+            if (!row.__group) return [1, 1]
+            return columnIndex === 0 ? [1, 99] : [0, 0]
+        },
+        toggleGroup(row) {
+            if (!row.__group) return
+            this.$set(this.collapsedDetailGroups, row.model, !this.collapsedDetailGroups[row.model])
+        },
         async openDetail(row) {
             try {
                 const r = await getSalesReturn(row._id)
                 this.detail = r.salesReturn
+                // Every return opens fully unfolded.
+                this.collapsedDetailGroups = {}
                 this.detailVisible = true
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to load the return'))
@@ -670,6 +717,9 @@ export default {
     border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px; white-space: pre-wrap;
 }
 .sr-hint { font-size: 12px; line-height: 1.5; }
+.sr-group { font-size: 12px; font-weight: 700; color: #303133; white-space: nowrap; }
+::v-deep .el-table .sr-row-grouphead > td { background: #f4f6fa; cursor: pointer; }
+::v-deep .el-table .sr-row-grouphead:hover > td { background: #eef1f7; }
 .sr-pdf-wrap { height: 66vh; border: 1px solid #ebeef5; border-radius: 4px; background: #f5f7fa; }
 .sr-pdf-frame { width: 100%; height: 100%; border: 0; }
 </style>

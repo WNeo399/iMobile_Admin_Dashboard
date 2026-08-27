@@ -729,9 +729,10 @@ export default {
                 out.rows.push({
                     no: map.no ? this.toNum(r[map.no]) : i + 1,
                     code,
-                    // Suppliers mix casings ("iphone 13", "space Grey") —
-                    // uppercase so the register reads uniformly.
-                    model: map.model ? String(r[map.model] || '').trim().toUpperCase() : '',
+                    // Suppliers mix casings ("space Grey") — uppercase so
+                    // the register reads uniformly. Model is the exception:
+                    // it keeps its casing to match Blackbelt's wording.
+                    model: map.model ? String(r[map.model] || '').trim() : '',
                     color: map.color ? String(r[map.color] || '').trim().toUpperCase() : '',
                     capacity: map.capacity ? String(r[map.capacity] || '').trim().toUpperCase() : '',
                     battery: map.battery ? this.batteryPercent(r[map.battery]) : null,
@@ -894,7 +895,8 @@ export default {
         },
         // Identity corrections for lines Blackbelt has nothing on. The cell
         // starts on the supplier's own wording and is only overridden once
-        // someone types; stored uppercase like the rest of the module.
+        // someone types. Colour and capacity are stored uppercase like the
+        // rest of the module; model keeps the casing it is typed in.
         detailValue(row, field) {
             const pick = this.detailPicks[row.code]
             if (pick && pick[field] !== undefined) return pick[field]
@@ -902,7 +904,8 @@ export default {
         },
         setDetail(row, field, v) {
             const pick = { ...(this.detailPicks[row.code] || {}) }
-            pick[field] = String(v == null ? '' : v).toUpperCase()
+            const text = String(v == null ? '' : v)
+            pick[field] = field === 'model' ? text : text.toUpperCase()
             this.$set(this.detailPicks, row.code, pick)
         },
         // Only the codes being received, and only fields actually typed.

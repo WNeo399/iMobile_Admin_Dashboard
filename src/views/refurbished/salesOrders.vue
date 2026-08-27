@@ -611,7 +611,11 @@ export default {
         },
         // ── returns ─────────────────────────────────────────────────
         returnTitle(line) {
-            const bits = [this.formatDateTime(line.returnedAt)]
+            const bits = []
+            // Returns now carry an SR number; the ones raised before they
+            // did carry a reason instead. Show whichever the line has.
+            if (line.returnNo) bits.push(line.returnNo)
+            bits.push(this.formatDateTime(line.returnedAt))
             if (line.returnedBy) bits.push(line.returnedBy)
             if (line.returnReason) bits.push(line.returnReason)
             if (line.returnNote) bits.push(line.returnNote)

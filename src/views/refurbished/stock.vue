@@ -276,8 +276,9 @@
         </el-dialog>
 
         <!-- ── Return a sold device ──────────────────────────────────
-             Record-only: the device goes back In Stock; its sales order
-             stays Confirmed with the line flagged returned. -->
+             Raises a one-device Sales Return (SR-…) so it lands in the
+             same ledger as returns raised from the Sales Return page.
+             Record-only: the order stays Confirmed, line flagged. -->
         <el-dialog title="Return Device" :visible.sync="returnVisible" width="440px">
             <div v-if="returnRow" class="rs-ret">
                 <div class="rs-ret-dev">
@@ -290,10 +291,9 @@
                     </span>
                 </div>
                 <div class="rs-ret-field">
-                    <label>Reason *</label>
-                    <el-select v-model="returnForm.reason" size="small" filterable allow-create
-                        default-first-option placeholder="Pick or type a reason" class="rs-full">
-                        <el-option v-for="r in returnReasons" :key="r" :label="r" :value="r" />
+                    <label>Return To</label>
+                    <el-select v-model="returnForm.location" size="small" class="rs-full">
+                        <el-option v-for="l in returnLocations" :key="l" :label="l" :value="l" />
                     </el-select>
                 </div>
                 <div class="rs-ret-field">
@@ -302,13 +302,15 @@
                         placeholder="Optional detail" />
                 </div>
                 <div class="rs-ret-hint">
-                    The device goes back In Stock and can be sold again. {{ returnRow.salesOrder.orderNo }}
-                    keeps its line, marked returned — totals and the invoice are unchanged.
+                    This raises a Sales Return you can find on the Sales Return page. The device goes back
+                    In Stock at {{ returnForm.location }} and can be sold again;
+                    {{ returnRow.salesOrder.orderNo }} keeps its line, marked returned — totals and the
+                    invoice are unchanged.
                 </div>
             </div>
             <span slot="footer">
                 <el-button size="small" @click="returnVisible = false">Cancel</el-button>
-                <el-button size="small" type="primary" :loading="returning" :disabled="!returnForm.reason"
+                <el-button size="small" type="primary" :loading="returning"
                     @click="submitReturn">Return to Stock</el-button>
             </span>
         </el-dialog>
@@ -445,8 +447,10 @@
                          unit; without one these are entered by hand. -->
                     <template v-if="canEditIdentity">
                         <el-form-item label="Model">
-                            <el-input :value="form.model" placeholder="e.g. IPHONE 13"
-                                @input="v => form.model = upper(v)" />
+                            <!-- Model keeps the casing it is typed in, so a
+                                 hand-entered unit reads like a Blackbelt one
+                                 ("iPhone 13") and groups with it. -->
+                            <el-input v-model="form.model" placeholder="e.g. iPhone 13" />
                         </el-form-item>
                         <el-form-item label="Colour">
                             <el-input :value="form.color" placeholder="e.g. BLACK"
@@ -590,7 +594,7 @@
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
-    returnRefurbSalesOrderDevice, bulkAssignLocation
+    bulkAssignLocation, lookupSoldDevice, createSalesReturn
 } from '@/api/refurbished'
 
 // The grading scale we actually use.
@@ -598,6 +602,9 @@ const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 // The sizes phones and tablets actually ship in, 16GB to 2TB. The picker
 // also accepts a typed value for anything outside the ladder.
 const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
+// Where a returned unit can land — the same shelves the Sales Return page
+// offers, since both go through the one endpoint.
+const RETURN_LOCATIONS = ['iMobile', 'Assigned To Exyon']
 // Stock gets bought in several markets — cost is stored with its currency.
 const CURRENCIES = ['AUD', 'CNY', 'HKD']
 const SYMBOLS = { AUD: '$', CNY: '¥', HKD: 'HK$' }
@@ -647,8 +654,8 @@ export default {
             returnVisible: false,
             returnRow: null,
             returning: false,
-            returnForm: { reason: '', note: '' },
-            returnReasons: ['Change of mind', 'Faulty on arrival', 'Wrong device', 'Customer dispute'],
+            returnForm: { location: RETURN_LOCATIONS[0], note: '' },
+            returnLocations: RETURN_LOCATIONS,
 
             // Add/Edit dialog
             editVisible: false,
@@ -1010,16 +1017,23 @@ export default {
         // ── return a sold device ─────────────────────────────────────
         openReturn(row) {
             this.returnRow = row
-            this.returnForm = { reason: '', note: '' }
+            this.returnForm = { location: RETURN_LOCATIONS[0], note: '' }
             this.returnVisible = true
         },
         async submitReturn() {
             this.returning = true
             try {
-                const r = await returnRefurbSalesOrderDevice(this.returnRow.salesOrder.id, {
-                    deviceId: this.returnRow._id,
-                    reason: this.returnForm.reason,
-                    note: this.returnForm.note
+                const code = this.returnRow.imei || this.returnRow.serialNumber
+                const hit = await lookupSoldDevice(code)
+                if (!hit.found) {
+                    this.$message.warning(hit.message || 'This device cannot be returned')
+                    return
+                }
+                const r = await createSalesReturn({
+                    customerId: hit.customerId,
+                    deviceIds: [this.returnRow._id],
+                    location: this.returnForm.location,
+                    notes: this.returnForm.note
                 })
                 this.$message.success(r.message || 'Returned to stock')
                 this.returnVisible = false
