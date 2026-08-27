@@ -161,7 +161,17 @@ export function getSupplyBatch(id) {
 export function createSupplyBatch(data) {
   return request({ url: '/refurbished/supply', method: 'post', data, timeout: 120000 })
 }
-// Only while nothing has been received — devices go back where they were.
+// Edit a Pending batch (devices, tracking, notes).
+export function updateSupplyBatch(id, data) {
+  return request({ url: `/refurbished/supply/${id}`, method: 'put', data, timeout: 120000 })
+}
+// The box ships: devices flip onto the road and the incoming record is
+// written for the warehouse.
+export function confirmSupplyBatch(id) {
+  return request({ url: `/refurbished/supply/${id}/confirm`, method: 'post', timeout: 120000 })
+}
+// A Pending draft just retires; a confirmed batch only while nothing has
+// been received — devices go back where they were.
 export function cancelSupplyBatch(id) {
   return request({ url: `/refurbished/supply/${id}/cancel`, method: 'post' })
 }

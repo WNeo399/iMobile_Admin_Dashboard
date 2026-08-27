@@ -164,10 +164,14 @@
                     <el-table-column width="44" align="center">
                         <template slot-scope="s">
                             <!-- A group header spans the whole row (lineSpan
-                                 collapses the other cells). -->
+                                 collapses the other cells); clicking it folds
+                                 the group. -->
                             <div v-if="s.row.__group" class="ri-group">
+                                <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
                                 {{ s.row.model }}
                                 <span class="ri-dim">· {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}</span>
+                                <span v-if="s.row.receivedCount" class="ri-group-recv">· {{ s.row.receivedCount }} received</span>
+                                <span :class="s.row.remainingCount ? 'ri-group-rem' : 'ri-dim'">· {{ s.row.remainingCount }} remaining</span>
                             </div>
                             <el-checkbox v-else class="ri-row-check" :value="isChecked(s.row)"
                                 :disabled="isPersisted(s.row)" />
@@ -465,6 +469,8 @@ export default {
             // Model / colour / capacity corrections for lines Blackbelt has
             // no report on, keyed by code. Saved at commit, same as grades.
             detailPicks: {},
+            // Model groups folded shut in the receive dialog, by name.
+            collapsedGroups: {},
             // Receive confirmation popup — the location is deliberately not
             // preselected so it's always an explicit choice.
             receiveVisible: false,
@@ -539,13 +545,22 @@ export default {
 
             // Grouped by model (Blackbelt's name winning, like the Model
             // cell), each group under a full-width header row; the most
-            // recent scans still float to the top of their own group.
-            const keyOf = l => this.bbModel(l) || String(l.model || '').trim() || '(No model)'
+            // recent scans still float to the top of their own group. The
+            // header's counts come off ALL of the model's lines, whatever
+            // the filter is showing, so they always describe the batch.
             const groups = new Map()
             for (const l of rows) {
-                const k = keyOf(l)
+                const k = this.groupKey(l)
                 if (!groups.has(k)) groups.set(k, [])
                 groups.get(k).push(l)
+            }
+            const stats = new Map()
+            for (const l of all) {
+                const k = this.groupKey(l)
+                if (!stats.has(k)) stats.set(k, { received: 0, remaining: 0 })
+                const st = stats.get(k)
+                if (this.isPersisted(l)) st.received += 1
+                else if (!this.isChecked(l)) st.remaining += 1
             }
             const names = [...groups.keys()].sort((a, b) => {
                 if (a === '(No model)') return 1
@@ -556,9 +571,20 @@ export default {
             const out = []
             for (const name of names) {
                 const members = groups.get(name)
+                const st = stats.get(name) || { received: 0, remaining: 0 }
+                const collapsed = !!this.collapsedGroups[name]
+                out.push({
+                    __group: true,
+                    code: '__group__' + name,
+                    model: name,
+                    count: members.length,
+                    receivedCount: st.received,
+                    remainingCount: st.remaining,
+                    collapsed
+                })
+                if (collapsed) continue
                 const scanned = members.filter(l => pos(l) >= 0).sort((a, b) => pos(a) - pos(b))
                 const rest = members.filter(l => pos(l) < 0)
-                out.push({ __group: true, code: '__group__' + name, model: name, count: members.length })
                 out.push(...scanned, ...rest)
             }
             return out
@@ -763,6 +789,7 @@ export default {
             this.scanCode = ''
             this.scanMessage = ''
             this.lineFilter = 'all'
+            this.collapsedGroups = {}
             this.checkedCodes = []
             this.localExtras = []
             this.gradePicks = {}
@@ -911,6 +938,10 @@ export default {
             if (this.isPersisted(row)) return
             if (v) {
                 if (!this.checkedCodes.includes(row.code)) this.checkedCodes.unshift(row.code)
+                // A scan into a folded group unfolds it, so the scanned row
+                // is where the eye lands.
+                const k = this.groupKey(row)
+                if (this.collapsedGroups[k]) this.$set(this.collapsedGroups, k, false)
             } else {
                 const i = this.checkedCodes.indexOf(row.code)
                 if (i >= 0) this.checkedCodes.splice(i, 1)
@@ -920,7 +951,11 @@ export default {
             }
         },
         onRowClick(row, column, event) {
-            if (row.__group || this.isPersisted(row)) return
+            if (row.__group) {
+                this.$set(this.collapsedGroups, row.model, !this.collapsedGroups[row.model])
+                return
+            }
+            if (this.isPersisted(row)) return
             // Clicks inside real controls (the grade select) keep their own
             // behavior; everywhere else on the row toggles the selection.
             if (event && event.target && event.target.closest &&
@@ -1207,6 +1242,11 @@ export default {
             if (bb && bb.batteryHealth != null) return bb.batteryHealth
             return row.battery
         },
+        // One definition of a line's model group — the header, the stats
+        // and the auto-unfold all key on it.
+        groupKey(l) {
+            return this.bbModel(l) || String(l.model || '').trim() || '(No model)'
+        },
         // A group header's first cell swallows the whole row.
         lineSpan({ row, columnIndex }) {
             if (!row.__group) return [1, 1]
@@ -1314,8 +1354,10 @@ export default {
    pointer cursor advertises the click. */
 .ri-row-check { pointer-events: none; }
 .ri-group { font-size: 12px; font-weight: 700; color: #303133; text-align: left; padding-left: 6px; white-space: nowrap; }
-::v-deep .el-table .ri-row-group > td { background: #f4f6fa; cursor: default; }
-::v-deep .el-table .ri-row-group:hover > td { background: #f4f6fa; }
+.ri-group-recv { color: #67c23a; font-weight: 600; }
+.ri-group-rem { color: #e6a23c; font-weight: 600; }
+::v-deep .el-table .ri-row-group > td { background: #f4f6fa; cursor: pointer; }
+::v-deep .el-table .ri-row-group:hover > td { background: #eef1f7; }
 .ri-take ::v-deep .el-table__row { cursor: pointer; }
 .ri-take ::v-deep .ri-row-got td { background: #f0f9eb !important; }
 .ri-take ::v-deep .ri-row-stock td { background: #ecf5ff !important; }

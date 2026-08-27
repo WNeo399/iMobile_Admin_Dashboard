@@ -187,7 +187,7 @@
                                  only for devices it doesn't know. -->
                             <div v-if="!s.row.bbFound && !s.row.bbChecking" class="rs-ba-edit">
                                 <el-input :value="s.row.model" size="mini" placeholder="Model *" class="bae-model"
-                                    @input="v => s.row.model = v.toUpperCase()" />
+                                    @input="v => s.row.model = v" />
                                 <el-input :value="s.row.color" size="mini" placeholder="Colour" class="bae-small"
                                     @input="v => s.row.color = v.toUpperCase()" />
                                 <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
