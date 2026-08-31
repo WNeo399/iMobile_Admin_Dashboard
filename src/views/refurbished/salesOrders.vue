@@ -107,6 +107,10 @@
                             <div class="rso-pick-info">
                                 <b>{{ d.imei }}</b>
                                 <span>{{ [d.model, d.storage, d.color, d.grade].filter(Boolean).join(' · ') || '—' }}</span>
+                                <!-- Sellable, but it has not landed yet — selling it
+                                     is what marks the shipment received. -->
+                                <el-tag v-if="d.status === 'Not Yet Received'" size="mini" type="warning"
+                                    effect="plain">Not yet received</el-tag>
                             </div>
                             <el-button size="mini" type="primary" plain icon="el-icon-plus"
                                 :disabled="isPicked(d)" @click="addLine(d)">
@@ -115,7 +119,7 @@
                         </div>
                     </div>
                     <div v-else-if="pickerSearched && !pickerLoading" class="rso-dim rso-noresult">
-                        No In Stock devices match.
+                        No available devices match.
                     </div>
                 </div>
 
@@ -576,7 +580,11 @@ export default {
             if (!q) { this.pickerResults = []; this.pickerSearched = false; return }
             this.pickerLoading = true
             try {
-                const r = await getRefurbDevices({ search: q, status: 'In Stock', page: 1, pageSize: 20 })
+                // Unreceived stock sells too: a shipment can be sold straight
+                // back out before it is ever shelved.
+                const r = await getRefurbDevices({
+                    search: q, status: 'In Stock,Not Yet Received', page: 1, pageSize: 20
+                })
                 // Devices taken off this order during this session are still
                 // Sold server-side, so offer them alongside the search hits.
                 const ql = q.toLowerCase()
