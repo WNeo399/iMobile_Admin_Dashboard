@@ -132,6 +132,20 @@ export const moduleRoutes = [
             }
           },
           {
+            // The dashboard over the whole catalogue, read from the daily
+            // snapshot. Sits beside the per-collection page rather than
+            // replacing it: that one is live, this one is fast and covers
+            // everything.
+            path: "/zohoInventory/stockDashboard",
+            component: (resolve) => require(["@/views/zohoInventory/stockDashboard"], resolve),
+            name: "StockDashboard",
+            meta: {
+              title: "Stock Dashboard",
+              icon: "el-icon-odometer",
+              permissions: ["zoho:stock:view"]
+            }
+          },
+          {
             path: "/zohoInventory/collections",
             component: (resolve) => require(["@/views/products/collection"], resolve),
             name: "Collections",
