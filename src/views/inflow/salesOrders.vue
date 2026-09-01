@@ -65,9 +65,11 @@
                             @click.native="openDispatchStatus(s.row)">{{ dispatchLabel(s.row.dispatchStatus) }}</el-tag>
                     </el-tooltip>
                     <!-- No record yet: the column doubles as the way to
-                         start one. -->
-                    <el-button v-else size="mini" type="text" icon="el-icon-plus"
+                         start one. Credit notes have nothing to dispatch,
+                         so they get a dash instead. -->
+                    <el-button v-else-if="s.row.status !== 'credit'" size="mini" type="text" icon="el-icon-plus"
                         class="io-disp-create" @click="openDispatchStatus(s.row)">Create</el-button>
+                    <span v-else class="io-count">—</span>
                 </template>
             </el-table-column>
             <el-table-column label="" width="110" align="center">
@@ -125,6 +127,8 @@
                                     {{ detail.dispatchDispatchedQty || 0 }} / {{ detail.dispatchOrderedQty || 0 }} units dispatched
                                 </span>
                             </template>
+                            <!-- A credit note has nothing to dispatch. -->
+                            <span v-else-if="detail.status === 'credit'" class="io-count">—</span>
                             <span v-else class="io-count">Not linked to a dispatch record</span>
                         </el-descriptions-item>
                     </el-descriptions>

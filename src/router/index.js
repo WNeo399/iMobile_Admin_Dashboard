@@ -551,99 +551,156 @@ export const moduleRoutes = [
     redirect: "noRedirect",
     alwaysShow: true,
     meta: { title: "Refurbished Device", icon: "el-icon-mobile-phone" },
+    // Three sub menus. Leaf paths stay absolute (/refurbished/... and
+    // /consignment/...) so existing deep links and bookmarks keep working —
+    // only the sidebar nesting changes.
     children: [
       {
-        path: "/refurbished/stock",
-        component: (resolve) => require(["@/views/refurbished/stock"], resolve),
-        name: "RefurbishedStock",
-        meta: {
-          title: "Stock",
-          icon: "el-icon-box",
-          permissions: ["refurb:stock:view"]
-        }
+        // The selling side: the register and everything that moves stock
+        // to and from customers.
+        path: "sales",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Sales", icon: "el-icon-sell" },
+        children: [
+          {
+            path: "/refurbished/stock",
+            component: (resolve) => require(["@/views/refurbished/stock"], resolve),
+            name: "RefurbishedStock",
+            meta: {
+              title: "Stock",
+              icon: "el-icon-box",
+              permissions: ["refurb:stock:view"]
+            }
+          },
+          {
+            // Selling stock: RSO-numbered orders that mark devices Sold.
+            path: "/refurbished/sales-orders",
+            component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),
+            name: "RefurbishedSalesOrders",
+            meta: {
+              title: "Sales Orders",
+              icon: "el-icon-sell",
+              permissions: ["refurb:sale:view"]
+            }
+          },
+          {
+            // Devices coming back from a customer — picked from what that
+            // customer currently holds, and back into stock on create.
+            path: "/refurbished/sales-returns",
+            component: (resolve) => require(["@/views/refurbished/salesReturns"], resolve),
+            name: "RefurbishedSalesReturns",
+            meta: {
+              title: "Sales Return",
+              icon: "el-icon-refresh-left",
+              permissions: ["refurb:sale:view"]
+            }
+          },
+          {
+            // Buyer registry referenced by sales orders.
+            path: "/refurbished/customers",
+            component: (resolve) => require(["@/views/refurbished/customers"], resolve),
+            name: "RefurbishedCustomers",
+            meta: {
+              title: "Customers",
+              icon: "el-icon-user",
+              permissions: ["refurb:sale:view"]
+            }
+          }
+        ]
       },
       {
-        // Selling stock: RSO-numbered orders that mark devices Sold.
-        path: "/refurbished/sales-orders",
-        component: (resolve) => require(["@/views/refurbished/salesOrders"], resolve),
-        name: "RefurbishedSalesOrders",
-        meta: {
-          title: "Sales Orders",
-          icon: "el-icon-sell",
-          permissions: ["refurb:sale:view"]
-        }
+        // The inbound and upkeep side: shipments arriving and units away
+        // being fixed.
+        path: "warehouse",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Warehouse", icon: "el-icon-truck" },
+        children: [
+          {
+            // Supplier shipments counted in by the warehouse, then pushed
+            // into Stock under the iMobile location. exclusiveRoles =
+            // strict match, so this is Admin-only until we decide who
+            // else needs it.
+            path: "/refurbished/incoming",
+            component: (resolve) => require(["@/views/refurbished/incoming"], resolve),
+            name: "RefurbishedIncoming",
+            meta: {
+              title: "Incoming Stocks",
+              icon: "el-icon-download",
+              exclusiveRoles: ["admin"]
+            }
+          },
+          {
+            // Supplier shipments to iMobile — suppliers create them, staff
+            // can watch them here too; the warehouse receives the
+            // auto-created record through Incoming Stocks.
+            path: "/refurbished/supply",
+            component: (resolve) => require(["@/views/refurbished/supplyBatches"], resolve),
+            name: "RefurbishedSupplyBatches",
+            meta: {
+              title: "Supply Batches",
+              icon: "el-icon-truck",
+              permissions: ["refurb:supply:view"]
+            }
+          },
+          {
+            // Faulty devices sent to a workshop and reconciled back in.
+            // The list may include units we do not hold in the register.
+            path: "/refurbished/repairs",
+            component: (resolve) => require(["@/views/refurbished/repairs"], resolve),
+            name: "RefurbishedRepairs",
+            meta: {
+              title: "For Repair",
+              icon: "el-icon-set-up",
+              permissions: ["refurb:repair:view"]
+            }
+          },
+          {
+            // The small managed list of workshops.
+            path: "/refurbished/repairers",
+            component: (resolve) => require(["@/views/refurbished/repairers"], resolve),
+            name: "RefurbishedRepairers",
+            meta: {
+              title: "Repairers",
+              icon: "el-icon-s-custom",
+              permissions: ["refurb:repair:view"]
+            }
+          }
+        ]
       },
       {
-        // Devices coming back from a customer — picked from what that
-        // customer currently holds, and back into stock on create.
-        path: "/refurbished/sales-returns",
-        component: (resolve) => require(["@/views/refurbished/salesReturns"], resolve),
-        name: "RefurbishedSalesReturns",
-        meta: {
-          title: "Sales Return",
-          icon: "el-icon-refresh-left",
-          permissions: ["refurb:sale:view"]
-        }
-      },
-      {
-        // Supplier shipments counted in by the warehouse, then pushed into
-        // Stock under the iMobile location. exclusiveRoles = strict match,
-        // so this is Admin-only until we decide who else needs it.
-        path: "/refurbished/incoming",
-        component: (resolve) => require(["@/views/refurbished/incoming"], resolve),
-        name: "RefurbishedIncoming",
-        meta: {
-          title: "Incoming Stocks",
-          icon: "el-icon-download",
-          exclusiveRoles: ["admin"]
-        }
-      },
-      {
-        // Supplier shipments to iMobile — suppliers create them, staff can
-        // watch them here too; the warehouse receives the auto-created
-        // record through Incoming Stocks.
-        path: "/refurbished/supply",
-        component: (resolve) => require(["@/views/refurbished/supplyBatches"], resolve),
-        name: "RefurbishedSupplyBatches",
-        meta: {
-          title: "Supply Batches",
-          icon: "el-icon-truck",
-          permissions: ["refurb:supply:view"]
-        }
-      },
-      {
-        // Buyer registry referenced by sales orders.
-        path: "/refurbished/customers",
-        component: (resolve) => require(["@/views/refurbished/customers"], resolve),
-        name: "RefurbishedCustomers",
-        meta: {
-          title: "Customers",
-          icon: "el-icon-user",
-          permissions: ["refurb:sale:view"]
-        }
-      },
-      {
-        // Faulty devices sent to a workshop and reconciled back in. The
-        // list may include units we do not hold in the register.
-        path: "/refurbished/repairs",
-        component: (resolve) => require(["@/views/refurbished/repairs"], resolve),
-        name: "RefurbishedRepairs",
-        meta: {
-          title: "For Repair",
-          icon: "el-icon-set-up",
-          permissions: ["refurb:repair:view"]
-        }
-      },
-      {
-        // The small managed list of workshops.
-        path: "/refurbished/repairers",
-        component: (resolve) => require(["@/views/refurbished/repairers"], resolve),
-        name: "RefurbishedRepairers",
-        meta: {
-          title: "Repairers",
-          icon: "el-icon-s-custom",
-          permissions: ["refurb:repair:view"]
-        }
+        // Consignment — devices placed with partner shops, moved in from
+        // its old top-level spot. Insights + Shops are admin-side; Devices
+        // is shared with the consignment-shop logins (whose data is scoped
+        // server-side to their own shop).
+        path: "consignment",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Consignment", icon: "el-icon-box" },
+        children: [
+          {
+            path: "/consignment/insights",
+            component: (resolve) => require(["@/views/consignment/insights"], resolve),
+            name: "ConsignmentInsights",
+            meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
+          },
+          {
+            path: "/consignment/devices",
+            component: (resolve) => require(["@/views/consignment/devices"], resolve),
+            name: "ConsignmentDevices",
+            meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
+          },
+          {
+            path: "/consignment/shops",
+            component: (resolve) => require(["@/views/consignment/shops"], resolve),
+            name: "ConsignmentShops",
+            meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
+          }
+        ]
       }
     ]
   },
@@ -801,37 +858,8 @@ export const moduleRoutes = [
       }
     ]
   },
-  {
-    // Consignment — devices placed with partner shops. Insights + Shops are
-    // admin-side; Devices is shared with the consignment-shop logins (whose
-    // data is scoped server-side to their own shop).
-    path: "/consignment",
-    component: Layout,
-    redirect: "noRedirect",
-    hidden: false,
-    alwaysShow: true,
-    meta: { title: "Consignment", icon: "el-icon-box" },
-    children: [
-      {
-        path: "insights",
-        component: (resolve) => require(["@/views/consignment/insights"], resolve),
-        name: "ConsignmentInsights",
-        meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
-      },
-      {
-        path: "devices",
-        component: (resolve) => require(["@/views/consignment/devices"], resolve),
-        name: "ConsignmentDevices",
-        meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
-      },
-      {
-        path: "shops",
-        component: (resolve) => require(["@/views/consignment/shops"], resolve),
-        name: "ConsignmentShops",
-        meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
-      }
-    ]
-  },
+  // (Consignment now lives inside the Refurbished Device group above; the
+  // /consignment/* page URLs are unchanged.)
   {
     path: "/tools",
     component: Layout,

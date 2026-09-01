@@ -121,6 +121,8 @@
                         effect="plain">Not Yet Received</el-tag>
                     <el-tag v-else-if="s.row.status === 'Repairing'" size="mini" type="warning"
                         effect="plain">Repairing</el-tag>
+                    <el-tag v-else-if="s.row.status === 'On Consignment'" size="mini"
+                        effect="plain">On Consignment</el-tag>
                     <el-tag v-else size="mini" type="success" effect="plain">In Stock</el-tag>
                 </template>
             </el-table-column>

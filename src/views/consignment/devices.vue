@@ -28,7 +28,7 @@
                 <el-option v-for="s in shops" :key="s._id" :label="s.name" :value="s._id" />
             </el-select>
             <el-input v-model="search" size="small" clearable prefix-icon="el-icon-search"
-                placeholder="Stock ID / IMEI / SKU / product…" style="width: 240px" @keyup.enter.native="reload" @clear="reload" />
+                placeholder="IMEI / serial / product…" style="width: 240px" @keyup.enter.native="reload" @clear="reload" />
             <span class="cd-spacer" />
             <!-- Bulk workflow actions (selection-based) -->
             <el-button v-hasPermi="['consign:device:receive']" size="small" type="primary" plain
@@ -50,47 +50,44 @@
         </div>
 
         <el-table :data="rows" size="mini" class="cd-table" height="calc(100vh - 320px)" @selection-change="onSelection">
-            <el-table-column type="selection" width="40" />
-            <el-table-column label="Stock ID" prop="stockId" width="105">
-                <template slot-scope="s"><span class="cd-mono">{{ s.row.stockId }}</span></template>
+            <!-- 40px was too tight for the checkbox plus cell padding, so
+                 the cell overflowed and printed its "…" ellipsis. -->
+            <el-table-column type="selection" width="50" align="center" />
+            <!-- The IMEI leads: it is the scan key, and register-sourced
+                 records have no separate stock id (older EX_DB-era rows
+                 fall back to theirs). -->
+            <el-table-column label="IMEI / Serial" prop="imei" width="145" show-overflow-tooltip>
+                <template slot-scope="s"><span class="cd-mono">{{ s.row.imei || s.row.stockId || '—' }}</span></template>
             </el-table-column>
-            <el-table-column label="Product" min-width="230">
+            <el-table-column label="Product" min-width="240">
                 <template slot-scope="s">
-                    <div class="cd-prod">{{ s.row.productName }}</div>
-                    <div class="cd-sub">SKU: {{ s.row.sku || '—' }}</div>
+                    <div class="cd-prod">
+                        {{ s.row.productName }}
+                        <el-tag v-if="s.row.grade" size="mini" effect="plain" class="cd-grade">{{ s.row.grade }}</el-tag>
+                    </div>
+                    <div v-if="s.row.sku" class="cd-sub">SKU: {{ s.row.sku }}</div>
                 </template>
             </el-table-column>
-            <el-table-column label="Grade" width="70" align="center">
-                <template slot-scope="s">{{ s.row.grade || '—' }}</template>
-            </el-table-column>
-            <el-table-column label="IMEI / Serial" prop="imei" width="145" show-overflow-tooltip>
-                <template slot-scope="s"><span class="cd-mono">{{ s.row.imei || '—' }}</span></template>
-            </el-table-column>
-            <el-table-column v-if="isAdmin" label="Device Cost" width="100" align="right">
-                <template slot-scope="s">{{ money(s.row.deviceCost) }}</template>
-            </el-table-column>
-            <el-table-column v-if="isAdmin" label="System Price" width="105" align="right">
-                <template slot-scope="s">{{ money(s.row.systemPrice) }}</template>
-            </el-table-column>
-            <el-table-column label="Sales Price" width="100" align="right">
-                <template slot-scope="s"><b>{{ money(s.row.price) }}</b></template>
-            </el-table-column>
-            <el-table-column v-if="isAdmin" label="Shop" prop="shopName" width="140" show-overflow-tooltip />
-            <el-table-column label="Assigned" width="100" align="center">
-                <template slot-scope="s">{{ dateStr(s.row.assignedAt) }}</template>
-            </el-table-column>
-            <el-table-column label="Received" width="100" align="center">
-                <template slot-scope="s">{{ dateStr(s.row.receivedAt) }}</template>
-            </el-table-column>
-            <el-table-column label="Sold" width="100" align="center">
-                <template slot-scope="s">{{ dateStr(s.row.soldAt) }}</template>
-            </el-table-column>
-            <el-table-column label="Status" width="110" align="center">
+            <!-- The status carries its own date. The old Received and Sold
+                 columns were mostly dashes — a row only ever fills the one
+                 matching where it is — so the pill says where, and the line
+                 under it says since when. -->
+            <el-table-column label="Status" width="130" align="center">
                 <template slot-scope="s">
                     <span class="cd-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span>
+                    <div class="cd-status-date">{{ statusDate(s.row) }}</div>
                 </template>
             </el-table-column>
-            <el-table-column label="Invoiced" width="90" align="center">
+            <el-table-column v-if="isAdmin" label="Our Cost" width="100" align="right">
+                <template slot-scope="s">{{ money(s.row.costPrice) }}</template>
+            </el-table-column>
+            <!-- The shop's cost — what the weekly invoice bills. Their own
+                 retail price comes later, once shops set it. -->
+            <el-table-column label="Shop Price" width="100" align="right">
+                <template slot-scope="s"><b>{{ money(s.row.shopPrice) }}</b></template>
+            </el-table-column>
+            <el-table-column v-if="isAdmin" label="Shop" prop="shopName" width="140" show-overflow-tooltip />
+            <el-table-column label="Invoiced" width="80" align="center">
                 <template slot-scope="s">
                     <i v-if="s.row.invoiceId" class="el-icon-check cd-invoiced" />
                     <span v-else class="cd-dash">—</span>
@@ -115,9 +112,9 @@
                         <el-option v-for="s in shops.filter(x => x.active !== false)" :key="s._id" :label="s.name" :value="s._id" />
                     </el-select>
                 </el-form-item>
-                <el-form-item label="Stock ID or IMEI — press Enter to add">
+                <el-form-item label="IMEI or serial — press Enter to add">
                     <div class="cd-code-row">
-                        <el-input ref="codeInput" v-model="assignCode" placeholder="e.g. 0000212353 or F9FFTM9KQ1GC" clearable
+                        <el-input ref="codeInput" v-model="assignCode" placeholder="Scan or type an IMEI / serial from Stock" clearable
                             :disabled="resolving" @keyup.enter.native="addCode" />
                         <el-button type="primary" plain icon="el-icon-search" :loading="resolving"
                             :disabled="!assignCode.trim()" @click="addCode">Add</el-button>
@@ -129,25 +126,25 @@
                 <div class="cd-resolve-note">
                     <span class="ok">{{ assignable.length }} ready</span>
                     <span v-if="resolvedOut.length" class="warn"> · {{ resolvedOut.length }} already out on consignment (excluded)</span>
-                    <span v-if="missingPriceCount" class="err"> · {{ missingPriceCount }} missing a Sales Price</span>
+                    <span v-if="missingPriceCount" class="err"> · {{ missingPriceCount }} missing a Shop Price</span>
                 </div>
                 <el-table :data="resolved" size="mini" border max-height="280" class="cd-resolve-table" :row-class-name="resolveRowClass">
-                    <el-table-column label="Stock ID" width="100"><template slot-scope="s"><span class="cd-mono">{{ s.row.stockId }}</span></template></el-table-column>
+                    <el-table-column label="IMEI / Serial" width="145">
+                        <template slot-scope="s"><span class="cd-mono">{{ s.row.imei || s.row.stockId }}</span></template>
+                    </el-table-column>
                     <el-table-column label="Product" min-width="220">
                         <template slot-scope="s">
                             <div class="cd-prod">{{ s.row.productName }}</div>
-                            <div class="cd-sub">IMEI: {{ s.row.imei || '—' }}</div>
-                            <div class="cd-sub">SKU: {{ s.row.sku || '—' }}</div>
+                            <div v-if="s.row.sku" class="cd-sub">SKU: {{ s.row.sku }}</div>
                         </template>
                     </el-table-column>
                     <el-table-column label="Grade" width="65" align="center"><template slot-scope="s">{{ s.row.grade || '—' }}</template></el-table-column>
-                    <el-table-column label="Cost" width="85" align="right"><template slot-scope="s">{{ money(s.row.deviceCost) }}</template></el-table-column>
-                    <el-table-column label="Sys Price" width="90" align="right"><template slot-scope="s">{{ money(s.row.systemPrice) }}</template></el-table-column>
-                    <el-table-column label="Sales Price" width="120">
+                    <el-table-column label="Our Cost" width="85" align="right"><template slot-scope="s">{{ money(s.row.costPrice) }}</template></el-table-column>
+                    <el-table-column label="Shop Price" width="120">
                         <template slot-scope="s">
-                            <el-input v-model="s.row.salesPrice" size="mini" type="number" min="0"
+                            <el-input v-model="s.row.shopPrice" size="mini" type="number" min="0"
                                 :disabled="s.row.alreadyOut" placeholder="0.00"
-                                :class="{ 'cd-price-missing': !s.row.alreadyOut && !validPrice(s.row.salesPrice) }">
+                                :class="{ 'cd-price-missing': !s.row.alreadyOut && !validPrice(s.row.shopPrice) }">
                                 <template slot="prefix">$</template>
                             </el-input>
                         </template>
@@ -218,7 +215,7 @@ export default {
             return this.resolved.filter(d => d.alreadyOut)
         },
         missingPriceCount() {
-            return this.assignable.filter(d => !this.validPrice(d.salesPrice)).length
+            return this.assignable.filter(d => !this.validPrice(d.shopPrice)).length
         }
     },
     created() {
@@ -302,7 +299,7 @@ export default {
             const dup = this.resolved.find(d =>
                 norm(d.stockId) === norm(code) || norm(d.stockId) === norm(padded) || (d.imei && norm(d.imei) === norm(code)))
             if (dup) {
-                this.$message.info(`${dup.stockId} is already in the list.`)
+                this.$message.info(`${dup.imei || dup.stockId} is already in the list.`)
                 this.assignCode = ''
                 return
             }
@@ -312,12 +309,15 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Lookup failed')
                 const device = (r.devices || [])[0]
                 if (!device) {
-                    this.$message.warning(`No device found for "${code}".`)
+                    // In the register but not assignable (sold, away at a
+                    // repairer…) — say which, not just "not found".
+                    const rej = (r.rejected || [])[0]
+                    this.$message.warning(rej ? rej.reason : `"${code}" is not in the stock register.`)
                     return
                 }
-                // Sales Price — what the shop sees and what we invoice.
-                // Defaults to the System Price; editable in the table.
-                device.salesPrice = device.systemPrice != null ? device.systemPrice : null
+                // Shop Price — the shop's cost, what we invoice. Typed per
+                // device when the batch is built.
+                device.shopPrice = null
                 this.resolved.push(device)
                 if (device.alreadyOut) this.$message.warning(`${device.stockId} is already out on consignment — excluded from this batch.`)
                 this.assignCode = ''
@@ -346,9 +346,10 @@ export default {
             this.assigning = true
             try {
                 const devices = this.assignable.map(d => ({
-                    stockId: d.stockId, imei: d.imei, sku: d.sku, productName: d.productName,
-                    grade: d.grade, deviceCost: d.deviceCost, systemPrice: d.systemPrice,
-                    salesPrice: Number(d.salesPrice)
+                    stockId: d.stockId, imei: d.imei, refurbDeviceId: d.refurbDeviceId,
+                    sku: d.sku, productName: d.productName,
+                    grade: d.grade, costPrice: d.costPrice,
+                    shopPrice: Number(d.shopPrice)
                 }))
                 const r = await assignConsignDevices({ shopId: this.assignShopId, devices })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
@@ -363,6 +364,18 @@ export default {
         },
         // ── Formatting ──
         statusLabel(v) { return (STATUS_META[v] && STATUS_META[v].label) || v },
+        // The date that belongs to the row's current status — assigned for
+        // in-transit, received once it lands, and so on.
+        statusDate(row) {
+            const field = {
+                'in-transit': 'assignedAt',
+                received: 'receivedAt',
+                sold: 'soldAt',
+                returning: 'returnAt',
+                returned: 'returnedAt'
+            }[row.status]
+            return this.dateStr(field ? row[field] : null)
+        },
         statusStyle(v) {
             const m = STATUS_META[v]
             return m ? { color: m.color, background: m.bg } : {}
@@ -408,6 +421,10 @@ export default {
 
 .cd-table { width: 100%; background: #fff; border: 1px solid #ebeef5; border-radius: 8px; }
 .cd-status { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.cd-status-date { font-size: 11px; color: #909399; margin-top: 2px; }
+/* A selection cell can never usefully truncate — never show "…" in it. */
+.cd-table ::v-deep .el-table-column--selection .cell { text-overflow: clip; padding-left: 0; padding-right: 0; }
+.cd-grade { margin-left: 6px; vertical-align: 1px; }
 .cd-invoiced { color: #67C23A; font-weight: 700; }
 .cd-dash { color: #c0c4cc; }
 .cd-empty { color: #909399; font-size: 13px; }
