@@ -55,35 +55,45 @@
             <el-table-column prop="status" label="Status" width="100" align="center">
                 <template slot-scope="s"><el-tag size="mini" :type="statusTag(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="" width="230" align="center">
+            <!-- The list rows already carry the linked dispatch record's
+                 progress; clicking the tag opens the batches. -->
+            <el-table-column label="Dispatch" width="110" align="center">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View Detail</el-button>
-                    <!-- Orders that already have a dispatch record get the
-                         status action inline; everything else lives in the
-                         ··· menu. -->
-                    <el-button v-if="s.row.dispatchLinked" size="mini" type="text" icon="el-icon-box"
-                        @click="openDispatchStatus(s.row)">Dispatch Status</el-button>
-                    <!-- Hidden when it would open empty (e.g. a linked credit
-                         note, or a user without the payment permission). -->
-                    <el-dropdown v-if="hasRowMenu(s.row)" trigger="click" @command="(cmd) => cmd()">
-                        <el-button size="mini" type="text" icon="el-icon-more" class="io-more-btn" />
-                        <el-dropdown-menu slot="dropdown">
-                            <el-dropdown-item v-if="!s.row.dispatchLinked"
-                                :command="() => openDispatchStatus(s.row)" icon="el-icon-box">
-                                Create / Link Dispatch
-                            </el-dropdown-item>
-                            <el-dropdown-item v-if="s.row.status !== 'credit' && s.row.balance > 0"
-                                v-hasPermi="['inflow:order:payment']"
-                                :command="() => openApplyCredit(s.row)" icon="el-icon-wallet">
-                                Apply Credit
-                            </el-dropdown-item>
-                            <el-dropdown-item v-if="s.row.status !== 'credit'"
-                                v-hasPermi="['inflow:order:payment']"
-                                :command="() => openPayment(s.row)" icon="el-icon-money">
-                                Record Payment
-                            </el-dropdown-item>
-                        </el-dropdown-menu>
-                    </el-dropdown>
+                    <el-tooltip v-if="s.row.dispatchLinked" placement="top"
+                        :content="(s.row.dispatchDispatchedQty || 0) + ' / ' + (s.row.dispatchOrderedQty || 0) + ' units dispatched'">
+                        <el-tag size="mini" class="io-disp-tag" :type="dispatchTag(s.row.dispatchStatus)"
+                            @click.native="openDispatchStatus(s.row)">{{ dispatchLabel(s.row.dispatchStatus) }}</el-tag>
+                    </el-tooltip>
+                    <!-- No record yet: the column doubles as the way to
+                         start one. -->
+                    <el-button v-else size="mini" type="text" icon="el-icon-plus"
+                        class="io-disp-create" @click="openDispatchStatus(s.row)">Create</el-button>
+                </template>
+            </el-table-column>
+            <el-table-column label="" width="110" align="center">
+                <template slot-scope="s">
+                    <!-- One action per line, stacked and centred. Dispatch
+                         actions live in the Dispatch column, not here. -->
+                    <div class="io-actions">
+                        <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View Detail</el-button>
+                        <!-- Hidden when it would open empty (e.g. a linked credit
+                             note, or a user without the payment permission). -->
+                        <el-dropdown v-if="hasRowMenu(s.row)" trigger="click" @command="(cmd) => cmd()">
+                            <el-button size="mini" type="text" icon="el-icon-more" class="io-more-btn" />
+                            <el-dropdown-menu slot="dropdown">
+                                <el-dropdown-item v-if="s.row.status !== 'credit' && s.row.balance > 0"
+                                    v-hasPermi="['inflow:order:payment']"
+                                    :command="() => openApplyCredit(s.row)" icon="el-icon-wallet">
+                                    Apply Credit
+                                </el-dropdown-item>
+                                <el-dropdown-item v-if="s.row.status !== 'credit'"
+                                    v-hasPermi="['inflow:order:payment']"
+                                    :command="() => openPayment(s.row)" icon="el-icon-money">
+                                    Record Payment
+                                </el-dropdown-item>
+                            </el-dropdown-menu>
+                        </el-dropdown>
+                    </div>
                 </template>
             </el-table-column>
         </el-table>
@@ -107,6 +117,16 @@
                         <el-descriptions-item label="Tax">{{ money(detail.tax) }}</el-descriptions-item>
                         <el-descriptions-item label="Total"><b :class="{ neg: detail.totalAmount < 0 }">{{ money(detail.totalAmount) }}</b></el-descriptions-item>
                         <el-descriptions-item label="Paid / Balance">{{ money(detail.paidAmount) }} / <b :class="{ owing: detail.balance > 0 }">{{ money(detail.balance) }}</b></el-descriptions-item>
+                        <el-descriptions-item label="Dispatch" :span="2">
+                            <template v-if="detail.dispatchLinked">
+                                <el-tag size="mini" class="io-disp-tag" :type="dispatchTag(detail.dispatchStatus)"
+                                    @click.native="openDispatchStatus(detail)">{{ dispatchLabel(detail.dispatchStatus) }}</el-tag>
+                                <span class="io-count io-disp-units">
+                                    {{ detail.dispatchDispatchedQty || 0 }} / {{ detail.dispatchOrderedQty || 0 }} units dispatched
+                                </span>
+                            </template>
+                            <span v-else class="io-count">Not linked to a dispatch record</span>
+                        </el-descriptions-item>
                     </el-descriptions>
 
                     <div class="io-sub">Line items <span v-if="detail.lineItems && detail.lineItems.length" class="io-count">({{ detail.lineItems.length }})</span></div>
@@ -117,15 +137,24 @@
                                 <div v-if="s.row.sku" class="io-li-sku">SKU: {{ s.row.sku }}</div>
                             </template>
                         </el-table-column>
-                        <el-table-column prop="quantity" label="Qty" width="70" align="right" />
-                        <!-- Per-line dispatch progress, matched from the linked
-                             dispatch record. Batch-level detail lives behind
-                             the Dispatch Status action. -->
-                        <el-table-column v-if="detail.dispatchLinked" label="Dispatched" width="120" align="center">
+                        <!-- Qty and dispatched share a column: "3 / 5" is
+                             dispatched over ordered, matched per line from
+                             the linked dispatch record. Batch-level detail
+                             lives behind the dispatch tag above. -->
+                        <el-table-column :label="detail.dispatchLinked ? 'Disp. / Qty' : 'Qty'" width="96" align="right">
                             <template slot-scope="s">
-                                <el-tag size="mini" :type="dispatchTag(s.row.dispatchStatus)" effect="plain">
-                                    {{ Number(s.row.dispatchedQty) || 0 }} / {{ s.row.quantity }}
-                                </el-tag>
+                                <template v-if="detail.dispatchLinked">
+                                    <span :class="Number(s.row.dispatchedQty) > 0 ? 'io-disp-done' : 'io-count'">{{ Number(s.row.dispatchedQty) || 0 }}</span>
+                                    <span class="io-count"> / {{ s.row.quantity }}</span>
+                                </template>
+                                <template v-else>{{ s.row.quantity }}</template>
+                            </template>
+                        </el-table-column>
+                        <el-table-column v-if="detail.dispatchLinked" label="Remaining" width="92" align="right">
+                            <template slot-scope="s">
+                                <span :class="lineRemaining(s.row) > 0 ? 'io-disp-rem' : 'io-count'">
+                                    {{ lineRemaining(s.row) }}
+                                </span>
                             </template>
                         </el-table-column>
                         <el-table-column label="Unit price" width="110" align="right"><template slot-scope="s">{{ money(s.row.unitPrice) }}</template></el-table-column>
@@ -227,7 +256,8 @@
 
         <!-- Dispatch Status — linked: show progress; not linked: link an
              existing record or create one from this order's line items. -->
-        <el-dialog :title="'Dispatch Status — ' + (linkDispatchOrder ? linkDispatchOrder.invoiceNumber : '')"
+        <el-dialog :title="((orderDispatch || (linkDispatchOrder && linkDispatchOrder.dispatchLinked))
+                ? 'Dispatch Status — ' : 'Create Dispatch — ') + (linkDispatchOrder ? linkDispatchOrder.invoiceNumber : '')"
             :visible.sync="linkDispatchVisible" width="820px" top="6vh" append-to-body>
             <div v-loading="dispatchLoading">
                 <!-- ── Linked: the dispatch record's progress ── -->
@@ -296,11 +326,9 @@
                     </div>
                 </template>
 
-                <!-- ── Not linked: create from this order, or link an existing record ── -->
+                <!-- ── Not linked: create a dispatch record from this order ── -->
                 <template v-else-if="!dispatchLoading">
-                    <el-tabs v-model="dispatchTab">
-                        <el-tab-pane label="Create from this order" name="create">
-                            <div class="io-skumap-hint">
+                    <div class="io-skumap-hint">
                                 Creates a dispatch record from this order's line items, linked to this order.
                                 SKUs already in the <b>SKU Mapping</b> list are filled in — type any that are
                                 missing (or leave them and map later on the SKU Mapping page).
@@ -350,43 +378,6 @@
                                     :loading="creatingDispatch" :disabled="!createRows.length"
                                     @click="createDispatchFromOrder">Create Dispatch Record</el-button>
                             </div>
-                        </el-tab-pane>
-
-                        <el-tab-pane label="Link an existing record" name="link">
-                            <div class="io-skumap-hint">
-                                Pick an uploaded dispatch record to link to this sales order. The link just records
-                                which order the dispatch list belongs to — the record stays on the Order Dispatch
-                                page where the warehouse keeps working from it.
-                            </div>
-                            <div class="io-linkdisp-search">
-                <el-input v-model="linkDispatchSearch" size="small" clearable
-                    placeholder="Search dispatch records by invoice # / SKU…" prefix-icon="el-icon-search"
-                    @keyup.enter.native="searchDispatchUploads" />
-                <el-button size="small" type="primary" :loading="linkDispatchLoading" @click="searchDispatchUploads">Search</el-button>
-            </div>
-            <el-table v-loading="linkDispatchLoading" :data="linkDispatchRows" size="mini" border
-                empty-text="No unlinked dispatch records found">
-                <el-table-column prop="invoiceNumber" label="Invoice #" min-width="150" show-overflow-tooltip />
-                <el-table-column label="Uploaded" min-width="150">
-                    <template slot-scope="s">
-                        {{ dateOnly(s.row.createdAt) }}<span v-if="s.row.createdBy" class="io-count"> · {{ s.row.createdBy }}</span>
-                    </template>
-                </el-table-column>
-                <el-table-column label="Lines" width="70" align="right">
-                    <template slot-scope="s">{{ s.row.lineCount }}</template>
-                </el-table-column>
-                <el-table-column label="Dispatched" width="110" align="center">
-                    <template slot-scope="s">{{ s.row.dispatchedUnits }} / {{ s.row.units }}</template>
-                </el-table-column>
-                <el-table-column label="" width="90" align="center">
-                    <template slot-scope="s">
-                        <el-button size="mini" type="primary" plain :loading="linkDispatchSavingId === s.row._id"
-                            @click="doLinkDispatch(s.row)">Link</el-button>
-                    </template>
-                </el-table-column>
-            </el-table>
-                        </el-tab-pane>
-                    </el-tabs>
                 </template>
             </div>
             <span slot="footer">
@@ -408,7 +399,7 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowDispatchUploads, linkInflowDispatchUpload, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 
 export default {
@@ -432,11 +423,10 @@ export default {
             creditVisible: false, creditOrder: null, applying: false,
             credits: [], creditsLoading: false, creditApply: {}, creditDate: this.today(),
             pdfVisible: false, pdfUrl: '', pdfTitle: '',
-            linkDispatchVisible: false, linkDispatchOrder: null, linkDispatchSearch: '',
-            linkDispatchRows: [], linkDispatchLoading: false, linkDispatchSavingId: null,
+            linkDispatchVisible: false, linkDispatchOrder: null,
             // Dispatch Status dialog: the linked record (null = not linked),
             // plus the "create from this order" working rows.
-            dispatchLoading: false, orderDispatch: null, dispatchTab: 'create',
+            dispatchLoading: false, orderDispatch: null,
             createRows: [], createLoading: false, creatingDispatch: false
         }
     },
@@ -654,24 +644,20 @@ export default {
                 }
             }).catch(() => {})
         },
-        // Would the ··· menu have anything in it for this row?
+        // Would the ··· menu have anything in it for this row? It only
+        // holds the payment actions now — dispatch is inline.
         hasRowMenu(row) {
             if (!row) return false
-            if (!row.dispatchLinked) return true
             if (row.status === 'credit') return false
             return this.canRecordPayment
         },
-        // Dispatch Status — linked: show the dispatch record's progress;
-        // not linked: offer to create one from this order or link an
-        // existing record. Linking is purely a relationship; the record
-        // lives on the Order Dispatch page.
+        // Dispatch — linked: show the dispatch record's progress; not
+        // linked: offer to create one from this order's line items. The
+        // record lives on the Order Dispatch page either way.
         async openDispatchStatus(row) {
             this.linkDispatchOrder = row
-            this.linkDispatchSearch = ''
-            this.linkDispatchRows = []
             this.orderDispatch = null
             this.createRows = []
-            this.dispatchTab = 'create'
             this.linkDispatchVisible = true
             this.dispatchLoading = true
             try {
@@ -683,10 +669,7 @@ export default {
             } finally {
                 this.dispatchLoading = false
             }
-            if (!this.orderDispatch) {
-                this.buildCreateRows(row)
-                this.searchDispatchUploads()
-            }
+            if (!this.orderDispatch) this.buildCreateRows(row)
         },
         // Seed the create table from the order's line items, prefilling the
         // SKUs already known to the SKU Mapping list.
@@ -764,6 +747,11 @@ export default {
             this.linkDispatchVisible = false
             this.$router.push({ path: '/inflow/orderDispatch', query: { search: (rec && rec.invoiceNumber) || '' } })
         },
+        // Never below zero: a batch can over-dispatch against a line (a
+        // substitution, a correction) and "-2 remaining" reads as a bug.
+        lineRemaining(row) {
+            return Math.max(0, (Number(row.quantity) || 0) - (Number(row.dispatchedQty) || 0))
+        },
         dispatchTag(s) { return { pending: 'danger', partial: 'warning', dispatched: 'success' }[s] || 'info' },
         dispatchLabel(s) { return { pending: 'Pending', partial: 'Partial', dispatched: 'Dispatched' }[s] || s },
         async fetchSkuSuggestions(query, cb) {
@@ -781,34 +769,6 @@ export default {
                 })))
             } catch (e) {
                 cb([])
-            }
-        },
-        async searchDispatchUploads() {
-            this.linkDispatchLoading = true
-            try {
-                const r = await getInflowDispatchUploads({ search: this.linkDispatchSearch.trim() })
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.linkDispatchRows = r.rows || []
-            } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load dispatch records'))
-            } finally {
-                this.linkDispatchLoading = false
-            }
-        },
-        async doLinkDispatch(record) {
-            if (!this.linkDispatchOrder) return
-            this.linkDispatchSavingId = record._id
-            try {
-                const r = await linkInflowDispatchUpload(record._id, { orderId: this.linkDispatchOrder._id })
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(`Linked dispatch record ${record.invoiceNumber} to ${this.linkDispatchOrder.invoiceNumber}`)
-                this.markOrderDispatched(this.linkDispatchOrder)
-                // Show the freshly linked record's status rather than closing.
-                this.openDispatchStatus(this.linkDispatchOrder)
-            } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to link'))
-            } finally {
-                this.linkDispatchSavingId = null
             }
         },
         statusTag(s) { return { unpaid: 'danger', partial: 'warning', paid: 'success', credit: 'info' }[s] || 'info' },
@@ -865,9 +825,22 @@ export default {
 .io-pdf-open { margin-right: 12px; }
 .io-del { color: #F56C6C; }
 .io-more-btn { padding: 0 4px; }
+.io-disp-tag { cursor: pointer; }
+.io-disp-create { padding: 2px 0; }
+.io-disp-units { margin-left: 8px; }
+.io-disp-done { color: #67c23a; font-weight: 600; }
+.io-disp-rem { color: #e6a23c; font-weight: 600; }
+// Row actions stacked one per line, centred in the cell. Element's
+// sibling-button margin is zeroed so the stack spacing is just the gap.
+.io-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    .el-button { margin-left: 0; padding-top: 2px; padding-bottom: 2px; }
+}
 .el-dropdown { vertical-align: middle; }
 .io-skumap-hint { font-size: 13px; color: #606266; line-height: 1.6; margin-bottom: 12px; }
-.io-linkdisp-search { display: flex; gap: 8px; margin-bottom: 10px; }
 .io-ds-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .io-ds-inv { font-weight: 600; font-size: 15px; color: #303133; }
 .io-ds-progress { font-size: 12px; color: #909399; }
