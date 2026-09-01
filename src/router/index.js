@@ -556,24 +556,26 @@ export const moduleRoutes = [
     // only the sidebar nesting changes.
     children: [
       {
-        // The selling side: the register and everything that moves stock
-        // to and from customers.
+        // The register itself sits at the top level — it is the anchor
+        // every sub menu below works against.
+        path: "/refurbished/stock",
+        component: (resolve) => require(["@/views/refurbished/stock"], resolve),
+        name: "RefurbishedStock",
+        meta: {
+          title: "Stock",
+          icon: "el-icon-box",
+          permissions: ["refurb:stock:view"]
+        }
+      },
+      {
+        // The selling side: everything that moves stock to and from
+        // customers.
         path: "sales",
         component: (resolve) => require(["@/components/ParentView"], resolve),
         redirect: "noRedirect",
         alwaysShow: true,
         meta: { title: "Sales", icon: "el-icon-sell" },
         children: [
-          {
-            path: "/refurbished/stock",
-            component: (resolve) => require(["@/views/refurbished/stock"], resolve),
-            name: "RefurbishedStock",
-            meta: {
-              title: "Stock",
-              icon: "el-icon-box",
-              permissions: ["refurb:stock:view"]
-            }
-          },
           {
             // Selling stock: RSO-numbered orders that mark devices Sold.
             path: "/refurbished/sales-orders",
@@ -607,6 +609,37 @@ export const moduleRoutes = [
               icon: "el-icon-user",
               permissions: ["refurb:sale:view"]
             }
+          }
+        ]
+      },
+      {
+        // Consignment — devices placed with partner shops, moved in from
+        // its old top-level spot. Insights + Shops are admin-side; Devices
+        // is shared with the consignment-shop logins (whose data is scoped
+        // server-side to their own shop).
+        path: "consignment",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Consignment", icon: "el-icon-box" },
+        children: [
+          {
+            path: "/consignment/insights",
+            component: (resolve) => require(["@/views/consignment/insights"], resolve),
+            name: "ConsignmentInsights",
+            meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
+          },
+          {
+            path: "/consignment/devices",
+            component: (resolve) => require(["@/views/consignment/devices"], resolve),
+            name: "ConsignmentDevices",
+            meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
+          },
+          {
+            path: "/consignment/shops",
+            component: (resolve) => require(["@/views/consignment/shops"], resolve),
+            name: "ConsignmentShops",
+            meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
           }
         ]
       },
@@ -671,37 +704,6 @@ export const moduleRoutes = [
           }
         ]
       },
-      {
-        // Consignment — devices placed with partner shops, moved in from
-        // its old top-level spot. Insights + Shops are admin-side; Devices
-        // is shared with the consignment-shop logins (whose data is scoped
-        // server-side to their own shop).
-        path: "consignment",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Consignment", icon: "el-icon-box" },
-        children: [
-          {
-            path: "/consignment/insights",
-            component: (resolve) => require(["@/views/consignment/insights"], resolve),
-            name: "ConsignmentInsights",
-            meta: { title: "Insights", icon: "el-icon-data-analysis", permissions: ["consign:insight:view"] }
-          },
-          {
-            path: "/consignment/devices",
-            component: (resolve) => require(["@/views/consignment/devices"], resolve),
-            name: "ConsignmentDevices",
-            meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
-          },
-          {
-            path: "/consignment/shops",
-            component: (resolve) => require(["@/views/consignment/shops"], resolve),
-            name: "ConsignmentShops",
-            meta: { title: "Shops", icon: "el-icon-s-shop", permissions: ["consign:shop:manage"] }
-          }
-        ]
-      }
     ]
   },
   {
