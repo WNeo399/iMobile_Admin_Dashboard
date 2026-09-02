@@ -237,6 +237,25 @@
                                 <i class="el-icon-warning-outline" />
                                 {{ onHoldNote(scope.row) }}
                             </div>
+                            <!--
+                                Terminal cases (BER / unrepairable / cancelled)
+                                carry return tracking — surface its rollup here
+                                so nobody has to open the case to see whether
+                                the parts / device made it back. Click opens
+                                the detail straight on the Returns tab.
+                            -->
+                            <div v-if="returnBadge(scope.row)" class="return-badge-wrap">
+                                <el-tag
+                                    size="mini"
+                                    effect="plain"
+                                    :type="returnBadge(scope.row).type"
+                                    :title="returnBadge(scope.row).title"
+                                    class="return-badge"
+                                    @click.native.stop="openDetail(scope.row, 'returns')"
+                                >
+                                    <i class="el-icon-box" /> {{ returnBadge(scope.row).label }}
+                                </el-tag>
+                            </div>
                         </template>
                     </el-table-column>
                     <el-table-column v-if="showSecondaryColumns" label="Created" width="150" align="center">
@@ -325,6 +344,16 @@
                             <div v-if="onHoldNote(row)" class="card-line on-hold-note-card">
                                 <i class="el-icon-warning-outline" />
                                 <span>{{ onHoldNote(row) }}</span>
+                            </div>
+                            <!-- Return rollup for terminal cases; tap → Returns tab -->
+                            <div v-if="returnBadge(row)" class="card-line">
+                                <i class="el-icon-box" />
+                                <el-tag
+                                    size="mini"
+                                    effect="plain"
+                                    :type="returnBadge(row).type"
+                                    @click.native.stop="openDetail(row, 'returns')"
+                                >{{ returnBadge(row).label }}</el-tag>
                             </div>
                         </div>
                         <div class="card-actions">
@@ -2096,6 +2125,27 @@ export default {
         // Return the note attached to the most recent status-history entry
         // that put this case into On Hold. Used to surface the reason inline
         // in both the table and the card view. Empty string if no note.
+        // Return-status rollup shown on BER / unrepairable / cancelled rows.
+        // null when the case has no active return tracking (all other rows).
+        // Mirrors the backend's persisted summaryStatus; the counts are only
+        // for the hover title.
+        returnBadge(row) {
+            const rt = row && row.returnTracking
+            if (!rt || !rt.active) return null
+            if (rt.summaryStatus === 'complete') {
+                return { label: 'Returned', type: 'success', title: 'Everything expected back has been received' }
+            }
+            if (rt.summaryStatus === 'pending') {
+                const parts = Array.isArray(rt.parts) ? rt.parts : []
+                const partsLeft = parts.filter(p => !p.received).length
+                const device = rt.device || {}
+                const bits = []
+                if (partsLeft) bits.push(`${partsLeft} part${partsLeft === 1 ? '' : 's'}`)
+                if (device.applicable && device.expected && !device.received) bits.push('device')
+                return { label: 'Return pending', type: 'warning', title: `Still to come back: ${bits.join(' + ') || 'items'}` }
+            }
+            return { label: 'No return', type: 'info', title: 'Nothing owed back — no unused parts at the shop and the device is not expected' }
+        },
         onHoldNote(row) {
             if (!row || row.status !== 'on-hold') return ''
             const history = Array.isArray(row.statusHistory) ? row.statusHistory : []
@@ -4080,6 +4130,10 @@ export default {
 
 /* On-hold note inline under the Status tag in the desktop table column.
    Truncated to a single line; full text in the tooltip on hover. */
+// Return-status rollup under the status tag; clickable → Returns tab.
+.return-badge-wrap { margin-top: 4px; }
+.return-badge { cursor: pointer; }
+
 .on-hold-note {
     margin-top: 4px;
     font-size: 12px;
