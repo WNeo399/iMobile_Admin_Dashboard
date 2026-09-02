@@ -87,6 +87,12 @@
                 <template slot-scope="s"><b>{{ money(s.row.shopPrice) }}</b></template>
             </el-table-column>
             <el-table-column v-if="isAdmin" label="Shop" prop="shopName" width="140" show-overflow-tooltip />
+            <el-table-column label="Received" width="95" align="center">
+                <template slot-scope="s">{{ dateStr(s.row.receivedAt) }}</template>
+            </el-table-column>
+            <el-table-column label="Sold" width="95" align="center">
+                <template slot-scope="s">{{ dateStr(s.row.soldAt) }}</template>
+            </el-table-column>
             <el-table-column label="Invoiced" width="80" align="center">
                 <template slot-scope="s">
                     <i v-if="s.row.invoiceId" class="el-icon-check cd-invoiced" />
