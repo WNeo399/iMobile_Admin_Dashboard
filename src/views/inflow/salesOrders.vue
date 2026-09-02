@@ -22,6 +22,8 @@
             <span class="io-meta">{{ total.toLocaleString() }} orders</span>
             <el-button size="small" @click="resetFilters">Reset</el-button>
             <el-button size="small" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
+            <el-button v-hasPermi="['inflow:order:create']" size="small" type="primary" plain
+                icon="el-icon-upload2" @click="openCreateOrder">Upload Order</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini" height="calc(100vh - 210px)" @sort-change="onSort">
@@ -399,11 +401,96 @@
                 <el-button size="small" @click="pdfVisible = false">Close</el-button>
             </span>
         </el-dialog>
+
+        <!-- Upload Order — create a sales order from an item-list spreadsheet.
+             The file is parsed in the browser; the backend gives it the same
+             shape and side effects as a webhook-ingested order. -->
+        <el-dialog title="Upload Sales Order" :visible.sync="createOrderVisible" width="820px"
+            append-to-body :close-on-click-modal="false">
+            <el-form label-position="top" size="small" class="io-up-form" @submit.native.prevent>
+                <div class="io-up-grid">
+                    <el-form-item label="Order number" required>
+                        <el-input v-model="createOrderForm.invoiceNumber" placeholder="e.g. SO-004001" />
+                    </el-form-item>
+                    <el-form-item label="Order date">
+                        <el-date-picker v-model="createOrderForm.invoiceDate" type="date"
+                            format="dd/MM/yyyy" value-format="dd/MM/yyyy" :clearable="false" class="io-up-full" />
+                    </el-form-item>
+                    <el-form-item label="Supplier" required>
+                        <el-select v-model="createOrderForm.vendor" filterable allow-create default-first-option
+                            placeholder="Pick a supplier — or type a new name" class="io-up-full">
+                            <el-option v-for="v in filters.vendors" :key="v" :label="v" :value="v" />
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="Customer" required>
+                        <el-select v-model="createOrderForm.customerName" filterable allow-create default-first-option
+                            placeholder="Pick a customer — or type a new name" class="io-up-full">
+                            <el-option v-for="c in filters.customers" :key="c" :label="c" :value="c" />
+                        </el-select>
+                    </el-form-item>
+                </div>
+            </el-form>
+            <input ref="createOrderFile" type="file" accept=".xlsx,.xls,.csv" class="io-up-input" @change="onCreateOrderFile" />
+
+            <!-- No file yet: a full-width drop target doubles as the picker. -->
+            <div v-if="!createOrderRows.length" class="io-up-drop" :class="{ 'io-up-drag': createOrderDragging }"
+                @click="$refs.createOrderFile.click()"
+                @dragover.prevent="createOrderDragging = true"
+                @dragleave.prevent="createOrderDragging = false"
+                @drop.prevent="onCreateOrderDrop">
+                <i class="el-icon-upload io-up-drop-icon" />
+                <div class="io-up-drop-title">Drop the item list here, or click to browse</div>
+                <div class="io-up-drop-sub">.xlsx / .xls / .csv — needs <b>Description</b> and <b>Quantity</b> columns; Barcode, Unit Price and sub&nbsp;total are picked up when present</div>
+            </div>
+
+            <template v-else>
+                <!-- Parsed: a file bar with the headline numbers + swap action… -->
+                <div class="io-up-filebar">
+                    <i class="el-icon-document io-up-filebar-icon" />
+                    <div class="io-up-filebar-main">
+                        <div class="io-up-filebar-name" :title="createOrderFileName">{{ createOrderFileName }}</div>
+                        <div class="io-up-filebar-meta">
+                            <b>{{ createOrderRows.length }}</b> line items · <b>{{ createOrderQty.toLocaleString() }}</b> units<span
+                                v-if="createOrderSkipped"> · {{ createOrderSkipped }} row{{ createOrderSkipped === 1 ? '' : 's' }} skipped</span>
+                        </div>
+                    </div>
+                    <el-button size="mini" icon="el-icon-refresh-right" @click="$refs.createOrderFile.click()">Replace file</el-button>
+                </div>
+
+                <!-- …the lines… -->
+                <el-table :data="createOrderRows" size="mini" border stripe max-height="280" class="io-up-table">
+                    <el-table-column type="index" width="46" align="center" />
+                    <el-table-column prop="sku" label="Barcode" width="125" show-overflow-tooltip>
+                        <template slot-scope="s"><span v-if="s.row.sku" class="io-up-mono">{{ s.row.sku }}</span><span v-else class="io-dim">—</span></template>
+                    </el-table-column>
+                    <el-table-column prop="description" label="Description" min-width="230" show-overflow-tooltip />
+                    <el-table-column prop="quantity" label="Qty" width="64" align="right" />
+                    <el-table-column label="Unit Price" width="88" align="right">
+                        <template slot-scope="s">{{ money(s.row.unitPrice) }}</template>
+                    </el-table-column>
+                    <el-table-column label="Sub total" width="96" align="right">
+                        <template slot-scope="s">{{ money(s.row.subTotal) }}</template>
+                    </el-table-column>
+                </el-table>
+
+                <!-- …and an invoice-style totals column. -->
+                <div class="io-up-totals">
+                    <div class="io-up-tot-row"><span>Subtotal</span><span>{{ money(createOrderSubtotal) }}</span></div>
+                    <div class="io-up-tot-row"><span>GST (10%)</span><span>{{ money(createOrderTax) }}</span></div>
+                    <div class="io-up-tot-row io-up-grand"><span>Total</span><span>{{ money(createOrderTotal) }}</span></div>
+                </div>
+            </template>
+            <span slot="footer">
+                <el-button size="small" @click="createOrderVisible = false">Cancel</el-button>
+                <el-button type="primary" size="small" :loading="createOrderSaving"
+                    :disabled="!canSubmitCreateOrder" @click="submitCreateOrder">Create Order</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, createInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 
 export default {
@@ -431,7 +518,11 @@ export default {
             // Dispatch Status dialog: the linked record (null = not linked),
             // plus the "create from this order" working rows.
             dispatchLoading: false, orderDispatch: null,
-            createRows: [], createLoading: false, creatingDispatch: false
+            createRows: [], createLoading: false, creatingDispatch: false,
+            // Upload Order dialog — create a sales order from a spreadsheet.
+            createOrderVisible: false, createOrderSaving: false, createOrderDragging: false,
+            createOrderForm: { invoiceNumber: '', vendor: '', customerName: '', invoiceDate: '' },
+            createOrderRows: [], createOrderSkipped: 0, createOrderFileName: ''
         }
     },
     computed: {
@@ -463,6 +554,24 @@ export default {
             const items = (this.detail && this.detail.lineItems) || []
             const start = (this.liPage - 1) * this.liPageSize
             return items.slice(start, start + this.liPageSize)
+        },
+        createOrderQty() {
+            return this.createOrderRows.reduce((s, r) => s + (Number(r.quantity) || 0), 0)
+        },
+        createOrderSubtotal() {
+            return this.round2(this.createOrderRows.reduce((s, r) => s + (Number(r.subTotal) || 0), 0))
+        },
+        // GST is fixed at 10% of the subtotal — displayed, not editable.
+        createOrderTax() {
+            return this.round2(this.createOrderSubtotal * 0.1)
+        },
+        createOrderTotal() {
+            return this.round2(this.createOrderSubtotal + this.createOrderTax)
+        },
+        canSubmitCreateOrder() {
+            const f = this.createOrderForm
+            return !!(f.invoiceNumber.trim() && String(f.vendor || '').trim() &&
+                String(f.customerName || '').trim() && this.createOrderRows.length)
         }
     },
     created() {
@@ -777,6 +886,112 @@ export default {
         },
         statusTag(s) { return { unpaid: 'danger', partial: 'warning', paid: 'success', credit: 'info' }[s] || 'info' },
         statusLabel(s) { return { unpaid: 'Unpaid', partial: 'Partial', paid: 'Paid', credit: 'Credit' }[s] || s },
+        // ── Upload Order (create a sales order from a spreadsheet) ────
+        openCreateOrder() {
+            const d = new Date(); const p = n => String(n).padStart(2, '0')
+            this.createOrderForm = {
+                invoiceNumber: '', vendor: '', customerName: '',
+                invoiceDate: `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`
+            }
+            this.createOrderRows = []
+            this.createOrderSkipped = 0
+            this.createOrderFileName = ''
+            this.createOrderVisible = true
+            if (this.$refs.createOrderFile) this.$refs.createOrderFile.value = ''
+        },
+        onCreateOrderFile(e) {
+            const file = e.target.files && e.target.files[0]
+            if (file) this.parseCreateOrderFile(file)
+        },
+        onCreateOrderDrop(e) {
+            this.createOrderDragging = false
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
+            if (file) this.parseCreateOrderFile(file)
+        },
+        async parseCreateOrderFile(file) {
+            this.createOrderFileName = file.name
+            this.createOrderRows = []
+            this.createOrderSkipped = 0
+            // Reset the input so picking the same file again re-fires change.
+            if (this.$refs.createOrderFile) this.$refs.createOrderFile.value = ''
+            try {
+                const XLSX = await import('xlsx')
+                const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+                const sheet = wb.Sheets[wb.SheetNames[0]]
+                const rows = sheet ? XLSX.utils.sheet_to_json(sheet, { defval: '' }) : []
+                if (!rows.length) { this.$message.warning('The file has no data rows.'); return }
+                // Header cells arrive with real-world noise (" Unit Price ") —
+                // match trimmed + lowercased, first name wins.
+                const headers = Object.keys(rows[0])
+                const key = (...names) => headers.find(h => names.includes(String(h).trim().toLowerCase()))
+                const barcodeKey = key('barcode')
+                const itemNoKey = key('no_', 'item no', 'item no.')
+                const descKey = key('description')
+                const qtyKey = key('quantity', 'qty')
+                const priceKey = key('unit price', 'unitprice', 'price')
+                const subKey = key('sub total', 'subtotal', 'sub_total', 'amount')
+                const missing = [!descKey && '"Description"', !qtyKey && '"Quantity"'].filter(Boolean)
+                if (missing.length) {
+                    this.$message.warning(`The file is missing the ${missing.join(', ')} column${missing.length > 1 ? 's' : ''}.`)
+                    return
+                }
+                // " $1,925.00 " → 1925 (keeps a leading minus for credits).
+                const moneyNum = v => {
+                    const n = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''))
+                    return isFinite(n) ? n : 0
+                }
+                const parsed = []
+                let skipped = 0
+                for (const r of rows) {
+                    const sku = barcodeKey ? String(r[barcodeKey] == null ? '' : r[barcodeKey]).trim() : ''
+                    const itemNo = itemNoKey ? String(r[itemNoKey] == null ? '' : r[itemNoKey]).trim() : ''
+                    const description = String(r[descKey] == null ? '' : r[descKey]).trim()
+                    const quantity = moneyNum(r[qtyKey])
+                    // The grand-total row (all cells blank but the sub total)
+                    // lands here along with any junk rows.
+                    if ((!sku && !description) || quantity <= 0) { skipped++; continue }
+                    const unitPrice = this.round2(priceKey ? moneyNum(r[priceKey]) : 0)
+                    const rawSub = subKey ? String(r[subKey]).trim() : ''
+                    parsed.push({
+                        sku, itemNo, description, quantity, unitPrice,
+                        subTotal: this.round2(rawSub ? moneyNum(rawSub) : quantity * unitPrice)
+                    })
+                }
+                if (!parsed.length) { this.$message.warning('No usable rows — every row needs a positive Quantity and a Barcode or Description.'); return }
+                this.createOrderRows = parsed
+                this.createOrderSkipped = skipped
+                if (!priceKey) this.$message.warning('No Unit Price column found — all prices imported as $0.')
+            } catch (err) {
+                this.$message.error('Could not read the file.')
+            }
+        },
+        async submitCreateOrder() {
+            if (!this.canSubmitCreateOrder) return
+            this.createOrderSaving = true
+            try {
+                const f = this.createOrderForm
+                const r = await createInflowOrder({
+                    invoiceNumber: f.invoiceNumber.trim(),
+                    vendor: String(f.vendor || '').trim(),
+                    customerName: String(f.customerName || '').trim(),
+                    invoiceDate: f.invoiceDate || undefined,
+                    tax: this.createOrderTax,
+                    lineItems: this.createOrderRows
+                })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const bits = [`Order ${r.invoiceNumber} created — ${r.lines} line items, ${this.money(r.totalAmount)}`]
+                if (r.mapped) bits.push(`${r.mapped} line${r.mapped === 1 ? '' : 's'} SKU-mapped`)
+                this.$message.success(bits.join(', '))
+                this.createOrderVisible = false
+                this.reload()
+                // A typed-in supplier/customer should appear in the pickers.
+                this.loadFilters()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to create the sales order'))
+            } finally {
+                this.createOrderSaving = false
+            }
+        },
         dateStr(o) {
             if (o && o.invoiceDateRaw) return o.invoiceDateRaw
             if (o && o.invoiceDate) { const d = new Date(o.invoiceDate); if (!isNaN(d)) return d.toLocaleDateString('en-AU') }
@@ -863,6 +1078,61 @@ export default {
 .io-ds-empty-title { margin-top: 8px; font-size: 14px; color: #606266; font-weight: 500; }
 .io-ds-empty-sub { margin: 4px 0 12px; font-size: 12px; color: #909399; line-height: 1.6; }
 .io-sku-pending ::v-deep .el-input__inner { border-color: #E6A23C; }
+
+// Upload Order dialog
+.io-up-input { display: none; }
+.io-up-full { width: 100%; }
+.io-dim { color: #909399; }
+// Two-column, top-labelled form — half the height of the stacked layout.
+.io-up-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 16px;
+    .el-form-item { margin-bottom: 12px; }
+    ::v-deep .el-form-item__label { padding-bottom: 2px; line-height: 1.4; }
+}
+// The drop zone is the whole "no file yet" state — click or drop.
+.io-up-drop {
+    border: 1px dashed #c0c4cc;
+    border-radius: 8px;
+    background: #fafbfc;
+    padding: 30px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    &:hover { border-color: #409EFF; background: #f5f9ff; }
+}
+.io-up-drag { border-color: #409EFF; background: #ecf5ff; }
+.io-up-drop-icon { font-size: 34px; color: #c0c4cc; .io-up-drop:hover &, .io-up-drag & { color: #409EFF; } }
+.io-up-drop-title { margin-top: 8px; font-size: 14px; color: #606266; font-weight: 500; }
+.io-up-drop-sub { margin-top: 4px; font-size: 12px; color: #909399; line-height: 1.6; }
+// Parsed-file bar above the preview table.
+.io-up-filebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; margin-bottom: 8px;
+    border: 1px solid #ebeef5; border-radius: 6px; background: #fafbfc;
+}
+.io-up-filebar-icon { font-size: 22px; color: #409EFF; }
+.io-up-filebar-main { flex: 1; min-width: 0; }
+.io-up-filebar-name {
+    font-size: 13px; font-weight: 600; color: #303133;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.io-up-filebar-meta { font-size: 12px; color: #909399; b { color: #606266; } }
+.io-up-mono { font-family: Menlo, Consolas, monospace; font-size: 12px; }
+.io-up-table { width: 100%; }
+// Invoice-style totals column, right-aligned under the table.
+.io-up-totals { display: flex; flex-direction: column; align-items: flex-end; margin-top: 10px; }
+.io-up-tot-row {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 240px; padding: 3px 0;
+    font-size: 13px; color: #606266;
+}
+.io-up-grand {
+    margin-top: 4px; padding-top: 7px;
+    border-top: 1px solid #ebeef5;
+    font-size: 15px; font-weight: 600; color: #303133;
+}
 </style>
 
 <style>

@@ -6,6 +6,11 @@ export function getInflowOrders(query) {
   return request({ url: '/inflow/salesorders', method: 'get', params: query })
 }
 
+// Create a sales order from an uploaded item list (parsed to rows client-side).
+export function createInflowOrder(data) {
+  return request({ url: '/inflow/salesorders', method: 'post', data })
+}
+
 export function getInflowOrder(id) {
   return request({ url: `/inflow/salesorders/${id}`, method: 'get' })
 }
