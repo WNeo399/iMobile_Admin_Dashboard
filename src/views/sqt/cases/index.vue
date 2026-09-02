@@ -13,6 +13,7 @@
             :default-expand-all="true"
             :default-collapsed="isCompact"
             :show-search="false"
+            :default-width="260"
             storage-key="sqt-cases-sidebar-width"
             ref="statusTreeRef"
             @node-click="handleStatusClick"
@@ -20,7 +21,7 @@
             <template #node="{ data }">
                 <span class="status-node">
                     <i
-                        :class="data.id === 'all' ? 'el-icon-files' : 'el-icon-collection-tag'"
+                        :class="nodeIcon(data.id)"
                         class="status-node-icon"
                         :style="{ color: statusColor(data.id) }"
                     />
@@ -50,11 +51,11 @@
                 <div
                     v-for="node in mobileStatusList"
                     :key="node.id"
-                    :class="['drawer-status-item', { active: (node.id === 'all' && !activeStatus) || node.id === activeStatus }]"
+                    :class="['drawer-status-item', { active: node.id === activeNodeId, 'drawer-status-sub': node.sub }]"
                     @click="handleStatusClick(node)"
                 >
                     <i
-                        :class="node.id === 'all' ? 'el-icon-files' : 'el-icon-collection-tag'"
+                        :class="node.id === 'all' ? 'el-icon-files' : (node.sub ? 'el-icon-box' : 'el-icon-collection-tag')"
                         :style="{ color: statusColor(node.id) }"
                     />
                     <span class="drawer-status-label">{{ node.label }}</span>
@@ -62,7 +63,7 @@
                         v-if="node.count !== undefined"
                         :value="node.count"
                         :max="999"
-                        :type="node.id === 'all' ? 'primary' : badgeType(node.id)"
+                        :type="nodeBadgeType(node.id)"
                     />
                 </div>
             </div>
@@ -83,7 +84,7 @@
                         @click="mobileFilterOpen = true"
                         class="filter-status-btn"
                     >
-                        Status<span v-if="activeStatus">: {{ statusLabel(activeStatus) }}</span>
+                        Status<span v-if="activeStatus">: {{ statusLabel(activeStatus) }}<template v-if="activeReturn"> · {{ returnLabel(activeReturn) }}</template></span>
                     </el-button>
 
                     <el-input
@@ -164,7 +165,7 @@
 
                 <div class="active-filter" v-if="activeStatus">
                     <el-tag closable size="small" @close="clearStatusFilter">
-                        Status: {{ statusLabel(activeStatus) }}
+                        Status: {{ statusLabel(activeStatus) }}<template v-if="activeReturn"> · {{ returnLabel(activeReturn) }}</template>
                     </el-tag>
                 </div>
 
@@ -1676,6 +1677,15 @@ const STATUS_META = [
     { value: 'cancelled', label: 'Cancelled', tag: 'info', color: '#C0C4CC' }
 ]
 
+// Sub-nodes under BER in the sidebar tree — the return-tracking rollup.
+// Tree ids are "ber:<value>"; clicking one filters the list to BER cases
+// with that returnTracking.summaryStatus.
+const RETURN_META = [
+    { value: 'pending', label: 'Return Pending', tag: 'warning', color: '#E6A23C' },
+    { value: 'complete', label: 'Returned', tag: 'success', color: '#67C23A' },
+    { value: 'none', label: 'No Return', tag: 'info', color: '#C0C4CC' }
+]
+
 // Statuses that only Admin / TechElite Admin should see in the tree and the
 // Change Status dropdown — internal Solvup hand-off work that shouldn't be
 // visible to shop roles. The backend also filters them out of /list and
@@ -1705,8 +1715,10 @@ export default {
             exporting: false,
             list: [],
             total: 0,
-            counts: { total: 0, byStatus: {} },
+            counts: { total: 0, byStatus: {}, returnsByStatus: {} },
             activeStatus: null,
+            // Return-rollup filter (BER sub-nodes): 'pending' | 'complete' | 'none'.
+            activeReturn: null,
             queryParams: { page: 1, pageSize: 20, search: '', shopId: '' },
             shops: [],
 
@@ -1837,10 +1849,15 @@ export default {
         // desktop tree (All Cases + every status), in the same display order.
         mobileStatusList() {
             const td = this.treeData[0] || { children: [] }
-            return [
-                { id: td.id, label: td.label, count: td.count },
-                ...(td.children || []).map(c => ({ id: c.id, label: c.label, count: c.count }))
-            ]
+            const items = [{ id: td.id, label: td.label, count: td.count }]
+            for (const c of td.children || []) {
+                items.push({ id: c.id, label: c.label, count: c.count })
+                // Sub-nodes (BER's return rollup) render indented under their status.
+                for (const g of c.children || []) {
+                    items.push({ id: g.id, label: g.label, count: g.count, sub: true })
+                }
+            }
+            return items
         },
         canViewPrice() {
             const roles = this.$store.getters.roles || []
@@ -1886,18 +1903,36 @@ export default {
         },
         treeData() {
             const byStatus = this.counts.byStatus || {}
+            const returns = this.counts.returnsByStatus || {}
             return [
                 {
                     id: 'all',
                     label: 'All Cases',
                     count: this.counts.total || 0,
-                    children: this.visibleStatusMeta.map(s => ({
-                        id: s.value,
-                        label: s.label,
-                        count: byStatus[s.value] || 0
-                    }))
+                    children: this.visibleStatusMeta.map(s => {
+                        const node = {
+                            id: s.value,
+                            label: s.label,
+                            count: byStatus[s.value] || 0
+                        }
+                        // BER and Cancelled expand into their return-tracking rollup.
+                        if (s.value === 'ber' || s.value === 'cancelled') {
+                            const r = returns[s.value] || {}
+                            node.children = RETURN_META.map(m => ({
+                                id: `${s.value}:${m.value}`,
+                                label: m.label,
+                                count: r[m.value] || 0
+                            }))
+                        }
+                        return node
+                    })
                 }
             ]
+        },
+        // The tree/drawer node id for the current filter state.
+        activeNodeId() {
+            if (!this.activeStatus) return 'all'
+            return this.activeReturn ? `${this.activeStatus}:${this.activeReturn}` : this.activeStatus
         },
         notesDialogTitle() {
             if (!this.notesCaseRef) return 'Notes'
@@ -2058,7 +2093,21 @@ export default {
                    this.returnsForm.device.applicable &&
                    this.returnsForm.device.expected)
             if (!anyExpected) return { type: 'info', text: 'Nothing to return for this case.' }
-            if (n === 0) return { type: 'success', text: 'All expected items have been received.' }
+            if (n === 0) {
+                // Stamp the completed return with the latest receipt across
+                // parts + device: when everything came back, and who recorded it.
+                const stamps = (this.returnsForm.parts || [])
+                    .filter(p => p.receivedAt)
+                    .map(p => ({ at: p.receivedAt, by: p.receivedBy }))
+                const d = this.returnsForm.device
+                if (d && d.received && d.receivedAt) stamps.push({ at: d.receivedAt, by: d.receivedBy })
+                stamps.sort((a, b) => new Date(a.at) - new Date(b.at))
+                const last = stamps[stamps.length - 1]
+                const suffix = last
+                    ? ` Received ${this.formatDate(last.at)}${last.by ? ` by ${last.by}` : ''}.`
+                    : ''
+                return { type: 'success', text: `All expected items have been received.${suffix}` }
+            }
             return { type: 'warning', text: `${n} item${n === 1 ? '' : 's'} still to come back.` }
         },
         sendPartsExistingOrders() {
@@ -2275,6 +2324,7 @@ export default {
                 if (this.queryParams.search) params.search = this.queryParams.search
                 if (this.queryParams.shopId) params.shopId = this.queryParams.shopId
                 if (this.activeStatus) params.status = this.activeStatus
+                if (this.activeReturn) params.returnSummary = this.activeReturn
 
                 const res = await listCases(params)
                 this.list = res.data || []
@@ -2313,6 +2363,7 @@ export default {
                 if (this.queryParams.search) baseParams.search = this.queryParams.search
                 if (this.queryParams.shopId) baseParams.shopId = this.queryParams.shopId
                 if (this.activeStatus) baseParams.status = this.activeStatus
+                if (this.activeReturn) baseParams.returnSummary = this.activeReturn
 
                 const PAGE = 500
                 let page = 1
@@ -2371,13 +2422,17 @@ export default {
                     { wch: 28 }  // Email
                 ]
 
-                const label = this.activeStatus ? this.statusLabel(this.activeStatus) : 'All Cases'
+                let label = this.activeStatus ? this.statusLabel(this.activeStatus) : 'All Cases'
+                if (this.activeReturn) label += ' - ' + this.returnLabel(this.activeReturn)
                 const sheetName = String(label).slice(0, 31)
                 const workbook = XLSX.utils.book_new()
                 XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
 
                 const today = new Date().toISOString().split('T')[0]
-                const scopeSlug = (this.activeStatus || 'all').replace(/[^a-z0-9-]/gi, '').toLowerCase() || 'all'
+                const scope = this.activeStatus
+                    ? this.activeStatus + (this.activeReturn ? '-' + this.activeReturn : '')
+                    : 'all'
+                const scopeSlug = scope.replace(/[^a-z0-9-]/gi, '').toLowerCase() || 'all'
                 XLSX.writeFile(workbook, `sqt-cases_${scopeSlug}_${today}.xlsx`)
             } catch (e) {
                 console.error('Export failed:', e)
@@ -2424,7 +2479,16 @@ export default {
         },
         handleStatusClick(data) {
             if (!data) return
-            this.activeStatus = data.id === 'all' ? null : data.id
+            const id = String(data.id)
+            // "ber:pending" etc. — a return-rollup sub-node under BER.
+            if (id.indexOf(':') !== -1) {
+                const [status, ret] = id.split(':')
+                this.activeStatus = status
+                this.activeReturn = ret
+            } else {
+                this.activeStatus = id === 'all' ? null : id
+                this.activeReturn = null
+            }
             // Clear the search box when switching status so a leftover
             // term doesn't silently keep the new status's list filtered.
             this.queryParams.search = ''
@@ -2436,6 +2500,7 @@ export default {
         },
         clearStatusFilter() {
             this.activeStatus = null
+            this.activeReturn = null
             this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
             this.queryParams.page = 1
             this.getList()
@@ -2446,6 +2511,7 @@ export default {
             // status so results aren't silently limited to it.
             if ((this.queryParams.search || '').trim() && this.activeStatus) {
                 this.activeStatus = null
+                this.activeReturn = null
                 this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
             }
             this.queryParams.page = 1
@@ -2454,6 +2520,7 @@ export default {
         resetQuery() {
             this.queryParams = { page: 1, pageSize: 20, search: '', shopId: '' }
             this.activeStatus = null
+            this.activeReturn = null
             this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
             this.getList()
         },
@@ -2596,14 +2663,19 @@ export default {
                     sku: p.sku || '',
                     quantityToReturn: Number(p.quantityToReturn) || 0,
                     quantityReceived: Number(p.quantityReceived) || 0,
-                    received: !!p.received
+                    received: !!p.received,
+                    // Display-only — stamped by the backend on save.
+                    receivedAt: p.receivedAt || null,
+                    receivedBy: p.receivedBy || null
                 })),
                 device: rt.device
                     ? {
                         applicable: !!rt.device.applicable,
                         expected: !!rt.device.expected,
                         received: !!rt.device.received,
-                        note: rt.device.note || ''
+                        note: rt.device.note || '',
+                        receivedAt: rt.device.receivedAt || null,
+                        receivedBy: rt.device.receivedBy || null
                     }
                     : null
             }
@@ -3400,11 +3472,29 @@ export default {
             const meta = STATUS_META.find(x => x.value === s)
             return meta ? meta.tag : ''
         },
+        // Meta for a "<status>:<summary>" sub-node id (BER's return rollup);
+        // null for plain status ids.
+        // Tree/drawer node icon: box for the return-rollup sub-nodes.
+        nodeIcon(id) {
+            if (id === 'all') return 'el-icon-files'
+            return String(id).indexOf(':') !== -1 ? 'el-icon-box' : 'el-icon-collection-tag'
+        },
+        returnMeta(id) {
+            const i = String(id).indexOf(':')
+            if (i === -1) return null
+            return RETURN_META.find(r => r.value === String(id).slice(i + 1)) || null
+        },
+        returnLabel(v) {
+            const meta = RETURN_META.find(r => r.value === v)
+            return meta ? meta.label : v
+        },
         // Background colour for the tree-panel count badge. Independent of the
         // status pill's tag so a few statuses can read better here (info=grey,
         // primary=blue).
         nodeBadgeType(id) {
             if (id === 'all') return 'primary'
+            const rm = this.returnMeta(id)
+            if (rm) return rm.tag
             const overrides = {
                 'require-extra-parts': 'info', // grey
                 'on-hold': 'info', // grey
@@ -3414,6 +3504,8 @@ export default {
         },
         statusColor(s) {
             if (s === 'all') return '#409EFF'
+            const rm = this.returnMeta(s)
+            if (rm) return rm.color
             const meta = STATUS_META.find(x => x.value === s)
             return meta ? meta.color : '#909399'
         },
@@ -4051,6 +4143,11 @@ export default {
         background: #ecf5ff;
         color: #409eff;
         font-weight: 600;
+    }
+    // Return-rollup sub-nodes sit indented under their status (BER).
+    &.drawer-status-sub {
+        padding-left: 38px;
+        .drawer-status-label { font-size: 13px; color: #606266; }
     }
 }
 
