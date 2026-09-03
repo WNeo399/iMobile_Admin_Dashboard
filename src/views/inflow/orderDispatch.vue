@@ -247,7 +247,9 @@
                         <el-table :data="dispatchRecord.dispatchBatches || []" size="mini" border
                             empty-text="No batches recorded yet — scan items on the Dispatch tab.">
                             <el-table-column label="Batch" width="70" align="center">
-                                <template slot-scope="b">#{{ b.row.batchNo }}</template>
+                                <template slot-scope="b">
+                                    <el-link type="primary" :underline="false" @click="openBatchDetail(b.row)">#{{ b.row.batchNo }}</el-link>
+                                </template>
                             </el-table-column>
                             <el-table-column label="Date" min-width="150">
                                 <template slot-scope="b">{{ dateTimeStr(b.row.at) }}</template>
@@ -307,6 +309,50 @@
             </div>
             <span slot="footer">
                 <el-button size="small" @click="dispatchVisible = false">Close</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- Batch detail — the items scanned into one recorded batch, with a
+             per-item label action. -->
+        <el-dialog :title="'Batch #' + (batchDetailBatch ? batchDetailBatch.batchNo : '')"
+            :visible.sync="batchDetailVisible" width="760px" append-to-body>
+            <template v-if="batchDetailBatch">
+                <div class="od-bd-meta">
+                    <b>{{ (batchDetailBatch.lines || []).length }}</b> item{{ (batchDetailBatch.lines || []).length === 1 ? '' : 's' }}
+                    · <b>{{ batchDetailBatch.units }}</b> unit{{ batchDetailBatch.units === 1 ? '' : 's' }}
+                    · {{ dateTimeStr(batchDetailBatch.at) }}
+                    <template v-if="batchDetailBatch.by"> · by {{ batchDetailBatch.by }}</template>
+                    <template v-if="batchDetailBatch.trackingNo"> · tracking {{ batchDetailBatch.trackingNo }}</template>
+                </div>
+                <el-table :data="batchDetailBatch.lines || []" size="mini" border stripe max-height="380">
+                    <el-table-column type="index" width="46" align="center" />
+                    <el-table-column label="iMobile SKU" min-width="130">
+                        <template slot-scope="l"><b>{{ l.row.imbSku || '—' }}</b></template>
+                    </el-table-column>
+                    <el-table-column label="Barcode" width="130" show-overflow-tooltip>
+                        <template slot-scope="l">{{ l.row.sku || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Description" min-width="210" show-overflow-tooltip>
+                        <template slot-scope="l">{{ l.row.description || '—' }}</template>
+                    </el-table-column>
+                    <el-table-column label="Qty" width="60" align="right">
+                        <template slot-scope="l">{{ l.row.qty }}</template>
+                    </el-table-column>
+                    <el-table-column label="Action" width="110" align="center">
+                        <template slot-scope="l">
+                            <el-button size="mini" type="text" icon="el-icon-printer"
+                                :disabled="!String(l.row.sku || '').trim()"
+                                :title="String(l.row.sku || '').trim() ? '' : 'No barcode on this line'"
+                                @click="printItemLabel(batchDetailBatch, l.row)">Print Label</el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </template>
+            <span slot="footer">
+                <el-button size="small" @click="batchDetailVisible = false">Close</el-button>
+                <el-button type="primary" size="small" icon="el-icon-printer"
+                    :disabled="!batchDetailLabelCount"
+                    @click="printAllLabels">Print All Labels ({{ batchDetailLabelCount }})</el-button>
             </span>
         </el-dialog>
 
@@ -475,6 +521,7 @@
 import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
+import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount } from '@/utils/dispatchItemLabelPdf'
 
 export default {
     name: 'InflowOrderDispatch',
@@ -512,6 +559,9 @@ export default {
             skuDrafts: {},
             savingLineIdx: null,
             // Edit-batch dialog
+            // Batch detail dialog — the clicked batch row (read-only view).
+            batchDetailVisible: false,
+            batchDetailBatch: null,
             batchEditVisible: false,
             batchEditNo: null,
             batchEditLines: [],
@@ -550,6 +600,11 @@ export default {
     computed: {
         uploadPendingCount() {
             return this.uploadRows.filter(r => !r.sku).length
+        },
+        // Labels "Print All" would produce for the open batch: one per unit,
+        // barcode-less lines excluded.
+        batchDetailLabelCount() {
+            return batchLabelCount(this.batchDetailBatch)
         },
         batchUnits() {
             return Object.values(this.batchQty).reduce((s, q) => s + (Number(q) || 0), 0)
@@ -966,6 +1021,41 @@ export default {
             }
         },
         // ── Edit a recorded batch ────────────────────────────────────
+        openBatchDetail(batch) {
+            this.batchDetailBatch = batch
+            this.batchDetailVisible = true
+        },
+        // One label per UNIT across the whole batch (qty 5 → 5 copies);
+        // barcode-less lines aren't printable and are left out.
+        printAllLabels() {
+            const batch = this.batchDetailBatch
+            if (!batch || !this.batchDetailLabelCount) return
+            const skipped = (batch.lines || []).filter(l => !String(l.sku || '').trim()).length
+            if (skipped) {
+                this.$message.warning(`${skipped} line${skipped === 1 ? ' has' : 's have'} no barcode and won't print.`)
+            }
+            const rec = { invoiceNumber: this.dispatchRecord && this.dispatchRecord.invoiceNumber }
+            this.showPdf(
+                () => buildBatchLabelsPdf({ record: rec, batch }),
+                batchLabelsFileName(rec, batch),
+                `Labels — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount} labels)`
+            )
+        },
+        // Per-item 50×40mm label: description on top, Code 128 of the item
+        // barcode, PO number + dispatched date in the footer. Uses the same
+        // PDF preview dialog as the packing list.
+        printItemLabel(batch, line) {
+            if (!String(line.sku || '').trim()) {
+                this.$message.warning('This line has no barcode to print.')
+                return
+            }
+            const rec = { invoiceNumber: this.dispatchRecord && this.dispatchRecord.invoiceNumber }
+            this.showPdf(
+                () => buildItemLabelPdf({ record: rec, batch, line }),
+                itemLabelFileName(rec, line),
+                `Label — ${line.sku} · Batch #${batch.batchNo}`
+            )
+        },
         openBatchEdit(batch) {
             const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
             this.batchEditNo = batch.batchNo
@@ -1326,6 +1416,8 @@ export default {
 .od-up-hint { font-size: 13px; color: #606266; line-height: 1.6; margin-bottom: 12px; }
 .od-up-form ::v-deep .el-form-item__label { white-space: nowrap; }
 .od-up-input { display: none; }
+// Batch detail dialog header line.
+.od-bd-meta { font-size: 13px; color: #606266; margin-bottom: 10px; b { color: #303133; } }
 .od-up-pick { display: flex; align-items: center; gap: 10px; }
 .od-up-file { font-size: 12px; color: #303133; }
 .od-up-count { font-size: 12px; color: #606266; margin-bottom: 8px; }
