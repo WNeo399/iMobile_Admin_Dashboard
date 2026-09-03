@@ -13,6 +13,7 @@
 
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
 
 const LABEL_W = 50
 const LABEL_H = 40
@@ -142,6 +143,167 @@ export function batchLabelCount(batch) {
             (String((l && l.sku) || '').trim() ? Math.max(0, Math.floor(Number(l.qty)) || 0) : 0),
         0,
     )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Oscar Mobile Pty Ltd — special customer. Each line item gets TWO
+// 100mm × 50mm labels: a big item label (description, full-width
+// barcode, code bottom-left) and a "Supplier Item Card" form the shop
+// fills in by hand when a part comes back faulty. The card's return
+// code is SS-<prefix>-<barcode>, where the prefix (typically a date
+// like 310826) is typed when the dispatch list is uploaded and stored
+// on the record as faultyCodePrefix.
+// ════════════════════════════════════════════════════════════════════
+
+const OSCAR_W = 100
+const OSCAR_H = 50
+
+export function isOscarCustomer(name) {
+    return /oscar\s*mobile/i.test(String(name || ''))
+}
+
+export function oscarReturnCode(record, line) {
+    const prefix = String((record && record.faultyCodePrefix) || '').trim()
+    return `SS-${prefix}-${String((line && line.sku) || '').trim()}`
+}
+
+function newOscarDoc() {
+    return new jsPDF({ unit: 'mm', format: [OSCAR_W, OSCAR_H], orientation: 'landscape' })
+}
+
+// Vector QR: draw the module bitmap as filled rects — crisp at any
+// size, and synchronous (qrcode's canvas renderers are promise-based).
+function drawQr(doc, text, x, y, size) {
+    const qr = QRCode.create(String(text), { errorCorrectionLevel: 'M' })
+    const n = qr.modules.size
+    const data = qr.modules.data
+    const cell = size / n
+    doc.setFillColor(0, 0, 0)
+    for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+            if (data[r * n + c]) doc.rect(x + c * cell, y + r * cell, cell, cell, 'F')
+        }
+    }
+}
+
+// Label 1 — item label: description (monospace, shrink-to-fit one
+// line), full-width barcode, human-readable code bottom-left.
+function drawOscarItemLabel(doc, line, pngCache) {
+    doc.setTextColor(0)
+    const desc = String((line && line.description) || '').trim() || '—'
+    doc.setFont('courier', 'bold')
+    let fs = 14
+    doc.setFontSize(fs)
+    while (doc.getTextWidth(desc) > OSCAR_W - 6 && fs > 7) {
+        fs -= 0.5
+        doc.setFontSize(fs)
+    }
+    doc.text(desc, 3, 9)
+
+    const value = String((line && line.sku) || '').trim()
+    if (value) {
+        const png = pngCache
+            ? pngCache[value] || (pngCache[value] = barcodePng(value))
+            : barcodePng(value)
+        doc.addImage(png, 'PNG', 3, 12, OSCAR_W - 6, 28)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(12)
+        doc.text(value, 3, 45.5)
+    }
+}
+
+// Label 2 — "Supplier Item Card - Screen": tick-box form with a QR and
+// barcode of the return code. Grid coordinates traced from the sample.
+function drawOscarCardLabel(doc, returnCode, pngCache) {
+    const L = 1.5
+    const R = OSCAR_W - 1.5
+    doc.setTextColor(0)
+    doc.setDrawColor(0)
+    doc.setLineWidth(0.35)
+
+    // Header + top checkboxes
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('Supplier Item Card - Screen', OSCAR_W / 2, 6, { align: 'center' })
+    doc.setFontSize(11)
+    for (const [x, label] of [[22, 'Faulty'], [45, 'Warranty'], [70, 'Damage']]) {
+        doc.rect(x, 8.2, 3.4, 3.4)
+        doc.text(label, x + 4.6, 11.1)
+    }
+    doc.line(L, 13.2, R, 13.2)
+
+    // Left cell — "Faulty Detail"
+    doc.line(13.5, 13.2, 13.5, 40.8)
+    doc.setFontSize(10)
+    doc.text('Faulty', 7.5, 25.5, { align: 'center' })
+    doc.text('Detail', 7.5, 29.5, { align: 'center' })
+
+    // Fault checklist
+    doc.line(33.5, 13.2, 33.5, 40.8)
+    doc.setFontSize(8)
+    let y = 16.4
+    for (const item of ['No Display', 'Lifting', 'Screw Holes', 'Touch Issue', 'LCD Issue', 'Frame Fit', 'HB Issue', 'Others']) {
+        doc.rect(15.2, y - 2.2, 2.6, 2.6)
+        doc.text(item, 19, y)
+        y += 3.35
+    }
+
+    // Middle fields (hand-filled)
+    doc.setFontSize(9)
+    doc.text('Branch No.:', 35.5, 17)
+    doc.text('Transfer out Date:', 58, 17)
+    doc.line(34.5, 18.6, R, 18.6)
+    doc.text('Technician Name:', 35.5, 23.6)
+    doc.line(34.5, 25.2, 74.5, 25.2)
+    doc.text('Repair Order No: C-', 35.5, 29.8)
+    doc.line(34.5, 31.4, 74.5, 31.4)
+    doc.text('Comment:', 35.5, 35.8)
+
+    // QR of the return code
+    drawQr(doc, returnCode, 76.5, 19.5, 20)
+
+    // Bottom band — return code barcode
+    doc.line(L, 40.8, R, 40.8)
+    doc.line(13.5, 40.8, 13.5, 48.5)
+    doc.setFontSize(10)
+    doc.text('Return', 7.5, 44.3, { align: 'center' })
+    doc.text('Code', 7.5, 48, { align: 'center' })
+    const png = pngCache
+        ? pngCache[returnCode] || (pngCache[returnCode] = barcodePng(returnCode))
+        : barcodePng(returnCode)
+    doc.addImage(png, 'PNG', 15.5, 41.8, 60, 4.6)
+    doc.setFontSize(7)
+    doc.text(returnCode, 15.5, 48.4)
+}
+
+// One line → its label pair (item label page + supplier card page).
+export function buildOscarItemLabelsPdf({ record, line }) {
+    const doc = newOscarDoc()
+    drawOscarItemLabel(doc, line)
+    doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
+    drawOscarCardLabel(doc, oscarReturnCode(record, line))
+    return doc
+}
+
+// Whole batch: a pair per UNIT, pairs kept together so the bench can
+// apply both to each part in turn. Barcode-less lines are skipped.
+export function buildOscarBatchLabelsPdf({ record, batch }) {
+    const doc = newOscarDoc()
+    const pngCache = {}
+    let pages = 0
+    for (const line of (batch && batch.lines) || []) {
+        if (!String((line && line.sku) || '').trim()) continue
+        const copies = Math.floor(Number(line && line.qty)) || 0
+        const code = oscarReturnCode(record, line)
+        for (let i = 0; i < copies; i++) {
+            if (pages > 0) doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
+            drawOscarItemLabel(doc, line, pngCache)
+            doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
+            drawOscarCardLabel(doc, code, pngCache)
+            pages += 2
+        }
+    }
+    return pages ? doc : null
 }
 
 export function itemLabelFileName(record, line) {

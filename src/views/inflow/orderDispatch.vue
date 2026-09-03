@@ -323,6 +323,7 @@
                     · {{ dateTimeStr(batchDetailBatch.at) }}
                     <template v-if="batchDetailBatch.by"> · by {{ batchDetailBatch.by }}</template>
                     <template v-if="batchDetailBatch.trackingNo"> · tracking {{ batchDetailBatch.trackingNo }}</template>
+                    <template v-if="dispatchRecord && dispatchRecord.faultyCodePrefix"> · faulty prefix <b>{{ dispatchRecord.faultyCodePrefix }}</b></template>
                 </div>
                 <el-table :data="batchDetailBatch.lines || []" size="mini" border stripe max-height="380">
                     <el-table-column type="index" width="46" align="center" />
@@ -428,6 +429,12 @@
                         <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
                     </el-select>
                 </el-form-item>
+                <!-- Oscar Mobile's faulty-item labels need a return-code
+                     prefix (SS-<prefix>-<barcode>) — required for Oscar. -->
+                <el-form-item v-if="isOscarName(uploadCustomer)" label="Faulty Prefix" required>
+                    <el-input v-model="uploadFaultyPrefix"
+                        placeholder="e.g. 310826 — return codes print as SS-<prefix>-<barcode>" />
+                </el-form-item>
                 <el-form-item label="Title" required>
                     <el-input v-model="uploadInvoiceNo" placeholder="e.g. INV-12345 or PO110960" />
                 </el-form-item>
@@ -521,7 +528,7 @@
 import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
-import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount } from '@/utils/dispatchItemLabelPdf'
+import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBatchLabelsPdf } from '@/utils/dispatchItemLabelPdf'
 
 export default {
     name: 'InflowOrderDispatch',
@@ -581,6 +588,8 @@ export default {
             uploadVisible: false,
             uploadInvoiceNo: '',
             uploadCustomer: '',
+            // Oscar Mobile return-code prefix (SS-<prefix>-<barcode>).
+            uploadFaultyPrefix: '',
             uploadOrderId: '',
             uploadOrderOptions: [],
             uploadOrderLoading: false,
@@ -1034,7 +1043,18 @@ export default {
             if (skipped) {
                 this.$message.warning(`${skipped} line${skipped === 1 ? ' has' : 's have'} no barcode and won't print.`)
             }
-            const rec = { invoiceNumber: this.dispatchRecord && this.dispatchRecord.invoiceNumber }
+            const rec = this.dispatchRecord || {}
+            // Oscar Mobile: a PAIR per unit (item label + supplier card),
+            // pairs kept together so the bench applies both to each part.
+            if (this.isOscarName(rec.customerName)) {
+                if (this.oscarPrefixMissing()) return
+                this.showPdf(
+                    () => buildOscarBatchLabelsPdf({ record: rec, batch }),
+                    batchLabelsFileName(rec, batch),
+                    `Labels — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount} pairs)`
+                )
+                return
+            }
             this.showPdf(
                 () => buildBatchLabelsPdf({ record: rec, batch }),
                 batchLabelsFileName(rec, batch),
@@ -1049,12 +1069,35 @@ export default {
                 this.$message.warning('This line has no barcode to print.')
                 return
             }
-            const rec = { invoiceNumber: this.dispatchRecord && this.dispatchRecord.invoiceNumber }
+            const rec = this.dispatchRecord || {}
+            // Oscar Mobile gets the 100×50mm pair: item label + Supplier
+            // Item Card with the SS-<prefix>-<barcode> return code.
+            if (this.isOscarName(rec.customerName)) {
+                if (this.oscarPrefixMissing()) return
+                this.showPdf(
+                    () => buildOscarItemLabelsPdf({ record: rec, line }),
+                    itemLabelFileName(rec, line),
+                    `Labels — ${line.sku} · item + supplier card`
+                )
+                return
+            }
             this.showPdf(
                 () => buildItemLabelPdf({ record: rec, batch, line }),
                 itemLabelFileName(rec, line),
                 `Label — ${line.sku} · Batch #${batch.batchNo}`
             )
+        },
+        isOscarName(name) {
+            return isOscarCustomer(name)
+        },
+        // Oscar records can't print labels without the return-code prefix.
+        // Returns true when printing must stop.
+        oscarPrefixMissing() {
+            const rec = this.dispatchRecord || {}
+            if (!this.isOscarName(rec.customerName)) return false
+            if (String(rec.faultyCodePrefix || '').trim()) return false
+            this.$message.warning('This Oscar Mobile record has no faulty-code prefix — re-pick the customer in the Link dialog to add one.')
+            return true
         },
         openBatchEdit(batch) {
             const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
@@ -1182,6 +1225,7 @@ export default {
             this.uploadVisible = true
             this.uploadInvoiceNo = ''
             this.uploadCustomer = ''
+            this.uploadFaultyPrefix = ''
             this.uploadOrderId = ''
             this.uploadOrderOptions = []
             this.uploadFileName = ''
@@ -1261,13 +1305,18 @@ export default {
         async submitUpload() {
             const invoiceNumber = this.uploadInvoiceNo.trim()
             if (!invoiceNumber || !this.uploadRows.length) return
+            if (this.isOscarName(this.uploadCustomer) && !this.uploadFaultyPrefix.trim()) {
+                this.$message.warning('Oscar Mobile needs a faulty-code prefix — return codes print as SS-<prefix>-<barcode>.')
+                return
+            }
             this.uploadSaving = true
             try {
                 const r = await createInflowDispatchUpload({
                     invoiceNumber,
                     rows: this.uploadRows,
                     orderId: this.uploadOrderId || undefined,
-                    customerName: this.uploadCustomer || undefined
+                    customerName: this.uploadCustomer || undefined,
+                    faultyCodePrefix: this.uploadFaultyPrefix.trim() || undefined
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const bits = [`Dispatch record ${invoiceNumber} created — ${r.lines} line items`]
@@ -1327,11 +1376,27 @@ export default {
         // clearing the select unlinks the customer.
         async setCustomer(name) {
             if (!this.linkRecord) return
+            // Picking Oscar Mobile needs the return-code prefix too (labels
+            // print SS-<prefix>-<barcode>); ask for it when missing.
+            const extra = {}
+            if (this.isOscarName(name) && !String(this.linkRecord.faultyCodePrefix || '').trim()) {
+                try {
+                    const { value } = await this.$prompt(
+                        'Oscar Mobile labels print a return code SS-<prefix>-<barcode>. Enter the prefix for this record.',
+                        'Faulty code prefix',
+                        { inputPlaceholder: 'e.g. 310826', inputPattern: /\S/, inputErrorMessage: 'Prefix is required' }
+                    )
+                    extra.faultyCodePrefix = String(value).trim()
+                } catch (e) {
+                    return // cancelled — leave the customer unchanged
+                }
+            }
             this.customerSaving = true
             try {
-                const r = await setInflowDispatchCustomer(this.linkRecord._id, { customerName: name || null })
+                const r = await setInflowDispatchCustomer(this.linkRecord._id, { customerName: name || null, ...extra })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$set(this.linkRecord, 'customerName', r.customerName)
+                if (extra.faultyCodePrefix) this.$set(this.linkRecord, 'faultyCodePrefix', extra.faultyCodePrefix)
                 this.$message.success(r.customerName ? `Customer set to ${r.customerName}` : 'Customer unlinked')
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to link customer'))
