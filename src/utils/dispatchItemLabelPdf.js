@@ -233,47 +233,48 @@ function drawOscarCardLabel(doc, returnCode, pngCache) {
     doc.line(L, 13.2, R, 13.2)
 
     // Left cell — "Faulty Detail"
-    doc.line(13.5, 13.2, 13.5, 40.8)
+    doc.line(13.5, 13.2, 13.5, 38.5)
     doc.setFontSize(10)
-    doc.text('Faulty', 7.5, 25.5, { align: 'center' })
-    doc.text('Detail', 7.5, 29.5, { align: 'center' })
+    doc.text('Faulty', 7.5, 24.3, { align: 'center' })
+    doc.text('Detail', 7.5, 28.3, { align: 'center' })
 
     // Fault checklist
-    doc.line(33.5, 13.2, 33.5, 40.8)
-    doc.setFontSize(8)
-    let y = 16.4
+    doc.line(33.5, 13.2, 33.5, 38.5)
+    doc.setFontSize(7.5)
+    let y = 16.2
     for (const item of ['No Display', 'Lifting', 'Screw Holes', 'Touch Issue', 'LCD Issue', 'Frame Fit', 'HB Issue', 'Others']) {
-        doc.rect(15.2, y - 2.2, 2.6, 2.6)
-        doc.text(item, 19, y)
-        y += 3.35
+        doc.rect(15.2, y - 2.1, 2.4, 2.4)
+        doc.text(item, 18.8, y)
+        y += 3.05
     }
 
     // Middle fields (hand-filled)
     doc.setFontSize(9)
-    doc.text('Branch No.:', 35.5, 17)
-    doc.text('Transfer out Date:', 58, 17)
-    doc.line(34.5, 18.6, R, 18.6)
-    doc.text('Technician Name:', 35.5, 23.6)
-    doc.line(34.5, 25.2, 74.5, 25.2)
-    doc.text('Repair Order No: C-', 35.5, 29.8)
-    doc.line(34.5, 31.4, 74.5, 31.4)
-    doc.text('Comment:', 35.5, 35.8)
+    doc.text('Branch No.:', 35.5, 16.6)
+    doc.text('Transfer out Date:', 58, 16.6)
+    doc.line(34.5, 18.2, R, 18.2)
+    doc.text('Technician Name:', 35.5, 22.8)
+    doc.line(34.5, 24.4, 74.5, 24.4)
+    doc.text('Repair Order No: C-', 35.5, 28.6)
+    doc.line(34.5, 30.2, 74.5, 30.2)
+    doc.text('Comment:', 35.5, 34.2)
 
     // QR of the return code
-    drawQr(doc, returnCode, 76.5, 19.5, 20)
+    drawQr(doc, returnCode, 77, 19.4, 18)
 
-    // Bottom band — return code barcode
-    doc.line(L, 40.8, R, 40.8)
-    doc.line(13.5, 40.8, 13.5, 48.5)
+    // Bottom band — return code barcode. The band is taller than the
+    // sample's so the barcode gets more bar height for hand scanners.
+    doc.line(L, 38.5, R, 38.5)
+    doc.line(13.5, 38.5, 13.5, 48.5)
     doc.setFontSize(10)
-    doc.text('Return', 7.5, 44.3, { align: 'center' })
-    doc.text('Code', 7.5, 48, { align: 'center' })
+    doc.text('Return', 7.5, 42.8, { align: 'center' })
+    doc.text('Code', 7.5, 46.8, { align: 'center' })
     const png = pngCache
         ? pngCache[returnCode] || (pngCache[returnCode] = barcodePng(returnCode))
         : barcodePng(returnCode)
-    doc.addImage(png, 'PNG', 15.5, 41.8, 60, 4.6)
+    doc.addImage(png, 'PNG', 15.5, 39.5, 60, 6)
     doc.setFontSize(7)
-    doc.text(returnCode, 15.5, 48.4)
+    doc.text(returnCode, 15.5, 48.3)
 }
 
 // One line → its label pair (item label page + supplier card page).
