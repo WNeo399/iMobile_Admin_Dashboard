@@ -272,7 +272,7 @@ function drawOscarCardLabel(doc, returnCode, pngCache) {
     const png = pngCache
         ? pngCache[returnCode] || (pngCache[returnCode] = barcodePng(returnCode))
         : barcodePng(returnCode)
-    doc.addImage(png, 'PNG', 15.5, 39.5, 60, 6)
+    doc.addImage(png, 'PNG', 15.5, 39.5, 81, 6)
     doc.setFontSize(7)
     doc.text(returnCode, 15.5, 48.3)
 }
