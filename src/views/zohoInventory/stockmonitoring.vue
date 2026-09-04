@@ -4,74 +4,68 @@
             storage-key="dept-sidebar-width" :defaultExpandAll="true" ref="deptTreeRef" @node-click="handleNodeClick" />
         <div class="tree-sidebar-content">
             <div class="content-inner">
-                <el-form :model="queryParams" ref="queryForm" size="small" :inline="true">
-                    <el-form-item label="SKU" prop="sku">
-                        <el-input v-model="queryParams.sku" placeholder="Please Enter SKU" clearable
-                            style="width: 240px" @keyup.enter.native="handleQuery" />
-                    </el-form-item>
-                    <el-form-item label="Product Name" prop="productName">
-                        <el-input v-model="queryParams.productName" placeholder="Please Enter Product Name" clearable
-                            style="width: 240px" @keyup.enter.native="handleQuery" />
-                    </el-form-item>
-                    <el-form-item>
-                        <el-button type="primary" icon="el-icon-search" size="mini"
-                            @click="handleQuery">Search</el-button>
-                        <el-button icon="el-icon-refresh" size="mini" @click="resetQuery">Reset</el-button>
-                    </el-form-item>
-                </el-form>
+                <!-- ── Stock-Dashboard-style main section (both scopes) —
+                     header, one search box, clickable count tiles. Only the
+                     tile set and the Category filter differ per scope; the
+                     items table below keeps its per-scope columns. ── -->
+                <div class="sd-head">
+                    <div class="sd-title">
+                        <h2>{{ currentTab || (isAccessories ? 'Accessories' : 'Spare Parts') }}</h2>
+                        <div class="sd-asof">live from Zoho · {{ productList.length.toLocaleString() }} items</div>
+                    </div>
+                    <div class="sd-spacer" />
+                    <el-button v-hasPermi="['zoho:collection:view']" size="small" plain type="primary"
+                        icon="el-icon-plus" :loading="collectionDetailLoading" :disabled="!currentCollection"
+                        @click="handleEditCollection">Add Product</el-button>
+                    <el-dropdown trigger="click" @command="handleExportCommand">
+                        <el-button size="small" plain type="success" icon="el-icon-download">
+                            Export <i class="el-icon-arrow-down el-icon--right" />
+                        </el-button>
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item v-if="!isAccessories && multipleSelection.length" command="selection">
+                                Selection ({{ multipleSelection.length }})</el-dropdown-item>
+                            <el-dropdown-item command="view">Current view ({{ total.toLocaleString() }})</el-dropdown-item>
+                            <el-dropdown-item command="full">Full list ({{ productList.length.toLocaleString() }})</el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
+                </div>
 
-                <el-row :gutter="10" class="mb8">
-                    <!-- <el-col :span="1.5">
-                        <el-dropdown trigger="click" @command="handleFilterPurchases">
+                <div class="sd-filters">
+                    <el-input v-model="queryParams.search" size="small" clearable class="sd-search"
+                        placeholder="SKU or product name" prefix-icon="el-icon-search"
+                        @keyup.enter.native="handleQuery" @clear="handleQuery" />
+                    <el-select v-if="isAccessories" v-model="queryParams.category" size="small" clearable filterable
+                        placeholder="Category" class="sd-sel-wide" @change="handleQuery">
+                        <el-option v-for="c in categoryOptions" :key="c" :label="c" :value="c" />
+                    </el-select>
+                    <el-button size="mini" type="primary" icon="el-icon-search" @click="handleQuery">Search</el-button>
+                    <el-button size="mini" icon="el-icon-refresh" @click="resetQuery">Reset</el-button>
+                </div>
 
-                            <el-button type="primary" :plain="!applyPurchaseFilter" size="mini">Highlight Understocked
-                                <i class="el-icon-arrow-down el-icon--right"></i>
-                            </el-button>
+                <!-- The counts, each one a filter (click again to clear) -->
+                <div :class="['sd-tiles', { 'sd-tiles-5': !isAccessories }]">
+                    <div v-for="t in tiles" :key="t.key"
+                        :class="['sd-tile', 'tone-' + t.tone, { on: (queryParams.quick || '') === t.key }]"
+                        @click="pickTile(t.key)">
+                        <div class="sd-tile-label">{{ t.label }}</div>
+                        <div class="sd-tile-value">{{ t.value.toLocaleString() }}</div>
+                        <div class="sd-tile-note">{{ t.note }}</div>
+                    </div>
+                </div>
 
 
-                            <el-dropdown-menu slot="dropdown">
-                                <el-dropdown-item  command="air">Air shipping</el-dropdown-item>
-                                <el-dropdown-item  command="sea">Sea shipping</el-dropdown-item>
-                            </el-dropdown-menu>
-
-                        </el-dropdown>
-
-                    </el-col> -->
-                    <el-col :span="1.5">
-                        <el-button type="success" plain icon="el-icon-download" size="mini" @click="handleExport">Export
-                            {{
-                                multipleSelection.length > 0 ? `${multipleSelection.length} Selection` : 'Full List'
-                            }}</el-button>
-                    </el-col>
-                    <el-col :span="1.5">
-                        <!--
-                            In-place edit for the currently selected
-                            collection — opens the same shared dialog the
-                            Collections page uses, so criteria / picked
-                            products / status can be adjusted without
-                            leaving Stock Monitoring. Gated on the same
-                            permission as the Collections page route.
-                        -->
-                        <el-button
-                            v-hasPermi="['zoho:collection:view']"
-                            type="primary"
-                            plain
-                            icon="el-icon-plus"
-                            size="mini"
-                            :loading="collectionDetailLoading"
-                            :disabled="!currentCollection"
-                            @click="handleEditCollection"
-                        >Add Product</el-button>
-                    </el-col>
-                    <el-col :span="1.5" v-show="multipleSelection.length > 0">
-                        <el-button type="info" plain icon="el-icon-close" size="mini"
-                            @click="() => { $refs.table.clearSelection() }">Clear Selection</el-button>
-                    </el-col>
-                </el-row>
-
+                <div class="sd-card">
+                <div class="sd-card-head">
+                    <span class="sd-card-title">{{ activeTileLabel }}</span>
+                    <el-tag size="mini" effect="plain">{{ total.toLocaleString() }} items</el-tag>
+                    <div class="sd-spacer" />
+                    <el-button v-if="!isAccessories && multipleSelection.length" type="text" size="mini"
+                        @click="() => { $refs.table.clearSelection() }">Clear Selection ({{ multipleSelection.length }})</el-button>
+                    <el-button v-if="queryParams.quick" type="text" size="mini" @click="pickTile('')">Clear filter</el-button>
+                </div>
                 <el-table v-loading="loading" :data="showProductList" @selection-change="handleSelectionChange"
                     @sort-change="handleSorting" ref="table" empty-text="No Data" stripe border row-key="id">
-                    <el-table-column type="selection" width="50" align="center" :reserve-selection="true" />
+                    <el-table-column v-if="!isAccessories" type="selection" width="50" align="center" :reserve-selection="true" />
                     <el-table-column label="Product" align="left" header-align="center" key="product"
                         min-width="300" sortable="custom" prop="productName">
                         <template slot-scope="scope">
@@ -82,12 +76,59 @@
                                 <div class="product-meta">
                                     <span class="p-sku">SKU: {{ scope.row.sku || '—' }}</span>
                                     <span v-if="scope.row.location" class="p-loc"><i class="el-icon-location-outline" /> {{ scope.row.location }}</span>
+                                    <span v-if="scope.row.category" class="p-cat"><i class="el-icon-collection-tag" /> {{ scope.row.category }}</span>
                                 </div>
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Current Stock" align="center" key="stock" prop="stock" width="140"
+                    <el-table-column v-if="!isAccessories" label="Current Stock" align="center" key="stock" prop="stock" width="140"
                         sortable="custom" :show-overflow-tooltip="true" />
+
+                    <!-- Accessories show Zoho's two stock figures stacked in one
+                         column: Physical (shipment-driven, the shelf reality —
+                         sorting uses it) over Accounting (invoice-driven).
+                         Accounting turns amber when the two disagree. -->
+                    <el-table-column v-if="isAccessories" label="Stock" align="center" key="accStock"
+                        prop="stock" width="140" sortable="custom">
+                        <template slot-scope="scope">
+                            <div class="stock-line"><span class="stock-label">Physical</span> <b>{{ scope.row.stock }}</b></div>
+                            <div class="stock-line">
+                                <span class="stock-label">Acct</span>
+                                <span :class="{ 'stock-diff': Number(scope.row.accountingStock) !== Number(scope.row.stock) }">{{ scope.row.accountingStock }}</span>
+                            </div>
+                        </template>
+                    </el-table-column>
+
+                    <!-- Zoho's reorder level — maintained for accessories only;
+                         red when stock has fallen to or below it. Click to
+                         edit; saving writes the new point back to Zoho. -->
+                    <el-table-column v-if="isAccessories" label="Reorder Point" align="center" key="reorderLevel"
+                        prop="reorderLevel" width="150" sortable="custom">
+                        <template slot-scope="scope">
+                            <div v-if="rpEdit.id === scope.row.id" class="rp-edit" @click.stop>
+                                <el-input-number v-model="rpEdit.value" size="mini" :min="0" :controls="false"
+                                    class="rp-input" @keyup.enter.native="rpEnter($event, scope.row)" />
+                                <!-- Timing matters: the number input only commits
+                                     its value on blur/enter. SAVE must run after
+                                     that commit → click (which follows the blur).
+                                     CANCEL discards the value anyway and the blur
+                                     re-render can swallow a click → mousedown. -->
+                                <el-button type="text" size="mini" icon="el-icon-check" class="rp-save"
+                                    :loading="rpEdit.saving" @click="saveRpEdit(scope.row)" />
+                                <el-button type="text" size="mini" icon="el-icon-close" class="rp-cancel"
+                                    :disabled="rpEdit.saving" @mousedown.native.prevent="cancelRpEdit" />
+                            </div>
+                            <div v-else class="rp-view" title="Click to edit — saves to Zoho"
+                                @click.stop="startRpEdit(scope.row)">
+                                <span v-if="Number(scope.row.reorderLevel) > 0"
+                                    :class="{ 'rp-below': Number(scope.row.stock) <= Number(scope.row.reorderLevel) }">
+                                    {{ scope.row.reorderLevel }}
+                                </span>
+                                <span v-else class="rp-none">—</span>
+                                <i class="el-icon-edit rp-pencil" />
+                            </div>
+                        </template>
+                    </el-table-column>
 
                     <el-table-column align="center" key="sales30Day" prop="sales30Day" width="170"
                         :show-overflow-tooltip="true">
@@ -157,6 +198,7 @@
                 <pagination v-show="total > 0" :total="total" :page.sync="queryParams.pageNum"
                     :limit.sync="queryParams.pageSize" @pagination="handlePagination" prev-text="Prev"
                     next-text="Next" />
+                </div>
             </div>
         </div>
         <ProductDetailDialog :open.sync="open" :product="product"></ProductDetailDialog>
@@ -215,7 +257,7 @@
 <script>
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
-import { getCurrentStock, getSalesTotal } from "../../api/zoho/stockMonitoring";
+import { getCurrentStock, getSalesTotal, updateItemReorderLevel } from "../../api/zoho/stockMonitoring";
 import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
 import { getCollectionGroups, getCollectionDetail } from "../../api/zoho/products/collection";
 import { getProductDetail } from "../../api/zoho/products/product";
@@ -244,6 +286,8 @@ export default {
             duration: 30,
             treeData: [],
             currentCollection: "",
+            // Inline reorder-point edit — one row at a time.
+            rpEdit: { id: null, value: 0, saving: false },
             // Edit Collection dialog state. `editingCollection` is the
             // full collection document (from /detail/:id) — the tree
             // nodes only carry {label, value} so a fetch is required
@@ -256,6 +300,9 @@ export default {
                 pageSize: 20,
                 sku: undefined,
                 productName: undefined,
+                search: '',
+                category: '',
+                quick: '',
             },
             productList: [],
             showProductList: [],
@@ -274,6 +321,42 @@ export default {
         // Purchase column and the Create PO action are hidden entirely.
         isAccessories() {
             return this.scope === 'accessories'
+        },
+        // Distinct categories present in the loaded collection.
+        categoryOptions() {
+            return [...new Set(this.productList.map(p => p.category).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b))
+        },
+        zeroStockCount() {
+            return this.productList.filter(i => Number(i.stock) <= 0).length
+        },
+        belowReorderCount() {
+            return this.productList.filter(i =>
+                Number(i.reorderLevel) > 0 && Number(i.stock) <= Number(i.reorderLevel)).length
+        },
+        // Dashboard-style count tiles; each doubles as the quick filter.
+        tiles() {
+            if (this.isAccessories) {
+                return [
+                    { key: '', label: 'All Items', value: this.productList.length, tone: 'ok', note: 'in this collection' },
+                    { key: 'zero', label: 'Zero Stock', value: this.zeroStockCount, tone: 'bad', note: 'physical stock at 0' },
+                    { key: 'belowReorder', label: 'Under Reorder', value: this.belowReorderCount, tone: 'warn', note: 'at or below reorder point' }
+                ]
+            }
+            // Spare Parts: purchasing-led buckets. "On order" reads the
+            // Tencent order sheet via the Purchase column's data.
+            const oos = this.productList.filter(i => Number(i.stock) <= 0)
+            return [
+                { key: '', label: 'All Items', value: this.productList.length, tone: 'ok', note: 'in this collection' },
+                { key: 'zero', label: 'Out of Stock', value: oos.length, tone: 'bad', note: 'stock at 0' },
+                { key: 'noOnOrder', label: 'No on Order', value: oos.filter(i => !this.onOrderQty(i)).length, tone: 'bad', note: 'out of stock, nothing ordered' },
+                { key: 'onOrder', label: 'On Order', value: this.productList.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'on the supplier order sheet' },
+                { key: 'underMonth', label: "Under a Month's Cover", value: this.productList.filter(i => this.underMonthCover(i)).length, tone: 'warn', note: 'stock below 30-day sales' }
+            ]
+        },
+        activeTileLabel() {
+            const t = this.tiles.find(x => x.key === (this.queryParams.quick || ''))
+            return t ? t.label : 'All Items'
         }
     },
     created() {
@@ -378,6 +461,20 @@ export default {
                 this.treeData = buildTree(groups)
 
                 this.currentCollection = this.$route.query.collection ? this.$route.query.collection : findFirstCollectionId(groups)
+
+                // The auto-selected collection (first load / deep link) never
+                // goes through handleNodeClick, so resolve its label here too —
+                // the page title reads it.
+                const findLabel = (nodes, id) => {
+                    for (const node of nodes || []) {
+                        if (!node.children && node.value === id) return node.label
+                        const hit = findLabel(node.children, id)
+                        if (hit) return hit
+                    }
+                    return ''
+                }
+                this.currentTab = findLabel(this.treeData, this.currentCollection) || this.currentTab
+
                 this.$router.replace({
                     query: {
                         collection: this.currentCollection
@@ -397,6 +494,9 @@ export default {
                     pageSize: 20,
                     sku: undefined,
                     productName: undefined,
+                    search: '',
+                    category: '',
+                    quick: '',
                 },
                     this.$router.replace({
                         query: {
@@ -423,12 +523,10 @@ export default {
         handleGetSalesTotal() {
             const that = this
             that.salesLoading = true
-            let itemIds = []
-            if (that.productList.length > 300) {
-                itemIds = that.showProductList.map(product => product.id)
-            } else {
-                itemIds = that.productList.map(product => product.id)
-            }
+            // Whole list, always: the server reads sales in whole-window
+            // Analytics calls, so a big id set costs the same as a page —
+            // and the count tiles need every row's sales.
+            const itemIds = that.productList.map(product => product.id)
 
             getSalesTotal({ itemIds: itemIds, duration: that.duration }).then(resp => {
 
@@ -481,8 +579,9 @@ export default {
             if (this.isAccessories) return
             const that = this
             that.purchaseLoading = true
-            const itemIds = (that.productList.length > 300 ? that.showProductList : that.productList)
-                .map(product => product.id).filter(Boolean)
+            // Whole list, always — a Mongo $in on the order sheet, and the
+            // On Order tiles need every row's purchase state.
+            const itemIds = that.productList.map(product => product.id).filter(Boolean)
             getPoByZohoIds(itemIds).then(resp => {
                 const map = (resp && resp.data) || {}
                 const merge = list => list.map(item => ({ ...item, purchase: map[item.id] || null }))
@@ -566,12 +665,6 @@ export default {
                 (page - 1) * pageSize,
                 page * pageSize
             )
-            this.$nextTick(() => {
-                if (that.productList.length > 300) {
-                    that.handleGetSalesTotal()
-                    that.handleGetPurchase()
-                }
-            })
         },
         handleSorting({ prop, order }) {
             if (!order) {
@@ -584,9 +677,9 @@ export default {
                 let aValue
                 let bValue
 
-                if (prop === 'stock') {
-                    aValue = Number(a.stock || 0)
-                    bValue = Number(b.stock || 0)
+                if (prop === 'stock' || prop === 'reorderLevel' || prop === 'accountingStock') {
+                    aValue = Number(a[prop] || 0)
+                    bValue = Number(b[prop] || 0)
                 } else {
                     aValue = String(a[prop] || '').toLowerCase()
                     bValue = String(b[prop] || '').toLowerCase()
@@ -602,11 +695,14 @@ export default {
 
             this.handlePagination()
         },
-        handleExport() {
-            const exportList = this.multipleSelection.length > 0
-                ? this.multipleSelection
-                : this.productList
-
+        // Export dropdown: the filtered view, the whole collection, or (parts
+        // only, when rows are ticked) the selection.
+        handleExportCommand(command) {
+            this.doExport(command === 'selection' ? this.multipleSelection
+                : command === 'view' ? this.productList.filter(item => this.matchesFilters(item))
+                    : this.productList)
+        },
+        doExport(exportList) {
             if (!exportList.length) {
                 this.$message.warning('No data to export')
                 return
@@ -616,7 +712,15 @@ export default {
                 SKU: item.sku || '',
                 'Product Name': item.productName || '',
                 Location: item.location || '',
-                'Current Stock': item.stock || 0,
+                // Accessories carry category + the accounting/physical split.
+                ...(this.isAccessories
+                    ? {
+                        Category: item.category || '',
+                        'Accounting Stock': item.accountingStock || 0,
+                        'Physical Stock': item.stock || 0,
+                        'Reorder Point': item.reorderLevel || 0,
+                    }
+                    : { 'Current Stock': item.stock || 0 }),
                 [`Total Sales (${this.duration} Days)`]: Number(item.zohoSales || 0) + Number(item.offlineSales || 0),
                 'Zoho': item.zohoSales || 0,
                 'Other': item.offlineSales || 0,
@@ -680,20 +784,52 @@ export default {
             const fileName = `${this.currentTab || 'stock-monitoring'}_${today}.xlsx`
             XLSX.writeFile(workbook, fileName)
         },
+        // ── tile helpers ──────────────────────────────────────────────
+        // Not-yet-received quantity on the supplier order sheet (attached to
+        // rows by handleGetPurchase; parts only).
+        onOrderQty(item) {
+            return (item.purchase && Number(item.purchase.orderQty)) || 0
+        },
+        // Stock below one month of sales, normalised from the selected
+        // sales window. Items with no sales in the window don't count.
+        underMonthCover(item) {
+            const days = Number(this.duration) || 30
+            const pace = ((Number(item.zohoSales) || 0) + (Number(item.offlineSales) || 0)) * (30 / days)
+            return pace > 0 && Number(item.stock) < pace
+        },
+        // The one filter predicate — shared by the table (handleQuery) and
+        // "Export current view", so they can never disagree.
+        matchesFilters(item) {
+            const { sku, productName, search, category, quick } = this.queryParams
+
+            const matchSku = !sku || String(item.sku || '')
+                .toLowerCase()
+                .includes(String(sku).toLowerCase())
+
+            const matchProductName = !productName || String(item.productName || '')
+                .toLowerCase()
+                .includes(String(productName).toLowerCase())
+
+            // Accessories' single search box — SKU or name.
+            const q = String(search || '').toLowerCase()
+            const matchSearch = !q ||
+                String(item.sku || '').toLowerCase().includes(q) ||
+                String(item.productName || '').toLowerCase().includes(q)
+
+            const matchCategory = !category || item.category === category
+
+            const matchQuick = !quick ||
+                (quick === 'zero' ? Number(item.stock) <= 0
+                    : quick === 'belowReorder' ? Number(item.reorderLevel) > 0 && Number(item.stock) <= Number(item.reorderLevel)
+                        : quick === 'noOnOrder' ? Number(item.stock) <= 0 && !this.onOrderQty(item)
+                            : quick === 'onOrder' ? this.onOrderQty(item) > 0
+                                : quick === 'underMonth' ? this.underMonthCover(item)
+                                    : true)
+
+            return matchSku && matchProductName && matchSearch && matchCategory && matchQuick
+        },
         handleQuery() {
-            const { sku, productName } = this.queryParams
-
-            const filteredList = this.productList.filter(item => {
-                const matchSku = !sku || String(item.sku || '')
-                    .toLowerCase()
-                    .includes(String(sku).toLowerCase())
-
-                const matchProductName = !productName || String(item.productName || '')
-                    .toLowerCase()
-                    .includes(String(productName).toLowerCase())
-
-                return matchSku && matchProductName
-            })
+            const filteredList = this.productList.filter(item => this.matchesFilters(item))
 
             this.queryParams.pageNum = 1
             this.total = filteredList.length
@@ -703,12 +839,59 @@ export default {
                 this.queryParams.pageSize
             )
         },
+        // ── Inline reorder-point edit (writes back to Zoho) ───────────
+        // Enter in the input: blur first so el-input-number commits the
+        // typed value into rpEdit.value, then save on the next tick.
+        rpEnter(e, row) {
+            if (e && e.target && e.target.blur) e.target.blur()
+            this.$nextTick(() => this.saveRpEdit(row))
+        },
+        startRpEdit(row) {
+            if (this.rpEdit.saving) return
+            this.rpEdit = { id: row.id, value: Number(row.reorderLevel) || 0, saving: false }
+        },
+        cancelRpEdit() {
+            if (this.rpEdit.saving) return
+            // Discard the typed value entirely and close the input — the
+            // row keeps showing its saved reorder point.
+            this.rpEdit = { id: null, value: 0, saving: false }
+        },
+        async saveRpEdit(row) {
+            if (this.rpEdit.saving) return
+            const value = Math.max(0, Math.floor(Number(this.rpEdit.value) || 0))
+            if (value === (Number(row.reorderLevel) || 0)) { this.cancelRpEdit(); return }
+            this.rpEdit.saving = true
+            try {
+                const r = await updateItemReorderLevel(row.id, value)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                // The visible row and the master list hold separate objects
+                // after the sales merge — update both by id.
+                this.$set(row, 'reorderLevel', r.reorderLevel)
+                const master = this.productList.find(p => p.id === row.id)
+                if (master) this.$set(master, 'reorderLevel', r.reorderLevel)
+                this.$message.success(`Reorder point saved to Zoho (${r.reorderLevel})`)
+                // Reset directly — cancelRpEdit refuses to run mid-save (its
+                // guard protects against a stray cross-click while saving).
+                this.rpEdit = { id: null, value: 0, saving: false }
+            } catch (e) {
+                this.$message.error((e && e.message) || 'Failed to update the reorder point')
+                this.rpEdit.saving = false
+            }
+        },
+        pickTile(key) {
+            // Clicking the active tile clears it, same as picking All.
+            this.queryParams.quick = this.queryParams.quick === key ? '' : key
+            this.handleQuery()
+        },
         resetQuery() {
             this.queryParams = {
                 pageNum: 1,
                 pageSize: 20,
                 sku: undefined,
                 productName: undefined,
+                search: '',
+                category: '',
+                quick: '',
             }
 
             this.total = this.productList.length
@@ -725,6 +908,230 @@ export default {
 <style scoped>
 .app-container {
     height: 100%;
+}
+
+/* ── Accessories: Stock-Dashboard-style chrome (classes mirror
+      stockDashboard.vue so the two pages read as one family) ── */
+.sd-spacer {
+    flex: 1;
+}
+
+.sd-dim {
+    color: #909399;
+    font-size: 12px;
+}
+
+.sd-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.sd-title h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #303133;
+    line-height: 1.2;
+}
+
+.sd-asof {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #909399;
+}
+
+.sd-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.sd-search {
+    width: 260px;
+}
+
+.sd-sel-wide {
+    width: 260px;
+}
+
+.sd-tiles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+/* Spare Parts carries five tiles */
+.sd-tiles-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.sd-tile {
+    background: #fff;
+    border: 1px solid #e6ebf5;
+    border-radius: 4px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.sd-tile:hover {
+    border-color: #b3d8ff;
+}
+
+.sd-tile.on {
+    box-shadow: 0 0 0 1px #1890ff inset;
+    border-color: #1890ff;
+}
+
+.sd-tile-label {
+    font-size: 12px;
+    color: #909399;
+}
+
+.sd-tile-value {
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: #303133;
+}
+
+.sd-tile-note {
+    font-size: 11px;
+    color: #c0c4cc;
+}
+
+.sd-tile.tone-bad {
+    background: #fef0f0;
+    border-color: #fbc4c4;
+}
+
+.sd-tile.tone-bad .sd-tile-label {
+    color: #ff4949;
+    font-weight: 600;
+}
+
+.sd-tile.tone-bad .sd-tile-value {
+    color: #ff4949;
+}
+
+.sd-tile.tone-bad .sd-tile-note {
+    color: #f89898;
+}
+
+.sd-tile.tone-bad.on {
+    border-color: #ff4949;
+    box-shadow: 0 0 0 1px #ff4949 inset;
+}
+
+.sd-tile.tone-warn .sd-tile-value {
+    color: #e6a23c;
+}
+
+.sd-card {
+    background: #fff;
+    border: 1px solid #e6ebf5;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.sd-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.sd-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #303133;
+}
+
+/* Stacked stock cell (accessories): Physical over Accounting */
+.stock-line {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #303133;
+}
+
+.stock-line b {
+    font-size: 13px;
+}
+
+.stock-label {
+    color: #909399;
+    margin-right: 4px;
+}
+
+/* Accounting disagrees with physical — worth a look */
+.stock-diff {
+    color: #E6A23C;
+    font-weight: 600;
+}
+
+/* Reorder Point column: red when stock is at or below the point */
+.rp-below {
+    color: #F56C6C;
+    font-weight: 600;
+}
+
+.rp-none {
+    color: #C0C4CC;
+}
+
+/* Click-to-edit reorder point. The pencil is absolutely positioned so
+   it takes no layout space — the number stays truly centred whether the
+   icon is visible or not. */
+.rp-view {
+    cursor: pointer;
+    position: relative;
+    text-align: center;
+}
+
+.rp-view .rp-pencil {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #c0c4cc;
+    opacity: 0;
+    transition: opacity .15s;
+}
+
+.rp-view:hover .rp-pencil {
+    opacity: 1;
+    color: #409EFF;
+}
+
+.rp-edit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+.rp-input {
+    width: 70px;
+}
+
+.rp-save {
+    color: #67C23A;
+    padding: 2px;
+}
+
+.rp-cancel {
+    color: #909399;
+    padding: 2px;
 }
 
 .content-inner {
@@ -771,6 +1178,10 @@ export default {
 }
 
 .product-meta .p-loc i {
+    margin-right: 2px;
+}
+
+.product-meta .p-cat i {
     margin-right: 2px;
 }
 
