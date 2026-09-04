@@ -167,10 +167,21 @@
                      statement it can view. Auto-set when created via the
                      Customer page's "Enable User Portal"; editable here too. -->
                 <el-form-item v-if="selectedRoleIsInflowCustomer" label="Customer" prop="inflowCustomerName">
-                    <el-select v-model="form.inflowCustomerName" filterable clearable placeholder="Link to an InFlow customer" style="width: 100%">
+                    <el-select v-model="form.inflowCustomerName" filterable clearable placeholder="Link to an InFlow customer" style="width: 100%" @change="onInflowCustomerChange">
                         <el-option v-for="c in inflowCustomers" :key="c" :label="c" :value="c" />
                     </el-select>
                     <div class="form-hint">This login sees only this customer's statement.</div>
+                </el-form-item>
+                <!-- The customer-level Devices link (same one the Customer
+                     page's portal dialog manages): the portal also shows the
+                     linked Refurbished customer's device orders. -->
+                <el-form-item v-if="selectedRoleIsInflowCustomer && form.inflowCustomerName" label="Devices">
+                    <el-select v-model="form.refurbCustomerId" filterable clearable
+                        placeholder="Not linked — pick a Refurbished customer"
+                        style="width: 100%" :loading="refurbLinkLoading">
+                        <el-option v-for="c in refurbCustomers" :key="c._id" :label="c.name" :value="c._id" />
+                    </el-select>
+                    <div class="form-hint">Optional — applies to every portal login of {{ form.inflowCustomerName }}, not just this one.</div>
                 </el-form-item>
                 <!-- Where this supplier's stock comes from. Refurbished
                      devices they add are stamped with it; iMobile staff get
@@ -210,7 +221,8 @@
 <script>
 import { listUsers, createUser, updateUser, deleteUser, resetUserPassword, listRoles } from '@/api/system/users'
 import { listShops } from '@/api/sqt/shops'
-import { getInflowFilters } from '@/api/inflow'
+import { getInflowFilters, getInflowPortal, setInflowPortalRefurbLink } from '@/api/inflow'
+import { getRefurbCustomers } from '@/api/refurbished'
 
 // Pseudo node-keys for the role tree. Real role rows use `role:<value>`.
 const ALL_KEY = 'all'
@@ -224,6 +236,7 @@ function emptyForm() {
         role: '',
         shopIds: [],
         inflowCustomerName: '',
+        refurbCustomerId: null,
         stockSource: '',
         active: true
     }
@@ -245,6 +258,11 @@ export default {
             roleGroups: [],
             shops: [],
             inflowCustomers: [],
+            // Refurbished customers for the Devices link + the link's saved
+            // state (compared on save so an unchanged link isn't re-written).
+            refurbCustomers: [],
+            refurbLinkLoading: false,
+            refurbLinkOriginal: null,
             // Same list the Incoming Stocks upload offers — a stock source
             // means the same thing in both places.
             stockSources: ['HK', 'iMobile', 'DICO', 'Exyon'],
@@ -432,6 +450,7 @@ export default {
         // ── User row actions ──────────────────────────────────────────
         handleAdd() {
             this.form = emptyForm()
+            this.refurbLinkOriginal = null
             this.dialogTitle = 'Add User'
             this.open = true
         },
@@ -444,11 +463,43 @@ export default {
                 role: row.role || '',
                 shopIds: (row.shopIds || []).map(String),
                 inflowCustomerName: row.inflowCustomerName || '',
+                refurbCustomerId: null,
                 stockSource: row.stockSource || '',
                 active: row.active !== false
             }
+            this.refurbLinkOriginal = null
+            if (row.role === 'inflow-customer' && row.inflowCustomerName) {
+                this.loadRefurbLink(row.inflowCustomerName)
+            }
+            this.loadRefurbCustomers()
             this.dialogTitle = 'Edit User'
             this.open = true
+        },
+        onInflowCustomerChange(name) {
+            this.form.refurbCustomerId = null
+            this.refurbLinkOriginal = null
+            if (name) this.loadRefurbLink(name)
+            this.loadRefurbCustomers()
+        },
+        // The Devices link lives on the inflow CUSTOMER (shared by all its
+        // logins) — read the current value so the select reflects it.
+        async loadRefurbLink(name) {
+            this.refurbLinkLoading = true
+            try {
+                const r = await getInflowPortal(name)
+                if (r && r.success) {
+                    this.form.refurbCustomerId = r.refurbCustomerId || null
+                    this.refurbLinkOriginal = r.refurbCustomerId || null
+                }
+            } catch (e) { /* non-fatal — select just starts empty */ }
+            finally { this.refurbLinkLoading = false }
+        },
+        async loadRefurbCustomers() {
+            if (this.refurbCustomers.length) return
+            try {
+                const r = await getRefurbCustomers()
+                if (r && r.success !== false) this.refurbCustomers = r.customers || []
+            } catch (e) { /* non-fatal */ }
         },
         async handleDelete(row) {
             try {
@@ -511,6 +562,20 @@ export default {
                         payload.password = this.form.password
                         await createUser(payload)
                         this.$message.success('User created')
+                    }
+                    // Save the customer-level Devices link when it changed.
+                    if (this.selectedRoleIsInflowCustomer && this.form.inflowCustomerName &&
+                        (this.form.refurbCustomerId || null) !== (this.refurbLinkOriginal || null)) {
+                        try {
+                            const r = await setInflowPortalRefurbLink(this.form.inflowCustomerName,
+                                { refurbCustomerId: this.form.refurbCustomerId || null })
+                            if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                            this.$message.success(r.refurbCustomerName
+                                ? `Devices access linked to ${r.refurbCustomerName}`
+                                : 'Devices access unlinked')
+                        } catch (e2) {
+                            this.$message.error('User saved, but the Devices link failed: ' + ((e2 && e2.message) || 'error'))
+                        }
                     }
                     this.open = false
                     this.getList()

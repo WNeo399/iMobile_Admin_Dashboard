@@ -528,6 +528,22 @@ export const moduleRoutes = [
     ]
   },
   {
+    // InFlow customer portal — My Devices: refurbished devices sold to the
+    // customer, via the inflow-customer → refurb-customer link. The page
+    // shows a friendly empty state when the account isn't linked.
+    path: "/portal/devices",
+    component: Layout,
+    meta: { exclusiveRoles: ["inflow-customer"] },
+    children: [
+      {
+        path: "index",
+        component: (resolve) => require(["@/views/inflow/myDevices"], resolve),
+        name: "InflowMyDevices",
+        meta: { title: "My Devices", icon: "el-icon-mobile-phone" }
+      }
+    ]
+  },
+  {
     // InFlow customer portal — Statement (the same statement.vue an admin opens
     // via ?customer=; here with no query, so it loads the caller's OWN account).
     path: "/portal/statement",

@@ -110,6 +110,22 @@ export function deleteInflowDispatchUpload(id) {
 }
 
 // Customer portal management (admin)
+// Link / unlink the Refurbished customer whose purchases this customer's
+// portal logins can see (pass { refurbCustomerId } or null to unlink).
+export function setInflowPortalRefurbLink(name, data) {
+  return request({ url: `/inflow/customers/${encodeURIComponent(name)}/portal`, method: 'put', data })
+}
+
+// Portal Devices tab — the linked Refurbished customer's orders.
+export function getInflowStatementDevices() {
+  return request({ url: '/inflow/statement/devices', method: 'get' })
+}
+
+// Live Blackbelt report for one of the caller's own purchased devices.
+export function getMyDeviceReport(deviceId) {
+  return request({ url: `/inflow/statement/devices/${deviceId}/report`, method: 'get' })
+}
+
 export function getInflowPortal(name) {
   return request({ url: `/inflow/customers/${encodeURIComponent(name)}/portal`, method: 'get' })
 }
