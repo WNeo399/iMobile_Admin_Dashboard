@@ -755,7 +755,7 @@ export const moduleRoutes = [
     component: Layout,
     redirect: "noRedirect",
     alwaysShow: true,
-    meta: { title: "POS", icon: "el-icon-shopping-cart-full" },
+    meta: { title: "Embed Ordering", icon: "el-icon-shopping-cart-full" },
     children: [
       {
         // Businesses embedding the widget — contact details, the sites
