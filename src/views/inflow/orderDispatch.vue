@@ -90,7 +90,7 @@
         </div>
 
         <!-- Dispatch dialog — line items, scan-to-batch, batch history -->
-        <el-dialog :visible.sync="dispatchVisible" width="920px" top="4vh" @close="resetDispatch">
+        <el-dialog :visible.sync="dispatchVisible" width="1080px" top="4vh" @close="resetDispatch">
             <div v-if="dispatchRecord" slot="title" class="od-dlg-title">
                 Dispatch — {{ dispatchRecord.invoiceNumber }}
                 <el-tag size="mini" :type="dispatchTag(dispatchRecord.dispatchStatus)">{{ dispatchLabel(dispatchRecord.dispatchStatus) }}</el-tag>
@@ -236,6 +236,16 @@
                             <span v-else class="od-dim">—</span>
                         </template>
                     </el-table-column>
+                    <el-table-column label="Label" width="64" align="center">
+                        <template slot-scope="li">
+                            <el-button size="mini" type="text" icon="el-icon-printer"
+                                :disabled="!String(li.row.sku || '').trim()"
+                                :title="String(li.row.sku || '').trim()
+                                    ? (isOscarName(dispatchRecord.customerName) ? 'Print item ×2 + supplier card' : 'Print label')
+                                    : 'No barcode on this line'"
+                                @click="printDispatchLineLabel(li.row)" />
+                        </template>
+                    </el-table-column>
                 </el-table>
                     </el-tab-pane>
 
@@ -309,6 +319,20 @@
             </div>
             <span slot="footer">
                 <el-button size="small" @click="dispatchVisible = false">Close</el-button>
+                <!-- Item labels straight from the order — no batch needed (the
+                     label's date is today). Counts follow the REMAINING
+                     quantities so a partial dispatch never double-prints.
+                     Shown on the Dispatch tab only. -->
+                <template v-if="dispatchTab === 'dispatch' && dispatchRecord">
+                    <template v-if="isOscarName(dispatchRecord.customerName)">
+                        <el-button type="primary" plain size="small" icon="el-icon-printer" :disabled="!dispatchLabelUnits"
+                            @click="printAllDispatchOscarBarcodes">Barcode Labels ({{ dispatchLabelUnits * 2 }})</el-button>
+                        <el-button type="primary" plain size="small" icon="el-icon-printer" :disabled="!dispatchLabelUnits"
+                            @click="printAllDispatchOscarCards">Supplier Cards ({{ dispatchLabelUnits }})</el-button>
+                    </template>
+                    <el-button v-else type="primary" plain size="small" icon="el-icon-printer" :disabled="!dispatchLabelUnits"
+                        @click="printAllDispatchLabels">Print Labels ({{ dispatchLabelUnits }})</el-button>
+                </template>
             </span>
         </el-dialog>
 
@@ -624,6 +648,14 @@ export default {
         // barcode-less lines excluded. (Oscar: ×2 for barcodes, ×1 for cards.)
         batchDetailLabelCount() {
             return batchLabelCount(this.batchDetailBatch)
+        },
+        // Units the Dispatch tab's pre-batch label print covers: remaining
+        // quantity across lines that have a barcode.
+        dispatchLabelUnits() {
+            const rec = this.dispatchRecord
+            if (!rec) return 0
+            return (rec.lineItems || []).reduce((s, li) =>
+                s + (String((li && li.sku) || '').trim() ? Math.max(0, this.remainingOf(li)) : 0), 0)
         },
         batchDetailIsOscar() {
             return isOscarCustomer(this.dispatchRecord && this.dispatchRecord.customerName)
@@ -1116,6 +1148,72 @@ export default {
         },
         isOscarName(name) {
             return isOscarCustomer(name)
+        },
+        // ── Labels straight from the Dispatch tab (no batch yet) ──────
+        // The label builders take a batch for its date and lines; before a
+        // batch exists we hand them the order's remaining lines dated today.
+        dispatchPseudoBatch() {
+            const rec = this.dispatchRecord || {}
+            return {
+                batchNo: '',
+                at: new Date(),
+                lines: (rec.lineItems || [])
+                    .map(li => ({ sku: li.sku, description: li.description, qty: Math.max(0, this.remainingOf(li)) }))
+                    .filter(l => String(l.sku || '').trim() && l.qty > 0)
+            }
+        },
+        dispatchLabelsFileName(suffix = '') {
+            const clean = s => String(s || '').replace(/[^a-z0-9-]/gi, '').slice(0, 30)
+            return `labels_${clean((this.dispatchRecord || {}).invoiceNumber)}_items${suffix}.pdf`
+        },
+        printDispatchLineLabel(line) {
+            if (!String(line.sku || '').trim()) return
+            const rec = this.dispatchRecord || {}
+            if (this.isOscarName(rec.customerName)) {
+                if (this.oscarPrefixMissing()) return
+                this.showPdf(
+                    () => buildOscarItemLabelsPdf({ record: rec, line }),
+                    itemLabelFileName(rec, line),
+                    `Labels — ${line.sku} · item ×2 + supplier card`
+                )
+                return
+            }
+            this.showPdf(
+                () => buildItemLabelPdf({ record: rec, batch: { at: new Date() }, line }),
+                itemLabelFileName(rec, line),
+                `Label — ${line.sku}`
+            )
+        },
+        printAllDispatchLabels() {
+            const batch = this.dispatchPseudoBatch()
+            if (!batch.lines.length) return
+            const rec = this.dispatchRecord || {}
+            this.showPdf(
+                () => buildBatchLabelsPdf({ record: rec, batch }),
+                this.dispatchLabelsFileName(),
+                `Labels — ${rec.invoiceNumber} (${this.dispatchLabelUnits} labels)`
+            )
+        },
+        printAllDispatchOscarBarcodes() {
+            const batch = this.dispatchPseudoBatch()
+            if (!batch.lines.length) return
+            const rec = this.dispatchRecord || {}
+            this.showPdf(
+                () => buildOscarBarcodeLabelsPdf({ batch }),
+                this.dispatchLabelsFileName('_barcodes'),
+                `Barcode Labels — ${rec.invoiceNumber} (${this.dispatchLabelUnits * 2} labels)`
+            )
+        },
+        printAllDispatchOscarCards() {
+            const batch = this.dispatchPseudoBatch()
+            if (!batch.lines.length) return
+            if (this.oscarPrefixMissing()) return
+            const rec = this.dispatchRecord || {}
+            this.showPdf(
+                () => buildOscarCardLabelsPdf({ record: rec, batch }),
+                this.dispatchLabelsFileName('_cards'),
+                `Supplier Cards — ${rec.invoiceNumber} (${this.dispatchLabelUnits} cards)`
+            )
         },
         // Oscar records can't print labels without the return-code prefix.
         // Returns true when printing must stop.
