@@ -31,6 +31,16 @@
         </el-tooltip>
 
       </template> -->
+      <!-- Language switch — English / 中文, persisted for a year. Menu,
+           tabs, breadcrumbs and Element component chrome follow instantly;
+           page content is being translated module by module. -->
+      <el-dropdown class="right-menu-item hover-effect lang-select" trigger="click" @command="setLang">
+        <span class="lang-current"><svg-icon icon-class="language" /> {{ $i18n.locale === 'zh' ? '中文' : 'EN' }}</span>
+        <el-dropdown-menu slot="dropdown">
+          <el-dropdown-item command="en" :disabled="$i18n.locale === 'en'">English</el-dropdown-item>
+          <el-dropdown-item command="zh" :disabled="$i18n.locale === 'zh'">中文</el-dropdown-item>
+        </el-dropdown-menu>
+      </el-dropdown>
       <el-tooltip content="Notifications" effect="dark" placement="bottom">
         <header-notice id="header-notice" class="right-menu-item hover-effect" />
       </el-tooltip>
@@ -80,6 +90,7 @@
 <script>
 import { mapGetters } from 'vuex'
 import { changePassword } from '@/api/login'
+import { setLanguage } from '@/lang'
 import Breadcrumb from '@/components/Breadcrumb'
 import TopNav from './TopNav'
 import TopBar from './TopBar'
@@ -161,6 +172,9 @@ export default {
     }
   },
   methods: {
+    setLang(lang) {
+      setLanguage(lang)
+    },
     toggleSideBar() {
       this.$store.dispatch('app/toggleSideBar')
     },
@@ -213,6 +227,12 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.lang-select { cursor: pointer; }
+.lang-current {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 13px; color: #5a5e66;
+}
+
 .navbar.nav3 {
   .hamburger-container {
     display: none !important;

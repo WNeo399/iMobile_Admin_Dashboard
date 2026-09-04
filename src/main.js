@@ -4,6 +4,7 @@ import Cookies from 'js-cookie'
 
 import Element from 'element-ui'
 import './assets/styles/element-variables.scss'
+import i18n, { translateTitle, getLanguage } from './lang'
 
 import '@/assets/styles/index.scss' // global css
 import '@/assets/styles/ruoyi.scss' // ruoyi css
@@ -60,8 +61,16 @@ Vue.use(plugins)
  */
 
 Vue.use(Element, {
-  size: Cookies.get('size') || 'medium' // set element-ui default size
+  size: Cookies.get('size') || 'medium', // set element-ui default size
+  // Element chrome (pagination, pickers, message boxes…) follows the app
+  // language via the i18n bridge.
+  i18n: (key, value) => i18n.t(key, value)
 })
+
+// Menu / tab / breadcrumb title translation with English fallback —
+// see src/lang/index.js. Usable anywhere as $tt('Stock').
+Vue.prototype.$tt = translateTitle
+document.documentElement.setAttribute('lang', getLanguage() === 'zh' ? 'zh-CN' : 'en')
 
 // Project-wide: el-dialog does NOT close when the overlay/modal is clicked, so a
 // dialog can't be dismissed by an accidental outside click (losing entered data).
@@ -77,5 +86,6 @@ new Vue({
   el: '#app',
   router,
   store,
+  i18n,
   render: h => h(App)
 })
