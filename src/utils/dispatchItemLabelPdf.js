@@ -277,18 +277,40 @@ function drawOscarCardLabel(doc, returnCode, pngCache) {
     doc.text(returnCode, 15.5, 48.3)
 }
 
-// One line → its label pair (item label page + supplier card page).
+// One line → its label set: TWO copies of the item barcode label (one
+// for the box, one for the device) plus one supplier card.
 export function buildOscarItemLabelsPdf({ record, line }) {
     const doc = newOscarDoc()
-    drawOscarItemLabel(doc, line)
+    const pngCache = {}
+    drawOscarItemLabel(doc, line, pngCache)
     doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
-    drawOscarCardLabel(doc, oscarReturnCode(record, line))
+    drawOscarItemLabel(doc, line, pngCache)
+    doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
+    drawOscarCardLabel(doc, oscarReturnCode(record, line), pngCache)
     return doc
 }
 
-// Whole batch: a pair per UNIT, pairs kept together so the bench can
-// apply both to each part in turn. Barcode-less lines are skipped.
-export function buildOscarBatchLabelsPdf({ record, batch }) {
+// Whole batch, barcode labels only: TWO per unit (box + device), the
+// same set the per-line print gives. Printed as its own run so the
+// bench can feed one label stock without card pages interleaved.
+export function buildOscarBarcodeLabelsPdf({ batch }) {
+    const doc = newOscarDoc()
+    const pngCache = {}
+    let pages = 0
+    for (const line of (batch && batch.lines) || []) {
+        if (!String((line && line.sku) || '').trim()) continue
+        const copies = (Math.floor(Number(line && line.qty)) || 0) * 2
+        for (let i = 0; i < copies; i++) {
+            if (pages > 0) doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
+            drawOscarItemLabel(doc, line, pngCache)
+            pages++
+        }
+    }
+    return pages ? doc : null
+}
+
+// Whole batch, supplier cards only: one per unit.
+export function buildOscarCardLabelsPdf({ record, batch }) {
     const doc = newOscarDoc()
     const pngCache = {}
     let pages = 0
@@ -298,10 +320,8 @@ export function buildOscarBatchLabelsPdf({ record, batch }) {
         const code = oscarReturnCode(record, line)
         for (let i = 0; i < copies; i++) {
             if (pages > 0) doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
-            drawOscarItemLabel(doc, line, pngCache)
-            doc.addPage([OSCAR_W, OSCAR_H], 'landscape')
             drawOscarCardLabel(doc, code, pngCache)
-            pages += 2
+            pages++
         }
     }
     return pages ? doc : null

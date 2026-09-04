@@ -351,7 +351,17 @@
             </template>
             <span slot="footer">
                 <el-button size="small" @click="batchDetailVisible = false">Close</el-button>
-                <el-button type="primary" size="small" icon="el-icon-printer"
+                <!-- Oscar prints in two runs (different fill-in stock at the
+                     bench): all barcode labels, then all supplier cards. -->
+                <template v-if="batchDetailIsOscar">
+                    <el-button type="primary" size="small" icon="el-icon-printer"
+                        :disabled="!batchDetailLabelCount"
+                        @click="printAllOscarBarcodes">Barcode Labels ({{ batchDetailLabelCount * 2 }})</el-button>
+                    <el-button type="primary" size="small" icon="el-icon-printer" plain
+                        :disabled="!batchDetailLabelCount"
+                        @click="printAllOscarCards">Supplier Cards ({{ batchDetailLabelCount }})</el-button>
+                </template>
+                <el-button v-else type="primary" size="small" icon="el-icon-printer"
                     :disabled="!batchDetailLabelCount"
                     @click="printAllLabels">Print All Labels ({{ batchDetailLabelCount }})</el-button>
             </span>
@@ -528,7 +538,7 @@
 import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
-import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBatchLabelsPdf } from '@/utils/dispatchItemLabelPdf'
+import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBarcodeLabelsPdf, buildOscarCardLabelsPdf } from '@/utils/dispatchItemLabelPdf'
 
 export default {
     name: 'InflowOrderDispatch',
@@ -611,9 +621,12 @@ export default {
             return this.uploadRows.filter(r => !r.sku).length
         },
         // Labels "Print All" would produce for the open batch: one per unit,
-        // barcode-less lines excluded.
+        // barcode-less lines excluded. (Oscar: ×2 for barcodes, ×1 for cards.)
         batchDetailLabelCount() {
             return batchLabelCount(this.batchDetailBatch)
+        },
+        batchDetailIsOscar() {
+            return isOscarCustomer(this.dispatchRecord && this.dispatchRecord.customerName)
         },
         batchUnits() {
             return Object.values(this.batchQty).reduce((s, q) => s + (Number(q) || 0), 0)
@@ -1044,21 +1057,35 @@ export default {
                 this.$message.warning(`${skipped} line${skipped === 1 ? ' has' : 's have'} no barcode and won't print.`)
             }
             const rec = this.dispatchRecord || {}
-            // Oscar Mobile: a PAIR per unit (item label + supplier card),
-            // pairs kept together so the bench applies both to each part.
-            if (this.isOscarName(rec.customerName)) {
-                if (this.oscarPrefixMissing()) return
-                this.showPdf(
-                    () => buildOscarBatchLabelsPdf({ record: rec, batch }),
-                    batchLabelsFileName(rec, batch),
-                    `Labels — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount} pairs)`
-                )
-                return
-            }
             this.showPdf(
                 () => buildBatchLabelsPdf({ record: rec, batch }),
                 batchLabelsFileName(rec, batch),
                 `Labels — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount} labels)`
+            )
+        },
+        // ── Oscar batch printing: two separate runs ───────────────────
+        // Barcode labels (2 per unit — no prefix needed, the label carries
+        // only the item barcode)…
+        printAllOscarBarcodes() {
+            const batch = this.batchDetailBatch
+            if (!batch || !this.batchDetailLabelCount) return
+            const rec = this.dispatchRecord || {}
+            this.showPdf(
+                () => buildOscarBarcodeLabelsPdf({ batch }),
+                batchLabelsFileName(rec, batch).replace(/\.pdf$/, '_barcodes.pdf'),
+                `Barcode Labels — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount * 2} labels)`
+            )
+        },
+        // …and supplier cards (1 per unit — the return code needs the prefix).
+        printAllOscarCards() {
+            const batch = this.batchDetailBatch
+            if (!batch || !this.batchDetailLabelCount) return
+            if (this.oscarPrefixMissing()) return
+            const rec = this.dispatchRecord || {}
+            this.showPdf(
+                () => buildOscarCardLabelsPdf({ record: rec, batch }),
+                batchLabelsFileName(rec, batch).replace(/\.pdf$/, '_cards.pdf'),
+                `Supplier Cards — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount} cards)`
             )
         },
         // Per-item 50×40mm label: description on top, Code 128 of the item
@@ -1077,7 +1104,7 @@ export default {
                 this.showPdf(
                     () => buildOscarItemLabelsPdf({ record: rec, line }),
                     itemLabelFileName(rec, line),
-                    `Labels — ${line.sku} · item + supplier card`
+                    `Labels — ${line.sku} · item ×2 + supplier card`
                 )
                 return
             }
