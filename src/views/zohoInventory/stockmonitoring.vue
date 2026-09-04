@@ -327,31 +327,37 @@ export default {
             return [...new Set(this.productList.map(p => p.category).filter(Boolean))]
                 .sort((a, b) => a.localeCompare(b))
         },
+        // The rows the search / category filters allow — what the tiles
+        // count over, so their numbers follow the filters live.
+        baseFilteredList() {
+            return this.productList.filter(i => this.matchesBaseFilters(i))
+        },
         zeroStockCount() {
-            return this.productList.filter(i => Number(i.stock) <= 0).length
+            return this.baseFilteredList.filter(i => Number(i.stock) <= 0).length
         },
         belowReorderCount() {
-            return this.productList.filter(i =>
+            return this.baseFilteredList.filter(i =>
                 Number(i.reorderLevel) > 0 && Number(i.stock) <= Number(i.reorderLevel)).length
         },
         // Dashboard-style count tiles; each doubles as the quick filter.
         tiles() {
+            const base = this.baseFilteredList
             if (this.isAccessories) {
                 return [
-                    { key: '', label: 'All Items', value: this.productList.length, tone: 'ok', note: 'in this collection' },
+                    { key: '', label: 'All Items', value: base.length, tone: 'ok', note: 'matching the filters' },
                     { key: 'zero', label: 'Zero Stock', value: this.zeroStockCount, tone: 'bad', note: 'physical stock at 0' },
                     { key: 'belowReorder', label: 'Under Reorder', value: this.belowReorderCount, tone: 'warn', note: 'at or below reorder point' }
                 ]
             }
             // Spare Parts: purchasing-led buckets. "On order" reads the
             // Tencent order sheet via the Purchase column's data.
-            const oos = this.productList.filter(i => Number(i.stock) <= 0)
+            const oos = base.filter(i => Number(i.stock) <= 0)
             return [
-                { key: '', label: 'All Items', value: this.productList.length, tone: 'ok', note: 'in this collection' },
+                { key: '', label: 'All Items', value: base.length, tone: 'ok', note: 'matching the filters' },
                 { key: 'zero', label: 'Out of Stock', value: oos.length, tone: 'bad', note: 'stock at 0' },
                 { key: 'noOnOrder', label: 'No on Order', value: oos.filter(i => !this.onOrderQty(i)).length, tone: 'bad', note: 'out of stock, nothing ordered' },
-                { key: 'onOrder', label: 'On Order', value: this.productList.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'on the supplier order sheet' },
-                { key: 'underMonth', label: "Under a Month's Cover", value: this.productList.filter(i => this.underMonthCover(i)).length, tone: 'warn', note: 'stock below 30-day sales' }
+                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'on the supplier order sheet' },
+                { key: 'underMonth', label: "Under a Month's Cover", value: base.filter(i => this.underMonthCover(i)).length, tone: 'warn', note: 'stock below 30-day sales' }
             ]
         },
         activeTileLabel() {
@@ -797,10 +803,12 @@ export default {
             const pace = ((Number(item.zohoSales) || 0) + (Number(item.offlineSales) || 0)) * (30 / days)
             return pace > 0 && Number(item.stock) < pace
         },
-        // The one filter predicate — shared by the table (handleQuery) and
-        // "Export current view", so they can never disagree.
-        matchesFilters(item) {
-            const { sku, productName, search, category, quick } = this.queryParams
+        // Search / category / legacy sku+name filters — everything EXCEPT
+        // the tile quick-filter. The tiles count over this set, so their
+        // numbers follow the filters while each tile's own count ignores
+        // the tile selection (you can still read the other buckets).
+        matchesBaseFilters(item) {
+            const { sku, productName, search, category } = this.queryParams
 
             const matchSku = !sku || String(item.sku || '')
                 .toLowerCase()
@@ -810,13 +818,20 @@ export default {
                 .toLowerCase()
                 .includes(String(productName).toLowerCase())
 
-            // Accessories' single search box — SKU or name.
+            // The single search box — SKU or name.
             const q = String(search || '').toLowerCase()
             const matchSearch = !q ||
                 String(item.sku || '').toLowerCase().includes(q) ||
                 String(item.productName || '').toLowerCase().includes(q)
 
             const matchCategory = !category || item.category === category
+
+            return matchSku && matchProductName && matchSearch && matchCategory
+        },
+        // The full predicate — shared by the table (handleQuery) and
+        // "Export current view", so they can never disagree.
+        matchesFilters(item) {
+            const { quick } = this.queryParams
 
             const matchQuick = !quick ||
                 (quick === 'zero' ? Number(item.stock) <= 0
@@ -826,7 +841,7 @@ export default {
                                 : quick === 'underMonth' ? this.underMonthCover(item)
                                     : true)
 
-            return matchSku && matchProductName && matchSearch && matchCategory && matchQuick
+            return this.matchesBaseFilters(item) && matchQuick
         },
         handleQuery() {
             const filteredList = this.productList.filter(item => this.matchesFilters(item))
