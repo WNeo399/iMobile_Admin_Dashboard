@@ -98,6 +98,11 @@ export function linkInflowDispatchUpload(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/link`, method: 'post', data })
 }
 // Link/unlink a dispatch record to an existing customer ({ customerName } / { customerName: null })
+// Rename a dispatch record's title (its hand-typed invoiceNumber).
+export function renameInflowDispatchUpload(id, data) {
+  return request({ url: `/inflow/dispatch/manual/${id}/title`, method: 'post', data })
+}
+
 export function setInflowDispatchCustomer(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/customer`, method: 'post', data })
 }

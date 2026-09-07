@@ -92,9 +92,22 @@
         <!-- Dispatch dialog — line items, scan-to-batch, batch history -->
         <el-dialog :visible.sync="dispatchVisible" width="1080px" top="4vh" @close="resetDispatch">
             <div v-if="dispatchRecord" slot="title" class="od-dlg-title">
-                Dispatch — {{ dispatchRecord.invoiceNumber }}
-                <el-tag size="mini" :type="dispatchTag(dispatchRecord.dispatchStatus)">{{ dispatchLabel(dispatchRecord.dispatchStatus) }}</el-tag>
-                <span class="od-dlg-progress">{{ dispatchRecord.dispatchedQty }} / {{ dispatchRecord.orderedQty }} units dispatched</span>
+                <template v-if="!titleEdit.on">
+                    Dispatch — {{ dispatchRecord.invoiceNumber }}
+                    <el-button type="text" size="mini" icon="el-icon-edit" class="od-title-edit-btn"
+                        title="Rename this record" @click="startTitleEdit" />
+                    <el-tag size="mini" :type="dispatchTag(dispatchRecord.dispatchStatus)">{{ dispatchLabel(dispatchRecord.dispatchStatus) }}</el-tag>
+                    <span class="od-dlg-progress">{{ dispatchRecord.dispatchedQty }} / {{ dispatchRecord.orderedQty }} units dispatched</span>
+                </template>
+                <template v-else>
+                    Dispatch —
+                    <el-input v-model="titleEdit.value" size="mini" class="od-title-input"
+                        placeholder="Record title" @keyup.enter.native="saveTitleEdit" />
+                    <el-button type="text" size="mini" icon="el-icon-check" class="od-title-save"
+                        :loading="titleEdit.saving" @click="saveTitleEdit" />
+                    <el-button type="text" size="mini" icon="el-icon-close" class="od-title-cancel"
+                        :disabled="titleEdit.saving" @click="titleEdit.on = false" />
+                </template>
             </div>
             <div v-if="dispatchRecord" class="od-dlg-body">
                 <el-tabs v-model="dispatchTab" @tab-click="onDispatchTab">
@@ -559,7 +572,7 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
+import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
 import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBarcodeLabelsPdf, buildOscarCardLabelsPdf } from '@/utils/dispatchItemLabelPdf'
@@ -603,6 +616,8 @@ export default {
             // Batch detail dialog — the clicked batch row (read-only view).
             batchDetailVisible: false,
             batchDetailBatch: null,
+            // Inline rename of the record title in the dialog header.
+            titleEdit: { on: false, value: '', saving: false },
             batchEditVisible: false,
             batchEditNo: null,
             batchEditLines: [],
@@ -784,6 +799,7 @@ export default {
         },
         resetDispatch() {
             this.dispatchRecord = null
+            this.titleEdit = { on: false, value: '', saving: false }
             this.lineOrder = []
             this.batchQty = {}
             this.trackingDrafts = {}
@@ -1148,6 +1164,31 @@ export default {
         },
         isOscarName(name) {
             return isOscarCustomer(name)
+        },
+        // ── Rename the record title from the dialog header ────────────
+        startTitleEdit() {
+            this.titleEdit = { on: true, value: (this.dispatchRecord && this.dispatchRecord.invoiceNumber) || '', saving: false }
+        },
+        async saveTitleEdit() {
+            if (this.titleEdit.saving || !this.dispatchRecord) return
+            const title = this.titleEdit.value.trim()
+            if (!title) { this.$message.warning('The title can\'t be empty.'); return }
+            if (title === this.dispatchRecord.invoiceNumber) { this.titleEdit.on = false; return }
+            this.titleEdit.saving = true
+            try {
+                const r = await renameInflowDispatchUpload(this.dispatchRecord._id, { invoiceNumber: title })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(this.dispatchRecord, 'invoiceNumber', r.invoiceNumber)
+                // The list row is the same object when opened from the table,
+                // but sync by id in case it isn't.
+                const row = this.rows && this.rows.find && this.rows.find(x => x._id === this.dispatchRecord._id)
+                if (row) this.$set(row, 'invoiceNumber', r.invoiceNumber)
+                this.$message.success(`Renamed to ${r.invoiceNumber}`)
+                this.titleEdit = { on: false, value: '', saving: false }
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to rename the record'))
+                this.titleEdit.saving = false
+            }
         },
         // ── Labels straight from the Dispatch tab (no batch yet) ──────
         // The label builders take a batch for its date and lines; before a
@@ -1591,6 +1632,11 @@ export default {
 .od-done { color: #67C23A; font-weight: 600; }
 .od-del { color: #F56C6C; }
 .od-dlg-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #303133; }
+.od-title-edit-btn { padding: 2px; color: #c0c4cc; }
+.od-title-edit-btn:hover { color: #409EFF; }
+.od-title-input { width: 240px; font-weight: 400; }
+.od-title-save { padding: 2px; color: #67C23A; }
+.od-title-cancel { padding: 2px; color: #909399; }
 .od-dlg-progress { font-size: 12px; font-weight: normal; color: #909399; }
 .od-scan-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .od-line-filter { display: flex; align-items: center; margin-bottom: 8px; }

@@ -476,7 +476,10 @@
                 <!-- …and an invoice-style totals column. -->
                 <div class="io-up-totals">
                     <div class="io-up-tot-row"><span>Subtotal</span><span>{{ money(createOrderSubtotal) }}</span></div>
-                    <div class="io-up-tot-row"><span>GST (10%)</span><span>{{ money(createOrderTax) }}</span></div>
+                    <div class="io-up-tot-row">
+                        <el-checkbox v-model="createOrderForm.includeTax" class="io-up-gst-check">GST (10%)</el-checkbox>
+                        <span :class="{ 'io-dim': !createOrderForm.includeTax }">{{ money(createOrderTax) }}</span>
+                    </div>
                     <div class="io-up-tot-row io-up-grand"><span>Total</span><span>{{ money(createOrderTotal) }}</span></div>
                 </div>
             </template>
@@ -521,7 +524,7 @@ export default {
             createRows: [], createLoading: false, creatingDispatch: false,
             // Upload Order dialog — create a sales order from a spreadsheet.
             createOrderVisible: false, createOrderSaving: false, createOrderDragging: false,
-            createOrderForm: { invoiceNumber: '', vendor: '', customerName: '', invoiceDate: '' },
+            createOrderForm: { invoiceNumber: '', vendor: '', customerName: '', invoiceDate: '', includeTax: true },
             createOrderRows: [], createOrderSkipped: 0, createOrderFileName: ''
         }
     },
@@ -561,9 +564,10 @@ export default {
         createOrderSubtotal() {
             return this.round2(this.createOrderRows.reduce((s, r) => s + (Number(r.subTotal) || 0), 0))
         },
-        // GST is fixed at 10% of the subtotal — displayed, not editable.
+        // GST is 10% of the subtotal when included; the checkbox turns it
+        // off entirely for tax-free orders.
         createOrderTax() {
-            return this.round2(this.createOrderSubtotal * 0.1)
+            return this.createOrderForm.includeTax ? this.round2(this.createOrderSubtotal * 0.1) : 0
         },
         createOrderTotal() {
             return this.round2(this.createOrderSubtotal + this.createOrderTax)
@@ -891,7 +895,8 @@ export default {
             const d = new Date(); const p = n => String(n).padStart(2, '0')
             this.createOrderForm = {
                 invoiceNumber: '', vendor: '', customerName: '',
-                invoiceDate: `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`
+                invoiceDate: `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`,
+                includeTax: true
             }
             this.createOrderRows = []
             this.createOrderSkipped = 0
@@ -1128,6 +1133,7 @@ export default {
     width: 240px; padding: 3px 0;
     font-size: 13px; color: #606266;
 }
+.io-up-gst-check ::v-deep .el-checkbox__label { font-size: 13px; color: #606266; padding-left: 6px; }
 .io-up-grand {
     margin-top: 4px; padding-top: 7px;
     border-top: 1px solid #ebeef5;
