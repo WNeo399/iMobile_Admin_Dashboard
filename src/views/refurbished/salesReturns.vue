@@ -2,42 +2,42 @@
     <div class="sr-page app-container">
         <div class="sr-filters">
             <el-input v-model="query.search" size="small" clearable class="f-search"
-                placeholder="Search return no / customer / IMEI / order…" prefix-icon="el-icon-search"
+                :placeholder="$tp('Search return no / customer / IMEI / order…')" prefix-icon="el-icon-search"
                 @keyup.enter.native="reload" @clear="reload" />
             <span class="sr-spacer" />
-            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">New Return</el-button>
-            <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
-            <el-button size="small" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
+            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">{{ $tp('New Return') }}</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="load">{{ $tp('Refresh') }}</el-button>
+            <el-button size="small" type="primary" icon="el-icon-search" @click="reload">{{ $tp('Search') }}</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini"
-            empty-text="No sales returns yet — raise one when a customer sends devices back.">
-            <el-table-column label="Return No" width="120">
+            :empty-text="$tp('No sales returns yet — raise one when a customer sends devices back.')">
+            <el-table-column :label="$tp('Return No')" width="120">
                 <template slot-scope="s">
                     <el-button type="text" class="sr-link" @click="openDetail(s.row)">{{ s.row.returnNo }}</el-button>
                 </template>
             </el-table-column>
-            <el-table-column label="Customer" min-width="180" show-overflow-tooltip>
+            <el-table-column :label="$tp('Customer')" min-width="180" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.customerName }}</template>
             </el-table-column>
-            <el-table-column label="Devices" width="90" align="center">
+            <el-table-column :label="$tp('Devices')" width="90" align="center">
                 <template slot-scope="s">{{ (s.row.lines || []).length }}</template>
             </el-table-column>
-            <el-table-column label="Orders" min-width="150" show-overflow-tooltip>
+            <el-table-column :label="$tp('Orders')" min-width="150" show-overflow-tooltip>
                 <template slot-scope="s">{{ orderList(s.row) }}</template>
             </el-table-column>
-            <el-table-column label="Returned To" width="140" align="center">
+            <el-table-column :label="$tp('Returned To')" width="140" align="center">
                 <template slot-scope="s">
                     <el-tag size="mini" effect="plain"
                         :type="s.row.location === 'Assigned To Exyon' ? 'warning' : 'success'">
-                        {{ s.row.location || 'iMobile' }}
+                        {{ $tenum(s.row.location || 'iMobile') }}
                     </el-tag>
                 </template>
             </el-table-column>
-            <el-table-column label="Sale Value" width="130" align="right">
+            <el-table-column :label="$tp('Sale Value')" width="130" align="right">
                 <template slot-scope="s">{{ money(s.row.total, s.row.currency) }}</template>
             </el-table-column>
-            <el-table-column label="Created" width="160">
+            <el-table-column :label="$tp('Created')" width="160">
                 <template slot-scope="s">
                     <div>{{ formatDateTime(s.row.createdAt) }}</div>
                     <div v-if="s.row.createdBy" class="sr-sub">{{ s.row.createdBy }}</div>
@@ -45,7 +45,7 @@
             </el-table-column>
             <el-table-column label="" width="80" align="center">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">{{ $tp('View') }}</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -57,35 +57,35 @@
         </div>
 
         <!-- ── Create ───────────────────────────────────────────────── -->
-        <el-dialog title="New Sales Return" :visible.sync="createVisible" width="860px" top="6vh"
+        <el-dialog :title="$tp('New Sales Return')" :visible.sync="createVisible" width="860px" top="6vh"
             :close-on-click-modal="false" @closed="onCreateClosed">
             <div class="sr-form">
                 <!-- Either direction: scan the box and the customer follows,
                      or pick the customer and tick from what they hold. -->
                 <div class="sr-field">
                     <label>
-                        Scan a returned device
-                        <span class="sr-dim">— the customer fills itself in; typing also filters the list below</span>
+                        {{ $tp('Scan a returned device') }}
+                        <span class="sr-dim">{{ $tp('— the customer fills itself in; typing also filters the list below') }}</span>
                     </label>
                     <el-input ref="scanInput" v-model="scanCode" size="small" clearable
-                        placeholder="Scan or type IMEI / serial, then Enter…" prefix-icon="el-icon-full-screen"
+                        :placeholder="$tp('Scan or type IMEI / serial, then Enter…')" prefix-icon="el-icon-full-screen"
                         :disabled="scanning" @keyup.enter.native="scan" />
                     <div v-if="scanMsg" :class="['sr-scan-msg', 'sr-scan-' + scanTone]">{{ scanMsg }}</div>
                 </div>
 
                 <div class="sr-row">
                     <div class="sr-field sr-grow">
-                        <label>Customer *</label>
+                        <label>{{ $tp('Customer') }} *</label>
                         <el-select v-model="form.customerId" size="small" filterable class="sr-full"
-                            placeholder="Select a customer…" @change="onCustomerChange">
+                            :placeholder="$tp('Select a customer…')" @change="onCustomerChange">
                             <el-option v-for="c in customers" :key="c._id" :value="c._id"
                                 :label="c.name + (c.phone ? ' · ' + c.phone : '')" />
                         </el-select>
                     </div>
                     <div class="sr-field">
-                        <label>Return to</label>
+                        <label>{{ $tp('Return To') }}</label>
                         <el-select v-model="form.location" size="small" class="sr-loc">
-                            <el-option v-for="l in locations" :key="l" :label="l" :value="l" />
+                            <el-option v-for="l in locations" :key="l" :label="$tenum(l)" :value="l" />
                         </el-select>
                     </div>
                 </div>
@@ -93,16 +93,16 @@
                 <!-- The picker only ever offers what this customer holds. -->
                 <div v-if="form.customerId" class="sr-field">
                     <label>
-                        Devices sold to this customer
-                        <span class="sr-dim">— tick what came back</span>
+                        {{ $tp('Devices sold to this customer') }}
+                        <span class="sr-dim">{{ $tp('— tick what came back') }}</span>
                     </label>
                     <div v-if="picked.length || scanCode" class="sr-pick-bar">
                         <span v-if="scanCode" class="sr-dim">
-                            Filtered by "{{ scanCode }}" — {{ visibleSold.length }} of {{ sold.length }}
+                            {{ $tp('Filtered by "{q}" — {shown} of {total}', { q: scanCode, shown: visibleSold.length, total: sold.length }) }}
                         </span>
                         <span class="sr-spacer" />
-                        <span v-if="picked.length" class="sr-dim">{{ picked.length }} selected</span>
-                        <el-button v-if="picked.length" size="mini" plain @click="picked = []">Clear</el-button>
+                        <span v-if="picked.length" class="sr-dim">{{ $tp('{n} selected', { n: picked.length }) }}</span>
+                        <el-button v-if="picked.length" size="mini" plain @click="picked = []">{{ $tp('Clear') }}</el-button>
                     </div>
                     <el-table v-loading="soldLoading" :data="visibleSold" border size="mini" max-height="340"
                         :row-key="r => String(r._id)" :row-class-name="rowClass"
@@ -119,48 +119,48 @@
                                 <div v-if="s.row.serialNumber" class="sr-sub">{{ s.row.serialNumber }}</div>
                             </template>
                         </el-table-column>
-                        <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                        <el-table-column :label="$tp('Device')" min-width="200" show-overflow-tooltip>
                             <template slot-scope="s">
                                 {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                             </template>
                         </el-table-column>
-                        <el-table-column label="Grade" width="70" align="center">
+                        <el-table-column :label="$tp('Grade')" width="70" align="center">
                             <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                         </el-table-column>
-                        <el-table-column label="Order" width="110">
+                        <el-table-column :label="$tp('Order')" width="110">
                             <template slot-scope="s">{{ s.row.orderNo || '—' }}</template>
                         </el-table-column>
-                        <el-table-column label="Sold" width="105">
+                        <el-table-column :label="$tp('Sold')" width="105">
                             <template slot-scope="s">{{ shortDate(s.row.soldAt) }}</template>
                         </el-table-column>
-                        <el-table-column label="Cost" width="105" align="right">
+                        <el-table-column :label="$tp('Cost')" width="105" align="right">
                             <template slot-scope="s">
                                 {{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.costCurrency) }}
                             </template>
                         </el-table-column>
-                        <el-table-column label="Price" width="110" align="right">
+                        <el-table-column :label="$tp('Price')" width="110" align="right">
                             <template slot-scope="s">
                                 {{ s.row.price == null ? '—' : money(s.row.price, s.row.currency) }}
                             </template>
                         </el-table-column>
                     </el-table>
                 </div>
-                <div v-else class="sr-dim sr-empty">Pick a customer to see the devices they hold.</div>
+                <div v-else class="sr-dim sr-empty">{{ $tp('Pick a customer to see the devices they hold.') }}</div>
 
                 <div class="sr-field">
-                    <label>Notes</label>
+                    <label>{{ $tp('Notes') }}</label>
                     <el-input v-model="form.notes" type="textarea" :rows="2" maxlength="1000" size="small"
-                        placeholder="Optional — condition on arrival, courier, anything worth recording" />
+                        :placeholder="$tp('Optional — condition on arrival, courier, anything worth recording')" />
                 </div>
             </div>
             <span slot="footer">
                 <span v-if="picked.length" class="sr-foot-note">
-                    {{ picked.length }} device{{ picked.length === 1 ? '' : 's' }} · {{ money(pickedTotal, pickedCurrency) }}
+                    {{ $tp('{n} device(s)', { n: picked.length }) }} · {{ money(pickedTotal, pickedCurrency) }}
                 </span>
-                <el-button size="small" @click="createVisible = false">Cancel</el-button>
+                <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="creating"
                     :disabled="!form.customerId || !picked.length"
-                    @click="save">Create Return</el-button>
+                    @click="save">{{ $tp('Create Return') }}</el-button>
             </span>
         </el-dialog>
 
@@ -168,11 +168,11 @@
         <el-dialog :title="detail ? detail.returnNo : ''" :visible.sync="detailVisible" width="760px">
             <div v-if="detail" class="sr-detail">
                 <div class="sr-detail-grid">
-                    <div><label>Customer</label><div>{{ detail.customerName }}</div></div>
-                    <div v-if="detail.reason"><label>Reason</label><div>{{ detail.reason }}</div></div>
-                    <div><label>Returned To</label><div>{{ detail.location || 'iMobile' }}</div></div>
+                    <div><label>{{ $tp('Customer') }}</label><div>{{ detail.customerName }}</div></div>
+                    <div v-if="detail.reason"><label>{{ $tp('Reason') }}</label><div>{{ detail.reason }}</div></div>
+                    <div><label>{{ $tp('Returned To') }}</label><div>{{ $tenum(detail.location || 'iMobile') }}</div></div>
                     <div>
-                        <label>Created</label>
+                        <label>{{ $tp('Created') }}</label>
                         <div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div>
                     </div>
                 </div>
@@ -185,49 +185,48 @@
                                 <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
                                 {{ s.row.model }}
                                 <span class="sr-dim">
-                                    · {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}
+                                    · {{ $tp('{n} device(s)', { n: s.row.count }) }}
                                     · {{ money(s.row.value, detail.currency) }}
                                 </span>
                             </div>
                             <b v-else>{{ s.row.imei }}</b>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Device')" min-width="200" show-overflow-tooltip>
                         <template slot-scope="s">
                             {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="70" align="center">
+                    <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
-                    <el-table-column label="Order" width="110">
+                    <el-table-column :label="$tp('Order')" width="110">
                         <template slot-scope="s">{{ s.row.orderNo || '—' }}</template>
                     </el-table-column>
-                    <el-table-column label="Cost" width="110" align="right">
+                    <el-table-column :label="$tp('Cost')" width="110" align="right">
                         <template slot-scope="s">
                             {{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.costCurrency) }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Price" width="120" align="right">
+                    <el-table-column :label="$tp('Price')" width="120" align="right">
                         <template slot-scope="s">
                             {{ s.row.price == null ? '—' : money(s.row.price, s.row.currency) }}
                         </template>
                     </el-table-column>
                 </el-table>
                 <div class="sr-totals">
-                    <span>{{ (detail.lines || []).length }} device{{ (detail.lines || []).length === 1 ? '' : 's' }} · sale value</span>
+                    <span>{{ $tp('{n} device(s)', { n: (detail.lines || []).length }) }} · {{ $tp('sale value') }}</span>
                     <b>{{ money(detail.total, detail.currency) }}</b>
                 </div>
                 <div v-if="detail.notes" class="sr-notes">{{ detail.notes }}</div>
                 <div class="sr-dim sr-hint">
-                    The devices are back In Stock at {{ detail.location || 'iMobile' }}. Each order keeps its
-                    line, marked returned — totals and invoices are unchanged.
+                    {{ $tp('The devices are back In Stock at {location}. Each order keeps its line, marked returned — totals and invoices are unchanged.', { location: $tenum(detail.location || 'iMobile') }) }}
                 </div>
             </div>
             <span slot="footer">
                 <el-button size="small" icon="el-icon-download" @click="downloadXlsx">Excel</el-button>
                 <el-button size="small" icon="el-icon-document" @click="previewPdf">PDF</el-button>
-                <el-button size="small" @click="detailVisible = false">Close</el-button>
+                <el-button size="small" @click="detailVisible = false">{{ $tp('Close') }}</el-button>
             </span>
         </el-dialog>
 
@@ -239,9 +238,9 @@
                 <iframe v-if="pdfUrl" ref="pdfFrame" :src="pdfUrl" class="sr-pdf-frame" title="Sales return" />
             </div>
             <span slot="footer">
-                <el-button size="small" icon="el-icon-printer" @click="printPdf">Print</el-button>
-                <el-button size="small" icon="el-icon-download" @click="downloadPdf">Download</el-button>
-                <el-button size="small" @click="pdfVisible = false">Close</el-button>
+                <el-button size="small" icon="el-icon-printer" @click="printPdf">{{ $tp('Print') }}</el-button>
+                <el-button size="small" icon="el-icon-download" @click="downloadPdf">{{ $tp('Download') }}</el-button>
+                <el-button size="small" @click="pdfVisible = false">{{ $tp('Close') }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -337,9 +336,9 @@ export default {
         // that matched nothing — saying which is the difference between
         // "there's nothing to do" and "that code isn't theirs".
         soldEmptyText() {
-            if (this.soldLoading) return 'Loading…'
-            if (!this.sold.length) return 'This customer has no devices out — nothing to return.'
-            return `No device here matches "${this.scanCode.trim()}" — it may belong to another customer.`
+            if (this.soldLoading) return this.$tp('Loading…')
+            if (!this.sold.length) return this.$tp('This customer has no devices out — nothing to return.')
+            return this.$tp('No device here matches "{q}" — it may belong to another customer.', { q: this.scanCode.trim() })
         },
         pickedRows() {
             return this.sold.filter(d => this.picked.includes(String(d._id)))
@@ -384,7 +383,7 @@ export default {
                 this.rows = r.returns || []
                 this.total = r.total || 0
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load sales returns'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load sales returns')))
             } finally {
                 this.loading = false
             }
@@ -425,10 +424,10 @@ export default {
                 const r = await getCustomerSoldDevices(id)
                 this.sold = r.devices || []
                 if (!this.sold.length) {
-                    this.$message.info('This customer has no devices out on a confirmed order.')
+                    this.$message.info(this.$tp('This customer has no devices out on a confirmed order.'))
                 }
             } catch (e) {
-                this.$message.error(this.msg(e, "Failed to load the customer's devices"))
+                this.$message.error(this.msg(e, this.$tp("Failed to load the customer's devices")))
             } finally {
                 this.soldLoading = false
             }
@@ -453,7 +452,7 @@ export default {
             // isn't a scan — leave it filtering rather than reporting that
             // "IPHONE" isn't in the register.
             if (!/^[A-Z0-9]{6,20}$/.test(code)) {
-                this.say('warn', `"${raw}" isn't a full IMEI or serial — the list is filtered by it instead`)
+                this.say('warn', this.$tp('"{code}" isn\'t a full IMEI or serial — the list is filtered by it instead', { code: raw }))
                 return
             }
             this.scanCode = ''
@@ -463,10 +462,10 @@ export default {
             const known = this.sold.find(d =>
                 String(d.imei).toUpperCase() === code || String(d.serialNumber || '').toUpperCase() === code)
             if (known) {
-                if (this.isPicked(known)) this.say('warn', code + ' is already ticked')
+                if (this.isPicked(known)) this.say('warn', this.$tp('{code} is already ticked', { code }))
                 else {
                     this.picked.unshift(String(known._id))
-                    this.say('ok', code + ' added — ' + (known.model || 'device'))
+                    this.say('ok', this.$tp('{code} added — {model}', { code, model: known.model || this.$tp('device') }))
                 }
                 return
             }
@@ -475,7 +474,7 @@ export default {
             try {
                 const r = await lookupSoldDevice(code)
                 if (!r || r.found === false) {
-                    this.say('error', (r && r.message) || code + ' could not be matched')
+                    this.say('error', (r && r.message) || this.$tp('{code} could not be matched', { code }))
                     return
                 }
                 if (this.form.customerId && String(this.form.customerId) !== String(r.customerId)) {
@@ -485,14 +484,14 @@ export default {
                     // until it's dismissed, not just a line that scrolls by.
                     const mine =
                         (this.customers.find(c => String(c._id) === String(this.form.customerId)) || {}).name ||
-                        'the selected customer'
-                    this.say('error', `${code} belongs to ${r.customerName} — not ${mine}`)
+                        this.$tp('the selected customer')
+                    this.say('error', this.$tp('{code} belongs to {owner} — not {mine}', { code, owner: r.customerName, mine }))
                     this.$notify.warning({
-                        title: 'Wrong customer',
-                        message:
-                            `${code} (${r.device.model || 'device'}) was sold to ${r.customerName} ` +
-                            `on ${r.device.orderNo}, but this return is for ${mine}. Set it aside — ` +
-                            `it needs its own return.`,
+                        title: this.$tp('Wrong customer'),
+                        message: this.$tp('{code} ({model}) was sold to {owner} on {order}, but this return is for {mine}. Set it aside — it needs its own return.', {
+                            code, model: r.device.model || this.$tp('device'), owner: r.customerName,
+                            order: r.device.orderNo, mine
+                        }),
                         duration: 0
                     })
                     return
@@ -504,12 +503,12 @@ export default {
                 const row = this.sold.find(d => String(d._id) === String(r.device._id))
                 if (row) {
                     if (!this.isPicked(row)) this.picked.unshift(String(row._id))
-                    this.say('ok', `${code} added — ${r.customerName} · ${row.model || 'device'}`)
+                    this.say('ok', this.$tp('{code} added — {model}', { code, model: r.customerName + ' · ' + (row.model || this.$tp('device')) }))
                 } else {
-                    this.say('warn', code + ' was found but is no longer on this list — refresh and try again')
+                    this.say('warn', this.$tp('{code} was found but is no longer on this list — refresh and try again', { code }))
                 }
             } catch (e) {
-                this.say('error', this.msg(e, 'Lookup failed — try again'))
+                this.say('error', this.msg(e, this.$tp('Lookup failed — try again')))
             } finally {
                 this.scanning = false
                 this.focusScan()
@@ -538,10 +537,10 @@ export default {
                     location: this.form.location,
                     deviceIds: this.picked
                 })
-                this.$message.success(r.message || 'Sales return created')
+                this.$message.success(r.message || this.$tp('Sales return created'))
                 if ((r.skipped || []).length) {
                     this.$notify.warning({
-                        title: 'Some devices were skipped',
+                        title: this.$tp('Some devices were skipped'),
                         message: r.skipped.map(s => `${s.imei}: ${s.reason}`).join('\n'),
                         duration: 0
                     })
@@ -549,7 +548,7 @@ export default {
                 this.createVisible = false
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to create the sales return'))
+                this.$message.error(this.msg(e, this.$tp('Failed to create the sales return')))
             } finally {
                 this.creating = false
             }
@@ -567,7 +566,7 @@ export default {
                 this.pdfVisible = true
             } catch (e) {
                 console.error('Sales return PDF failed:', e)
-                this.$message.error('Could not build the PDF.')
+                this.$message.error(this.$tp('Could not build the PDF.'))
             }
         },
         downloadPdf() {
@@ -584,7 +583,7 @@ export default {
                 if (this.pdfDoc) {
                     this.pdfDoc.autoPrint()
                     const w = window.open(this.pdfDoc.output('bloburl'))
-                    if (!w) this.$message.warning('Pop-up blocked — use Download instead.')
+                    if (!w) this.$message.warning(this.$tp('Pop-up blocked — use Download instead.'))
                 }
             }
         },
@@ -639,7 +638,7 @@ export default {
                 XLSX.writeFile(wb, `sales-return_${String(d.returnNo).replace(/[^\w.-]+/g, '_')}.xlsx`)
             } catch (e) {
                 console.error('Sales return xlsx failed:', e)
-                this.$message.error('Could not build the spreadsheet.')
+                this.$message.error(this.$tp('Could not build the spreadsheet.'))
             }
         },
 
@@ -660,7 +659,7 @@ export default {
                 this.collapsedDetailGroups = {}
                 this.detailVisible = true
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load the return'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load the return')))
             }
         }
     }

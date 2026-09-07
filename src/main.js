@@ -70,6 +70,27 @@ Vue.use(Element, {
 // Menu / tab / breadcrumb title translation with English fallback —
 // see src/lang/index.js. Usable anywhere as $tt('Stock').
 Vue.prototype.$tt = translateTitle
+// Backend-provided values (device statuses, locations, stock sources,
+// batch states…) are displayed through this: translated when the current
+// language has an entry under `refurbEnum`, left exactly as stored
+// otherwise — new backend values simply show untranslated, never break.
+Vue.prototype.$tenum = function(v) {
+  const k = 'refurbEnum.' + v
+  return v && this.$te(k) ? this.$t(k) : v
+}
+// Page-text translation, keyed by the EXACT English text (dots stripped —
+// vue-i18n reads dots as path separators) under `page` in the language
+// files. English is the app's native language, so a missing entry simply
+// renders the text as written; {name} params interpolate either way.
+Vue.prototype.$tp = function(text, params) {
+  if (text == null || text === '') return text
+  const key = 'page.' + String(text).replace(/\./g, '')
+  if (this.$te(key)) return this.$t(key, params)
+  if (!params) return text
+  return String(text).replace(/\{(\w+)\}/g, function(m, p) {
+    return params[p] == null ? m : params[p]
+  })
+}
 document.documentElement.setAttribute('lang', getLanguage() === 'zh' ? 'zh-CN' : 'en')
 
 // Project-wide: el-dialog does NOT close when the overlay/modal is clicked, so a

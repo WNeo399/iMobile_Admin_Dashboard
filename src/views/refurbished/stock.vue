@@ -2,99 +2,99 @@
     <div class="rs-stock app-container">
         <div class="rs-filters">
             <el-input v-model="query.search" size="small" clearable class="f-search"
-                placeholder="Search IMEI / serial / model / colour…" prefix-icon="el-icon-search"
+                :placeholder="$tp('Search IMEI / serial / model / colour…')" prefix-icon="el-icon-search"
                 @keyup.enter.native="reload" @clear="reload" />
-            <el-select v-model="query.grade" size="small" clearable placeholder="Grade" class="f-sel" @change="reload">
+            <el-select v-model="query.grade" size="small" clearable :placeholder="$tp('Grade')" class="f-sel" @change="reload">
                 <el-option v-for="g in gradeFilterOptions" :key="g" :label="g" :value="g" />
             </el-select>
             <!-- A supplier's register is all one source, so that filter
                  stays ours — but their devices move between shelf, road and
                  iMobile, so location is worth filtering for everyone. -->
-            <el-select v-if="!isSupplier" v-model="query.stockSource" size="small" clearable filterable placeholder="Stock Source" class="f-sel-w" @change="reload">
+            <el-select v-if="!isSupplier" v-model="query.stockSource" size="small" clearable filterable :placeholder="$tp('Stock Source')" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.stockSources" :key="l" :label="l" :value="l" />
             </el-select>
-            <el-select v-model="query.location" size="small" clearable placeholder="Location" class="f-sel-w" @change="reload">
-                <el-option v-for="l in filters.locations" :key="l" :label="l" :value="l" />
+            <el-select v-model="query.location" size="small" clearable :placeholder="$tp('Location')" class="f-sel-w" @change="reload">
+                <el-option v-for="l in filters.locations" :key="l" :label="$tenum(l)" :value="l" />
             </el-select>
             <!-- Suppliers work one undifferentiated shelf — status is an
                  internal view, so the filter and column stay ours. -->
-            <el-select v-if="!isSupplier" v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
-                <el-option label="In Stock" value="In Stock" />
-                <el-option label="With Supplier" value="With Supplier" />
-                <el-option label="Sold" value="Sold" />
-                <el-option label="Out for Repair" value="Out for Repair" />
-                <el-option label="Not Yet Received" value="Not Yet Received" />
-                <el-option label="Repairing" value="Repairing" />
+            <el-select v-if="!isSupplier" v-model="query.status" size="small" clearable :placeholder="$tp('Status')" class="f-sel" @change="reload">
+                <el-option :label="$tenum('In Stock')" value="In Stock" />
+                <el-option :label="$tenum('With Supplier')" value="With Supplier" />
+                <el-option :label="$tenum('Sold')" value="Sold" />
+                <el-option :label="$tenum('Out for Repair')" value="Out for Repair" />
+                <el-option :label="$tenum('Not Yet Received')" value="Not Yet Received" />
+                <el-option :label="$tenum('Repairing')" value="Repairing" />
             </el-select>
             <span class="rs-spacer" />
             <!-- Single-device add stays its own button; the menu's Add
                  Device is the bulk version (scan many, create together). -->
-            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">Add Device</el-button>
+            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openEdit(null)">{{ $tp('Add Device') }}</el-button>
             <!-- One entry point for the flows that start from stock. The
                  menu is role-shaped: staff get the full set, suppliers get
                  what their permissions can actually do. -->
             <el-dropdown size="small" trigger="click" @command="bulkCommand">
                 <el-button size="small" type="primary" plain>
-                    Bulk Action <i class="el-icon-arrow-down el-icon--right" />
+                    {{ $tp('Bulk Action') }} <i class="el-icon-arrow-down el-icon--right" />
                 </el-button>
                 <el-dropdown-menu slot="dropdown">
-                    <el-dropdown-item command="bulk-add" icon="el-icon-plus">Add Device</el-dropdown-item>
+                    <el-dropdown-item command="bulk-add" icon="el-icon-plus">{{ $tp('Add Device') }}</el-dropdown-item>
                     <template v-if="!isSupplier">
-                        <el-dropdown-item command="sale" icon="el-icon-sell">Create Sales Order</el-dropdown-item>
-                        <el-dropdown-item command="exyon" icon="el-icon-position">Assign To Exyon</el-dropdown-item>
-                        <el-dropdown-item command="repair" icon="el-icon-set-up">Create Repair Batch</el-dropdown-item>
+                        <el-dropdown-item command="sale" icon="el-icon-sell">{{ $tp('Create Sales Order') }}</el-dropdown-item>
+                        <el-dropdown-item command="exyon" icon="el-icon-position">{{ $tp('Assign To Exyon') }}</el-dropdown-item>
+                        <el-dropdown-item command="repair" icon="el-icon-set-up">{{ $tp('Create Repair Batch') }}</el-dropdown-item>
                     </template>
-                    <el-dropdown-item v-else command="supply" icon="el-icon-truck">Create Supply Batch</el-dropdown-item>
+                    <el-dropdown-item v-else command="supply" icon="el-icon-truck">{{ $tp('Create Supply Batch') }}</el-dropdown-item>
                 </el-dropdown-menu>
             </el-dropdown>
-            <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
-            <el-button size="small" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="load">{{ $tp('Refresh') }}</el-button>
+            <el-button size="small" type="primary" icon="el-icon-search" @click="reload">{{ $tp('Search') }}</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini" height="calc(100vh - 210px)"
-            empty-text="No devices yet — add one to start the register.">
+            :empty-text="$tp('No devices yet — add one to start the register.')">
             <el-table-column prop="imei" label="IMEI" min-width="170">
                 <template slot-scope="s">
                     <div class="rs-imei"><b>{{ s.row.imei }}</b></div>
                     <div class="rs-serial">{{ s.row.serialNumber || '—' }}</div>
                 </template>
             </el-table-column>
-            <el-table-column prop="model" label="Model" min-width="170" show-overflow-tooltip>
+            <el-table-column prop="model" :label="$tp('Model')" min-width="170" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.model || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="color" label="Colour" min-width="110" show-overflow-tooltip>
+            <el-table-column prop="color" :label="$tp('Colour')" min-width="110" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.color || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="storage" label="Storage" width="100" align="center">
+            <el-table-column prop="storage" :label="$tp('Storage')" width="100" align="center">
                 <template slot-scope="s">{{ s.row.storage || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="grade" label="Grade" width="100" align="center">
+            <el-table-column prop="grade" :label="$tp('Grade')" width="100" align="center">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.grade" size="mini" :type="gradeTag(s.row.grade)" effect="plain">{{ s.row.grade }}</el-tag>
                     <span v-else class="rs-dim">—</span>
                 </template>
             </el-table-column>
-            <el-table-column label="Battery" width="100" align="center">
+            <el-table-column :label="$tp('Battery')" width="100" align="center">
                 <template slot-scope="s">
                     <span v-if="s.row.batteryHealth == null" class="rs-dim">—</span>
                     <span v-else :class="batteryClass(s.row.batteryHealth)"
-                        :title="s.row.batteryCycleCount != null ? s.row.batteryCycleCount + ' cycles' : ''">
+                        :title="s.row.batteryCycleCount != null ? $tp('{n} cycles', { n: s.row.batteryCycleCount }) : ''">
                         {{ s.row.batteryHealth }}%
                     </span>
                 </template>
             </el-table-column>
-            <el-table-column prop="costPrice" label="Cost Price" width="120" align="right">
+            <el-table-column prop="costPrice" :label="$tp('Cost Price')" width="120" align="right">
                 <template slot-scope="s">{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
             </el-table-column>
-            <el-table-column prop="stockSource" label="Stock Source" min-width="130" show-overflow-tooltip>
+            <el-table-column prop="stockSource" :label="$tp('Stock Source')" min-width="130" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
             </el-table-column>
             <!-- Set by who recorded the device (supplier vs our staff) or
                  picked when receiving through Incoming Stocks. -->
-            <el-table-column prop="location" label="Location" width="140" align="center">
+            <el-table-column prop="location" :label="$tp('Location')" width="140" align="center">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.location" size="mini" effect="plain"
-                        :type="locationTag(s.row.location)">{{ s.row.location }}</el-tag>
+                        :type="locationTag(s.row.location)">{{ $tenum(s.row.location) }}</el-tag>
                     <span v-else class="rs-dim">—</span>
                 </template>
             </el-table-column>
@@ -103,37 +103,37 @@
                     <!-- Read-only: the flag follows the Blackbelt lookup.
                          The tooltip carries the report's verdict. -->
                     <i v-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
-                        :title="s.row.blackbeltStatus || 'Blackbelt report found'" />
-                    <i v-else class="el-icon-error rs-bb-no" title="No Blackbelt report" />
+                        :title="s.row.blackbeltStatus || $tp('Blackbelt report found')" />
+                    <i v-else class="el-icon-error rs-bb-no" :title="$tp('No Blackbelt report')" />
                 </template>
             </el-table-column>
             <!-- Sale status — devices recorded before the field existed are
                  unsold, so an empty status renders as In Stock. -->
-            <el-table-column v-if="!isSupplier" label="Status" width="110" align="center">
+            <el-table-column v-if="!isSupplier" :label="$tp('Status')" width="110" align="center">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.status === 'Sold'" size="mini" type="danger" effect="plain"
-                        :title="soldTitle(s.row)">Sold</el-tag>
+                        :title="soldTitle(s.row)">{{ $tenum('Sold') }}</el-tag>
                     <el-tag v-else-if="s.row.status === 'With Supplier'" size="mini" type="info"
-                        effect="plain">With Supplier</el-tag>
+                        effect="plain">{{ $tenum('With Supplier') }}</el-tag>
                     <el-tag v-else-if="s.row.status === 'Out for Repair'" size="mini" type="warning"
-                        effect="plain">Out for Repair</el-tag>
+                        effect="plain">{{ $tenum('Out for Repair') }}</el-tag>
                     <el-tag v-else-if="s.row.status === 'Not Yet Received'" size="mini" type="info"
-                        effect="plain">Not Yet Received</el-tag>
+                        effect="plain">{{ $tenum('Not Yet Received') }}</el-tag>
                     <el-tag v-else-if="s.row.status === 'Repairing'" size="mini" type="warning"
-                        effect="plain">Repairing</el-tag>
+                        effect="plain">{{ $tenum('Repairing') }}</el-tag>
                     <el-tag v-else-if="s.row.status === 'On Consignment'" size="mini"
-                        effect="plain">On Consignment</el-tag>
-                    <el-tag v-else size="mini" type="success" effect="plain">In Stock</el-tag>
+                        effect="plain">{{ $tenum('On Consignment') }}</el-tag>
+                    <el-tag v-else size="mini" type="success" effect="plain">{{ $tenum('In Stock') }}</el-tag>
                 </template>
             </el-table-column>
             <el-table-column label="" width="130" align="center">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" icon="el-icon-view" @click="openEdit(s.row)">View</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openEdit(s.row)">{{ $tp('View') }}</el-button>
                     <!-- A sold unit that came back: record-only return — the
                          order keeps its line, the device rejoins stock. -->
                     <el-button v-if="s.row.status === 'Sold' && s.row.salesOrder && !isSupplier"
                         size="mini" type="text" icon="el-icon-back"
-                        @click="openReturn(s.row)">Return</el-button>
+                        @click="openReturn(s.row)">{{ $tp('Return') }}</el-button>
                     <!-- A supplier's shelf is named after their source, so
                          location === stockSource means it's still with them. -->
                     <el-button v-if="s.row.status !== 'Sold' && (!isSupplier || s.row.location === s.row.stockSource)"
@@ -154,46 +154,46 @@
              register (duplicates refused) and Blackbelt (identity filled
              where it has a report, typed where it doesn't), then the whole
              list is created in one go. -->
-        <el-dialog title="Bulk Add Devices" :visible.sync="baVisible" width="980px" top="5vh"
+        <el-dialog :title="$tp('Bulk Add Devices')" :visible.sync="baVisible" width="980px" top="5vh"
             :close-on-click-modal="false" @closed="baRows = []">
             <div class="rs-exy">
                 <div class="rs-exy-bar">
                     <el-input ref="baInput" v-model="baCode" size="small" class="rs-exy-input"
-                        placeholder="Scan or type IMEI / serial, then Enter…" prefix-icon="el-icon-full-screen"
+                        :placeholder="$tp('Scan or type IMEI / serial, then Enter…')" prefix-icon="el-icon-full-screen"
                         clearable :disabled="baSaving" @keyup.enter.native="baScan" />
                     <el-select v-model="baCurrency" size="small" style="width:90px" :disabled="baSaving">
                         <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                     </el-select>
                     <el-button v-if="baRows.length" size="small" plain :disabled="baSaving"
-                        @click="baRows = []">Clear</el-button>
+                        @click="baRows = []">{{ $tp('Clear') }}</el-button>
                 </div>
                 <div v-if="baMsg" :class="['rs-exy-msg', 'rs-exy-' + baTone]">{{ baMsg }}</div>
                 <el-table :data="baRows" border size="mini" max-height="400"
-                    empty-text="Nothing yet — scan a device to start the list.">
+                    :empty-text="$tp('Nothing yet — scan a device to start the list.')">
                     <el-table-column label="IMEI" min-width="150">
                         <template slot-scope="s">
                             <div><b>{{ s.row.imei }}</b></div>
                             <div v-if="s.row.bbChecking" class="rs-ba-sub rs-dim">
-                                <i class="el-icon-loading" /> checking Blackbelt…
+                                <i class="el-icon-loading" /> {{ $tp('checking Blackbelt…') }}
                             </div>
                             <div v-else :class="['rs-ba-sub', s.row.bbFound ? 'rs-ba-ok' : 'rs-ba-warn']">
                                 <i :class="s.row.bbFound ? 'el-icon-success' : 'el-icon-warning'" />
-                                {{ s.row.bbFound ? 'Blackbelt found' : 'no Blackbelt report' }}
+                                {{ s.row.bbFound ? $tp('Blackbelt found') : $tp('no Blackbelt report') }}
                             </div>
                             <div v-if="s.row.err" class="rs-ba-sub rs-ba-err">{{ s.row.err }}</div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="300">
+                    <el-table-column :label="$tp('Device')" min-width="300">
                         <template slot-scope="s">
                             <!-- Blackbelt's answer is the identity; typing is
                                  only for devices it doesn't know. -->
                             <div v-if="!s.row.bbFound && !s.row.bbChecking" class="rs-ba-edit">
-                                <el-input :value="s.row.model" size="mini" placeholder="Model *" class="bae-model"
+                                <el-input :value="s.row.model" size="mini" :placeholder="$tp('Model *')" class="bae-model"
                                     @input="v => s.row.model = v" />
-                                <el-input :value="s.row.color" size="mini" placeholder="Colour" class="bae-small"
+                                <el-input :value="s.row.color" size="mini" :placeholder="$tp('Colour')" class="bae-small"
                                     @input="v => s.row.color = v.toUpperCase()" />
                                 <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
-                                    default-first-option placeholder="Storage" class="bae-small">
+                                    default-first-option :placeholder="$tp('Storage')" class="bae-small">
                                     <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
                                 </el-select>
                             </div>
@@ -202,14 +202,14 @@
                             </template>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="95" align="center">
+                    <el-table-column :label="$tp('Grade')" width="95" align="center">
                         <template slot-scope="s">
                             <el-select v-model="s.row.grade" size="mini" clearable placeholder="—" class="rs-full">
                                 <el-option v-for="g in grades" :key="g" :label="g" :value="g" />
                             </el-select>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Cost" width="100" align="center">
+                    <el-table-column :label="$tp('Cost')" width="100" align="center">
                         <template slot-scope="s">
                             <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2"
                                 :controls="false" class="bae-cost" />
@@ -225,39 +225,70 @@
             </div>
             <span slot="footer">
                 <span v-if="baRows.length" class="rs-exy-count">
-                    {{ baRows.length }} device{{ baRows.length === 1 ? '' : 's' }}
+                    {{ $tp('{n} device(s)', { n: baRows.length }) }}
                 </span>
-                <el-button size="small" :disabled="baSaving" @click="baVisible = false">Cancel</el-button>
-                <el-button type="primary" size="small" :loading="baSaving" :disabled="!baRows.length"
-                    @click="submitBulkAdd">Add to Stock</el-button>
+                <el-button size="small" :disabled="baSaving" @click="baVisible = false">{{ $tp('Cancel') }}</el-button>
+                <!-- Submit is a menu: plain add, or straight onto a supply
+                     batch (a new draft, or an open Pending one). Accounts
+                     without supply access keep the plain button. -->
+                <el-dropdown v-if="baBatchesOk" size="small" trigger="click" placement="top-end"
+                    class="rs-ba-submit" @command="baSubmit">
+                    <el-button type="primary" size="small" :loading="baSaving" :disabled="!baRows.length">
+                        {{ $tp('Submit') }} <i class="el-icon-arrow-down el-icon--right" />
+                    </el-button>
+                    <el-dropdown-menu slot="dropdown">
+                        <el-dropdown-item command="stock" icon="el-icon-box">{{ $tp('Add to Stock') }}</el-dropdown-item>
+                        <el-dropdown-item command="new" icon="el-icon-truck">{{ $tp('Create Supply Batch') }}</el-dropdown-item>
+                        <el-dropdown-item command="existing" icon="el-icon-plus" :disabled="!baBatches.length">
+                            {{ baBatches.length ? $tp('Add to existing Batch') : $tp('Add to existing Batch — none open') }}
+                        </el-dropdown-item>
+                    </el-dropdown-menu>
+                </el-dropdown>
+                <el-button v-else type="primary" size="small" :loading="baSaving" :disabled="!baRows.length"
+                    @click="baSubmit('stock')">{{ $tp('Add to Stock') }}</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- Which open batch takes the list — asked when Submit's "Add to
+             existing Batch" is picked and defaulting to the newest draft. -->
+        <el-dialog :title="$tp('Add to existing Batch')" :visible.sync="baPickVisible" width="420px" append-to-body
+            :close-on-click-modal="false">
+            <el-select v-model="baBatch" size="small" class="rs-full">
+                <el-option v-for="b in baBatches" :key="b._id"
+                    :label="b.batchNo + ' — ' + $tp('{n} device(s)', { n: b.total || 0 })" :value="b._id" />
+            </el-select>
+            <span slot="footer">
+                <el-button size="small" @click="baPickVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button type="primary" size="small" :disabled="!baBatch"
+                    @click="baPickConfirm">{{ $tp('Add to Batch') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── Assign To Exyon ───────────────────────────────────────
              Scan In Stock devices into a list, then move the lot in one
              call. Sold / away devices are refused at scan time. -->
-        <el-dialog title="Assign To Exyon" :visible.sync="exyonVisible" width="720px" top="6vh"
+        <el-dialog :title="$tp('Assign To Exyon')" :visible.sync="exyonVisible" width="720px" top="6vh"
             @closed="exyonRows = []">
             <div class="rs-exy">
                 <div class="rs-exy-bar">
                     <el-input ref="exyonInput" v-model="exyonCode" size="small" class="rs-exy-input"
-                        placeholder="Scan or type IMEI / serial, then Enter…" prefix-icon="el-icon-full-screen"
+                        :placeholder="$tp('Scan or type IMEI / serial, then Enter…')" prefix-icon="el-icon-full-screen"
                         clearable @keyup.enter.native="exyonScan" />
-                    <el-button v-if="exyonRows.length" size="small" plain @click="exyonRows = []">Clear</el-button>
+                    <el-button v-if="exyonRows.length" size="small" plain @click="exyonRows = []">{{ $tp('Clear') }}</el-button>
                 </div>
                 <div v-if="exyonMsg" :class="['rs-exy-msg', 'rs-exy-' + exyonTone]">{{ exyonMsg }}</div>
                 <el-table :data="exyonRows" border size="mini" max-height="340"
-                    empty-text="Nothing yet — scan a device to start the list.">
+                    :empty-text="$tp('Nothing yet — scan a device to start the list.')">
                     <el-table-column label="IMEI" min-width="150">
                         <template slot-scope="s"><b>{{ s.row.imei }}</b></template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Device')" min-width="200" show-overflow-tooltip>
                         <template slot-scope="s">
                             {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Current Location" width="150" align="center">
-                        <template slot-scope="s">{{ s.row.location || '—' }}</template>
+                    <el-table-column :label="$tp('Current Location')" width="150" align="center">
+                        <template slot-scope="s">{{ $tenum(s.row.location) || '—' }}</template>
                     </el-table-column>
                     <el-table-column label="" width="50" align="center">
                         <template slot-scope="s">
@@ -269,11 +300,11 @@
             </div>
             <span slot="footer">
                 <span v-if="exyonRows.length" class="rs-exy-count">
-                    {{ exyonRows.length }} device{{ exyonRows.length === 1 ? '' : 's' }}
+                    {{ $tp('{n} device(s)', { n: exyonRows.length }) }}
                 </span>
-                <el-button size="small" @click="exyonVisible = false">Cancel</el-button>
+                <el-button size="small" @click="exyonVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="exyonSaving" :disabled="!exyonRows.length"
-                    @click="submitExyon">Assign To Exyon</el-button>
+                    @click="submitExyon">{{ $tp('Assign To Exyon') }}</el-button>
             </span>
         </el-dialog>
 
@@ -281,7 +312,7 @@
              Raises a one-device Sales Return (SR-…) so it lands in the
              same ledger as returns raised from the Sales Return page.
              Record-only: the order stays Confirmed, line flagged. -->
-        <el-dialog title="Return Device" :visible.sync="returnVisible" width="440px">
+        <el-dialog :title="$tp('Return Device')" :visible.sync="returnVisible" width="440px">
             <div v-if="returnRow" class="rs-ret">
                 <div class="rs-ret-dev">
                     <b>{{ returnRow.imei }}</b>
@@ -289,31 +320,28 @@
                         {{ [returnRow.model, returnRow.storage, returnRow.color].filter(Boolean).join(' · ') }}
                     </span>
                     <span class="rs-dim">
-                        Sold on <b>{{ returnRow.salesOrder.orderNo }}</b> to {{ returnRow.salesOrder.customerName }}
+                        {{ $tp('Sold on {order} to {customer}', { order: returnRow.salesOrder.orderNo, customer: returnRow.salesOrder.customerName }) }}
                     </span>
                 </div>
                 <div class="rs-ret-field">
-                    <label>Return To</label>
+                    <label>{{ $tp('Return To') }}</label>
                     <el-select v-model="returnForm.location" size="small" class="rs-full">
-                        <el-option v-for="l in returnLocations" :key="l" :label="l" :value="l" />
+                        <el-option v-for="l in returnLocations" :key="l" :label="$tenum(l)" :value="l" />
                     </el-select>
                 </div>
                 <div class="rs-ret-field">
-                    <label>Note</label>
+                    <label>{{ $tp('Note') }}</label>
                     <el-input v-model="returnForm.note" type="textarea" :rows="2" maxlength="500" size="small"
-                        placeholder="Optional detail" />
+                        :placeholder="$tp('Optional detail')" />
                 </div>
                 <div class="rs-ret-hint">
-                    This raises a Sales Return you can find on the Sales Return page. The device goes back
-                    In Stock at {{ returnForm.location }} and can be sold again;
-                    {{ returnRow.salesOrder.orderNo }} keeps its line, marked returned — totals and the
-                    invoice are unchanged.
+                    {{ $tp('This raises a Sales Return you can find on the Sales Return page. The device goes back In Stock at {location} and can be sold again; {order} keeps its line, marked returned — totals and the invoice are unchanged.', { location: $tenum(returnForm.location), order: returnRow.salesOrder.orderNo }) }}
                 </div>
             </div>
             <span slot="footer">
-                <el-button size="small" @click="returnVisible = false">Cancel</el-button>
+                <el-button size="small" @click="returnVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button size="small" type="primary" :loading="returning"
-                    @click="submitReturn">Return to Stock</el-button>
+                    @click="submitReturn">{{ $tp('Return to Stock') }}</el-button>
             </span>
         </el-dialog>
 
@@ -321,17 +349,17 @@
              model / colour / storage are resolved from the IMEI. -->
         <!-- The report tab reproduces an A4-ish document, so it gets a wider
              dialog than the entry form needs. -->
-        <el-dialog :title="editRow ? 'Device Detail' : 'Add Device'" :visible.sync="editVisible"
+        <el-dialog :title="editRow ? $tp('Device Detail') : $tp('Add Device')" :visible.sync="editVisible"
             :width="dlgTab === 'report' ? '780px' : '520px'">
             <div class="rs-dlg">
                 <!-- Existing devices split into Detail / History tabs; a new
                      device has nothing to audit yet, so no tabs. -->
                 <el-tabs v-if="editRow" v-model="dlgTab" class="rs-tabs">
-                    <el-tab-pane label="Detail" name="detail" />
-                    <el-tab-pane v-if="editRow.blackbeltReportId" label="Blackbelt Report" name="report" />
+                    <el-tab-pane :label="$tp('Detail')" name="detail" />
+                    <el-tab-pane v-if="editRow.blackbeltReportId" :label="$tp('Blackbelt Report')" name="report" />
                     <el-tab-pane name="history">
                         <span slot="label">
-                            History
+                            {{ $tp('History') }}
                             <span v-if="deviceHistory.length" class="rs-tab-count">({{ deviceHistory.length }})</span>
                         </span>
                     </el-tab-pane>
@@ -346,40 +374,40 @@
                         <div class="rs-view-imei">
                             <b>{{ form.imei }}</b>
                             <el-tag v-if="editRow.location" size="mini" effect="plain"
-                                :type="locationTag(editRow.location)">{{ editRow.location }}</el-tag>
+                                :type="locationTag(editRow.location)">{{ $tenum(editRow.location) }}</el-tag>
                             <el-tag v-if="form.stockSource" size="mini" effect="plain" type="info">{{ form.stockSource }}</el-tag>
                         </div>
                         <div class="rs-view-sub">
-                            {{ identModel || 'Unknown model' }}<template v-if="form.color"> · {{ form.color }}</template><template v-if="form.storage"> · {{ form.storage }}</template>
+                            {{ identModel || $tp('Unknown model') }}<template v-if="form.color"> · {{ form.color }}</template><template v-if="form.storage"> · {{ form.storage }}</template>
                         </div>
                         <!-- Report availability — the verdict itself lives in
                              the Blackbelt Report tab. -->
                         <div class="rs-bb-line">
                             <template v-if="editRow.blackbeltReportId">
                                 <i class="el-icon-success rs-bb-yes" />
-                                <span class="rs-bb-ok-text">Blackbelt report ready</span>
+                                <span class="rs-bb-ok-text">{{ $tp('Blackbelt report ready') }}</span>
                             </template>
                             <template v-else>
                                 <i class="el-icon-error rs-bb-no" />
-                                <span class="rs-dim">No Blackbelt report</span>
+                                <span class="rs-dim">{{ $tp('No Blackbelt report') }}</span>
                                 <el-button size="mini" type="primary" plain class="rs-bb-check-btn"
-                                    :loading="bbChecking" @click="bbCheck">Check Blackbelt</el-button>
+                                    :loading="bbChecking" @click="bbCheck">{{ $tp('Check Blackbelt') }}</el-button>
                             </template>
                         </div>
                     </div>
                     <div class="rs-ident">
                         <div class="rs-ident-grid">
-                            <div class="rs-ident-cell"><span>Serial</span><b>{{ form.serialNumber || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>{{ $tp('Serial') }}</span><b>{{ form.serialNumber || '—' }}</b></div>
                             <div class="rs-ident-cell">
-                                <span>Battery</span>
+                                <span>{{ $tp('Battery') }}</span>
                                 <b :class="batteryClass(form.batteryHealth)">
                                     {{ form.batteryHealth == null ? '—' : form.batteryHealth + '%' }}
-                                    <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ form.batteryCycleCount }} cycles</span>
+                                    <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ $tp('{n} cycles', { n: form.batteryCycleCount }) }}</span>
                                 </b>
                             </div>
-                            <div class="rs-ident-cell"><span>A Number</span><b>{{ form.aNumber || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>{{ $tp('A Number') }}</span><b>{{ form.aNumber || '—' }}</b></div>
                             <div class="rs-ident-cell">
-                                <span>Added</span>
+                                <span>{{ $tp('Added') }}</span>
                                 <b>{{ histDate(editRow.createdAt) }}<span v-if="editRow.createdBy" class="rs-cycles"> · {{ editRow.createdBy }}</span></b>
                             </div>
                         </div>
@@ -394,41 +422,41 @@
                         ref="imeiInput"
                         v-model="form.imei"
                         size="small"
-                        placeholder="Scan or type the IMEI / serial"
+                        :placeholder="$tp('Scan or type the IMEI / serial')"
                         prefix-icon="el-icon-cpu"
                         clearable
                         @keyup.enter.native="lookupImei"
                         @input="onImeiInput"
                     />
                     <el-button size="small" type="primary" plain icon="el-icon-search"
-                        :loading="lookingUp" :disabled="!imeiReady" @click="lookupImei">Look up</el-button>
+                        :loading="lookingUp" :disabled="!imeiReady" @click="lookupImei">{{ $tp('Look up') }}</el-button>
                 </div>
 
                 <!-- resolved device identity (read-only) -->
                 <div v-if="lookupState === 'ok' || lookupState === 'known'" class="rs-ident">
                     <div v-if="lookupState === 'known'" class="rs-ident-warn">
-                        <i class="el-icon-warning-outline" /> This IMEI is already in stock — saving will fail. Edit the existing device instead.
+                        <i class="el-icon-warning-outline" /> {{ $tp('This IMEI is already in stock — saving will fail. Edit the existing device instead.') }}
                     </div>
                     <div v-else-if="form.blackbeltChecked" class="rs-ident-ok">
-                        <i class="el-icon-circle-check" /> Blackbelt report found
+                        <i class="el-icon-circle-check" /> {{ $tp('Blackbelt report found') }}
                     </div>
                     <div class="rs-ident-grid">
                         <!-- Without a Blackbelt report these are typed in the
                              Details form below instead of shown here. -->
                         <template v-if="!canEditIdentity">
-                            <div class="rs-ident-cell"><span>Model</span><b>{{ identModel || '—' }}</b></div>
-                            <div class="rs-ident-cell"><span>Colour</span><b>{{ form.color || '—' }}</b></div>
-                            <div class="rs-ident-cell"><span>Storage</span><b>{{ form.storage || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>{{ $tp('Model') }}</span><b>{{ identModel || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>{{ $tp('Colour') }}</span><b>{{ form.color || '—' }}</b></div>
+                            <div class="rs-ident-cell"><span>{{ $tp('Storage') }}</span><b>{{ form.storage || '—' }}</b></div>
                         </template>
                         <div class="rs-ident-cell">
-                            <span>Battery</span>
+                            <span>{{ $tp('Battery') }}</span>
                             <b :class="batteryClass(form.batteryHealth)">
                                 {{ form.batteryHealth == null ? '—' : form.batteryHealth + '%' }}
-                                <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ form.batteryCycleCount }} cycles</span>
+                                <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ $tp('{n} cycles', { n: form.batteryCycleCount }) }}</span>
                             </b>
                         </div>
-                        <div v-if="form.serialNumber" class="rs-ident-cell"><span>Serial</span><b>{{ form.serialNumber }}</b></div>
-                        <div v-if="form.stockSource" class="rs-ident-cell"><span>Stock Source</span><b>{{ form.stockSource }}</b></div>
+                        <div v-if="form.serialNumber" class="rs-ident-cell"><span>{{ $tp('Serial') }}</span><b>{{ form.serialNumber }}</b></div>
+                        <div v-if="form.stockSource" class="rs-ident-cell"><span>{{ $tp('Stock Source') }}</span><b>{{ form.stockSource }}</b></div>
                     </div>
                 </div>
                 <el-alert v-else-if="lookupState === 'notConfigured'" type="info" :closable="false" show-icon
@@ -438,41 +466,41 @@
                 <el-alert v-else-if="lookupState === 'error'" type="error" :closable="false" show-icon
                     class="rs-ident-alert" :title="lookupMessage" />
                 <div v-else class="rs-ident-idle">
-                    Enter IMEI to look up device detail
+                    {{ $tp('Enter IMEI to look up device detail') }}
                 </div>
                 </template>
 
                 <!-- what staff actually enter -->
-                <div class="rs-step-label">Details</div>
+                <div class="rs-step-label">{{ $tp('Details') }}</div>
                 <el-form label-width="120px" size="small" class="rs-form" @submit.native.prevent>
                     <!-- Blackbelt owns the identity when it has a report on the
                          unit; without one these are entered by hand. -->
                     <template v-if="canEditIdentity">
-                        <el-form-item label="Model">
+                        <el-form-item :label="$tp('Model')">
                             <!-- Model keeps the casing it is typed in, so a
                                  hand-entered unit reads like a Blackbelt one
                                  ("iPhone 13") and groups with it. -->
-                            <el-input v-model="form.model" placeholder="e.g. iPhone 13" />
+                            <el-input v-model="form.model" :placeholder="$tp('e.g. iPhone 13')" />
                         </el-form-item>
-                        <el-form-item label="Colour">
-                            <el-input :value="form.color" placeholder="e.g. BLACK"
+                        <el-form-item :label="$tp('Colour')">
+                            <el-input :value="form.color" :placeholder="$tp('e.g. BLACK')"
                                 @input="v => form.color = upper(v)" />
                         </el-form-item>
-                        <el-form-item label="Storage">
+                        <el-form-item :label="$tp('Storage')">
                             <!-- allow-create keeps an odd size from Blackbelt
                                  (or an old record) selectable, not wiped. -->
                             <el-select v-model="form.storage" clearable filterable allow-create
-                                default-first-option placeholder="Select storage" class="rs-full">
+                                default-first-option :placeholder="$tp('Select storage')" class="rs-full">
                                 <el-option v-for="s in storageOptions" :key="s" :label="s" :value="s" />
                             </el-select>
                         </el-form-item>
                     </template>
-                    <el-form-item label="Grade">
+                    <el-form-item :label="$tp('Grade')">
                         <el-radio-group v-model="form.grade" size="small" class="rs-grades">
                             <el-radio-button v-for="g in gradeOptions" :key="g" :label="g" />
                         </el-radio-group>
                     </el-form-item>
-                    <el-form-item label="Cost Price">
+                    <el-form-item :label="$tp('Cost Price')">
                         <el-input v-model="form.costPrice" class="rs-cost" placeholder="0.00"
                             @input="onCostInput">
                             <el-select slot="prepend" v-model="form.currency" class="rs-cur">
@@ -480,8 +508,8 @@
                             </el-select>
                         </el-input>
                     </el-form-item>
-                    <el-form-item label="Note">
-                        <el-input v-model="form.note" type="textarea" :rows="2" resize="none" placeholder="Optional" />
+                    <el-form-item :label="$tp('Note')">
+                        <el-input v-model="form.note" type="textarea" :rows="2" resize="none" :placeholder="$tp('Optional')" />
                     </el-form-item>
                 </el-form>
                 </template>
@@ -502,7 +530,7 @@
                                     <el-tag size="mini" :type="histMeta(h).type" effect="light">
                                         {{ histMeta(h).label }}
                                     </el-tag>
-                                    <span class="rs-hist-by"><i class="el-icon-user" /> {{ h.by || 'system' }}</span>
+                                    <span class="rs-hist-by"><i class="el-icon-user" /> {{ h.by || $tp('system') }}</span>
                                 </div>
                                 <div v-if="histMeta(h).text" class="rs-hist-note">{{ histMeta(h).text }}</div>
                                 <div v-if="h.changes && h.changes.length" class="rs-hist-note">
@@ -511,7 +539,7 @@
                             </div>
                         </el-timeline-item>
                     </el-timeline>
-                    <div v-else class="rs-hist-empty">No history recorded for this device yet.</div>
+                    <div v-else class="rs-hist-empty">{{ $tp('No history recorded for this device yet.') }}</div>
                 </div>
 
                 <!-- Full Blackbelt report, fetched live by the stored id and
@@ -520,34 +548,34 @@
                     <template v-if="report">
                         <div class="rs-report-head">
                             <div>
-                                <div class="rs-report-title">Analyst Report</div>
+                                <div class="rs-report-title">{{ $tp('Analyst Report') }}</div>
                                 <div class="rs-report-id">
-                                    Report #{{ report.analyst.reportId || editRow.blackbeltReportId }}<template
+                                    {{ $tp('Report') }} #{{ report.analyst.reportId || editRow.blackbeltReportId }}<template
                                         v-if="report.analyst.finishDate"> · {{ report.analyst.finishDate }}</template>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="rs-rep-sec">Device Information</div>
+                        <div class="rs-rep-sec">{{ $tp('Device Information') }}</div>
                         <div class="rs-rep-grid">
                             <div v-for="c in reportDeviceRows" :key="c[0]"
                                 :class="['rs-rep-cell', c[2] && 'rs-rep-wide']">
-                                <span class="rs-rep-label">{{ c[0] }}:</span>
+                                <span class="rs-rep-label">{{ $tp(c[0]) }}:</span>
                                 <span class="rs-rep-value" :title="c[1]">{{ c[1] }}</span>
                             </div>
                         </div>
 
-                        <div class="rs-rep-sec">Battery Information</div>
+                        <div class="rs-rep-sec">{{ $tp('Battery Information') }}</div>
                         <div class="rs-rep-grid">
                             <div v-for="c in reportBatteryRows" :key="c[0]" class="rs-rep-cell">
-                                <span class="rs-rep-label">{{ c[0] }}:</span>
+                                <span class="rs-rep-label">{{ $tp(c[0]) }}:</span>
                                 <span class="rs-rep-value"
                                     :class="c[0] === 'Health' ? batteryClass(parseInt(c[1])) : ''"
                                     :title="c[1]">{{ c[1] }}</span>
                             </div>
                         </div>
 
-                        <div class="rs-rep-sec">Device Testing Information</div>
+                        <div class="rs-rep-sec">{{ $tp('Device Testing Information') }}</div>
                         <div class="rs-rep-grid rs-rep-tests">
                             <div v-for="t in report.tests" :key="t.name" class="rs-rep-cell">
                                 <span class="rs-rep-label">{{ prettyName(t.name) }}:</span>
@@ -555,13 +583,13 @@
                             </div>
                         </div>
                         <div class="rs-legend">
-                            <span><i class="el-icon-success rs-verdict-pass" /> PASS</span>
-                            <span><i class="el-icon-error rs-verdict-fail" /> FAIL</span>
-                            <span><i class="el-icon-question rs-verdict-na" /> NOT TESTED</span>
+                            <span><i class="el-icon-success rs-verdict-pass" /> {{ $tp('PASS') }}</span>
+                            <span><i class="el-icon-error rs-verdict-fail" /> {{ $tp('FAIL') }}</span>
+                            <span><i class="el-icon-question rs-verdict-na" /> {{ $tp('NOT TESTED') }}</span>
                         </div>
 
                         <template v-if="report.parts.length">
-                            <div class="rs-rep-sec">Genuine Parts</div>
+                            <div class="rs-rep-sec">{{ $tp('Genuine Parts') }}</div>
                             <div class="rs-rep-grid rs-rep-tests">
                                 <div v-for="p in report.parts" :key="p.name" class="rs-rep-cell">
                                     <span class="rs-rep-label">{{ prettyName(p.name) }}:</span>
@@ -572,21 +600,21 @@
                             </div>
                         </template>
 
-                        <div class="rs-rep-sec">Analyst Information</div>
+                        <div class="rs-rep-sec">{{ $tp('Analyst Information') }}</div>
                         <div class="rs-rep-grid">
                             <div v-for="c in reportAnalystRows" :key="c[0]" class="rs-rep-cell">
-                                <span class="rs-rep-label">{{ c[0] }}:</span>
+                                <span class="rs-rep-label">{{ $tp(c[0]) }}:</span>
                                 <span class="rs-rep-value" :title="c[1]">{{ c[1] }}</span>
                             </div>
                         </div>
                     </template>
-                    <div v-else-if="!reportLoading" class="rs-hist-empty">{{ reportError || 'No report loaded.' }}</div>
+                    <div v-else-if="!reportLoading" class="rs-hist-empty">{{ reportError || $tp('No report loaded.') }}</div>
                 </div>
             </div>
             <span slot="footer">
-                <el-button size="small" @click="editVisible = false">Cancel</el-button>
+                <el-button size="small" @click="editVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button v-if="!editRow || dlgTab === 'detail'" type="primary" size="small"
-                    :loading="saving" :disabled="!imeiReady" @click="save">Save</el-button>
+                    :loading="saving" :disabled="!imeiReady" @click="save">{{ $tp('Save') }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -596,7 +624,8 @@
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
-    bulkAssignLocation, lookupSoldDevice, createSalesReturn
+    bulkAssignLocation, lookupSoldDevice, createSalesReturn,
+    getSupplyBatches, createSupplyBatch, addToSupplyBatch
 } from '@/api/refurbished'
 
 // The grading scale we actually use.
@@ -643,6 +672,15 @@ export default {
             baMsg: '',
             baTone: 'ok',
             baSaving: false,
+            // Submit menu — the list can board a supply batch as it lands
+            // in stock. baBatches holds the open Pending drafts the caller's
+            // devices could join; baBatch is the chooser's pick.
+            baBatch: '',
+            baBatches: [],
+            baPickVisible: false,
+            // The menu only shows once the batch list actually loaded — an
+            // account without supply access keeps the plain button.
+            baBatchesOk: false,
 
             // Assign To Exyon — scan a list, move it in one call.
             exyonVisible: false,
@@ -795,7 +833,7 @@ export default {
                 this.rows = r.rows || []
                 this.total = r.total || 0
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load devices'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load devices')))
             } finally {
                 this.loading = false
             }
@@ -829,6 +867,16 @@ export default {
             this.baCode = ''
             this.baMsg = ''
             this.baCurrency = 'AUD'
+            this.baBatch = ''
+            this.baBatches = []
+            this.baPickVisible = false
+            this.baBatchesOk = false
+            // Pending drafts the new devices could board. An account without
+            // supply access fails here and simply never sees the menu.
+            getSupplyBatches({ pendingFor: 'me' }).then(r => {
+                this.baBatches = (r && r.batches) || []
+                this.baBatchesOk = true
+            }).catch(() => { })
             this.baVisible = true
             this.$nextTick(() => {
                 const el = this.$refs.baInput
@@ -844,11 +892,11 @@ export default {
             this.baCode = ''
             if (!code) return
             if (!/^[A-Z0-9]{10,20}$/.test(code)) {
-                this.baSay('error', '"' + code + '" is not a valid IMEI or serial')
+                this.baSay('error', this.$tp('"{code}" is not a valid IMEI or serial', { code }))
                 return
             }
             if (this.baRows.some(r => String(r.imei).toUpperCase() === code)) {
-                this.baSay('warn', code + ' is already on the list')
+                this.baSay('warn', this.$tp('{code} is already on the list', { code }))
                 return
             }
             // Seeded in full — Vue 2 can't track keys added later.
@@ -862,13 +910,13 @@ export default {
                 bb: {}
             }
             this.baRows.unshift(row)
-            this.baSay('ok', code + ' added — checking Blackbelt…')
+            this.baSay('ok', this.$tp('{code} added — checking Blackbelt…', { code }))
             try {
                 const r = await lookupRefurbDevice(code)
                 if (r && r.alreadyInStock) {
                     const i = this.baRows.indexOf(row)
                     if (i >= 0) this.baRows.splice(i, 1)
-                    this.baSay('error', code + ' is already in the stock register')
+                    this.baSay('error', this.$tp('{code} is already in the stock register', { code }))
                     return
                 }
                 const d = (r && r.device) || {}
@@ -889,10 +937,10 @@ export default {
                     blackbeltStatus: (r && r.blackbeltStatus) || ''
                 }
                 row.bbFound = !!(r && r.found)
-                if (row.bbFound) this.baSay('ok', code + ' — ' + (d.model || 'report found'))
-                else this.baSay('warn', code + ' — no Blackbelt report, enter the details')
+                if (row.bbFound) this.baSay('ok', code + ' — ' + (d.model || this.$tp('report found')))
+                else this.baSay('warn', this.$tp('{code} — no Blackbelt report, enter the details', { code }))
             } catch (e) {
-                this.baSay('error', 'Lookup failed for ' + code + ' — details can be typed in')
+                this.baSay('error', this.$tp('Lookup failed for {code} — details can be typed in', { code }))
             } finally {
                 row.bbChecking = false
                 this.$nextTick(() => {
@@ -901,22 +949,41 @@ export default {
                 })
             }
         },
-        // Creates the list one record at a time — a failure keeps its row
-        // (with the reason on it) while the successes leave the list, so a
-        // retry only touches what actually failed.
-        async submitBulkAdd() {
+        // Submit menu: validate the list, then create — plain, or straight
+        // onto a supply batch.
+        baSubmit(cmd) {
             const checking = this.baRows.find(r => r.bbChecking)
             if (checking) {
-                this.$message.warning(`Still checking ${checking.imei} against Blackbelt — one moment`)
+                this.$message.warning(this.$tp('Still checking {imei} against Blackbelt — one moment', { imei: checking.imei }))
                 return
             }
             const noModel = this.baRows.find(r => !String(r.model || '').trim())
             if (noModel) {
-                this.$message.warning(`Enter a model for ${noModel.imei}`)
+                this.$message.warning(this.$tp('Enter a model for {imei}', { imei: noModel.imei }))
                 return
             }
+            if (cmd === 'existing') {
+                // Which draft takes them — asked in the chooser, defaulting
+                // to the newest.
+                this.baBatch = (this.baBatches[0] && this.baBatches[0]._id) || ''
+                this.baPickVisible = true
+                return
+            }
+            this.doBulkAdd(cmd === 'new' ? 'new' : '')
+        },
+        baPickConfirm() {
+            if (!this.baBatch) return
+            this.baPickVisible = false
+            this.doBulkAdd(this.baBatch)
+        },
+        // Creates the list one record at a time — a failure keeps its row
+        // (with the reason on it) while the successes leave the list, so a
+        // retry only touches what actually failed. batchTarget: '' = just
+        // stock, 'new' = open a draft with them, else a Pending batch id.
+        async doBulkAdd(batchTarget) {
             this.baSaving = true
             let created = 0
+            const createdIds = []
             const failed = []
             for (const row of this.baRows) {
                 try {
@@ -932,16 +999,45 @@ export default {
                     })
                     if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                     created++
+                    if (r.id) createdIds.push(r.id)
                 } catch (e) {
                     row.err = this.msg(e, 'Failed to add')
                     failed.push(row)
                 }
             }
+            // Board the new devices onto the chosen supply batch. They are
+            // in stock either way — a batch failure only warns.
+            let batchNo = ''
+            if (batchTarget && createdIds.length) {
+                try {
+                    if (batchTarget === 'new') {
+                        const b = await createSupplyBatch({ deviceIds: createdIds })
+                        if (!b || b.success === false) throw new Error((b && b.message) || 'Failed')
+                        const nb = b.batch || {}
+                        batchNo = nb.batchNo || this.$tp('a new supply batch')
+                        // The fresh draft goes to the top of the menu's
+                        // "existing" list — a retry after row failures can
+                        // append to it instead of opening a second one.
+                        if (nb._id) this.baBatches.unshift(nb)
+                    } else {
+                        const b = await addToSupplyBatch(batchTarget, { deviceIds: createdIds })
+                        if (!b || b.success === false) throw new Error((b && b.message) || 'Failed')
+                        batchNo = b.batchNo || this.$tp('the supply batch')
+                    }
+                } catch (e) {
+                    this.$message.warning(this.$tp('Devices were added to stock, but the supply batch failed — {msg}',
+                        { msg: this.msg(e, 'error') }))
+                }
+            }
             this.baSaving = false
             this.baRows = failed
-            if (created) this.$message.success(`${created} device(s) added to stock`)
+            if (created) {
+                this.$message.success(batchNo
+                    ? this.$tp('{n} device(s) added to stock and put on {batch}', { n: created, batch: batchNo })
+                    : this.$tp('{n} device(s) added to stock', { n: created }))
+            }
             if (failed.length) {
-                this.baSay('error', `${failed.length} device(s) failed — fix and press Add to Stock again`)
+                this.baSay('error', this.$tp('{n} device(s) failed — fix and press Submit again', { n: failed.length }))
             } else {
                 this.baVisible = false
             }
@@ -969,7 +1065,7 @@ export default {
             if (this.exyonRows.some(r =>
                 String(r.imei).toUpperCase() === code ||
                 String(r.serialNumber || '').toUpperCase() === code)) {
-                this.exySay('warn', code + ' is already on the list')
+                this.exySay('warn', this.$tp('{code} is already on the list', { code }))
                 return
             }
             try {
@@ -977,19 +1073,19 @@ export default {
                 const hit = (r.rows || []).find(d =>
                     String(d.imei).toUpperCase() === code ||
                     String(d.serialNumber || '').toUpperCase() === code)
-                if (!hit) { this.exySay('error', code + ' is not in the stock register'); return }
+                if (!hit) { this.exySay('error', this.$tp('{code} is not in the stock register', { code })); return }
                 if (hit.status && hit.status !== 'In Stock') {
-                    this.exySay('error', code + ' is ' + hit.status + ' — only In Stock devices can move')
+                    this.exySay('error', this.$tp('{code} is {status} — only In Stock devices can move', { code, status: this.$tenum(hit.status) }))
                     return
                 }
                 if (hit.location === 'Assigned To Exyon') {
-                    this.exySay('warn', code + ' is already at Assigned To Exyon')
+                    this.exySay('warn', this.$tp('{code} is already at {location}', { code, location: this.$tenum('Assigned To Exyon') }))
                     return
                 }
                 this.exyonRows.unshift(hit)
-                this.exySay('ok', code + ' added — ' + (hit.model || 'unknown model'))
+                this.exySay('ok', this.$tp('{code} added — {model}', { code, model: hit.model || this.$tp('unknown model') }))
             } catch (e) {
-                this.exySay('error', 'Lookup failed — try again')
+                this.exySay('error', this.$tp('Lookup failed — try again'))
             }
         },
         async submitExyon() {
@@ -999,10 +1095,10 @@ export default {
                     location: 'Assigned To Exyon',
                     deviceIds: this.exyonRows.map(d => d._id)
                 })
-                this.$message.success(r.message || 'Moved')
+                this.$message.success(r.message || this.$tp('Moved'))
                 if ((r.skipped || []).length) {
                     this.$notify.warning({
-                        title: 'Some devices were skipped',
+                        title: this.$tp('Some devices were skipped'),
                         message: r.skipped.map(s => `${s.imei}: ${s.reason}`).join('\n'),
                         duration: 0
                     })
@@ -1010,7 +1106,7 @@ export default {
                 this.exyonVisible = false
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to move the devices'))
+                this.$message.error(this.msg(e, this.$tp('Failed to move the devices')))
             } finally {
                 this.exyonSaving = false
             }
@@ -1028,7 +1124,7 @@ export default {
                 const code = this.returnRow.imei || this.returnRow.serialNumber
                 const hit = await lookupSoldDevice(code)
                 if (!hit.found) {
-                    this.$message.warning(hit.message || 'This device cannot be returned')
+                    this.$message.warning(hit.message || this.$tp('This device cannot be returned'))
                     return
                 }
                 const r = await createSalesReturn({
@@ -1037,11 +1133,11 @@ export default {
                     location: this.returnForm.location,
                     notes: this.returnForm.note
                 })
-                this.$message.success(r.message || 'Returned to stock')
+                this.$message.success(r.message || this.$tp('Returned to stock'))
                 this.returnVisible = false
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to return the device'))
+                this.$message.error(this.msg(e, this.$tp('Failed to return the device')))
             } finally {
                 this.returning = false
             }
@@ -1121,13 +1217,13 @@ export default {
                     this.lookupState = 'known'
                 } else if (r.notConfigured) {
                     this.lookupState = 'notConfigured'
-                    this.lookupMessage = r.message || 'Blackbelt lookup isn\'t configured.'
+                    this.lookupMessage = r.message || this.$tp('Blackbelt lookup isn\'t configured.')
                 } else if (r.lookupError) {
                     this.lookupState = 'error'
                     this.lookupMessage = r.lookupError
                 } else if (r.found === false) {
                     this.lookupState = 'notFound'
-                    this.lookupMessage = r.message || 'Blackbelt has no report for this device — enter the details manually or save as is.'
+                    this.lookupMessage = r.message || this.$tp('Blackbelt has no report for this device — enter the details manually or save as is.')
                 } else {
                     this.lookupState = 'ok'
                     // A Blackbelt report IS the check — tick it off.
@@ -1135,14 +1231,14 @@ export default {
                 }
             } catch (e) {
                 this.lookupState = 'error'
-                this.lookupMessage = this.msg(e, 'IMEI lookup failed')
+                this.lookupMessage = this.msg(e, this.$tp('IMEI lookup failed'))
             } finally {
                 this.lookingUp = false
             }
         },
         async save() {
             const imei = String(this.form.imei || '').replace(/[\s-]/g, '').trim()
-            if (!imei) { this.$message.warning('IMEI is required.'); return }
+            if (!imei) { this.$message.warning(this.$tp('IMEI is required.')); return }
             this.saving = true
             try {
                 const cost = String(this.form.costPrice || '').trim()
@@ -1151,27 +1247,27 @@ export default {
                     ? await updateRefurbDevice(this.editRow._id, payload)
                     : await createRefurbDevice(payload)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.editRow ? 'Device updated' : 'Device added')
+                this.$message.success(this.editRow ? this.$tp('Device updated') : this.$tp('Device added'))
                 this.editVisible = false
                 this.loadFilters()
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to save device'))
+                this.$message.error(this.msg(e, this.$tp('Failed to save device')))
             } finally {
                 this.saving = false
             }
         },
         remove(row) {
-            this.$confirm(`Remove device ${row.imei} from stock?`, 'Delete device', {
-                type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel'
+            this.$confirm(this.$tp('Remove device {imei} from stock?', { imei: row.imei }), this.$tp('Delete device'), {
+                type: 'warning', confirmButtonText: this.$tp('Delete'), cancelButtonText: this.$tp('Cancel')
             }).then(async () => {
                 try {
                     const r = await deleteRefurbDevice(row._id)
                     if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                    this.$message.success('Device removed')
+                    this.$message.success(this.$tp('Device removed'))
                     this.load()
                 } catch (e) {
-                    this.$message.error(this.msg(e, 'Failed to delete device'))
+                    this.$message.error(this.msg(e, this.$tp('Failed to delete device')))
                 }
             }).catch(() => {})
         },
@@ -1190,15 +1286,15 @@ export default {
                 const r = await checkRefurbDeviceBlackbelt(this.editRow._id)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 if (!r.found) {
-                    this.$message.info(r.message || 'Blackbelt still has no report for this device.')
+                    this.$message.info(r.message || this.$tp('Blackbelt still has no report for this device.'))
                     return
                 }
-                this.$message.success(r.message || 'Blackbelt report found')
+                this.$message.success(r.message || this.$tp('Blackbelt report found'))
                 // Blackbelt wins, so anything it replaced is worth naming —
                 // a model or colour changing under you needs an explanation.
                 if ((r.corrected || []).length) {
                     this.$notify.info({
-                        title: 'Corrected from Blackbelt',
+                        title: this.$tp('Corrected from Blackbelt'),
                         message: r.corrected
                             .map(c => `${c.label}: "${c.from}" -> "${c.to}"`)
                             .join('\n'),
@@ -1224,7 +1320,7 @@ export default {
                 this.report = null // the Report tab should fetch fresh
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Blackbelt check failed'))
+                this.$message.error(this.msg(e, this.$tp('Blackbelt check failed')))
             } finally {
                 this.bbChecking = false
             }
@@ -1237,12 +1333,12 @@ export default {
                 const r = await getRefurbDeviceReport(this.editRow._id)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 if (!r.hasReport) {
-                    this.reportError = r.message || 'No Blackbelt report for this device.'
+                    this.reportError = r.message || this.$tp('No Blackbelt report for this device.')
                     return
                 }
                 this.report = r.report
             } catch (e) {
-                this.reportError = this.msg(e, 'Failed to load the report')
+                this.reportError = this.msg(e, this.$tp('Failed to load the report'))
             } finally {
                 this.reportLoading = false
             }
@@ -1267,10 +1363,10 @@ export default {
             return String(name || '').replace(/([a-z])([A-Z])/g, '$1 $2')
         },
         changeLine(c) {
-            return `${FIELD_LABELS[c.field] || c.field}: ${this.histVal(c.field, c.from)} → ${this.histVal(c.field, c.to)}`
+            return `${this.$tp(FIELD_LABELS[c.field] || c.field)}: ${this.histVal(c.field, c.from)} → ${this.histVal(c.field, c.to)}`
         },
         histVal(field, v) {
-            if (field === 'blackbeltChecked') return v ? 'Checked' : 'Not checked'
+            if (field === 'blackbeltChecked') return v ? this.$tp('Checked') : this.$tp('Not checked')
             if (v === null || v === undefined || v === '') return '—'
             return String(v)
         },
@@ -1280,10 +1376,10 @@ export default {
         histMeta(h) {
             const a = String(h.action || '')
             if (a === 'created') {
-                return { label: 'Created', type: 'success', color: '#67C23A', text: h.note || '' }
+                return { label: this.$tp('Created'), type: 'success', color: '#67C23A', text: h.note || '' }
             }
             if (a === 'updated') {
-                return { label: 'Updated', type: '', color: '#409EFF', text: h.note || '' }
+                return { label: this.$tp('Updated'), type: '', color: '#409EFF', text: h.note || '' }
             }
             const rules = [
                 [/^Sold on/i, 'Sold', 'danger', '#F56C6C'],
@@ -1300,10 +1396,10 @@ export default {
             ]
             for (const [re, label, type, color] of rules) {
                 if (re.test(a)) {
-                    return { label, type, color, text: a + (h.note ? ' · ' + h.note : '') }
+                    return { label: this.$tp(label), type, color, text: a + (h.note ? ' · ' + h.note : '') }
                 }
             }
-            return { label: 'Updated', type: '', color: '#409EFF', text: a + (h.note ? ' · ' + h.note : '') }
+            return { label: this.$tp('Updated'), type: '', color: '#409EFF', text: a + (h.note ? ' · ' + h.note : '') }
         },
         histDate(v) {
             const d = new Date(v)
@@ -1318,7 +1414,7 @@ export default {
         },
         soldTitle(row) {
             const so = row.salesOrder || {}
-            return [so.orderNo, so.customerName].filter(Boolean).join(' — ') || 'Sold'
+            return [so.orderNo, so.customerName].filter(Boolean).join(' — ') || this.$tenum('Sold')
         },
         gradeTag(g) {
             const k = String(g).trim().toUpperCase().charAt(0)
@@ -1366,6 +1462,7 @@ export default {
 .bae-model { flex: 1; min-width: 120px; }
 .bae-small { width: 100px; }
 .bae-cost { width: 84px; }
+.rs-ba-submit { margin-left: 10px; }
 
 .rs-exy { display: flex; flex-direction: column; gap: 10px; }
 .rs-exy-bar { display: flex; align-items: center; gap: 10px; }

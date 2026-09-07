@@ -2,12 +2,12 @@
     <div class="cd-page" v-loading="loading">
         <div class="cd-header">
             <div>
-                <div class="cd-title">Consignment Devices</div>
-                <div class="cd-sub">Devices placed with partner shops — track them from dispatch to sold or returned.</div>
+                <div class="cd-title">{{ $tp('Consignment Devices') }}</div>
+                <div class="cd-sub">{{ $tp('Devices placed with partner shops — track them from dispatch to sold or returned.') }}</div>
             </div>
             <div class="cd-actions">
-                <el-button v-hasPermi="['consign:device:assign']" type="success" size="small" icon="el-icon-plus" @click="openAssign">Assign Batch</el-button>
-                <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">Refresh</el-button>
+                <el-button v-hasPermi="['consign:device:assign']" type="success" size="small" icon="el-icon-plus" @click="openAssign">{{ $tp('Assign Batch') }}</el-button>
+                <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
             </div>
         </div>
 
@@ -18,34 +18,34 @@
                 :style="statusFilter === s.value ? { borderColor: s.color } : {}"
                 @click="toggleStatus(s.value)">
                 <span class="cd-chip-dot" :style="{ background: s.color }" />
-                {{ s.label }} <b>{{ counts[s.value] || 0 }}</b>
+                {{ $tp(s.label) }} <b>{{ counts[s.value] || 0 }}</b>
             </div>
         </div>
 
         <div class="cd-toolbar">
-            <el-select v-if="isAdmin" v-model="shopFilter" size="small" placeholder="All shops" clearable filterable
+            <el-select v-if="isAdmin" v-model="shopFilter" size="small" :placeholder="$tp('All shops')" clearable filterable
                 style="width: 200px" @change="reload">
                 <el-option v-for="s in shops" :key="s._id" :label="s.name" :value="s._id" />
             </el-select>
             <el-input v-model="search" size="small" clearable prefix-icon="el-icon-search"
-                placeholder="IMEI / serial / product…" style="width: 240px" @keyup.enter.native="reload" @clear="reload" />
+                :placeholder="$tp('IMEI / serial / product…')" style="width: 240px" @keyup.enter.native="reload" @clear="reload" />
             <span class="cd-spacer" />
             <!-- Bulk workflow actions (selection-based) -->
             <el-button v-hasPermi="['consign:device:receive']" size="small" type="primary" plain
-                :disabled="!eligible('in-transit').length" @click="doAction('receive', 'in-transit', 'Mark the selected devices as received?')">
-                Mark Received ({{ eligible('in-transit').length }})
+                :disabled="!eligible('in-transit').length" @click="doAction('receive', 'in-transit', $tp('Mark the selected devices as received?'))">
+                {{ $tp('Mark Received') }} ({{ eligible('in-transit').length }})
             </el-button>
             <el-button v-hasPermi="['consign:device:sell']" size="small" type="success" plain
-                :disabled="!eligible('received').length" @click="doAction('sell', 'received', 'Mark the selected devices as sold?')">
-                Mark Sold ({{ eligible('received').length }})
+                :disabled="!eligible('received').length" @click="doAction('sell', 'received', $tp('Mark the selected devices as sold?'))">
+                {{ $tp('Mark Sold') }} ({{ eligible('received').length }})
             </el-button>
             <el-button v-hasPermi="['consign:device:return']" size="small" type="warning" plain
-                :disabled="!eligible('received').length" @click="doAction('return', 'received', 'Initiate a return for the selected devices?')">
-                Return ({{ eligible('received').length }})
+                :disabled="!eligible('received').length" @click="doAction('return', 'received', $tp('Initiate a return for the selected devices?'))">
+                {{ $tp('Return') }} ({{ eligible('received').length }})
             </el-button>
             <el-button v-hasPermi="['consign:device:markReturned']" size="small" plain
-                :disabled="!eligible('returning').length" @click="doAction('markReturned', 'returning', 'Confirm the selected devices arrived back?')">
-                Mark Returned ({{ eligible('returning').length }})
+                :disabled="!eligible('returning').length" @click="doAction('markReturned', 'returning', $tp('Confirm the selected devices arrived back?'))">
+                {{ $tp('Mark Returned') }} ({{ eligible('returning').length }})
             </el-button>
         </div>
 
@@ -56,10 +56,10 @@
             <!-- The IMEI leads: it is the scan key, and register-sourced
                  records have no separate stock id (older EX_DB-era rows
                  fall back to theirs). -->
-            <el-table-column label="IMEI / Serial" prop="imei" width="145" show-overflow-tooltip>
+            <el-table-column :label="$tp('IMEI / Serial')" prop="imei" width="145" show-overflow-tooltip>
                 <template slot-scope="s"><span class="cd-mono">{{ s.row.imei || s.row.stockId || '—' }}</span></template>
             </el-table-column>
-            <el-table-column label="Product" min-width="240">
+            <el-table-column :label="$tp('Product')" min-width="240">
                 <template slot-scope="s">
                     <div class="cd-prod">
                         {{ s.row.productName }}
@@ -72,34 +72,34 @@
                  columns were mostly dashes — a row only ever fills the one
                  matching where it is — so the pill says where, and the line
                  under it says since when. -->
-            <el-table-column label="Status" width="130" align="center">
+            <el-table-column :label="$tp('Status')" width="130" align="center">
                 <template slot-scope="s">
                     <span class="cd-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span>
                     <div class="cd-status-date">{{ statusDate(s.row) }}</div>
                 </template>
             </el-table-column>
-            <el-table-column v-if="isAdmin" label="Our Cost" width="100" align="right">
+            <el-table-column v-if="isAdmin" :label="$tp('Our Cost')" width="100" align="right">
                 <template slot-scope="s">{{ money(s.row.costPrice) }}</template>
             </el-table-column>
             <!-- The shop's cost — what the weekly invoice bills. Their own
                  retail price comes later, once shops set it. -->
-            <el-table-column label="Shop Price" width="100" align="right">
+            <el-table-column :label="$tp('Shop Price')" width="100" align="right">
                 <template slot-scope="s"><b>{{ money(s.row.shopPrice) }}</b></template>
             </el-table-column>
-            <el-table-column v-if="isAdmin" label="Shop" prop="shopName" width="140" show-overflow-tooltip />
-            <el-table-column label="Received" width="95" align="center">
+            <el-table-column v-if="isAdmin" :label="$tp('Shop')" prop="shopName" width="140" show-overflow-tooltip />
+            <el-table-column :label="$tp('Received')" width="95" align="center">
                 <template slot-scope="s">{{ dateStr(s.row.receivedAt) }}</template>
             </el-table-column>
-            <el-table-column label="Sold" width="95" align="center">
+            <el-table-column :label="$tp('Sold')" width="95" align="center">
                 <template slot-scope="s">{{ dateStr(s.row.soldAt) }}</template>
             </el-table-column>
-            <el-table-column label="Invoiced" width="80" align="center">
+            <el-table-column :label="$tp('Invoiced')" width="80" align="center">
                 <template slot-scope="s">
                     <i v-if="s.row.invoiceId" class="el-icon-check cd-invoiced" />
                     <span v-else class="cd-dash">—</span>
                 </template>
             </el-table-column>
-            <template slot="empty"><span class="cd-empty">No devices{{ statusFilter || search ? ' match the current filters.' : ' yet.' }}</span></template>
+            <template slot="empty"><span class="cd-empty">{{ statusFilter || search ? $tp('No devices match the current filters.') : $tp('No devices yet.') }}</span></template>
         </el-table>
 
         <div class="cd-pager">
@@ -111,42 +111,42 @@
 
         <!-- Assign batch dialog — resolve Stock IDs / IMEIs from the ExEngine DB -->
         <el-dialog :visible.sync="assignVisible" width="780px" append-to-body :close-on-click-modal="false">
-            <div slot="title" class="cd-dialog-title"><i class="el-icon-box" /> Assign Devices to a Shop</div>
+            <div slot="title" class="cd-dialog-title"><i class="el-icon-box" /> {{ $tp('Assign Devices to a Shop') }}</div>
             <el-form label-position="top" size="small" @submit.native.prevent>
-                <el-form-item label="Shop" required>
-                    <el-select v-model="assignShopId" placeholder="Select shop" filterable style="width: 100%">
+                <el-form-item :label="$tp('Shop')" required>
+                    <el-select v-model="assignShopId" :placeholder="$tp('Select shop')" filterable style="width: 100%">
                         <el-option v-for="s in shops.filter(x => x.active !== false)" :key="s._id" :label="s.name" :value="s._id" />
                     </el-select>
                 </el-form-item>
-                <el-form-item label="IMEI or serial — press Enter to add">
+                <el-form-item :label="$tp('IMEI or serial — press Enter to add')">
                     <div class="cd-code-row">
-                        <el-input ref="codeInput" v-model="assignCode" placeholder="Scan or type an IMEI / serial from Stock" clearable
+                        <el-input ref="codeInput" v-model="assignCode" :placeholder="$tp('Scan or type an IMEI / serial from Stock')" clearable
                             :disabled="resolving" @keyup.enter.native="addCode" />
                         <el-button type="primary" plain icon="el-icon-search" :loading="resolving"
-                            :disabled="!assignCode.trim()" @click="addCode">Add</el-button>
+                            :disabled="!assignCode.trim()" @click="addCode">{{ $tp('Add') }}</el-button>
                     </div>
                 </el-form-item>
             </el-form>
 
             <template v-if="resolved.length">
                 <div class="cd-resolve-note">
-                    <span class="ok">{{ assignable.length }} ready</span>
-                    <span v-if="resolvedOut.length" class="warn"> · {{ resolvedOut.length }} already out on consignment (excluded)</span>
-                    <span v-if="missingPriceCount" class="err"> · {{ missingPriceCount }} missing a Shop Price</span>
+                    <span class="ok">{{ $tp('{n} ready', { n: assignable.length }) }}</span>
+                    <span v-if="resolvedOut.length" class="warn"> · {{ $tp('{n} already out on consignment (excluded)', { n: resolvedOut.length }) }}</span>
+                    <span v-if="missingPriceCount" class="err"> · {{ $tp('{n} missing a Shop Price', { n: missingPriceCount }) }}</span>
                 </div>
                 <el-table :data="resolved" size="mini" border max-height="280" class="cd-resolve-table" :row-class-name="resolveRowClass">
-                    <el-table-column label="IMEI / Serial" width="145">
+                    <el-table-column :label="$tp('IMEI / Serial')" width="145">
                         <template slot-scope="s"><span class="cd-mono">{{ s.row.imei || s.row.stockId }}</span></template>
                     </el-table-column>
-                    <el-table-column label="Product" min-width="220">
+                    <el-table-column :label="$tp('Product')" min-width="220">
                         <template slot-scope="s">
                             <div class="cd-prod">{{ s.row.productName }}</div>
                             <div v-if="s.row.sku" class="cd-sub">SKU: {{ s.row.sku }}</div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="65" align="center"><template slot-scope="s">{{ s.row.grade || '—' }}</template></el-table-column>
-                    <el-table-column label="Our Cost" width="85" align="right"><template slot-scope="s">{{ money(s.row.costPrice) }}</template></el-table-column>
-                    <el-table-column label="Shop Price" width="120">
+                    <el-table-column :label="$tp('Grade')" width="65" align="center"><template slot-scope="s">{{ s.row.grade || '—' }}</template></el-table-column>
+                    <el-table-column :label="$tp('Our Cost')" width="85" align="right"><template slot-scope="s">{{ money(s.row.costPrice) }}</template></el-table-column>
+                    <el-table-column :label="$tp('Shop Price')" width="120">
                         <template slot-scope="s">
                             <el-input v-model="s.row.shopPrice" size="mini" type="number" min="0"
                                 :disabled="s.row.alreadyOut" placeholder="0.00"
@@ -164,10 +164,10 @@
             </template>
 
             <span slot="footer">
-                <el-button size="small" @click="assignVisible = false">Cancel</el-button>
+                <el-button size="small" @click="assignVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-position" :loading="assigning"
                     :disabled="!assignShopId || !assignable.length || missingPriceCount > 0"
-                    @click="submitAssign">Assign {{ assignable.length }} device{{ assignable.length === 1 ? '' : 's' }}</el-button>
+                    @click="submitAssign">{{ $tp('Assign {n} device(s)', { n: assignable.length }) }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -253,7 +253,7 @@ export default {
                 this.total = r.total || 0
                 this.counts = r.counts || {}
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load devices'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load devices')))
             } finally {
                 this.loading = false
             }
@@ -271,18 +271,18 @@ export default {
             const targets = this.eligible(fromStatus)
             if (!targets.length) return
             try {
-                await this.$confirm(`${confirmText} (${targets.length} device${targets.length === 1 ? '' : 's'})`, 'Confirm',
-                    { confirmButtonText: 'Confirm', cancelButtonText: 'Cancel', type: 'info' })
+                await this.$confirm(confirmText + ' (' + this.$tp('{n} device(s)', { n: targets.length }) + ')', this.$tp('Confirm'),
+                    { confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel'), type: 'info' })
             } catch (e) { return }
             try {
                 const r = await updateConsignDeviceStatus(action, targets.map(t => t._id))
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                let text = `${r.updated} device${r.updated === 1 ? '' : 's'} updated.`
-                if (r.skipped) text += ` ${r.skipped} skipped (status changed elsewhere).`
+                let text = this.$tp('{n} device(s) updated', { n: r.updated })
+                if (r.skipped) text += ' · ' + this.$tp('{n} skipped (status changed elsewhere)', { n: r.skipped })
                 this.$message.success(text)
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Update failed'))
+                this.$message.error(this.msg(e, this.$tp('Update failed')))
             }
         },
         // ── Assign batch (look up one Stock ID / IMEI at a time) ──
@@ -305,7 +305,7 @@ export default {
             const dup = this.resolved.find(d =>
                 norm(d.stockId) === norm(code) || norm(d.stockId) === norm(padded) || (d.imei && norm(d.imei) === norm(code)))
             if (dup) {
-                this.$message.info(`${dup.imei || dup.stockId} is already in the list.`)
+                this.$message.info(this.$tp('{code} is already on the list', { code: dup.imei || dup.stockId }))
                 this.assignCode = ''
                 return
             }
@@ -318,17 +318,17 @@ export default {
                     // In the register but not assignable (sold, away at a
                     // repairer…) — say which, not just "not found".
                     const rej = (r.rejected || [])[0]
-                    this.$message.warning(rej ? rej.reason : `"${code}" is not in the stock register.`)
+                    this.$message.warning(rej ? rej.reason : this.$tp('"{code}" is not in the stock register', { code }))
                     return
                 }
                 // Shop Price — the shop's cost, what we invoice. Typed per
                 // device when the batch is built.
                 device.shopPrice = null
                 this.resolved.push(device)
-                if (device.alreadyOut) this.$message.warning(`${device.stockId} is already out on consignment — excluded from this batch.`)
+                if (device.alreadyOut) this.$message.warning(this.$tp('{code} is already out on consignment — excluded from this batch', { code: device.stockId }))
                 this.assignCode = ''
             } catch (e) {
-                this.$message.error(this.msg(e, 'Stock lookup failed'))
+                this.$message.error(this.msg(e, this.$tp('Stock lookup failed')))
             } finally {
                 this.resolving = false
                 this.$nextTick(() => {
@@ -359,17 +359,17 @@ export default {
                 }))
                 const r = await assignConsignDevices({ shopId: this.assignShopId, devices })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(`${r.assigned} device${r.assigned === 1 ? '' : 's'} assigned to ${r.shopName} (in transit).`)
+                this.$message.success(this.$tp('{n} device(s) assigned to {shop} (in transit)', { n: r.assigned, shop: r.shopName }))
                 this.assignVisible = false
                 this.reload()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Assign failed'))
+                this.$message.error(this.msg(e, this.$tp('Assign failed')))
             } finally {
                 this.assigning = false
             }
         },
         // ── Formatting ──
-        statusLabel(v) { return (STATUS_META[v] && STATUS_META[v].label) || v },
+        statusLabel(v) { return this.$tp((STATUS_META[v] && STATUS_META[v].label) || v) },
         // The date that belongs to the row's current status — assigned for
         // in-transit, received once it lands, and so on.
         statusDate(row) {

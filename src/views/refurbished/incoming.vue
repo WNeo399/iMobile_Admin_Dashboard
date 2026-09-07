@@ -1,36 +1,36 @@
 <template>
     <div class="ri-page app-container">
         <div class="ri-bar">
-            <span class="ri-title">Incoming Stocks</span>
+            <span class="ri-title">{{ $tt('Incoming Stocks') }}</span>
             <span class="ri-spacer" />
-            <el-button size="small" type="primary" plain icon="el-icon-upload2" @click="openUpload">Upload List</el-button>
-            <el-button size="small" icon="el-icon-refresh" @click="loadBatches">Refresh</el-button>
+            <el-button size="small" type="primary" plain icon="el-icon-upload2" @click="openUpload">{{ $tp('Upload List') }}</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="loadBatches">{{ $tp('Refresh') }}</el-button>
         </div>
 
         <el-table v-loading="loading" :data="batches" border size="mini"
-            empty-text="No incoming batches yet — upload a supplier list to start.">
-            <el-table-column label="Batch" min-width="200">
+            :empty-text="$tp('No incoming batches yet — upload a supplier list to start.')">
+            <el-table-column :label="$tp('Batch')" min-width="200">
                 <template slot-scope="s">
                     <el-button type="text" class="ri-link" @click="openBatch(s.row)">{{ s.row.title }}</el-button>
                 </template>
             </el-table-column>
-            <el-table-column label="Devices" width="90" align="center">
+            <el-table-column :label="$tp('Devices')" width="90" align="center">
                 <template slot-scope="s">{{ s.row.summary.total }}</template>
             </el-table-column>
-            <el-table-column label="Received" width="110" align="center">
+            <el-table-column :label="$tp('Received')" width="110" align="center">
                 <template slot-scope="s">
                     <span :class="s.row.summary.received === s.row.summary.total ? 'ri-ok' : ''">
                         {{ s.row.summary.received }} / {{ s.row.summary.total }}
                     </span>
                 </template>
             </el-table-column>
-            <el-table-column label="Stock Source" width="120" align="center">
+            <el-table-column :label="$tp('Stock Source')" width="120" align="center">
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
             </el-table-column>
-            <el-table-column label="Currency" width="90" align="center">
+            <el-table-column :label="$tp('Currency')" width="90" align="center">
                 <template slot-scope="s">{{ s.row.currency }}</template>
             </el-table-column>
-            <el-table-column label="Uploaded" width="160">
+            <el-table-column :label="$tp('Uploaded')" width="160">
                 <template slot-scope="s">
                     <div>{{ shortDate(s.row.createdAt) }}</div>
                     <div v-if="s.row.createdBy" class="ri-sub">{{ s.row.createdBy }}</div>
@@ -38,74 +38,74 @@
             </el-table-column>
             <el-table-column label="" width="150" align="center">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" icon="el-icon-view" @click="openBatch(s.row)">Receive Stock</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openBatch(s.row)">{{ $tp('Receive Stock') }}</el-button>
                     <el-button size="mini" type="text" icon="el-icon-delete" class="ri-del" @click="removeBatch(s.row)" />
                 </template>
             </el-table-column>
         </el-table>
 
         <!-- ── Upload a supplier list ───────────────────────────────── -->
-        <el-dialog title="Upload Incoming List" :visible.sync="uploadVisible" width="720px">
+        <el-dialog :title="$tp('Upload Incoming List')" :visible.sync="uploadVisible" width="720px">
             <div class="ri-up">
                 <el-form label-width="110px" size="small" class="ri-up-form" @submit.native.prevent>
-                    <el-form-item label="File">
+                    <el-form-item :label="$tp('File')">
                         <input ref="uploadFile" type="file" accept=".xlsx,.xls,.csv" class="ri-file"
                             @change="onFile" />
                         <div class="ri-hint">
-                            Columns are matched by name: model, color, capacity, IMEI (or serial), battery, price, grade.
+                            {{ $tp('Columns are matched by name: model, color, capacity, IMEI (or serial), battery, price, grade.') }}
                         </div>
                     </el-form-item>
-                    <el-form-item label="Title">
-                        <el-input v-model="upload.title" placeholder="e.g. AU260804" maxlength="120" />
+                    <el-form-item :label="$tp('Title')">
+                        <el-input v-model="upload.title" :placeholder="$tp('e.g. AU260804')" maxlength="120" />
                     </el-form-item>
-                    <el-form-item label="Stock Source">
-                        <el-select v-model="upload.stockSource" placeholder="Select a stock source" style="width: 100%">
+                    <el-form-item :label="$tp('Stock Source')">
+                        <el-select v-model="upload.stockSource" :placeholder="$tp('Select a stock source')" style="width: 100%">
                             <el-option v-for="s in stockSources" :key="s" :label="s" :value="s" />
                         </el-select>
-                        <div class="ri-hint">Fixed for the batch — receiving won't change it.</div>
+                        <div class="ri-hint">{{ $tp("Fixed for the batch — receiving won't change it.") }}</div>
                     </el-form-item>
-                    <el-form-item label="Currency">
+                    <el-form-item :label="$tp('Currency')">
                         <el-radio-group v-model="upload.currency" size="small">
                             <el-radio-button v-for="c in currencies" :key="c" :label="c" />
                         </el-radio-group>
-                        <span class="ri-hint ri-inline">Applies to the price column for the whole batch.</span>
+                        <span class="ri-hint ri-inline">{{ $tp('Applies to the price column for the whole batch.') }}</span>
                     </el-form-item>
                 </el-form>
 
                 <div v-if="parsed.rows.length || parsed.bad.length" class="ri-preview">
                     <div class="ri-preview-head">
-                        <b>{{ parsed.rows.length }}</b> device{{ parsed.rows.length === 1 ? '' : 's' }} ready
-                        <span v-if="parsed.bad.length" class="ri-warn">· {{ parsed.bad.length }} row(s) will be skipped</span>
+                        {{ $tp('{n} device(s) ready', { n: parsed.rows.length }) }}
+                        <span v-if="parsed.bad.length" class="ri-warn">· {{ $tp('{n} row(s) will be skipped', { n: parsed.bad.length }) }}</span>
                     </div>
                     <el-table :data="parsed.rows.slice(0, 8)" size="mini" border>
-                        <el-table-column prop="code" label="IMEI / Serial" min-width="150" />
-                        <el-table-column prop="model" label="Model" min-width="110" />
-                        <el-table-column prop="color" label="Colour" min-width="100" />
-                        <el-table-column prop="capacity" label="Capacity" width="90" align="center" />
-                        <el-table-column label="Battery" width="80" align="center">
+                        <el-table-column prop="code" :label="$tp('IMEI / Serial')" min-width="150" />
+                        <el-table-column prop="model" :label="$tp('Model')" min-width="110" />
+                        <el-table-column prop="color" :label="$tp('Colour')" min-width="100" />
+                        <el-table-column prop="capacity" :label="$tp('Capacity')" width="90" align="center" />
+                        <el-table-column :label="$tp('Battery')" width="80" align="center">
                             <template slot-scope="s">{{ s.row.battery == null ? '—' : s.row.battery + '%' }}</template>
                         </el-table-column>
-                        <el-table-column label="Price" width="100" align="right">
+                        <el-table-column :label="$tp('Price')" width="100" align="right">
                             <template slot-scope="s">{{ money(s.row.price, upload.currency) }}</template>
                         </el-table-column>
-                        <el-table-column label="Grade" width="70" align="center">
+                        <el-table-column :label="$tp('Grade')" width="70" align="center">
                             <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                         </el-table-column>
                     </el-table>
-                    <div v-if="parsed.rows.length > 8" class="ri-hint">…and {{ parsed.rows.length - 8 }} more.</div>
+                    <div v-if="parsed.rows.length > 8" class="ri-hint">{{ $tp('…and {n} more', { n: parsed.rows.length - 8 }) }}</div>
                     <div v-if="parsed.bad.length" class="ri-bad">
                         <div v-for="b in parsed.bad.slice(0, 5)" :key="b.row">
-                            Row {{ b.row }}: {{ b.reason }}<template v-if="b.code"> ({{ b.code }})</template>
+                            {{ $tp('Row {n}:', { n: b.row }) }} {{ b.reason }}<template v-if="b.code"> ({{ b.code }})</template>
                         </div>
-                        <div v-if="parsed.bad.length > 5">…and {{ parsed.bad.length - 5 }} more.</div>
+                        <div v-if="parsed.bad.length > 5">{{ $tp('…and {n} more', { n: parsed.bad.length - 5 }) }}</div>
                     </div>
                 </div>
             </div>
             <span slot="footer">
-                <el-button size="small" @click="uploadVisible = false">Cancel</el-button>
+                <el-button size="small" @click="uploadVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="uploading"
                     :disabled="!parsed.rows.length || !upload.title" @click="submitUpload">
-                    Create Batch
+                    {{ $tp('Create Batch') }}
                 </el-button>
             </span>
         </el-dialog>
@@ -115,41 +115,39 @@
             top="4vh" :before-close="onTakeBeforeClose" @closed="onTakeClosed">
             <div v-if="batch" class="ri-take">
                 <div class="ri-stats">
-                    <div class="ri-stat"><span>Stock Source</span><b>{{ batch.stockSource || '—' }}</b></div>
-                    <div class="ri-stat"><span>Expected</span><b>{{ batch.summary.listed }}</b></div>
-                    <div class="ri-stat"><span>Scanned</span><b class="ri-ok">{{ checkedCodes.length }}</b></div>
-                    <div class="ri-stat"><span>Remaining</span><b>{{ remaining }}</b></div>
-                    <div class="ri-stat"><span>In Blackbelt</span><b>{{ batch.summary.inBlackbelt }}</b></div>
-                    <div class="ri-stat"><span>Added to Stock</span><b>{{ batch.summary.committed }}</b></div>
+                    <div class="ri-stat"><span>{{ $tp('Stock Source') }}</span><b>{{ batch.stockSource || '—' }}</b></div>
+                    <div class="ri-stat"><span>{{ $tp('Expected') }}</span><b>{{ batch.summary.listed }}</b></div>
+                    <div class="ri-stat"><span>{{ $tp('Scanned') }}</span><b class="ri-ok">{{ checkedCodes.length }}</b></div>
+                    <div class="ri-stat"><span>{{ $tp('Remaining') }}</span><b>{{ remaining }}</b></div>
+                    <div class="ri-stat"><span>{{ $tp('In Blackbelt') }}</span><b>{{ batch.summary.inBlackbelt }}</b></div>
+                    <div class="ri-stat"><span>{{ $tp('Added to Stock') }}</span><b>{{ batch.summary.committed }}</b></div>
                     <div v-if="unlistedCount" class="ri-stat">
-                        <span>Not on list</span><b class="ri-warn">{{ unlistedCount }}</b>
+                        <span>{{ $tp('Not on list') }}</span><b class="ri-warn">{{ unlistedCount }}</b>
                     </div>
                 </div>
 
                 <el-alert v-if="sweepRunning" type="info" :closable="false" show-icon class="ri-alert">
-                    Checking Blackbelt — {{ batch.summary.total - batch.summary.blackbeltPending }} of
-                    {{ batch.summary.total }} done. You can keep scanning.
+                    {{ $tp('Checking Blackbelt — {done} of {total} done. You can keep scanning.', { done: batch.summary.total - batch.summary.blackbeltPending, total: batch.summary.total }) }}
                 </el-alert>
                 <el-alert v-else-if="batch.summary.blackbeltPending" type="info" :closable="false" show-icon
                     class="ri-alert">
-                    {{ batch.summary.blackbeltPending }} device(s) haven't been checked against Blackbelt —
-                    select rows and use the Check Blackbelt button below.
+                    {{ $tp("{n} device(s) haven't been checked against Blackbelt — select rows and use the Check Blackbelt button below.", { n: batch.summary.blackbeltPending }) }}
                 </el-alert>
 
                 <div class="ri-scan">
                     <el-input ref="scanInput" v-model="scanCode" size="small" class="ri-scan-input"
-                        placeholder="Scan IMEI or serial…" prefix-icon="el-icon-full-screen" clearable
+                        :placeholder="$tp('Scan IMEI or serial…')" prefix-icon="el-icon-full-screen" clearable
                         @keyup.enter.native="doScan" />
                     <!-- For shipments trusted without a unit-by-unit scan. -->
                     <el-button size="small" plain icon="el-icon-finished" :disabled="!selectableCount"
-                        @click="selectAllRemaining">Select All Remaining<template v-if="selectableCount"> ({{ selectableCount }})</template></el-button>
-                    <el-button v-if="checkedCodes.length" size="small" plain @click="clearSelection">Clear</el-button>
+                        @click="selectAllRemaining">{{ $tp('Select All Remaining') }}<template v-if="selectableCount"> ({{ selectableCount }})</template></el-button>
+                    <el-button v-if="checkedCodes.length" size="small" plain @click="clearSelection">{{ $tp('Clear') }}</el-button>
                     <span class="ri-spacer" />
                     <el-radio-group v-model="lineFilter" size="small">
-                        <el-radio-button label="all">All</el-radio-button>
-                        <el-radio-button label="remaining">Remaining</el-radio-button>
-                        <el-radio-button label="scanned">Scanned</el-radio-button>
-                        <el-radio-button label="received">Received</el-radio-button>
+                        <el-radio-button label="all">{{ $tp('All') }}</el-radio-button>
+                        <el-radio-button label="remaining">{{ $tp('Remaining') }}</el-radio-button>
+                        <el-radio-button label="scanned">{{ $tp('Scanned') }}</el-radio-button>
+                        <el-radio-button label="received">{{ $tp('Received') }}</el-radio-button>
                     </el-radio-group>
                 </div>
                 <div v-if="scanMessage" :class="['ri-scan-msg', 'ri-msg-' + scanTone]">{{ scanMessage }}</div>
@@ -169,25 +167,25 @@
                             <div v-if="s.row.__group" class="ri-group">
                                 <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
                                 {{ s.row.model }}
-                                <span class="ri-dim">· {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}</span>
-                                <span v-if="s.row.receivedCount" class="ri-group-recv">· {{ s.row.receivedCount }} received</span>
-                                <span :class="s.row.remainingCount ? 'ri-group-rem' : 'ri-dim'">· {{ s.row.remainingCount }} remaining</span>
+                                <span class="ri-dim">· {{ $tp('{n} device(s)', { n: s.row.count }) }}</span>
+                                <span v-if="s.row.receivedCount" class="ri-group-recv">· {{ $tp('{n} received', { n: s.row.receivedCount }) }}</span>
+                                <span :class="s.row.remainingCount ? 'ri-group-rem' : 'ri-dim'">· {{ $tp('{n} remaining', { n: s.row.remainingCount }) }}</span>
                             </div>
                             <el-checkbox v-else class="ri-row-check" :value="isChecked(s.row)"
                                 :disabled="isPersisted(s.row)" />
                         </template>
                     </el-table-column>
-                    <el-table-column label="IMEI / Serial" min-width="160">
+                    <el-table-column :label="$tp('IMEI / Serial')" min-width="160">
                         <template slot-scope="s">
                             <b>{{ s.row.code }}</b>
-                            <el-tag v-if="s.row.unlisted" size="mini" type="warning" effect="plain">not on list</el-tag>
+                            <el-tag v-if="s.row.unlisted" size="mini" type="warning" effect="plain">{{ $tp('not on list') }}</el-tag>
                         </template>
                     </el-table-column>
                     <!-- Blackbelt owns the identity of a unit it has a report
                          on. Everything else is the supplier's own wording, so
                          it can be corrected here before the stock record is
                          created. Saved at receive, like the grade picks. -->
-                    <el-table-column label="Model" min-width="150" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Model')" min-width="150" show-overflow-tooltip>
                         <template slot-scope="s">
                             <span v-if="bbModel(s.row)">{{ bbModel(s.row) }}</span>
                             <span v-else-if="isPersisted(s.row)">{{ s.row.model || '—' }}</span>
@@ -195,7 +193,7 @@
                                 @input="v => setDetail(s.row, 'model', v)" />
                         </template>
                     </el-table-column>
-                    <el-table-column label="Colour" min-width="115" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Colour')" min-width="115" show-overflow-tooltip>
                         <template slot-scope="s">
                             <span v-if="s.row.bbDevice && s.row.bbDevice.color">{{ s.row.bbDevice.color }}</span>
                             <span v-else-if="isPersisted(s.row)">{{ s.row.color || '—' }}</span>
@@ -203,7 +201,7 @@
                                 @input="v => setDetail(s.row, 'color', v)" />
                         </template>
                     </el-table-column>
-                    <el-table-column label="Capacity" width="100" align="center">
+                    <el-table-column :label="$tp('Capacity')" width="100" align="center">
                         <template slot-scope="s">
                             <span v-if="s.row.bbDevice && s.row.bbDevice.storage">{{ s.row.bbDevice.storage }}</span>
                             <span v-else-if="isPersisted(s.row)">{{ s.row.capacity || '—' }}</span>
@@ -211,27 +209,27 @@
                                 @input="v => setDetail(s.row, 'capacity', v)" />
                         </template>
                     </el-table-column>
-                    <el-table-column label="Battery" width="80" align="center">
+                    <el-table-column :label="$tp('Battery')" width="80" align="center">
                         <template slot-scope="s">{{ battery(s.row) == null ? '—' : battery(s.row) + '%' }}</template>
                     </el-table-column>
-                    <el-table-column label="Price" width="100" align="right">
+                    <el-table-column :label="$tp('Price')" width="100" align="right">
                         <template slot-scope="s">{{ money(s.row.price, batch.currency) }}</template>
                     </el-table-column>
                     <el-table-column label="Blackbelt" width="95" align="center">
                         <template slot-scope="s">
-                            <i v-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" title="Report found" />
-                            <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" title="No report" />
+                            <i v-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" :title="$tp('Report found')" />
+                            <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" :title="$tp('No report')" />
                             <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning ri-warn-i"
-                                :title="s.row.bbMessage || 'Lookup failed'" />
+                                :title="s.row.bbMessage || $tp('Lookup failed')" />
                             <!-- Local extras are checked when the batch is committed. -->
-                            <span v-else-if="!s.row.bbStatus" class="ri-dim" title="Checked when added to stock">—</span>
-                            <i v-else-if="sweepRunning" class="el-icon-loading ri-dim" title="Checking…" />
-                            <span v-else class="ri-dim" title="Not checked yet">—</span>
+                            <span v-else-if="!s.row.bbStatus" class="ri-dim" :title="$tp('Checked when added to stock')">—</span>
+                            <i v-else-if="sweepRunning" class="el-icon-loading ri-dim" :title="$tp('Checking…')" />
+                            <span v-else class="ri-dim" :title="$tp('Not checked yet')">—</span>
                         </template>
                     </el-table-column>
                     <!-- Sheet-provided grades are fixed; a device without one
                          gets picked here and is saved at commit. -->
-                    <el-table-column label="Grade" width="92" align="center">
+                    <el-table-column :label="$tp('Grade')" width="92" align="center">
                         <template slot-scope="s">
                             <el-tag v-if="s.row.grade" size="mini" effect="plain">{{ s.row.grade }}</el-tag>
                             <span v-else-if="isPersisted(s.row)" class="ri-dim">—</span>
@@ -243,13 +241,13 @@
                     </el-table-column>
                     <!-- "Received" only once Add Received to Stock has run —
                          a scan on its own is just the ticked checkbox. -->
-                    <el-table-column label="Status" width="130" align="center">
+                    <el-table-column :label="$tp('Status')" width="130" align="center">
                         <template slot-scope="s">
-                            <span v-if="s.row.deviceId" class="ri-ok"><i class="el-icon-check" /> Received</span>
-                            <span v-else-if="s.row.alreadyInStock" class="ri-warn" title="This code is already in the register">
-                                already in stock
+                            <span v-if="s.row.deviceId" class="ri-ok"><i class="el-icon-check" /> {{ $tp('Received') }}</span>
+                            <span v-else-if="s.row.alreadyInStock" class="ri-warn" :title="$tp('This code is already in the register')">
+                                {{ $tp('already in stock') }}
                             </span>
-                            <span v-else-if="s.row.received" class="ri-ok"><i class="el-icon-check" /> Received</span>
+                            <span v-else-if="s.row.received" class="ri-ok"><i class="el-icon-check" /> {{ $tp('Received') }}</span>
                             <span v-else class="ri-dim">—</span>
                         </template>
                     </el-table-column>
@@ -258,80 +256,80 @@
             <span slot="footer" class="ri-foot">
                 <el-button v-if="batch && (checkableCount || sweepRunning)" size="small" icon="el-icon-connection"
                     :loading="rechecking" :disabled="sweepRunning || !checkableCount"
-                    @click="recheck">{{ sweepRunning ? 'Checking…' : `Check Blackbelt (${checkableCount})` }}</el-button>
+                    @click="recheck">{{ sweepRunning ? $tp('Checking…') : $tp('Check Blackbelt') + ` (${checkableCount})` }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting"
-                    @click="downloadReceived">Download Received</el-button>
+                    @click="downloadReceived">{{ $tp('Download Received') }}</el-button>
                 <span class="ri-spacer" />
-                <span v-if="checkedCodes.length" class="ri-foot-note">{{ checkedCodes.length }} scanned, not yet added</span>
-                <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">Close</el-button>
+                <span v-if="checkedCodes.length" class="ri-foot-note">{{ $tp('{n} scanned, not yet added', { n: checkedCodes.length }) }}</span>
+                <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">{{ $tp('Close') }}</el-button>
                 <el-button size="small" type="warning" plain icon="el-icon-sell"
-                    :disabled="!checkedCodes.length" @click="openSell">Sell</el-button>
+                    :disabled="!checkedCodes.length" @click="openSell">{{ $tp('Sell') }}</el-button>
                 <el-button type="primary" size="small" :disabled="!checkedCodes.length"
-                    @click="openReceive">Received</el-button>
+                    @click="openReceive">{{ $tp('Received') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── Receive confirmation ─────────────────────────────────── -->
         <!-- The location is asked here, with no preselection, so it's a
              conscious choice rather than a footer control nobody notices. -->
-        <el-dialog title="Receive Stock" :visible.sync="receiveVisible" width="380px" append-to-body>
+        <el-dialog :title="$tp('Receive Stock')" :visible.sync="receiveVisible" width="380px" append-to-body>
             <div class="ri-recv">
                 <div class="ri-recv-line">
-                    <b>{{ checkedCodes.length }}</b> device(s) will be added to stock.
+                    {{ $tp('{n} device(s) will be added to stock.', { n: checkedCodes.length }) }}
                 </div>
-                <div class="ri-recv-label">Location</div>
-                <el-select v-model="receiveLocation" placeholder="Select a location" style="width: 100%">
-                    <el-option v-for="l in receiveLocations" :key="l" :label="l" :value="l" />
+                <div class="ri-recv-label">{{ $tp('Location') }}</div>
+                <el-select v-model="receiveLocation" :placeholder="$tp('Select a location')" style="width: 100%">
+                    <el-option v-for="l in receiveLocations" :key="l" :label="$tenum(l)" :value="l" />
                 </el-select>
             </div>
             <span slot="footer">
-                <el-button size="small" @click="receiveVisible = false">Cancel</el-button>
+                <el-button size="small" @click="receiveVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="committing" :disabled="!receiveLocation"
-                    @click="commit">Confirm</el-button>
+                    @click="commit">{{ $tp('Confirm') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── Which received stock to download ─────────────────────── -->
-        <el-dialog title="Download Received" :visible.sync="exportVisible" width="420px" append-to-body>
+        <el-dialog :title="$tp('Download Received')" :visible.sync="exportVisible" width="420px" append-to-body>
             <div class="ri-exp">
-                <div class="ri-exp-label">Include</div>
+                <div class="ri-exp-label">{{ $tp('Include') }}</div>
                 <el-checkbox-group v-model="exportPicks" class="ri-exp-list">
                     <el-checkbox v-for="b in exportBuckets" :key="b.key" :label="b.key" class="ri-exp-item">
-                        {{ b.key }} <span class="ri-dim">({{ b.count }})</span>
+                        {{ $tenum(b.key) }} <span class="ri-dim">({{ b.count }})</span>
                     </el-checkbox>
                 </el-checkbox-group>
                 <div class="ri-exp-total">
-                    <b>{{ exportSelectedRows.length }}</b> of {{ exportRows.length }} device(s) will be exported
+                    {{ $tp('{selected} of {total} device(s) will be exported', { selected: exportSelectedRows.length, total: exportRows.length }) }}
                 </div>
             </div>
             <span slot="footer">
-                <el-button size="small" @click="exportVisible = false">Cancel</el-button>
+                <el-button size="small" @click="exportVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :disabled="!exportSelectedRows.length"
-                    icon="el-icon-download" @click="runReceivedExport">Download</el-button>
+                    icon="el-icon-download" @click="runReceivedExport">{{ $tp('Download') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── Sell straight off the shipment ───────────────────────── -->
         <!-- No location question: units sold on arrival are still filed at
              iMobile — "sold" is carried by the status, not the location. -->
-        <el-dialog title="Sell Devices" :visible.sync="sellVisible" width="820px" append-to-body
+        <el-dialog :title="$tp('Sell Devices')" :visible.sync="sellVisible" width="820px" append-to-body
             :close-on-click-modal="false">
             <div class="ri-sell">
                 <div class="ri-sell-head">
                     <div class="ri-sell-field ri-grow">
-                        <label>Customer</label>
+                        <label>{{ $tp('Customer') }}</label>
                         <div class="ri-cust-line">
                             <el-select v-model="sellForm.customerId" size="small" filterable class="ri-grow"
-                                placeholder="Select a customer…">
+                                :placeholder="$tp('Select a customer…')">
                                 <el-option v-for="c in customers" :key="c._id" :value="c._id"
                                     :label="c.name + (c.phone ? ' · ' + c.phone : '')" />
                             </el-select>
                             <el-button size="small" icon="el-icon-plus"
-                                @click="quickCustomerOpen = !quickCustomerOpen">New</el-button>
+                                @click="quickCustomerOpen = !quickCustomerOpen">{{ $tp('New') }}</el-button>
                         </div>
                     </div>
                     <div class="ri-sell-field">
-                        <label>Currency</label>
+                        <label>{{ $tp('Currency') }}</label>
                         <el-select v-model="sellForm.currency" size="small" style="width:100px">
                             <el-option v-for="c in ['AUD', 'CNY', 'HKD']" :key="c" :label="c" :value="c" />
                         </el-select>
@@ -339,31 +337,31 @@
                 </div>
 
                 <div v-if="quickCustomerOpen" class="ri-quick-cust">
-                    <el-input v-model="quickCustomer.name" size="small" placeholder="Customer name *" class="qc-name" />
-                    <el-input v-model="quickCustomer.phone" size="small" placeholder="Phone" class="qc-small" />
-                    <el-input v-model="quickCustomer.email" size="small" placeholder="Email" class="qc-small" />
+                    <el-input v-model="quickCustomer.name" size="small" :placeholder="$tp('Customer name *')" class="qc-name" />
+                    <el-input v-model="quickCustomer.phone" size="small" :placeholder="$tp('Phone')" class="qc-small" />
+                    <el-input v-model="quickCustomer.email" size="small" :placeholder="$tp('Email')" class="qc-small" />
                     <el-button size="small" type="primary" plain :loading="quickCustomerSaving"
-                        @click="saveQuickCustomer">Add</el-button>
+                        @click="saveQuickCustomer">{{ $tp('Add') }}</el-button>
                 </div>
 
                 <el-table :data="sellRows" border size="mini" max-height="300">
-                    <el-table-column label="IMEI / Serial" min-width="150">
+                    <el-table-column :label="$tp('IMEI / Serial')" min-width="150">
                         <template slot-scope="s"><b>{{ s.row.code }}</b></template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Device')" min-width="200" show-overflow-tooltip>
                         <template slot-scope="s">
                             {{ [s.row.model, s.row.capacity, s.row.color].filter(Boolean).join(' · ') || '—' }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="70" align="center">
+                    <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ gradeOf(s.row) || '—' }}</template>
                     </el-table-column>
-                    <el-table-column label="Cost" width="110" align="right">
+                    <el-table-column :label="$tp('Cost')" width="110" align="right">
                         <template slot-scope="s">
                             {{ s.row.price == null ? '—' : (batch ? batch.currency : '') + ' ' + Number(s.row.price).toFixed(2) }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Sale Price" width="140" align="center">
+                    <el-table-column :label="$tp('Sale Price')" width="140" align="center">
                         <template slot-scope="s">
                             <el-input-number v-model="sellPrices[s.row.code]" size="mini" :min="0" :precision="2"
                                 :controls="false" style="width:110px" />
@@ -372,7 +370,7 @@
                 </el-table>
                 <div class="ri-sell-totals">
                     <div class="ri-total-row">
-                        <span>{{ sellRows.length }} device(s) · Sub Total</span>
+                        <span>{{ $tp('{n} device(s)', { n: sellRows.length }) }} · {{ $tp('Sub Total') }}</span>
                         <span>{{ sellForm.currency }} {{ sellSubTotal.toFixed(2) }}</span>
                     </div>
                     <div class="ri-total-row">
@@ -380,20 +378,20 @@
                         <span>{{ sellForm.currency }} {{ sellGst.toFixed(2) }}</span>
                     </div>
                     <div class="ri-total-row ri-total-grand">
-                        <span>Total</span>
+                        <span>{{ $tp('Total') }}</span>
                         <span>{{ sellForm.currency }} {{ (sellSubTotal + sellGst).toFixed(2) }}</span>
                     </div>
                 </div>
 
                 <div class="ri-sell-field">
-                    <label>Notes</label>
+                    <label>{{ $tp('Notes') }}</label>
                     <el-input v-model="sellForm.notes" type="textarea" :rows="2" maxlength="1000" size="small" />
                 </div>
             </div>
             <span slot="footer">
-                <el-button size="small" @click="sellVisible = false">Cancel</el-button>
+                <el-button size="small" @click="sellVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="selling" :disabled="!sellForm.customerId"
-                    @click="sell">Create Sale</el-button>
+                    @click="sell">{{ $tp('Create Sale') }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -643,7 +641,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.batches = r.rows || []
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load batches'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load batches')))
             } finally {
                 this.loading = false
             }
@@ -651,19 +649,18 @@ export default {
         removeBatch(row) {
             const inStock = row.summary.committed
             const warn = inStock
-                ? `${inStock} device(s) from this batch are already in stock and will stay there; ` +
-                  'unreceived ones leave the register with the batch. Delete the batch record?'
-                : `Delete "${row.title}"? Unreceived devices it put on the register are removed too.`
-            this.$confirm(warn, 'Delete batch', {
-                type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel'
+                ? this.$tp('{n} device(s) from this batch are already in stock and will stay there; unreceived ones leave the register with the batch. Delete the batch record?', { n: inStock })
+                : this.$tp('Delete "{title}"? Unreceived devices it put on the register are removed too.', { title: row.title })
+            this.$confirm(warn, this.$tp('Delete batch'), {
+                type: 'warning', confirmButtonText: this.$tp('Delete'), cancelButtonText: this.$tp('Cancel')
             }).then(async () => {
                 try {
                     const r = await deleteIncomingBatch(row._id)
                     if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                    this.$message.success('Batch deleted')
+                    this.$message.success(this.$tp('Batch deleted'))
                     this.loadBatches()
                 } catch (e) {
-                    this.$message.error(this.msg(e, 'Failed to delete'))
+                    this.$message.error(this.msg(e, this.$tp('Failed to delete')))
                 }
             }).catch(() => {})
         },
@@ -692,10 +689,10 @@ export default {
                         .replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)\s*$/, '').trim()
                 }
                 if (!this.parsed.rows.length) {
-                    this.$message.warning('No usable rows found — check the column headings.')
+                    this.$message.warning(this.$tp('No usable rows found — check the column headings.'))
                 }
             } catch (err) {
-                this.$message.error('Could not read that file')
+                this.$message.error(this.$tp('Could not read that file'))
             }
         },
         // Header names vary between suppliers, so resolve each column once
@@ -709,7 +706,7 @@ export default {
                 map[field] = keys.find(k => COLUMNS[field].includes(squash(k))) || null
             }
             if (!map.code) {
-                out.bad.push({ row: 0, code: '', reason: 'No IMEI / serial column found' })
+                out.bad.push({ row: 0, code: '', reason: this.$tp('No IMEI / serial column found') })
                 return out
             }
             const seen = new Set()
@@ -718,11 +715,11 @@ export default {
                 const code = String(raw == null ? '' : raw).replace(/[\s-]/g, '').trim().toUpperCase()
                 if (!code) return // blank filler row — not worth reporting
                 if (!CODE_RE.test(code)) {
-                    out.bad.push({ row: i + 2, code, reason: 'Not a valid IMEI or serial' })
+                    out.bad.push({ row: i + 2, code, reason: this.$tp('Not a valid IMEI or serial') })
                     return
                 }
                 if (seen.has(code)) {
-                    out.bad.push({ row: i + 2, code, reason: 'Duplicated in this file' })
+                    out.bad.push({ row: i + 2, code, reason: this.$tp('Duplicated in this file') })
                     return
                 }
                 seen.add(code)
@@ -771,15 +768,15 @@ export default {
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(
-                    `Batch created with ${r.accepted} device(s)` +
-                    (r.onRegister ? ` · ${r.onRegister} added to Stock as Not Yet Received` : '')
+                    this.$tp('Batch created with {n} device(s)', { n: r.accepted }) +
+                    (r.onRegister ? ' · ' + this.$tp('{n} added to Stock as Not Yet Received', { n: r.onRegister }) : '')
                 )
                 this.uploadVisible = false
                 await this.loadBatches()
                 const created = this.batches.find(b => String(b._id) === String(r.id))
                 if (created) this.openBatch(created)
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to create the batch'))
+                this.$message.error(this.msg(e, this.$tp('Failed to create the batch')))
             } finally {
                 this.uploading = false
             }
@@ -806,7 +803,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.batch = r.batch
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load the batch'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load the batch')))
             }
         },
         // Only while a Blackbelt sweep is actually running.
@@ -825,9 +822,9 @@ export default {
         onTakeBeforeClose(done) {
             if (!this.checkedCodes.length) return done()
             this.$confirm(
-                `${this.checkedCodes.length} scanned device(s) haven't been added to stock yet — close anyway?`,
-                'Unsaved scans',
-                { type: 'warning', confirmButtonText: 'Close', cancelButtonText: 'Stay' }
+                this.$tp("{n} scanned device(s) haven't been added to stock yet — close anyway?", { n: this.checkedCodes.length }),
+                this.$tp('Unsaved scans'),
+                { type: 'warning', confirmButtonText: this.$tp('Close'), cancelButtonText: this.$tp('Stay') }
             ).then(() => done()).catch(() => {})
         },
         onTakeClosed() {
@@ -853,24 +850,24 @@ export default {
             this.focusScan()
             if (!code) return
             if (!CODE_RE.test(code)) {
-                this.say('error', `"${code}" isn't a valid IMEI or serial`)
+                this.say('error', this.$tp('"{code}" is not a valid IMEI or serial', { code }))
                 return
             }
             const line = (this.batch.lines || []).find(l => l.code === code)
             if (line && this.isPersisted(line)) {
-                this.say('warn', `${code} was already received`)
+                this.say('warn', this.$tp('{code} was already received', { code }))
                 return
             }
             if (this.checkedCodes.includes(code)) {
-                this.say('warn', `${code} was already scanned`)
+                this.say('warn', this.$tp('{code} was already scanned', { code }))
                 return
             }
             this.checkedCodes.unshift(code)
             if (line) {
-                if (line.alreadyInStock) this.say('warn', `${code} scanned — but it's already in stock, so it will be skipped`)
-                else this.say('ok', `${code} scanned`)
+                if (line.alreadyInStock) this.say('warn', this.$tp("{code} scanned — but it's already in stock, so it will be skipped", { code }))
+                else this.say('ok', this.$tp('{code} scanned', { code }))
             } else if (this.localExtras.some(l => l.code === code)) {
-                this.say('warn', `${code} was already scanned`)
+                this.say('warn', this.$tp('{code} was already scanned', { code }))
             } else {
                 this.localExtras.unshift({
                     no: null, code, model: '', color: '', capacity: '',
@@ -879,7 +876,7 @@ export default {
                     received: false, unlisted: true, alreadyInStock: false,
                     deviceId: null, __local: true
                 })
-                this.say('warn', `${code} isn't on the supplier's list — added as an extra`)
+                this.say('warn', this.$tp("{code} isn't on the supplier's list — added as an extra", { code }))
             }
         },
         // Persisted = the server already knows (committed or received) —
@@ -930,7 +927,7 @@ export default {
                 .map(l => l.code)
             if (!add.length) return
             this.checkedCodes = this.checkedCodes.concat(add)
-            this.say('ok', `${add.length} device(s) selected`)
+            this.say('ok', this.$tp('{n} device(s) selected', { n: add.length }))
         },
         clearSelection() {
             this.checkedCodes = []
@@ -997,7 +994,7 @@ export default {
         },
         async saveQuickCustomer() {
             const name = (this.quickCustomer.name || '').trim()
-            if (!name) { this.$message.warning('Customer name is required'); return }
+            if (!name) { this.$message.warning(this.$tp('Customer name is required')); return }
             this.quickCustomerSaving = true
             try {
                 const r = await createRefurbCustomer(this.quickCustomer)
@@ -1006,9 +1003,9 @@ export default {
                 this.sellForm.customerId = r.customer._id
                 this.quickCustomerOpen = false
                 this.quickCustomer = { name: '', phone: '', email: '' }
-                this.$message.success(`Customer "${r.customer.name}" added`)
+                this.$message.success(this.$tp('Customer "{name}" added', { name: r.customer.name }))
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to add the customer'))
+                this.$message.error(this.msg(e, this.$tp('Failed to add the customer')))
             } finally {
                 this.quickCustomerSaving = false
             }
@@ -1038,12 +1035,12 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const skipped = (r.skipped || []).length
                 this.$message.success(
-                    `${r.order.orderNo} created — ${r.created} device(s) sold` +
-                    (skipped ? ` · ${skipped} skipped` : '')
+                    this.$tp('{order} created — {n} device(s) sold', { order: r.order.orderNo, n: r.created }) +
+                    (skipped ? ' · ' + this.$tp('{n} skipped', { n: skipped }) : '')
                 )
                 if (skipped) {
                     this.$notify.warning({
-                        title: 'Some devices were skipped',
+                        title: this.$tp('Some devices were skipped'),
                         message: r.skipped.map(s => `${s.code}: ${s.reason}`).join('\n'),
                         duration: 0
                     })
@@ -1057,7 +1054,7 @@ export default {
                 this.sellPrices = {}
                 await this.refreshBatch()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to create the sale'))
+                this.$message.error(this.msg(e, this.$tp('Failed to create the sale')))
             } finally {
                 this.selling = false
             }
@@ -1079,12 +1076,12 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const skipped = (r.skipped || []).length
                 this.$message.success(
-                    `${r.created} device(s) received to ${this.receiveLocation}` +
-                    (skipped ? ` · ${skipped} skipped` : '')
+                    this.$tp('{n} device(s) received to {location}', { n: r.created, location: this.$tenum(this.receiveLocation) }) +
+                    (skipped ? ' · ' + this.$tp('{n} skipped', { n: skipped }) : '')
                 )
                 if (skipped) {
                     this.$notify.warning({
-                        title: 'Some devices were skipped',
+                        title: this.$tp('Some devices were skipped'),
                         message: r.skipped.map(s => `${s.code}: ${s.reason}`).join('\n'),
                         duration: 0
                     })
@@ -1097,7 +1094,7 @@ export default {
             this.detailPicks = {}
                 await this.refreshBatch()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to add to stock'))
+                this.$message.error(this.msg(e, this.$tp('Failed to add to stock')))
             } finally {
                 this.committing = false
             }
@@ -1113,7 +1110,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const rows = r.rows || []
                 if (!rows.length) {
-                    this.$message.warning('Nothing has been received against this batch yet.')
+                    this.$message.warning(this.$tp('Nothing has been received against this batch yet.'))
                     return
                 }
                 this.exportRows = rows
@@ -1124,7 +1121,7 @@ export default {
                 this.exportVisible = true
             } catch (e) {
                 console.error('Received export failed:', e)
-                this.$message.error(this.msg(e, 'Failed to load the received list'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load the received list')))
             } finally {
                 this.exporting = false
             }
@@ -1197,11 +1194,11 @@ export default {
                 // filesystem won't take before naming the file.
                 const name = String(this.exportTitle || 'Batch').replace(/[\/:*?"<>|]+/g, '-').trim()
                 XLSX.writeFile(wb, `${name} Received.xlsx`)
-                this.$message.success(`${rows.length} device(s) exported`)
+                this.$message.success(this.$tp('{n} device(s) exported', { n: rows.length }))
                 this.exportVisible = false
             } catch (e) {
                 console.error('Received export failed:', e)
-                this.$message.error(this.msg(e, 'Failed to build the received list'))
+                this.$message.error(this.msg(e, this.$tp('Failed to build the received list')))
             }
         },
         async recheck() {
@@ -1210,11 +1207,11 @@ export default {
             try {
                 const r = await recheckIncoming(this.batch._id, { codes: this.checkedCodes })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(r.queued ? `Checking ${r.queued} device(s) against Blackbelt` : (r.message || 'Nothing to check'))
+                this.$message.success(r.queued ? this.$tp('Checking {n} device(s) against Blackbelt', { n: r.queued }) : (r.message || this.$tp('Nothing to check')))
                 await this.refreshBatch()
                 this.startPolling()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to re-check'))
+                this.$message.error(this.msg(e, this.$tp('Failed to re-check')))
             } finally {
                 this.rechecking = false
             }

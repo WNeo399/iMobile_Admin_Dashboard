@@ -174,8 +174,10 @@ export function deleteIncomingBatch(id) {
 // ── Supply Batches — supplier shipments to iMobile ────────────────────
 // Creating one flips the devices to Not Yet Received / In Transit and
 // opens the matching Incoming Stocks record for the warehouse.
-export function getSupplyBatches() {
-  return request({ url: '/refurbished/supply', method: 'get' })
+// Pass { pendingFor: 'me' } for just the Pending drafts the caller's own
+// newly added devices could board (the Stock page's bulk-add picker).
+export function getSupplyBatches(query) {
+  return request({ url: '/refurbished/supply', method: 'get', params: query })
 }
 export function getSupplyBatch(id) {
   return request({ url: `/refurbished/supply/${id}`, method: 'get' })
@@ -186,6 +188,10 @@ export function createSupplyBatch(data) {
 // Edit a Pending batch (devices, tracking, notes).
 export function updateSupplyBatch(id, data) {
   return request({ url: `/refurbished/supply/${id}`, method: 'put', data, timeout: 120000 })
+}
+// Append devices to a Pending batch (already-aboard devices are skipped).
+export function addToSupplyBatch(id, data) {
+  return request({ url: `/refurbished/supply/${id}/add`, method: 'post', data, timeout: 120000 })
 }
 // The box ships: devices flip onto the road and the incoming record is
 // written for the warehouse.

@@ -1,78 +1,87 @@
 <template>
     <div class="sb-page app-container">
         <div class="sb-bar">
-            <span class="sb-title">Supply Batches</span>
+            <span class="sb-title">{{ $tt('Supply Batches') }}</span>
             <span class="sb-spacer" />
             <!-- Creation is the supplier's act — staff watch and receive. -->
-            <el-button v-if="isSupplier" size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">New Batch</el-button>
-            <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
+            <el-button v-if="isSupplier" size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">{{ $tp('New Batch') }}</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini"
-            :empty-text="isSupplier ? 'No supply batches yet — create one to send devices to iMobile.' : 'No supply batches yet.'">
-            <el-table-column label="Batch" width="120">
+            :empty-text="isSupplier ? $tp('No supply batches yet — create one to send devices to iMobile.') : $tp('No supply batches yet.')">
+            <el-table-column :label="$tp('Batch')" width="120">
                 <template slot-scope="s">
                     <el-button type="text" class="sb-link" @click="openDetail(s.row)">{{ s.row.batchNo }}</el-button>
                 </template>
             </el-table-column>
-            <el-table-column v-if="!isSupplier" label="Stock Source" min-width="120" show-overflow-tooltip>
+            <el-table-column v-if="!isSupplier" :label="$tp('Stock Source')" min-width="120" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
             </el-table-column>
-            <el-table-column label="Devices" width="90" align="center">
+            <el-table-column :label="$tp('Devices')" width="90" align="center">
                 <template slot-scope="s">{{ s.row.total }}</template>
             </el-table-column>
-            <el-table-column label="Received" width="110" align="center">
+            <el-table-column :label="$tp('Received')" width="110" align="center">
                 <template slot-scope="s">
                     <span :class="s.row.received === s.row.total && s.row.total ? 'sb-ok' : ''">
                         {{ s.row.received }} / {{ s.row.total }}
                     </span>
                 </template>
             </el-table-column>
-            <el-table-column label="Tracking" min-width="130" show-overflow-tooltip>
+            <el-table-column :label="$tp('Tracking')" min-width="130" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.tracking || '—' }}</template>
             </el-table-column>
-            <el-table-column label="Notes" min-width="160" show-overflow-tooltip>
+            <el-table-column :label="$tp('Notes')" min-width="160" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.notes || '—' }}</template>
             </el-table-column>
-            <el-table-column label="Created" width="160">
+            <el-table-column :label="$tp('Created')" width="160">
                 <template slot-scope="s">
                     <div>{{ formatDateTime(s.row.createdAt) }}</div>
                     <div v-if="s.row.createdBy" class="sb-sub">{{ s.row.createdBy }}</div>
                 </template>
             </el-table-column>
-            <el-table-column label="Status" width="110" align="center">
+            <el-table-column :label="$tp('Status')" width="110" align="center">
                 <template slot-scope="s">
-                    <el-tag v-if="s.row.status === 'Cancelled'" size="mini" type="info" effect="plain">Cancelled</el-tag>
-                    <el-tag v-else-if="s.row.status === 'Pending'" size="mini" type="warning" effect="plain">Pending</el-tag>
+                    <el-tag v-if="s.row.status === 'Cancelled'" size="mini" type="info" effect="plain">{{ $tenum('Cancelled') }}</el-tag>
+                    <el-tag v-else-if="s.row.status === 'Pending'" size="mini" type="warning" effect="plain">{{ $tenum('Pending') }}</el-tag>
                     <el-tag v-else-if="s.row.received === s.row.total && s.row.total" size="mini" type="success"
-                        effect="plain">Received</el-tag>
-                    <el-tag v-else size="mini" effect="plain">In Transit</el-tag>
+                        effect="plain">{{ $tp('Received') }}</el-tag>
+                    <el-tag v-else size="mini" effect="plain">{{ $tp('In Transit') }}</el-tag>
                 </template>
             </el-table-column>
             <el-table-column label="" width="200" align="center">
                 <template slot-scope="s">
-                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">View</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)">{{ $tp('View') }}</el-button>
                     <!-- A Pending batch is still the supplier's draft. -->
                     <el-button v-if="isSupplier && s.row.status === 'Pending'" size="mini" type="text"
-                        icon="el-icon-edit" @click="openEdit(s.row)">Edit</el-button>
+                        icon="el-icon-edit" @click="openEdit(s.row)">{{ $tp('Edit') }}</el-button>
                     <el-button v-if="isSupplier && s.row.status === 'Pending'" size="mini" type="text"
-                        icon="el-icon-check" @click="confirmBatch(s.row)">Confirm</el-button>
+                        icon="el-icon-check" @click="confirmBatch(s.row)">{{ $tp('Confirm') }}</el-button>
                     <el-button v-if="s.row.status !== 'Cancelled' && !s.row.received" size="mini" type="text"
-                        class="sb-cancel" @click="cancelBatch(s.row)">Cancel</el-button>
+                        class="sb-cancel" @click="cancelBatch(s.row)">{{ $tp('Cancel') }}</el-button>
                 </template>
             </el-table-column>
         </el-table>
 
         <!-- ── Create ───────────────────────────────────────────────── -->
-        <el-dialog :title="editing ? `Edit ${editing.batchNo}` : 'New Supply Batch'"
+        <el-dialog :title="editing ? $tp('Edit {batch}', { batch: editing.batchNo }) : $tp('New Supply Batch')"
             :visible.sync="createVisible" width="820px" top="6vh" :close-on-click-modal="false">
             <div class="sb-form">
                 <div class="sb-field">
-                    <label>Add devices <span class="sb-dim">— search your In&nbsp;Stock devices by IMEI / serial / model</span></label>
-                    <el-input v-model="pickerSearch" size="small" clearable placeholder="Scan or type, then Enter…"
-                        prefix-icon="el-icon-search" @keyup.enter.native="searchDevices" @clear="pickerResults = []">
-                        <el-button slot="append" icon="el-icon-search" :loading="pickerLoading" @click="searchDevices" />
-                    </el-input>
+                    <label>{{ $tp('Add devices') }} <span class="sb-dim">{{ $tp('— search your In Stock devices by IMEI / serial / model') }}</span></label>
+                    <div class="sb-scan-row">
+                        <el-input v-model="pickerSearch" size="small" clearable :placeholder="$tp('Scan or type, then Enter…')"
+                            prefix-icon="el-icon-search" @keyup.enter.native="searchDevices" @clear="pickerResults = []">
+                            <el-button slot="append" icon="el-icon-search" :loading="pickerLoading" @click="searchDevices" />
+                        </el-input>
+                        <!-- Cost currency for devices scanned in as new
+                             records — same picker the Stock page's bulk
+                             add has. -->
+                        <el-select v-model="newCurrency" size="small" class="sb-cur"
+                            :title="$tp('Cost currency for newly scanned devices')">
+                            <el-option v-for="c in currencyOptions" :key="c" :label="c" :value="c" />
+                        </el-select>
+                    </div>
                     <div v-if="pickerResults.length" class="sb-picker">
                         <div v-for="d in pickerResults" :key="d._id" class="sb-pick-row">
                             <div class="sb-pick-info">
@@ -81,12 +90,12 @@
                             </div>
                             <el-button size="mini" type="primary" plain icon="el-icon-plus"
                                 :disabled="isPicked(d)" @click="addLine(d)">
-                                {{ isPicked(d) ? 'Added' : 'Add' }}
+                                {{ isPicked(d) ? $tp('Added to batch') : $tp('Add') }}
                             </el-button>
                         </div>
                     </div>
                     <div v-else-if="pickerSearched && !pickerLoading" class="sb-dim sb-noresult">
-                        No matching devices — only units on your shelf (or In Stock) can be sent.
+                        {{ $tp('No matching devices — only units on your shelf (or In Stock) can be sent.') }}
                     </div>
                 </div>
 
@@ -98,17 +107,17 @@
                             <div v-if="s.row.__group" class="sb-group">
                                 <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
                                 {{ s.row.model }}
-                                <span class="sb-dim">· {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}</span>
+                                <span class="sb-dim">· {{ $tp('{n} device(s)', { n: s.row.count }) }}</span>
                             </div>
                             <div v-else><b>{{ s.row.imei }}</b></div>
                             <!-- A scanned code that isn't on the register yet:
                                  created on your shelf when the batch is made. -->
                             <div v-if="s.row.bbChecking" class="sb-li-sub sb-dim">
-                                <i class="el-icon-loading" /> checking Blackbelt…
+                                <i class="el-icon-loading" /> {{ $tp('checking Blackbelt…') }}
                             </div>
                             <div v-else-if="s.row.isNew" :class="['sb-li-sub', s.row.bbFound ? 'sb-li-ok' : 'sb-li-warn']">
                                 <i :class="s.row.bbFound ? 'el-icon-success' : 'el-icon-warning'" />
-                                new — {{ s.row.bbFound ? 'Blackbelt found' : 'no Blackbelt report' }}
+                                {{ $tp('new') }} — {{ s.row.bbFound ? $tp('Blackbelt found') : $tp('no Blackbelt report') }}
                             </div>
                         </template>
                     </el-table-column>
@@ -121,13 +130,13 @@
                                      blur — the grouping keys on the model, so
                                      committing per keystroke would re-sort
                                      the table out from under the cursor. -->
-                                <el-input :value="s.row.modelDraft" size="mini" placeholder="Model *" class="sble-model"
+                                <el-input :value="s.row.modelDraft" size="mini" :placeholder="$tp('Model *')" class="sble-model"
                                     @input="v => s.row.modelDraft = v"
                                     @change="commitModel(s.row)" />
-                                <el-input :value="s.row.color" size="mini" placeholder="Colour" class="sble-small"
+                                <el-input :value="s.row.color" size="mini" :placeholder="$tp('Colour')" class="sble-small"
                                     @input="v => s.row.color = v.toUpperCase()" />
                                 <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
-                                    default-first-option placeholder="Storage" class="sble-small">
+                                    default-first-option :placeholder="$tp('Storage')" class="sble-small">
                                     <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
                                 </el-select>
                             </div>
@@ -136,7 +145,7 @@
                             </template>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="95" align="center">
+                    <el-table-column :label="$tp('Grade')" width="95" align="center">
                         <template slot-scope="s">
                             <el-select v-if="s.row.isNew" v-model="s.row.grade" size="mini" clearable placeholder="—"
                                 class="sb-full">
@@ -145,7 +154,7 @@
                             <template v-else>{{ s.row.grade || '—' }}</template>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Cost" width="110" align="right">
+                    <el-table-column :label="$tp('Cost')" width="110" align="right">
                         <template slot-scope="s">
                             <el-input-number v-if="s.row.isNew" v-model="s.row.costPrice" size="mini" :min="0"
                                 :precision="2" :controls="false" class="sble-cost" />
@@ -164,24 +173,24 @@
 
                 <div class="sb-row">
                     <div class="sb-field sb-grow">
-                        <label>Tracking Number</label>
+                        <label>{{ $tp('Tracking Number') }}</label>
                         <el-input v-model="form.tracking" size="small" maxlength="100" clearable
-                            placeholder="Optional — the courier's tracking number" />
+                            :placeholder="$tp('Optional — the courier\'s tracking number')" />
                     </div>
                 </div>
                 <div class="sb-field">
-                    <label>Notes</label>
+                    <label>{{ $tp('Notes') }}</label>
                     <el-input v-model="form.notes" type="textarea" :rows="2" maxlength="1000" size="small"
-                        placeholder="Optional — courier, anything the warehouse should know" />
+                        :placeholder="$tp('Optional — courier, anything the warehouse should know')" />
                 </div>
             </div>
             <span slot="footer">
                 <span v-if="form.lines.length" class="sb-foot-note">
-                    {{ form.lines.length }} device{{ form.lines.length === 1 ? '' : 's' }}
+                    {{ $tp('{n} device(s)', { n: form.lines.length }) }}
                 </span>
-                <el-button size="small" @click="createVisible = false">Cancel</el-button>
+                <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="creating" :disabled="!form.lines.length"
-                    @click="save">{{ editing ? 'Save Changes' : 'Save' }}</el-button>
+                    @click="save">{{ editing ? $tp('Save Changes') : $tp('Save') }}</el-button>
             </span>
         </el-dialog>
 
@@ -189,17 +198,17 @@
         <el-dialog :title="detail ? detail.batchNo : ''" :visible.sync="detailVisible" width="760px">
             <div v-if="detail" class="sb-detail">
                 <div class="sb-detail-grid">
-                    <div v-if="!isSupplier"><label>Stock Source</label><div>{{ detail.stockSource }}</div></div>
-                    <div><label>Created</label><div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div></div>
-                    <div><label>Status</label><div>{{ detail.status }}</div></div>
+                    <div v-if="!isSupplier"><label>{{ $tp('Stock Source') }}</label><div>{{ detail.stockSource }}</div></div>
+                    <div><label>{{ $tp('Created') }}</label><div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div></div>
+                    <div><label>{{ $tp('Status') }}</label><div>{{ $tenum(detail.status) }}</div></div>
                     <div v-if="detail.confirmedAt">
-                        <label>Confirmed</label>
+                        <label>{{ $tp('Confirmed') }}</label>
                         <div>{{ formatDateTime(detail.confirmedAt) }} · {{ detail.confirmedBy || '—' }}</div>
                     </div>
-                    <div v-if="detail.status !== 'Pending'"><label>Received</label><div>{{ detail.received }} / {{ detail.total }}</div></div>
-                    <div v-if="detail.tracking"><label>Tracking</label><div>{{ detail.tracking }}</div></div>
+                    <div v-if="detail.status !== 'Pending'"><label>{{ $tp('Received') }}</label><div>{{ detail.received }} / {{ detail.total }}</div></div>
+                    <div v-if="detail.tracking"><label>{{ $tp('Tracking') }}</label><div>{{ detail.tracking }}</div></div>
                     <div v-if="detail.status === 'Cancelled'">
-                        <label>Cancelled</label>
+                        <label>{{ $tp('Cancelled') }}</label>
                         <div>{{ formatDateTime(detail.cancelledAt) }} · {{ detail.cancelledBy || '—' }}</div>
                     </div>
                 </div>
@@ -211,9 +220,9 @@
                             <div v-if="s.row.__group" class="sb-group">
                                 <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
                                 {{ s.row.model }}
-                                <span class="sb-dim">· {{ s.row.count }} device{{ s.row.count === 1 ? '' : 's' }}</span>
-                                <span v-if="s.row.receivedCount" class="sb-group-recv">· {{ s.row.receivedCount }} received</span>
-                                <span :class="s.row.remainingCount ? 'sb-group-rem' : 'sb-dim'">· {{ s.row.remainingCount }} remaining</span>
+                                <span class="sb-dim">· {{ $tp('{n} device(s)', { n: s.row.count }) }}</span>
+                                <span v-if="s.row.receivedCount" class="sb-group-recv">· {{ $tp('{n} received', { n: s.row.receivedCount }) }}</span>
+                                <span :class="s.row.remainingCount ? 'sb-group-rem' : 'sb-dim'">· {{ $tp('{n} remaining', { n: s.row.remainingCount }) }}</span>
                             </div>
                             <b v-else>{{ s.row.imei }}</b>
                         </template>
@@ -223,14 +232,14 @@
                             {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="70" align="center">
+                    <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
-                    <el-table-column label="Received" width="150" align="center">
+                    <el-table-column :label="$tp('Received')" width="150" align="center">
                         <template slot-scope="s">
                             <el-tag v-if="s.row.received" size="mini" type="success" effect="plain"
-                                :title="formatDateTime(s.row.receivedAt)">Received</el-tag>
-                            <span v-else class="sb-dim">In transit</span>
+                                :title="formatDateTime(s.row.receivedAt)">{{ $tp('Received') }}</el-tag>
+                            <span v-else class="sb-dim">{{ $tp('In Transit') }}</span>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -240,8 +249,8 @@
                 <el-button size="small" icon="el-icon-download" @click="downloadXlsx">Excel</el-button>
                 <el-button size="small" icon="el-icon-document" @click="downloadPdf">PDF</el-button>
                 <el-button v-if="isSupplier && detail && detail.status === 'Pending'" size="small" type="success" plain
-                    icon="el-icon-check" @click="confirmBatch(detail)">Confirm</el-button>
-                <el-button size="small" @click="detailVisible = false">Close</el-button>
+                    icon="el-icon-check" @click="confirmBatch(detail)">{{ $tp('Confirm') }}</el-button>
+                <el-button size="small" @click="detailVisible = false">{{ $tp('Close') }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -259,6 +268,8 @@ import * as XLSX from 'xlsx-js-style'
 
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
+// Same markets as the Stock page — cost is stored with its currency.
+const CURRENCIES = ['AUD', 'CNY', 'HKD']
 const CODE_RE = /^[A-Z0-9]{10,20}$/
 
 export default {
@@ -279,6 +290,9 @@ export default {
             pickerResults: [],
             pickerLoading: false,
             pickerSearched: false,
+            // Cost currency for devices scanned in as NEW records — devices
+            // picked from the register keep the currency they already have.
+            newCurrency: 'AUD',
 
             detailVisible: false,
             detail: null
@@ -286,6 +300,7 @@ export default {
     },
     computed: {
         gradeOptions() { return GRADES },
+        currencyOptions() { return CURRENCIES },
         // Both dialog tables show the lines grouped by model under
         // full-width header rows (lineSpan collapses the other cells).
         groupedFormLines() {
@@ -344,7 +359,7 @@ export default {
                 const r = await getSupplyBatches()
                 this.rows = r.batches || []
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load supply batches'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load supply batches')))
             } finally {
                 this.loading = false
             }
@@ -358,6 +373,7 @@ export default {
             this.pickerSearch = ''
             this.pickerResults = []
             this.pickerSearched = false
+            this.newCurrency = 'AUD'
             this.createVisible = true
         },
         // The list endpoint scopes a supplier to their own shelf, so the
@@ -391,7 +407,7 @@ export default {
                     }
                 }
             } catch (e) {
-                this.$message.error(this.msg(e, 'Search failed'))
+                this.$message.error(this.msg(e, this.$tp('Search failed')))
             } finally {
                 this.pickerLoading = false
             }
@@ -425,22 +441,23 @@ export default {
             this.pickerSearch = ''
             this.pickerResults = []
             this.pickerSearched = false
+            this.newCurrency = 'AUD'
             this.createVisible = true
         },
         async confirmBatch(row) {
             try {
                 await this.$confirm(
-                    `Confirm ${row.batchNo}? The devices go on the road to iMobile and the warehouse gets its receiving list.`,
-                    'Confirm supply batch',
-                    { type: 'warning', confirmButtonText: 'Confirm', cancelButtonText: 'Not yet' }
+                    this.$tp('Confirm {batch}? The devices go on the road to iMobile and the warehouse gets its receiving list.', { batch: row.batchNo }),
+                    this.$tp('Confirm supply batch'),
+                    { type: 'warning', confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Not yet') }
                 )
             } catch (e) { return }
             try {
                 const r = await confirmSupplyBatch(row._id)
-                this.$message.success(r.message || 'Confirmed')
+                this.$message.success(r.message || this.$tp('Confirmed'))
                 if ((r.skipped || []).length) {
                     this.$notify.warning({
-                        title: 'Some devices were skipped',
+                        title: this.$tp('Some devices were skipped'),
                         message: r.skipped.map(s => `${s.imei}: ${s.reason}`).join('\n'),
                         duration: 0
                     })
@@ -448,7 +465,7 @@ export default {
                 this.detailVisible = false
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to confirm the batch'))
+                this.$message.error(this.msg(e, this.$tp('Failed to confirm the batch')))
             }
         },
         toggleGroup(row, state) {
@@ -476,7 +493,7 @@ export default {
                 buildSupplyBatchPdf({ batch: this.detail }).save(supplyBatchPdfFileName(this.detail))
             } catch (e) {
                 console.error('Supply batch PDF failed:', e)
-                this.$message.error('Could not build the PDF.')
+                this.$message.error(this.$tp('Could not build the PDF.'))
             }
         },
         downloadXlsx() {
@@ -510,12 +527,12 @@ export default {
                 XLSX.writeFile(wb, `supply-batch_${String(d.batchNo).replace(/[^\w.-]+/g, '_')}.xlsx`)
             } catch (e) {
                 console.error('Supply batch xlsx failed:', e)
-                this.$message.error('Could not build the spreadsheet.')
+                this.$message.error(this.$tp('Could not build the spreadsheet.'))
             }
         },
         async addDraftLine(code) {
             if (this.form.lines.some(l => String(l.imei).toUpperCase() === code)) {
-                this.$message.warning(code + ' is already on the batch')
+                this.$message.warning(this.$tp('{code} is already on the batch', { code }))
                 return
             }
             // Every field seeded now — Vue 2 can't track keys added later.
@@ -525,7 +542,7 @@ export default {
                 imei: code,
                 model: '', modelDraft: '', color: '', storage: '', grade: '',
                 costPrice: undefined,
-                currency: 'AUD',
+                currency: this.newCurrency,
                 bbChecking: true,
                 bbFound: false,
                 bb: {}
@@ -540,7 +557,7 @@ export default {
                     // supplier's shelf.
                     const i = this.form.lines.indexOf(line)
                     if (i >= 0) this.form.lines.splice(i, 1)
-                    this.$message.warning(code + ' is already in the register but not sendable — check it on the Stock page.')
+                    this.$message.warning(this.$tp('{code} is already in the register but not sendable — check it on the Stock page.', { code }))
                     return
                 }
                 const d = (r && r.device) || {}
@@ -589,7 +606,7 @@ export default {
         async save() {
             const stillChecking = this.form.lines.find(l => l.bbChecking)
             if (stillChecking) {
-                this.$message.warning(`Still checking ${stillChecking.imei} against Blackbelt — one moment`)
+                this.$message.warning(this.$tp('Still checking {imei} against Blackbelt — one moment', { imei: stillChecking.imei }))
                 return
             }
             // A model typed but never blurred still counts.
@@ -600,7 +617,7 @@ export default {
             }
             const noModel = this.form.lines.find(l => l.isNew && !String(l.model || '').trim())
             if (noModel) {
-                this.$message.warning(`Enter a model for ${noModel.imei}`)
+                this.$message.warning(this.$tp('Enter a model for {imei}', { imei: noModel.imei }))
                 return
             }
             this.creating = true
@@ -617,10 +634,12 @@ export default {
                         storage: l.storage,
                         grade: l.grade,
                         costPrice: l.costPrice,
-                        currency: l.currency || 'AUD',
+                        // One currency for the whole scanned list — whatever
+                        // the picker says when Save is pressed.
+                        currency: this.newCurrency,
                         ...l.bb
                     })
-                    if (!r || r.success === false) throw new Error((r && r.message) || `Could not add ${l.imei} to the register`)
+                    if (!r || r.success === false) throw new Error((r && r.message) || this.$tp('Could not add {imei} to the register', { imei: l.imei }))
                     l.deviceId = String(r.id)
                 }
                 const payload = {
@@ -631,11 +650,11 @@ export default {
                 const r = this.editing
                     ? await updateSupplyBatch(this.editing._id, payload)
                     : await createSupplyBatch(payload)
-                this.$message.success(r.message || 'Saved')
+                this.$message.success(r.message || this.$tp('Saved'))
                 this.createVisible = false
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to create the supply batch'))
+                this.$message.error(this.msg(e, this.$tp('Failed to create the supply batch')))
             } finally {
                 this.creating = false
             }
@@ -649,24 +668,23 @@ export default {
                 this.collapsedDetailGroups = {}
                 this.detailVisible = true
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load the batch'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load the batch')))
             }
         },
         async cancelBatch(row) {
             try {
                 await this.$confirm(
-                    `Cancel ${row.batchNo}? The devices go back In Stock where they were, ` +
-                    'and the Incoming Stocks record is removed.',
-                    'Cancel supply batch',
-                    { type: 'warning', confirmButtonText: 'Cancel batch', cancelButtonText: 'Keep it' }
+                    this.$tp('Cancel {batch}? The devices go back In Stock where they were, and the Incoming Stocks record is removed.', { batch: row.batchNo }),
+                    this.$tp('Cancel supply batch'),
+                    { type: 'warning', confirmButtonText: this.$tp('Cancel batch'), cancelButtonText: this.$tp('Keep it') }
                 )
             } catch (e) { return }
             try {
                 const r = await cancelSupplyBatch(row._id)
-                this.$message.success(r.message || 'Batch cancelled')
+                this.$message.success(r.message || this.$tp('Batch cancelled'))
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to cancel the batch'))
+                this.$message.error(this.msg(e, this.$tp('Failed to cancel the batch')))
             }
         }
     }
@@ -693,6 +711,12 @@ export default {
     gap: 6px;
     label { font-size: 12px; font-weight: 600; color: #606266; }
 }
+.sb-scan-row {
+    display: flex;
+    gap: 8px;
+    .el-input { flex: 1; }
+}
+.sb-cur { width: 90px; }
 .sb-picker {
     margin-top: 8px;
     border: 1px solid #ebeef5;

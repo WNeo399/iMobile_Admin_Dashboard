@@ -2,10 +2,10 @@
     <div class="ci-page" v-loading="loading">
         <div class="ci-header">
             <div>
-                <div class="ci-title">Consignment Insights</div>
-                <div class="ci-sub">Where the consigned stock is, what's sold, and what still needs invoicing.</div>
+                <div class="ci-title">{{ $tp('Consignment Insights') }}</div>
+                <div class="ci-sub">{{ $tp('Where the consigned stock is, what\'s sold, and what still needs invoicing.') }}</div>
             </div>
-            <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">Refresh</el-button>
+            <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
 
         <!-- Status KPIs -->
@@ -13,7 +13,7 @@
             <div v-for="s in STATUS_LIST" :key="s.value" class="ci-kpi">
                 <div class="ci-kpi-icon" :style="{ background: s.bg, color: s.color }"><i :class="s.icon" /></div>
                 <div>
-                    <div class="ci-kpi-label">{{ s.label }}</div>
+                    <div class="ci-kpi-label">{{ $tp(s.label) }}</div>
                     <div class="ci-kpi-count">{{ (byStatus[s.value] && byStatus[s.value].count) || 0 }}</div>
                     <div class="ci-kpi-sub">{{ money((byStatus[s.value] && byStatus[s.value].value) || 0) }}</div>
                 </div>
@@ -21,7 +21,7 @@
             <div class="ci-kpi ci-kpi-invoice">
                 <div class="ci-kpi-icon" style="background:#FDF2F2;color:#F56C6C"><i class="el-icon-document-add" /></div>
                 <div>
-                    <div class="ci-kpi-label">Awaiting Invoice</div>
+                    <div class="ci-kpi-label">{{ $tp('Awaiting Invoice') }}</div>
                     <div class="ci-kpi-count">{{ uninvoicedSold.count }}</div>
                     <div class="ci-kpi-sub">{{ money(uninvoicedSold.value) }}</div>
                 </div>
@@ -30,27 +30,27 @@
 
         <!-- Weekly sold trend -->
         <div class="ci-card">
-            <div class="ci-card-title">Devices sold per week <span class="ci-card-note">— last 12 weeks</span></div>
+            <div class="ci-card-title">{{ $tp('Devices sold per week') }} <span class="ci-card-note">{{ $tp('— last 12 weeks') }}</span></div>
             <result-chart v-if="weeklyChart" :chart="weeklyChart" height="260px" />
-            <div v-else class="ci-empty">No sales recorded yet.</div>
+            <div v-else class="ci-empty">{{ $tp('No sales recorded yet.') }}</div>
         </div>
 
         <!-- Per-shop table -->
         <div class="ci-card">
-            <div class="ci-card-title">By shop</div>
+            <div class="ci-card-title">{{ $tp('By shop') }}</div>
             <el-table :data="shops" size="small">
-                <el-table-column label="Shop" min-width="160">
+                <el-table-column :label="$tp('Shop')" min-width="160">
                     <template slot-scope="s">
                         <span class="ci-shop">{{ s.row.name }}</span>
-                        <el-tag v-if="!s.row.active" size="mini" type="info" style="margin-left:6px">Inactive</el-tag>
+                        <el-tag v-if="!s.row.active" size="mini" type="info" style="margin-left:6px">{{ $tp('Inactive') }}</el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column label="In Transit" width="100" align="center"><template slot-scope="s">{{ s.row['in-transit'] }}</template></el-table-column>
-                <el-table-column label="At Shop" width="100" align="center"><template slot-scope="s">{{ s.row['received'] }}</template></el-table-column>
-                <el-table-column label="Sold" width="100" align="center"><template slot-scope="s">{{ s.row['sold'] }}</template></el-table-column>
-                <el-table-column label="Returning" width="100" align="center"><template slot-scope="s">{{ s.row['returning'] }}</template></el-table-column>
-                <el-table-column label="Returned" width="100" align="center"><template slot-scope="s">{{ s.row['returned'] }}</template></el-table-column>
-                <template slot="empty"><span class="ci-empty">No shops yet.</span></template>
+                <el-table-column :label="$tp('In Transit')" width="100" align="center"><template slot-scope="s">{{ s.row['in-transit'] }}</template></el-table-column>
+                <el-table-column :label="$tp('At Shop')" width="100" align="center"><template slot-scope="s">{{ s.row['received'] }}</template></el-table-column>
+                <el-table-column :label="$tp('Sold')" width="100" align="center"><template slot-scope="s">{{ s.row['sold'] }}</template></el-table-column>
+                <el-table-column :label="$tp('Returning')" width="100" align="center"><template slot-scope="s">{{ s.row['returning'] }}</template></el-table-column>
+                <el-table-column :label="$tp('Returned')" width="100" align="center"><template slot-scope="s">{{ s.row['returned'] }}</template></el-table-column>
+                <template slot="empty"><span class="ci-empty">{{ $tp('No shops yet.') }}</span></template>
             </el-table>
         </div>
     </div>
@@ -87,7 +87,7 @@ export default {
             return {
                 type: 'bar',
                 xLabels: this.weeklySold.map(w => w.week),
-                series: [{ name: 'Devices sold', data: this.weeklySold.map(w => w.count) }]
+                series: [{ name: this.$tp('Devices sold'), data: this.weeklySold.map(w => w.count) }]
             }
         }
     },
@@ -109,7 +109,7 @@ export default {
                 this.shops = r.shops || []
                 this.weeklySold = r.weeklySold || []
             } catch (e) {
-                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || 'Failed to load insights')
+                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || this.$tp('Failed to load insights'))
             } finally {
                 this.loading = false
             }

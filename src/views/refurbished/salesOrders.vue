@@ -2,46 +2,46 @@
     <div class="rso app-container">
         <div class="rso-filters">
             <el-input v-model="query.search" size="small" clearable class="f-search"
-                placeholder="Search order no / customer / IMEI…" prefix-icon="el-icon-search"
+                :placeholder="$tp('Search order no / customer / IMEI…')" prefix-icon="el-icon-search"
                 @keyup.enter.native="reload" @clear="reload" />
-            <el-select v-model="query.status" size="small" clearable placeholder="Status" class="f-sel" @change="reload">
-                <el-option label="Pending" value="Pending" />
-                <el-option label="Confirmed" value="Confirmed" />
+            <el-select v-model="query.status" size="small" clearable :placeholder="$tp('Status')" class="f-sel" @change="reload">
+                <el-option :label="$tenum('Pending')" value="Pending" />
+                <el-option :label="$tenum('Confirmed')" value="Confirmed" />
             </el-select>
             <span class="rso-spacer" />
-            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">New Sales Order</el-button>
-            <el-button size="small" icon="el-icon-refresh" @click="load">Refresh</el-button>
+            <el-button size="small" type="primary" plain icon="el-icon-plus" @click="openCreate">{{ $tp('New Sales Order') }}</el-button>
+            <el-button size="small" icon="el-icon-refresh" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini" height="calc(100vh - 210px)"
-            empty-text="No sales orders yet.">
-            <el-table-column prop="orderNo" label="Order No" width="110">
+            :empty-text="$tp('No sales orders yet.')">
+            <el-table-column prop="orderNo" :label="$tp('Order No')" width="110">
                 <template slot-scope="s">
                     <a class="rso-link" @click="openDetail(s.row)">{{ s.row.orderNo }}</a>
                 </template>
             </el-table-column>
-            <el-table-column prop="customerName" label="Customer" min-width="160" show-overflow-tooltip />
-            <el-table-column label="Devices" width="80" align="center">
+            <el-table-column prop="customerName" :label="$tp('Customer')" min-width="160" show-overflow-tooltip />
+            <el-table-column :label="$tp('Devices')" width="80" align="center">
                 <template slot-scope="s">{{ (s.row.lines || []).length }}</template>
             </el-table-column>
-            <el-table-column label="Sub Total (Ex GST)" width="140" align="right">
+            <el-table-column :label="$tp('Sub Total (Ex GST)')" width="140" align="right">
                 <template slot-scope="s">{{ amount(orderSubTotal(s.row)) }}</template>
             </el-table-column>
             <el-table-column label="GST" width="110" align="right">
                 <template slot-scope="s">{{ amount(s.row.gstAmount || 0) }}</template>
             </el-table-column>
-            <el-table-column label="Total" width="140" align="right">
+            <el-table-column :label="$tp('Total')" width="140" align="right">
                 <template slot-scope="s"><b>{{ money(s.row.total, s.row.currency) }}</b></template>
             </el-table-column>
-            <el-table-column label="Created" min-width="150">
+            <el-table-column :label="$tp('Created')" min-width="150">
                 <template slot-scope="s">
                     <div>{{ formatDateTime(s.row.createdAt) }}</div>
                     <div class="rso-dim">{{ s.row.createdBy || '—' }}</div>
                 </template>
             </el-table-column>
-            <el-table-column label="Status" width="110" align="center">
+            <el-table-column :label="$tp('Status')" width="110" align="center">
                 <template slot-scope="s">
-                    <el-tag size="mini" effect="plain" :type="statusTag(s.row.status)">{{ s.row.status }}</el-tag>
+                    <el-tag size="mini" effect="plain" :type="statusTag(s.row.status)">{{ $tenum(s.row.status) }}</el-tag>
                 </template>
             </el-table-column>
             <!-- A pending order opens straight into the editor, so it has no
@@ -49,11 +49,11 @@
             <el-table-column label="" width="200" align="center">
                 <template slot-scope="s">
                     <el-button v-if="!isPending(s.row)" size="mini" type="text" icon="el-icon-view"
-                        @click="openDetail(s.row)">View</el-button>
+                        @click="openDetail(s.row)">{{ $tp('View') }}</el-button>
                     <el-button v-if="editable(s.row)" size="mini" type="text"
-                        icon="el-icon-edit" @click="openEdit(s.row)">Edit</el-button>
+                        icon="el-icon-edit" @click="openEdit(s.row)">{{ $tp('Edit') }}</el-button>
                     <el-button v-if="isPending(s.row)" size="mini" type="text"
-                        icon="el-icon-check" @click="confirmOrder(s.row)">Confirm</el-button>
+                        icon="el-icon-check" @click="confirmOrder(s.row)">{{ $tp('Confirm') }}</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -65,23 +65,23 @@
         </div>
 
         <!-- ── Create / Edit ──────────────────────────────────────── -->
-        <el-dialog :title="editing ? `Edit ${editing.orderNo}` : 'New Sales Order'"
+        <el-dialog :title="editing ? $tp('Edit {batch}', { batch: editing.orderNo }) : $tp('New Sales Order')"
             :visible.sync="createVisible" width="920px" :close-on-click-modal="false">
             <div class="rso-form">
                 <div class="rso-row">
                     <div class="rso-field rso-grow">
-                        <label>Customer</label>
+                        <label>{{ $tp('Customer') }}</label>
                         <div class="rso-cust-line">
                             <el-select v-model="form.customerId" size="small" filterable class="rso-grow"
-                                placeholder="Select a customer…">
+                                :placeholder="$tp('Select a customer…')">
                                 <el-option v-for="c in customers" :key="c._id" :value="c._id"
                                     :label="c.name + (c.phone ? ' · ' + c.phone : '')" />
                             </el-select>
-                            <el-button size="small" icon="el-icon-plus" @click="quickCustomerOpen = !quickCustomerOpen">New</el-button>
+                            <el-button size="small" icon="el-icon-plus" @click="quickCustomerOpen = !quickCustomerOpen">{{ $tp('New') }}</el-button>
                         </div>
                     </div>
                     <div class="rso-field">
-                        <label>Currency</label>
+                        <label>{{ $tp('Currency') }}</label>
                         <el-select v-model="form.currency" size="small" style="width:100px">
                             <el-option v-for="c in ['AUD', 'CNY', 'HKD']" :key="c" :label="c" :value="c" />
                         </el-select>
@@ -89,16 +89,16 @@
                 </div>
 
                 <div v-if="quickCustomerOpen" class="rso-quick-cust">
-                    <el-input v-model="quickCustomer.name" size="small" placeholder="Customer name *" class="qc-name" />
-                    <el-input v-model="quickCustomer.phone" size="small" placeholder="Phone" class="qc-small" />
-                    <el-input v-model="quickCustomer.email" size="small" placeholder="Email" class="qc-small" />
+                    <el-input v-model="quickCustomer.name" size="small" :placeholder="$tp('Customer name *')" class="qc-name" />
+                    <el-input v-model="quickCustomer.phone" size="small" :placeholder="$tp('Phone')" class="qc-small" />
+                    <el-input v-model="quickCustomer.email" size="small" :placeholder="$tp('Email')" class="qc-small" />
                     <el-button size="small" type="primary" plain :loading="quickCustomerSaving"
-                        @click="saveQuickCustomer">Add</el-button>
+                        @click="saveQuickCustomer">{{ $tp('Add') }}</el-button>
                 </div>
 
                 <div class="rso-field">
-                    <label>Add devices <span class="rso-dim">— search In&nbsp;Stock by IMEI / serial / model</span></label>
-                    <el-input v-model="pickerSearch" size="small" clearable placeholder="Scan or type, then Enter…"
+                    <label>{{ $tp('Add devices') }} <span class="rso-dim">{{ $tp('— search In Stock by IMEI / serial / model') }}</span></label>
+                    <el-input v-model="pickerSearch" size="small" clearable :placeholder="$tp('Scan or type, then Enter…')"
                         prefix-icon="el-icon-search" @keyup.enter.native="searchDevices" @clear="pickerResults = []">
                         <el-button slot="append" icon="el-icon-search" :loading="pickerLoading" @click="searchDevices" />
                     </el-input>
@@ -110,16 +110,16 @@
                                 <!-- Sellable, but it has not landed yet — selling it
                                      is what marks the shipment received. -->
                                 <el-tag v-if="d.status === 'Not Yet Received'" size="mini" type="warning"
-                                    effect="plain">Not yet received</el-tag>
+                                    effect="plain">{{ $tenum('Not Yet Received') }}</el-tag>
                             </div>
                             <el-button size="mini" type="primary" plain icon="el-icon-plus"
                                 :disabled="isPicked(d)" @click="addLine(d)">
-                                {{ isPicked(d) ? 'Added' : 'Add' }}
+                                {{ isPicked(d) ? $tp('Added to batch') : $tp('Add') }}
                             </el-button>
                         </div>
                     </div>
                     <div v-else-if="pickerSearched && !pickerLoading" class="rso-dim rso-noresult">
-                        No available devices match.
+                        {{ $tp('No available devices match.') }}
                     </div>
                 </div>
 
@@ -131,26 +131,26 @@
                             <!-- A row scanned in but not yet in the register:
                                  created in stock when the order is saved. -->
                             <div v-if="s.row.bbChecking" class="rso-li-sub rso-dim">
-                                <i class="el-icon-loading" /> checking Blackbelt…
+                                <i class="el-icon-loading" /> {{ $tp('checking Blackbelt…') }}
                             </div>
                             <div v-else-if="s.row.isNew" :class="['rso-li-sub', s.row.bbFound ? 'rso-li-ok' : 'rso-li-warn']">
                                 <i :class="s.row.bbFound ? 'el-icon-success' : 'el-icon-warning'" />
-                                new — {{ s.row.bbFound ? 'Blackbelt found' : 'no Blackbelt report' }}
+                                {{ $tp('new') }} — {{ s.row.bbFound ? $tp('Blackbelt found') : $tp('no Blackbelt report') }}
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="300">
+                    <el-table-column :label="$tp('Device')" min-width="300">
                         <template slot-scope="s">
                             <!-- With a Blackbelt report the identity is its
                                  answer — typing only remains for devices it
                                  doesn't know. -->
                             <div v-if="s.row.isNew && !s.row.bbFound && !s.row.bbChecking" class="rso-line-edit">
-                                <el-input :value="s.row.model" size="mini" placeholder="Model *" class="le-model"
+                                <el-input :value="s.row.model" size="mini" :placeholder="$tp('Model *')" class="le-model"
                                     @input="v => s.row.model = v" />
-                                <el-input :value="s.row.color" size="mini" placeholder="Colour" class="le-small"
+                                <el-input :value="s.row.color" size="mini" :placeholder="$tp('Colour')" class="le-small"
                                     @input="v => s.row.color = v.toUpperCase()" />
                                 <el-select v-model="s.row.storage" size="mini" clearable filterable allow-create
-                                    default-first-option placeholder="Storage" class="le-small">
+                                    default-first-option :placeholder="$tp('Storage')" class="le-small">
                                     <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
                                 </el-select>
                             </div>
@@ -159,7 +159,7 @@
                             </template>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="95" align="center">
+                    <el-table-column :label="$tp('Grade')" width="95" align="center">
                         <template slot-scope="s">
                             <el-select v-if="s.row.isNew" v-model="s.row.grade" size="mini" clearable placeholder="—"
                                 class="le-grade">
@@ -172,15 +172,15 @@
                          order snapshot never stores it. A scanned-in device
                          has no cost yet, so its cell is the place to type
                          one; it lands on the register record at save. -->
-                    <el-table-column label="Cost" width="110" align="right">
+                    <el-table-column :label="$tp('Cost')" width="110" align="right">
                         <template slot-scope="s">
                             <el-input-number v-if="s.row.isNew" v-model="s.row.costPrice" size="mini" :min="0"
-                                :precision="2" :controls="false" class="le-cost" placeholder="Cost" />
+                                :precision="2" :controls="false" class="le-cost" :placeholder="$tp('Cost')" />
                             <span v-else-if="s.row.costPrice != null">{{ money(s.row.costPrice, s.row.costCurrency) }}</span>
                             <span v-else class="rso-dim">—</span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Sale Price" width="150" align="center">
+                    <el-table-column :label="$tp('Sale Price')" width="150" align="center">
                         <template slot-scope="s">
                             <el-input-number v-model="s.row.price" size="mini" :min="0" :precision="2"
                                 :controls="false" style="width:120px" />
@@ -195,7 +195,7 @@
                 </el-table>
                 <div v-if="form.lines.length" class="rso-totals">
                     <div class="rso-total-row">
-                        <span>{{ form.lines.length }} device{{ form.lines.length === 1 ? '' : 's' }} · Sub Total</span>
+                        <span>{{ $tp('{n} device(s)', { n: form.lines.length }) }} · {{ $tp('Sub Total') }}</span>
                         <span>{{ money(formSubTotal, form.currency) }}</span>
                     </div>
                     <div class="rso-total-row">
@@ -205,20 +205,20 @@
                         <span>{{ money(formGst, form.currency) }}</span>
                     </div>
                     <div class="rso-total-row rso-total-grand">
-                        <span>Total</span>
+                        <span>{{ $tp('Total') }}</span>
                         <span>{{ money(formSubTotal + formGst, form.currency) }}</span>
                     </div>
                 </div>
 
                 <div class="rso-field">
-                    <label>Notes</label>
+                    <label>{{ $tp('Notes') }}</label>
                     <el-input v-model="form.notes" type="textarea" :rows="2" maxlength="1000" size="small" />
                 </div>
             </div>
             <div slot="footer">
-                <el-button size="small" @click="createVisible = false">Close</el-button>
+                <el-button size="small" @click="createVisible = false">{{ $tp('Close') }}</el-button>
                 <el-button size="small" type="primary" :loading="creating" @click="save">
-                    {{ editing ? 'Save Changes' : 'Create Order' }}
+                    {{ editing ? $tp('Save Changes') : $tp('Create Order') }}
                 </el-button>
             </div>
         </el-dialog>
@@ -227,24 +227,24 @@
         <el-dialog :title="detail ? detail.orderNo : ''" :visible.sync="detailVisible" width="720px">
             <div v-if="detail" class="rso-detail">
                 <div class="rso-detail-grid">
-                    <div><label>Customer</label><div>{{ detail.customerName }}</div></div>
+                    <div><label>{{ $tp('Customer') }}</label><div>{{ detail.customerName }}</div></div>
                     <div>
-                        <label>Status</label>
+                        <label>{{ $tp('Status') }}</label>
                         <div>
-                            <el-tag size="mini" effect="plain" :type="statusTag(detail.status)">{{ detail.status }}</el-tag>
+                            <el-tag size="mini" effect="plain" :type="statusTag(detail.status)">{{ $tenum(detail.status) }}</el-tag>
                         </div>
                     </div>
-                    <div><label>Created</label><div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div></div>
+                    <div><label>{{ $tp('Created') }}</label><div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div></div>
                     <div v-if="detail.confirmedAt">
-                        <label>Confirmed</label>
+                        <label>{{ $tp('Confirmed') }}</label>
                         <div>{{ formatDateTime(detail.confirmedAt) }} · {{ detail.confirmedBy || '—' }}</div>
                     </div>
                     <div v-if="detail.incomingBatchTitle">
-                        <label>From Shipment</label>
+                        <label>{{ $tp('From Shipment') }}</label>
                         <div>{{ detail.incomingBatchTitle }}</div>
                     </div>
                     <div v-if="detail.status === 'Cancelled'">
-                        <label>Cancelled</label>
+                        <label>{{ $tp('Cancelled') }}</label>
                         <div>{{ formatDateTime(detail.cancelledAt) }} · {{ detail.cancelledBy || '—' }}</div>
                     </div>
                 </div>
@@ -255,18 +255,18 @@
                             <div class="rso-dim">{{ s.row.serialNumber || '' }}</div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="200" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Device')" min-width="200" show-overflow-tooltip>
                         <template slot-scope="s">
                             {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="Grade" width="70" align="center">
+                    <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
-                    <el-table-column label="Battery" width="80" align="center">
+                    <el-table-column :label="$tp('Battery')" width="80" align="center">
                         <template slot-scope="s">{{ s.row.batteryHealth == null ? '—' : s.row.batteryHealth + '%' }}</template>
                     </el-table-column>
-                    <el-table-column label="Price" width="110" align="right">
+                    <el-table-column :label="$tp('Price')" width="110" align="right">
                         <template slot-scope="s">{{ s.row.price == null ? '—' : money(s.row.price, detail.currency) }}</template>
                     </el-table-column>
                     <!-- The record of a return (the action itself lives on
@@ -275,19 +275,17 @@
                         <template slot-scope="s">
                             <el-tooltip v-if="s.row.returned" placement="top"
                                 :content="returnTitle(s.row)">
-                                <el-tag size="mini" type="info" effect="plain">Returned</el-tag>
+                                <el-tag size="mini" type="info" effect="plain">{{ $tp('Returned') }}</el-tag>
                             </el-tooltip>
                         </template>
                     </el-table-column>
                 </el-table>
                 <div v-if="returnedCount" class="rso-returned-note">
-                    {{ returnedCount }} of {{ detail.lines.length }} device{{ detail.lines.length === 1 ? '' : 's' }}
-                    returned — the order keeps its lines; the devices are back in stock.
-                    Returns are made from the Stock page.
+                    {{ $tp('{returned} of {total} device(s) returned — the order keeps its lines; the devices are back in stock. Returns are made from the Stock page.', { returned: returnedCount, total: detail.lines.length }) }}
                 </div>
                 <div class="rso-totals">
                     <div class="rso-total-row">
-                        <span>Sub Total</span>
+                        <span>{{ $tp('Sub Total') }}</span>
                         <span>{{ money(orderSubTotal(detail), detail.currency) }}</span>
                     </div>
                     <div class="rso-total-row">
@@ -295,7 +293,7 @@
                         <span>{{ money(detail.gstAmount || 0, detail.currency) }}</span>
                     </div>
                     <div class="rso-total-row rso-total-grand">
-                        <span>Total</span>
+                        <span>{{ $tp('Total') }}</span>
                         <span>{{ money(detail.total, detail.currency) }}</span>
                     </div>
                 </div>
@@ -303,27 +301,27 @@
                      commentary, not part of the sale. -->
                 <div v-if="detail.status !== 'Cancelled'" class="rso-note-edit">
                     <div class="rso-note-head">
-                        <label>Remark</label>
+                        <label>{{ $tp('Remark') }}</label>
                         <el-button v-if="noteDirty" size="mini" type="primary" plain
-                            :loading="savingNote" @click="saveNote">Save Remark</el-button>
+                            :loading="savingNote" @click="saveNote">{{ $tp('Save Remark') }}</el-button>
                     </div>
                     <el-input v-model="noteDraft" type="textarea" :rows="2" maxlength="1000"
-                        size="small" placeholder="Add a remark…" />
+                        size="small" :placeholder="$tp('Add a remark…')" />
                 </div>
                 <div v-else-if="detail.notes" class="rso-notes">{{ detail.notes }}</div>
             </div>
             <div slot="footer">
                 <el-button v-if="detail && detail.status !== 'Cancelled'" size="small"
                     icon="el-icon-refresh" :loading="refreshingLines"
-                    title="Re-read model / colour / storage from the device register"
-                    @click="refreshLines">Refresh Device Details</el-button>
+                    :title="$tp('Re-read model / colour / storage from the device register')"
+                    @click="refreshLines">{{ $tp('Refresh Device Details') }}</el-button>
                 <el-button v-if="detail" size="small" icon="el-icon-document"
-                    @click="previewInvoice(detail)">Invoice</el-button>
+                    @click="previewInvoice(detail)">{{ $tp('Invoice') }}</el-button>
                 <el-button v-if="detail && editable(detail)" size="small" icon="el-icon-edit"
-                    @click="openEdit(detail)">Edit</el-button>
+                    @click="openEdit(detail)">{{ $tp('Edit') }}</el-button>
                 <el-button v-if="detail && isPending(detail)" size="small" type="success" plain
-                    icon="el-icon-check" @click="confirmOrder(detail)">Confirm</el-button>
-                <el-button size="small" @click="detailVisible = false">Close</el-button>
+                    icon="el-icon-check" @click="confirmOrder(detail)">{{ $tp('Confirm') }}</el-button>
+                <el-button size="small" @click="detailVisible = false">{{ $tp('Close') }}</el-button>
             </div>
         </el-dialog>
 
@@ -335,10 +333,10 @@
             </div>
             <iframe v-if="invoiceUrl" ref="invoiceFrame" :src="invoiceUrl" class="rso-invoice-frame" />
             <span slot="footer">
-                <el-button size="small" @click="invoiceVisible = false">Close</el-button>
-                <el-button size="small" icon="el-icon-printer" @click="printInvoice">Print</el-button>
+                <el-button size="small" @click="invoiceVisible = false">{{ $tp('Close') }}</el-button>
+                <el-button size="small" icon="el-icon-printer" @click="printInvoice">{{ $tp('Print') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-download"
-                    @click="downloadInvoice">Download</el-button>
+                    @click="downloadInvoice">{{ $tp('Download') }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -455,7 +453,7 @@ export default {
                 this.rows = r.orders || []
                 this.total = r.total || 0
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to load sales orders'))
+                this.$message.error(this.msg(e, this.$tp('Failed to load sales orders')))
             } finally {
                 this.loading = false
             }
@@ -486,18 +484,18 @@ export default {
         async confirmOrder(row) {
             try {
                 await this.$confirm(
-                    `Confirm ${row.orderNo}? It can't be edited afterwards.`,
-                    'Confirm order',
-                    { type: 'warning', confirmButtonText: 'Confirm', cancelButtonText: 'Not yet' }
+                    this.$tp('Confirm {order}? It can\'t be edited afterwards.', { order: row.orderNo }),
+                    this.$tp('Confirm order'),
+                    { type: 'warning', confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Not yet') }
                 )
             } catch (e) { return }
             try {
                 const r = await confirmRefurbSalesOrder(row._id)
-                this.$message.success(`${row.orderNo} confirmed`)
+                this.$message.success(this.$tp('{order} confirmed', { order: row.orderNo }))
                 if (this.detail && this.detail._id === row._id) this.detail = r.order
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to confirm the order'))
+                this.$message.error(this.msg(e, this.$tp('Failed to confirm the order')))
             }
         },
         async openCreate() {
@@ -512,9 +510,9 @@ export default {
             if (order.status === 'Confirmed') {
                 try {
                     await this.$confirm(
-                        `${order.orderNo} is confirmed. Editing reopens it — it goes back to Pending and must be confirmed again.`,
-                        'Reopen this order?',
-                        { type: 'warning', confirmButtonText: 'Edit anyway', cancelButtonText: 'Cancel' }
+                        this.$tp('{order} is confirmed. Editing reopens it — it goes back to Pending and must be confirmed again.', { order: order.orderNo }),
+                        this.$tp('Reopen this order?'),
+                        { type: 'warning', confirmButtonText: this.$tp('Edit anyway'), cancelButtonText: this.$tp('Cancel') }
                     )
                 } catch (e) { return }
             }
@@ -559,7 +557,7 @@ export default {
         },
         async saveQuickCustomer() {
             const name = this.quickCustomer.name.trim()
-            if (!name) { this.$message.warning('Customer name is required'); return }
+            if (!name) { this.$message.warning(this.$tp('Customer name is required')); return }
             this.quickCustomerSaving = true
             try {
                 const r = await createRefurbCustomer(this.quickCustomer)
@@ -568,9 +566,9 @@ export default {
                 this.form.customerId = r.customer._id
                 this.quickCustomerOpen = false
                 this.quickCustomer = { name: '', phone: '', email: '' }
-                this.$message.success(`Customer "${r.customer.name}" added`)
+                this.$message.success(this.$tp('Customer "{name}" added', { name: r.customer.name }))
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to add the customer'))
+                this.$message.error(this.msg(e, this.$tp('Failed to add the customer')))
             } finally {
                 this.quickCustomerSaving = false
             }
@@ -612,7 +610,7 @@ export default {
                     this.pickerSearched = false
                 }
             } catch (e) {
-                this.$message.error(this.msg(e, 'Search failed'))
+                this.$message.error(this.msg(e, this.$tp('Search failed')))
             } finally {
                 this.pickerLoading = false
             }
@@ -653,7 +651,7 @@ export default {
         // when the order is saved.
         async addDraftLine(code) {
             if (this.form.lines.some(l => String(l.imei).toUpperCase() === code)) {
-                this.$message.warning(code + ' is already on the order')
+                this.$message.warning(this.$tp('{code} is already on the order', { code }))
                 return
             }
             // Every field seeded now — Vue 2 can't track keys added later.
@@ -677,7 +675,7 @@ export default {
                     // repairer. A duplicate record must not be created.
                     const i = this.form.lines.indexOf(line)
                     if (i >= 0) this.form.lines.splice(i, 1)
-                    this.$message.warning(code + ' is already in the register but not In Stock — check it on the Stock page.')
+                    this.$message.warning(this.$tp('{code} is already in the register but not In Stock — check it on the Stock page.', { code }))
                     return
                 }
                 const d = (r && r.device) || {}
@@ -738,14 +736,14 @@ export default {
             }
         },
         async save() {
-            if (!this.form.customerId) { this.$message.warning('Select a customer'); return }
-            if (!this.form.lines.length) { this.$message.warning('Add at least one device'); return }
+            if (!this.form.customerId) { this.$message.warning(this.$tp('Select a customer')); return }
+            if (!this.form.lines.length) { this.$message.warning(this.$tp('Add at least one device')); return }
             const stillChecking = this.form.lines.find(l => l.bbChecking)
-            if (stillChecking) { this.$message.warning(`Still checking ${stillChecking.imei} against Blackbelt — one moment`); return }
+            if (stillChecking) { this.$message.warning(this.$tp('Still checking {imei} against Blackbelt — one moment', { imei: stillChecking.imei })); return }
             const drafts = this.form.lines.filter(l => l.isNew && !l.deviceId)
             for (const l of drafts) {
                 if (!String(l.model || '').trim()) {
-                    this.$message.warning(`Enter a model for ${l.imei}`)
+                    this.$message.warning(this.$tp('Enter a model for {imei}', { imei: l.imei }))
                     return
                 }
             }
@@ -773,7 +771,7 @@ export default {
                         currency: this.form.currency,
                         ...l.bb
                     })
-                    if (!r || r.success === false) throw new Error((r && r.message) || `Could not add ${l.imei} to stock`)
+                    if (!r || r.success === false) throw new Error((r && r.message) || this.$tp('Could not add {imei} to the register', { imei: l.imei }))
                     l.deviceId = String(r.id)
                 }
                 // Rebuilt after the creates so every draft line carries its
@@ -781,16 +779,16 @@ export default {
                 payload.lines = this.form.lines.map(l => ({ deviceId: l.deviceId, price: l.price }))
                 if (this.editing) {
                     const r = await updateRefurbSalesOrder(this.editing._id, payload)
-                    this.$message.success(`${r.order.orderNo} updated`)
+                    this.$message.success(this.$tp('{order} updated', { order: r.order.orderNo }))
                     if (this.detail && this.detail._id === r.order._id) this.detail = r.order
                 } else {
                     const r = await createRefurbSalesOrder(payload)
-                    this.$message.success(`${r.order.orderNo} created`)
+                    this.$message.success(this.$tp('{order} created', { order: r.order.orderNo }))
                 }
                 this.createVisible = false
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, this.editing ? 'Failed to update the order' : 'Failed to create the sales order'))
+                this.$message.error(this.msg(e, this.editing ? this.$tp('Failed to update the order') : this.$tp('Failed to create the sales order')))
             } finally {
                 this.creating = false
             }
@@ -808,7 +806,7 @@ export default {
                 this.invoiceVisible = true
             } catch (e) {
                 console.error('Sales order invoice PDF failed:', e)
-                this.$message.error('Could not build the invoice PDF.')
+                this.$message.error(this.$tp('Could not build the invoice PDF.'))
             }
         },
         downloadInvoice() {
@@ -851,11 +849,11 @@ export default {
             try {
                 const r = await refreshRefurbSalesOrderLines(this.detail._id)
                 this.detail = r.order
-                if (r.updated) this.$message.success(`${r.updated} line(s) updated from the device register`)
-                else this.$message.info('Already up to date')
+                if (r.updated) this.$message.success(this.$tp('{n} line(s) updated from the device register', { n: r.updated }))
+                else this.$message.info(this.$tp('Already up to date'))
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to refresh the device details'))
+                this.$message.error(this.msg(e, this.$tp('Failed to refresh the device details')))
             } finally {
                 this.refreshingLines = false
             }
@@ -867,10 +865,10 @@ export default {
                 const r = await updateRefurbSalesOrderNotes(this.detail._id, this.noteDraft)
                 this.detail = r.order
                 this.noteDraft = r.order.notes || ''
-                this.$message.success('Remark saved')
+                this.$message.success(this.$tp('Remark saved'))
                 this.load()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to save the remark'))
+                this.$message.error(this.msg(e, this.$tp('Failed to save the remark')))
             } finally {
                 this.savingNote = false
             }
