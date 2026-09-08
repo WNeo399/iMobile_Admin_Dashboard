@@ -38,3 +38,26 @@ export function deleteShop(id) {
     data: { id }
   })
 }
+
+// ── Shop Groups — shops that belong together, one group per shop ──────
+export function listShopGroups() {
+  return request({ url: '/sqt/shops/groups/list', method: 'get' })
+}
+
+export function createShopGroup(data) {
+  return request({ url: '/sqt/shops/groups/create', method: 'post', data })
+}
+
+export function updateShopGroup(id, data) {
+  return request({ url: `/sqt/shops/groups/update/${id}`, method: 'put', data })
+}
+
+export function deleteShopGroup(id) {
+  return request({ url: '/sqt/shops/groups/delete', method: 'post', data: { id } })
+}
+
+// Adds every shop in the group to a Repair Shop Owner's shop list
+// (deduped — safe to run again after the group grows).
+export function linkShopGroupOwner(id, userId) {
+  return request({ url: `/sqt/shops/groups/${id}/link-owner`, method: 'post', data: { userId } })
+}
