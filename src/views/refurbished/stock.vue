@@ -83,8 +83,16 @@
                     </span>
                 </template>
             </el-table-column>
+            <!-- Whose money this column is: a unit still on the supplier's
+                 side carries THEIR cost, not ours — staff see a dash until
+                 the Price to iMobile lands at receive. Suppliers keep
+                 seeing their own costs. -->
             <el-table-column prop="costPrice" :label="$tp('Cost Price')" width="120" align="right">
-                <template slot-scope="s">{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
+                <template slot-scope="s">
+                    <span v-if="!isSupplier && supplierHeld(s.row)" class="rs-dim"
+                        :title="$tp('Supplier stock — no iMobile cost yet')">—</span>
+                    <template v-else>{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
+                </template>
             </el-table-column>
             <el-table-column prop="stockSource" :label="$tp('Stock Source')" min-width="130" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
@@ -161,6 +169,9 @@
                     <el-input ref="baInput" v-model="baCode" size="small" class="rs-exy-input"
                         :placeholder="$tp('Scan or type IMEI / serial, then Enter…')" prefix-icon="el-icon-full-screen"
                         clearable :disabled="baSaving" @keyup.enter.native="baScan" />
+                    <!-- Applies to every cost typed below — named, so nobody
+                         mistakes the little AUD box for anything else. -->
+                    <span class="rs-ba-cur-label">{{ $tp('Cost currency') }}</span>
                     <el-select v-model="baCurrency" size="small" style="width:90px" :disabled="baSaving">
                         <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                     </el-select>
@@ -209,7 +220,7 @@
                             </el-select>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Cost')" width="100" align="center">
+                    <el-table-column :label="$tp('Cost') + ' (' + baCurrency + ')'" width="110" align="center">
                         <template slot-scope="s">
                             <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2"
                                 :controls="false" class="bae-cost" />
@@ -1271,6 +1282,13 @@ export default {
                 }
             }).catch(() => {})
         },
+        // A unit still on the supplier's side: on their shelf, or on the
+        // road via a supply batch. Its costPrice is the supplier's own —
+        // iMobile's cost only exists once the Price to iMobile is received.
+        supplierHeld(row) {
+            return row.status === 'With Supplier' ||
+                (row.status === 'Not Yet Received' && row.location === 'Sending to iMobile')
+        },
         // Apple treats <80% as "service recommended"; 80-89 is worth a warning.
         batteryClass(v) {
             if (v == null) return ''
@@ -1463,6 +1481,7 @@ export default {
 .bae-small { width: 100px; }
 .bae-cost { width: 84px; }
 .rs-ba-submit { margin-left: 10px; }
+.rs-ba-cur-label { font-size: 12px; color: #909399; white-space: nowrap; margin-left: 2px; }
 
 .rs-exy { display: flex; flex-direction: column; gap: 10px; }
 .rs-exy-bar { display: flex; align-items: center; gap: 10px; }

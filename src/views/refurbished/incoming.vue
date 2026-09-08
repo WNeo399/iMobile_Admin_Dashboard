@@ -560,10 +560,22 @@ export default {
                 if (this.isPersisted(l)) st.received += 1
                 else if (!this.isChecked(l)) st.remaining += 1
             }
+            // Models A→Z ("(No model)" last), storages small to large
+            // within a model — same ordering as the supply-batch lists.
+            const split = n => {
+                const i = n.lastIndexOf(' · ')
+                return i < 0 ? [n, ''] : [n.slice(0, i), n.slice(i + 3)]
+            }
+            const rank = s => {
+                const m = /^(\d+(?:\.\d+)?)\s*(GB|TB)$/i.exec(s)
+                return m ? parseFloat(m[1]) * (m[2].toUpperCase() === 'TB' ? 1024 : 1) : Number.MAX_SAFE_INTEGER
+            }
             const names = [...groups.keys()].sort((a, b) => {
-                if (a === '(No model)') return 1
-                if (b === '(No model)') return -1
-                return a.localeCompare(b)
+                const [am, as] = split(a)
+                const [bm, bs] = split(b)
+                if (am === '(No model)' && bm !== '(No model)') return 1
+                if (bm === '(No model)' && am !== '(No model)') return -1
+                return am.localeCompare(bm) || (rank(as) - rank(bs)) || as.localeCompare(bs)
             })
             const pos = l => (this.isPersisted(l) ? -1 : this.checkedCodes.indexOf(l.code))
             const out = []
@@ -1242,10 +1254,13 @@ export default {
             if (bb && bb.batteryHealth != null) return bb.batteryHealth
             return row.battery
         },
-        // One definition of a line's model group — the header, the stats
-        // and the auto-unfold all key on it.
+        // One definition of a line's group — the header, the stats and the
+        // auto-unfold all key on it. Model + storage, so a model spanning
+        // 64GB and 256GB folds into one group per size.
         groupKey(l) {
-            return this.bbModel(l) || String(l.model || '').trim() || '(No model)'
+            const model = this.bbModel(l) || String(l.model || '').trim() || '(No model)'
+            const storage = String((l.bbDevice && l.bbDevice.storage) || l.capacity || '').trim()
+            return storage ? `${model} · ${storage}` : model
         },
         // A group header's first cell swallows the whole row.
         lineSpan({ row, columnIndex }) {

@@ -40,19 +40,44 @@ function fmtDate(d, withTime) {
     })
 }
 
+// One rule for how device lists fold, wherever they appear: a group is
+// "Model · Storage" — a model spanning 64GB and 256GB folds into one
+// group per size. Models sort A→Z ("(No model)" last), storages small to
+// large within a model.
+export function supplyGroupName(l) {
+    const model = String((l && l.model) || '').trim() || '(No model)'
+    const storage = String((l && l.storage) || '').trim()
+    return storage ? `${model} · ${storage}` : model
+}
+
+function storageRank(v) {
+    const m = /^(\d+(?:\.\d+)?)\s*(GB|TB)$/i.exec(String(v || '').trim())
+    if (!m) return Number.MAX_SAFE_INTEGER
+    return parseFloat(m[1]) * (m[2].toUpperCase() === 'TB' ? 1024 : 1)
+}
+
 export function groupSupplyLines(lines) {
     const groups = new Map()
     for (const l of lines || []) {
-        const k = String(l.model || '').trim() || '(No model)'
-        if (!groups.has(k)) groups.set(k, [])
-        groups.get(k).push(l)
+        const k = supplyGroupName(l)
+        if (!groups.has(k)) {
+            groups.set(k, {
+                model: String(l.model || '').trim() || '(No model)',
+                storage: String(l.storage || '').trim(),
+                rows: []
+            })
+        }
+        groups.get(k).rows.push(l)
     }
-    const names = [...groups.keys()].sort((a, b) => {
-        if (a === '(No model)') return 1
-        if (b === '(No model)') return -1
-        return a.localeCompare(b)
-    })
-    return names.map(name => ({ name, rows: groups.get(name) }))
+    return [...groups.entries()]
+        .sort(([, a], [, b]) => {
+            if (a.model === '(No model)' && b.model !== '(No model)') return 1
+            if (b.model === '(No model)' && a.model !== '(No model)') return -1
+            return a.model.localeCompare(b.model) ||
+                (storageRank(a.storage) - storageRank(b.storage)) ||
+                a.storage.localeCompare(b.storage)
+        })
+        .map(([name, g]) => ({ name, rows: g.rows }))
 }
 
 export function buildSupplyBatchPdf({ batch }) {
