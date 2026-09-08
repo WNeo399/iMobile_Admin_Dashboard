@@ -65,7 +65,7 @@
 
         <!-- ── Create ───────────────────────────────────────────────── -->
         <el-dialog :title="editing ? $tp('Edit {batch}', { batch: editing.batchNo }) : $tp('New Supply Batch')"
-            :visible.sync="createVisible" width="960px" top="6vh" :close-on-click-modal="false">
+            :visible.sync="createVisible" width="820px" top="6vh" :close-on-click-modal="false">
             <div class="sb-form">
                 <div class="sb-field">
                     <label>{{ $tp('Add devices') }} <span class="sb-dim">{{ $tp('— search your In Stock devices by IMEI / serial / model') }}</span></label>
@@ -99,14 +99,6 @@
                                 <i :class="s.row.collapsed ? 'el-icon-arrow-right' : 'el-icon-arrow-down'" />
                                 {{ s.row.model }}
                                 <span class="sb-dim">· {{ $tp('{n} device(s)', { n: s.row.count }) }}</span>
-                                <!-- One price for the whole model·storage group,
-                                     typed once here and stamped on every line. -->
-                                <span class="sb-group-fill" @click.stop>
-                                    <span class="sb-dim">{{ $tp('Price to iMobile') }}</span>
-                                    <el-input-number :value="s.row.groupPrice" size="mini" :min="0" :precision="2"
-                                        :controls="false" class="sb-gp" placeholder="—"
-                                        @input="v => setGroupPrice(s.row.model, v)" />
-                                </span>
                             </div>
                             <div v-else><b>{{ s.row.imei }}</b></div>
                             <!-- A scanned code that isn't on the register yet:
@@ -162,14 +154,6 @@
                             </template>
                         </template>
                     </el-table-column>
-                    <!-- What iMobile pays per unit, always in AUD — required
-                         before the batch can be confirmed. -->
-                    <el-table-column :label="$tp('Price to iMobile')" width="130" align="center">
-                        <template slot-scope="s">
-                            <el-input-number v-model="s.row.supplyPrice" size="mini" :min="0" :precision="2"
-                                :controls="false" class="sble-cost" />
-                        </template>
-                    </el-table-column>
                     <el-table-column label="" width="50" align="center">
                         <template slot-scope="s">
                             <el-button v-if="!s.row.__group" size="mini" type="text" icon="el-icon-close"
@@ -194,10 +178,6 @@
             <span slot="footer">
                 <span v-if="form.lines.length" class="sb-foot-note">
                     {{ $tp('{n} device(s)', { n: form.lines.length }) }}
-                    <template v-if="formSupplyTotal != null">
-                        · {{ $tp('Price to iMobile total') }} <b>AUD {{ formSupplyTotal.toFixed(2) }}</b>
-                    </template>
-                    <span v-if="formUnpricedCount" class="sb-warn-note">· {{ $tp('{n} unpriced', { n: formUnpricedCount }) }}</span>
                 </span>
                 <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="creating" :disabled="!form.lines.length"
@@ -206,7 +186,7 @@
         </el-dialog>
 
         <!-- ── Detail ───────────────────────────────────────────────── -->
-        <el-dialog :title="detail ? detail.batchNo : ''" :visible.sync="detailVisible" width="860px">
+        <el-dialog :title="detail ? detail.batchNo : ''" :visible.sync="detailVisible" width="760px">
             <div v-if="detail" class="sb-detail">
                 <div class="sb-detail-grid">
                     <div v-if="!isSupplier"><label>{{ $tp('Stock Source') }}</label><div>{{ detail.stockSource }}</div></div>
@@ -246,11 +226,6 @@
                     <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Price to iMobile')" width="130" align="right">
-                        <template slot-scope="s">
-                            {{ s.row.supplyPrice == null ? '—' : (detail.priceCurrency || 'AUD') + ' ' + Number(s.row.supplyPrice).toFixed(2) }}
-                        </template>
-                    </el-table-column>
                     <el-table-column :label="$tp('Received')" width="150" align="center">
                         <template slot-scope="s">
                             <el-tag v-if="s.row.received" size="mini" type="success" effect="plain"
@@ -259,10 +234,6 @@
                         </template>
                     </el-table-column>
                 </el-table>
-                <div v-if="detailSupplyTotal != null" class="sb-detail-total">
-                    {{ $tp('Price to iMobile total') }}
-                    <b>{{ (detail.priceCurrency || 'AUD') + ' ' + detailSupplyTotal.toFixed(2) }}</b>
-                </div>
                 <div v-if="detail.notes" class="sb-notes">{{ detail.notes }}</div>
             </div>
             <span slot="footer">
@@ -321,38 +292,10 @@ export default {
             const out = []
             for (const g of groupSupplyLines(this.form.lines)) {
                 const collapsed = !!this.collapsedFormGroups[g.name]
-                // The header's quick-fill shows the group's price when every
-                // line agrees on one, and sits blank otherwise.
-                const vals = [...new Set(g.rows.map(r => (r.supplyPrice == null ? null : Number(r.supplyPrice))))]
-                out.push({
-                    __group: true,
-                    model: g.name,
-                    count: g.rows.length,
-                    groupPrice: vals.length === 1 && vals[0] != null ? vals[0] : undefined,
-                    collapsed
-                })
+                out.push({ __group: true, model: g.name, count: g.rows.length, collapsed })
                 if (!collapsed) out.push(...g.rows)
             }
             return out
-        },
-        // Running total of the draft's Price to iMobile — null until
-        // anything is priced, so a fresh list doesn't show a zero.
-        formSupplyTotal() {
-            const priced = this.form.lines.filter(l => l.supplyPrice != null && l.supplyPrice !== '')
-            if (!priced.length) return null
-            return Math.round(priced.reduce((s, l) => s + (Number(l.supplyPrice) || 0), 0) * 100) / 100
-        },
-        // Lines still waiting on a price — confirm will refuse until zero.
-        formUnpricedCount() {
-            return this.form.lines.filter(l => l.supplyPrice == null || l.supplyPrice === '').length
-        },
-        // Sum of the detail lines' Price to iMobile — null until anything
-        // is priced, so old batches don't show a meaningless zero.
-        detailSupplyTotal() {
-            const lines = (this.detail && this.detail.lines) || []
-            const priced = lines.filter(l => l.supplyPrice != null)
-            if (!priced.length) return null
-            return Math.round(priced.reduce((s, l) => s + (Number(l.supplyPrice) || 0), 0) * 100) / 100
         },
         groupedDetailLines() {
             const out = []
@@ -475,8 +418,7 @@ export default {
                     storage: l.storage || '',
                     grade: l.grade || '',
                     costPrice: l.costPrice == null ? null : l.costPrice,
-                    currency: l.currency || 'AUD',
-                    supplyPrice: l.supplyPrice == null ? undefined : l.supplyPrice
+                    currency: l.currency || 'AUD'
                 }))
             }
             this.collapsedFormGroups = {}
@@ -549,8 +491,7 @@ export default {
                     ['Created', this.formatDateTime(d.createdAt) + (d.createdBy ? ' · ' + d.createdBy : '')],
                     ['Notes', d.notes || ''],
                     [],
-                    ['Model', 'IMEI / Serial', 'Colour', 'Storage', 'Grade', 'Cost', 'Currency',
-                        `Price to iMobile (${d.priceCurrency || 'AUD'})`, 'Received', 'Received At']
+                    ['Model', 'IMEI / Serial', 'Colour', 'Storage', 'Grade', 'Cost', 'Currency', 'Received', 'Received At']
                         .map(v => ({ v, s: head }))
                 ]
                 for (const g of groupSupplyLines(d.lines || [])) {
@@ -559,13 +500,12 @@ export default {
                         rows.push([
                             l.model || '', l.imei || '', l.color || '', l.storage || '', l.grade || '',
                             l.costPrice == null ? '' : Number(l.costPrice), l.currency || 'AUD',
-                            l.supplyPrice == null ? '' : Number(l.supplyPrice),
                             l.received ? 'Yes' : '', l.receivedAt ? this.formatDateTime(l.receivedAt) : ''
                         ])
                     }
                 }
                 const ws = XLSX.utils.aoa_to_sheet(rows)
-                ws['!cols'] = [{ wch: 24 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 9 }, { wch: 17 }]
+                ws['!cols'] = [{ wch: 24 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 9 }, { wch: 9 }, { wch: 17 }]
                 const wb = XLSX.utils.book_new()
                 XLSX.utils.book_append_sheet(wb, ws, d.batchNo)
                 XLSX.writeFile(wb, `supply-batch_${String(d.batchNo).replace(/[^\w.-]+/g, '_')}.xlsx`)
@@ -586,7 +526,6 @@ export default {
                 imei: code,
                 model: '', modelDraft: '', color: '', storage: '', grade: '',
                 costPrice: undefined,
-                supplyPrice: undefined,
                 currency: 'AUD',
                 bbChecking: true,
                 bbFound: false,
@@ -645,17 +584,8 @@ export default {
                 storage: d.storage || '',
                 grade: d.grade || '',
                 costPrice: d.costPrice == null ? null : d.costPrice,
-                currency: d.currency || 'AUD',
-                supplyPrice: undefined
+                currency: d.currency || 'AUD'
             })
-        },
-        // One price for the whole model·storage group — typed on the group
-        // header and stamped on every line in it.
-        setGroupPrice(name, v) {
-            const price = v == null || v === '' ? undefined : v
-            for (const l of this.form.lines) {
-                if (supplyGroupName(l) === name) this.$set(l, 'supplyPrice', price)
-            }
         },
         async save() {
             const stillChecking = this.form.lines.find(l => l.bbChecking)
@@ -694,19 +624,9 @@ export default {
                     if (!r || r.success === false) throw new Error((r && r.message) || this.$tp('Could not add {imei} to the register', { imei: l.imei }))
                     l.deviceId = String(r.id)
                 }
-                // Price to iMobile per device — the batch's own commercial
-                // price, sent alongside the ids (a draft may still have gaps;
-                // confirm is where every unit must be priced).
-                const prices = {}
-                for (const l of this.form.lines) {
-                    if (l.deviceId && l.supplyPrice != null && l.supplyPrice !== '') prices[l.deviceId] = l.supplyPrice
-                }
                 const payload = {
                     notes: this.form.notes,
                     tracking: this.form.tracking,
-                    // Price to iMobile is always AUD.
-                    priceCurrency: 'AUD',
-                    prices,
                     deviceIds: this.form.lines.map(l => l.deviceId)
                 }
                 const r = this.editing
@@ -773,9 +693,6 @@ export default {
     gap: 6px;
     label { font-size: 12px; font-weight: 600; color: #606266; }
 }
-.sb-group-fill { margin-left: 14px; font-weight: normal; display: inline-flex; align-items: center; gap: 6px; }
-.sb-gp { width: 110px; }
-.sb-warn-note { color: #e6a23c; }
 .sb-detail-total { text-align: right; font-size: 13px; color: #606266; b { color: #303133; margin-left: 6px; } }
 .sb-picker {
     margin-top: 8px;

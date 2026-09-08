@@ -83,16 +83,10 @@
                     </span>
                 </template>
             </el-table-column>
-            <!-- Whose money this column is: a unit still on the supplier's
-                 side carries THEIR cost, not ours — staff see a dash until
-                 the Price to iMobile lands at receive. Suppliers keep
-                 seeing their own costs. -->
+            <!-- A supplier device's cost is their price TO iMobile — the
+                 same figure either side of the handover, so everyone sees it. -->
             <el-table-column prop="costPrice" :label="$tp('Cost Price')" width="120" align="right">
-                <template slot-scope="s">
-                    <span v-if="!isSupplier && supplierHeld(s.row)" class="rs-dim"
-                        :title="$tp('Supplier stock — no iMobile cost yet')">—</span>
-                    <template v-else>{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
-                </template>
+                <template slot-scope="s">{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
             </el-table-column>
             <el-table-column prop="stockSource" :label="$tp('Stock Source')" min-width="130" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
@@ -1281,13 +1275,6 @@ export default {
                     this.$message.error(this.msg(e, this.$tp('Failed to delete device')))
                 }
             }).catch(() => {})
-        },
-        // A unit still on the supplier's side: on their shelf, or on the
-        // road via a supply batch. Its costPrice is the supplier's own —
-        // iMobile's cost only exists once the Price to iMobile is received.
-        supplierHeld(row) {
-            return row.status === 'With Supplier' ||
-                (row.status === 'Not Yet Received' && row.location === 'Sending to iMobile')
         },
         // Apple treats <80% as "service recommended"; 80-89 is worth a warning.
         batteryClass(v) {
