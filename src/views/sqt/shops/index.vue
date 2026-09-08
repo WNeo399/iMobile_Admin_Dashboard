@@ -99,30 +99,52 @@
 
         <!-- ── Groups view ──────────────────────────────────────────── -->
         <template v-else>
-            <el-row :gutter="10" class="mb8">
-                <el-col :span="1.5">
-                    <el-button type="primary" plain icon="el-icon-plus" size="mini"
-                        @click="handleAddGroup">Add Group</el-button>
-                </el-col>
-                <el-col :span="1.5">
-                    <el-button icon="el-icon-refresh" size="mini" @click="loadGroups">Refresh</el-button>
-                </el-col>
-            </el-row>
+            <div class="groups-toolbar">
+                <el-button type="primary" plain icon="el-icon-plus" size="mini"
+                    @click="handleAddGroup">Add Group</el-button>
+                <el-button icon="el-icon-refresh" size="mini" @click="loadGroups">Refresh</el-button>
+                <el-input v-model="groupSearch" size="small" clearable prefix-icon="el-icon-search"
+                    placeholder="Search group / shop / contact…" class="groups-search" />
+                <span class="groups-toolbar-spacer" />
+                <span class="muted">{{ groupStats }}</span>
+            </div>
 
-            <el-table v-loading="groupsLoading" :data="groups"
-                empty-text="No groups yet — create one to tie related shops together.">
-                <el-table-column label="Group" prop="name" min-width="180">
+            <el-table v-loading="groupsLoading" :data="filteredGroups"
+                :empty-text="groupSearch ? 'No group matches the search.' : 'No groups yet — create one to tie related shops together.'"
+                @row-click="onGroupRowClick">
+                <el-table-column label="Group" min-width="200" sortable
+                    :sort-method="(a, b) => a.name.localeCompare(b.name)">
                     <template slot-scope="scope">
-                        <span style="font-weight: 500">{{ scope.row.name }}</span>
+                        <!-- The caret mirrors the row's fold state — a click
+                             anywhere on the row toggles the full shop list.
+                             Up to three shops already fit the preview, so
+                             only bigger groups fold at all. -->
+                        <i v-if="scope.row.shops.length > 3"
+                            :class="isGroupExpanded(scope.row) ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"
+                            class="group-caret" />
+                        <i v-else class="group-caret group-caret-blank" />
+                        <span style="font-weight: 600">{{ scope.row.name }}</span>
+                        <el-tag size="mini" effect="plain" style="margin-left: 8px">
+                            {{ scope.row.shops.length }}
+                        </el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column label="Shops" min-width="320">
+                <el-table-column label="Shops" min-width="300" sortable
+                    :sort-method="(a, b) => a.shops.length - b.shops.length">
                     <template slot-scope="scope">
                         <template v-if="scope.row.shops.length">
-                            <el-tag size="mini" effect="plain" style="margin-right: 6px">
-                                {{ scope.row.shops.length }}
-                            </el-tag>
-                            <span class="group-shops">{{ scope.row.shops.map(s => s.storeName).join(', ') }}</span>
+                            <!-- Folded: a short preview. Unfolded: every shop
+                                 as a status-coloured tag, in the same cell —
+                                 no expand-row machinery to misrender. -->
+                            <div v-if="isGroupExpanded(scope.row)" class="group-expand">
+                                <el-tag v-for="s in scope.row.shops" :key="s._id" size="small" effect="plain"
+                                    :type="getStatusType(s.status)" class="group-shop-tag">{{ s.storeName }}</el-tag>
+                            </div>
+                            <template v-else>
+                                <span class="group-shops">{{ scope.row.shops.slice(0, 3).map(s => s.storeName).join(', ') }}</span>
+                                <span v-if="scope.row.shops.length > 3" class="muted">
+                                    +{{ scope.row.shops.length - 3 }} more</span>
+                            </template>
                         </template>
                         <span v-else style="color: #c0c4cc">No shops yet</span>
                     </template>
@@ -538,6 +560,9 @@ export default {
             // ── Groups view ──────────────────────────────────────────
             groups: [],
             groupsLoading: false,
+            groupSearch: '',
+            // Groups whose full shop list is unfolded in the table.
+            expandedGroupIds: [],
             groupOpen: false,
             groupSubmitting: false,
             groupForm: { _id: null, name: '', contactName: '', contactPhone: '', contactEmail: '', notes: '', shopIds: [] },
@@ -605,6 +630,26 @@ export default {
             const map = {}
             for (const g of this.groups) map[String(g._id)] = g.name
             return map
+        },
+        // Client-side filter — the group set is small, so name, member
+        // shops and contact are all searchable at once.
+        filteredGroups() {
+            const q = this.groupSearch.trim().toLowerCase()
+            if (!q) return this.groups
+            return this.groups.filter(g =>
+                [g.name, g.contactName, g.contactEmail, g.contactPhone, g.notes,
+                    ...g.shops.map(s => s.storeName)]
+                    .some(v => String(v || '').toLowerCase().includes(q)))
+        },
+        groupStats() {
+            const grouped = this.groups.reduce((s, g) => s + g.shops.length, 0)
+            const parts = [`${this.groups.length} group${this.groups.length === 1 ? '' : 's'}`,
+                `${grouped} shop${grouped === 1 ? '' : 's'} in groups`]
+            if (this.allShops.length) {
+                const ungrouped = this.allShops.filter(s => !s.groupId).length
+                if (ungrouped) parts.push(`${ungrouped} ungrouped`)
+            }
+            return parts.join(' · ')
         }
     },
     watch: {
@@ -616,9 +661,13 @@ export default {
             }
         },
         // Switching to Groups refreshes them so membership edits made from
-        // the other view are never stale.
+        // the other view are never stale; the full shop list backs the
+        // "ungrouped" stat.
         view(v) {
-            if (v === 'groups') this.loadGroups()
+            if (v === 'groups') {
+                this.loadGroups()
+                this.loadAllShops()
+            }
         }
     },
     created() {
@@ -782,6 +831,21 @@ export default {
                 this.allShops = []
             }
         },
+        isGroupExpanded(row) {
+            return this.expandedGroupIds.includes(String(row._id))
+        },
+        // A click anywhere on a group row unfolds its member list; clicks
+        // on the row's own controls keep their meaning. Groups of three or
+        // fewer already show every shop in the preview — nothing to unfold.
+        onGroupRowClick(row, column, event) {
+            if (row.shops.length <= 3) return
+            if (event && event.target && event.target.closest &&
+                event.target.closest('button, a, .el-button')) return
+            const id = String(row._id)
+            const i = this.expandedGroupIds.indexOf(id)
+            if (i >= 0) this.expandedGroupIds.splice(i, 1)
+            else this.expandedGroupIds.push(id)
+        },
         // "(in <group>)" marker on picker options for shops that already
         // belong to a different group — picking one moves it here.
         shopGroupSuffix(shop) {
@@ -835,6 +899,7 @@ export default {
                     }
                     this.groupOpen = false
                     this.loadGroups()
+                    this.loadAllShops()
                     // Membership rides on the shop docs, so the shops table's
                     // Group column may have changed too.
                     this.getList()
@@ -859,6 +924,7 @@ export default {
                 const res = await deleteShopGroup(row._id)
                 this.$message.success(res.message || 'Group deleted')
                 this.loadGroups()
+                this.loadAllShops()
                 this.getList()
             } catch (e) {
                 console.error(e)
@@ -961,6 +1027,14 @@ export default {
 .page-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .page-title { font-size: 16px; font-weight: 600; color: #303133; }
 .page-head-spacer { flex: 1; }
+.groups-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.groups-toolbar-spacer { flex: 1; }
+.groups-search { width: 260px; }
+.group-expand { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
+.group-shop-tag { cursor: default; }
+.group-caret { color: #909399; margin-right: 6px; font-size: 12px; transition: transform .15s; }
+/* Keeps small groups' names aligned with the expandable ones. */
+.group-caret-blank { width: 12px; display: inline-block; }
 .group-shops { color: #606266; font-size: 13px; }
 .shop-users-toolbar {
     display: flex;
