@@ -326,6 +326,7 @@ export default {
     '— search your In Stock devices by IMEI / serial / model': '— 按 IMEI / 序列号 / 机型搜索您的在库设备',
     'Scan or type, then Enter…': '扫描或输入后按回车…',
     'Cost currency': '成本币种',
+    'Cost total': '成本合计',
     'Added to batch': '已添加',
     'Add': '添加',
     'No matching devices — only units on your shelf (or In Stock) can be sent': '未找到匹配设备 — 仅您货架上（或在库）的设备可发出',

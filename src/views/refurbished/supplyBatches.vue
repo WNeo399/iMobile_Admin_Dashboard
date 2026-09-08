@@ -226,6 +226,11 @@
                     <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
+                    <el-table-column :label="$tp('Cost')" width="110" align="right">
+                        <template slot-scope="s">
+                            {{ s.row.costPrice == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.costPrice).toFixed(2) }}
+                        </template>
+                    </el-table-column>
                     <el-table-column :label="$tp('Received')" width="150" align="center">
                         <template slot-scope="s">
                             <el-tag v-if="s.row.received" size="mini" type="success" effect="plain"
@@ -234,6 +239,10 @@
                         </template>
                     </el-table-column>
                 </el-table>
+                <div v-if="detailCostTotal" class="sb-detail-total">
+                    {{ $tp('Cost total') }}
+                    <b>{{ detailCostTotal.currency }} {{ detailCostTotal.total.toFixed(2) }}</b>
+                </div>
                 <div v-if="detail.notes" class="sb-notes">{{ detail.notes }}</div>
             </div>
             <span slot="footer">
@@ -315,6 +324,18 @@ export default {
             return out
         },
         storageOptions() { return STORAGES },
+        // Batch cost total — only when every priced line shares one
+        // currency (amounts in different currencies can't be added up).
+        detailCostTotal() {
+            const priced = ((this.detail && this.detail.lines) || []).filter(l => l.costPrice != null)
+            if (!priced.length) return null
+            const currencies = [...new Set(priced.map(l => l.currency || 'AUD'))]
+            if (currencies.length !== 1) return null
+            return {
+                currency: currencies[0],
+                total: Math.round(priced.reduce((s, l) => s + (Number(l.costPrice) || 0), 0) * 100) / 100
+            }
+        },
         isSupplier() {
             return (this.$store.getters.roles || []).includes('phone-supplier')
         }
@@ -741,6 +762,7 @@ export default {
     label { font-size: 11px; color: #909399; text-transform: uppercase; letter-spacing: .04em; }
     div > div { font-size: 13px; color: #303133; }
 }
+.sb-detail-total { text-align: right; font-size: 13px; color: #606266; b { color: #303133; margin-left: 6px; } }
 .sb-notes {
     font-size: 12px; color: #606266; background: #f8f9fb;
     border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px;
