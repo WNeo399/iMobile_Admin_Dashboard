@@ -334,7 +334,9 @@
                 <el-button size="small" @click="dispatchVisible = false">Close</el-button>
                 <!-- Item labels straight from the order — no batch needed (the
                      label's date is today). Counts follow the REMAINING
-                     quantities so a partial dispatch never double-prints.
+                     quantities so a partial dispatch never double-prints;
+                     a fully Dispatched order prints its full ordered
+                     quantities instead, so labels stay reprintable.
                      Shown on the Dispatch tab only. -->
                 <template v-if="dispatchTab === 'dispatch' && dispatchRecord">
                     <template v-if="isOscarName(dispatchRecord.customerName)">
@@ -670,7 +672,7 @@ export default {
             const rec = this.dispatchRecord
             if (!rec) return 0
             return (rec.lineItems || []).reduce((s, li) =>
-                s + (String((li && li.sku) || '').trim() ? Math.max(0, this.remainingOf(li)) : 0), 0)
+                s + (String((li && li.sku) || '').trim() ? this.labelQtyOf(li) : 0), 0)
         },
         batchDetailIsOscar() {
             return isOscarCustomer(this.dispatchRecord && this.dispatchRecord.customerName)
@@ -762,6 +764,16 @@ export default {
         },
         remainingOf(li) {
             return Math.max(0, (Number(li.quantity) || 0) - (Number(li.dispatchedQty) || 0))
+        },
+        // How many labels a line gets from the footer buttons. While the
+        // order is mid-dispatch that's the REMAINING units, so a partial
+        // dispatch never double-prints; once nothing remains (the order is
+        // Dispatched) it falls back to the full ordered quantity so labels
+        // can still be (re)printed for the whole order.
+        labelQtyOf(li) {
+            const rem = this.remainingOf(li)
+            if (this.totalRemaining > 0) return rem
+            return Math.max(0, Number(li.quantity) || 0)
         },
         // ── Dispatch dialog + scan-to-batch ──────────────────────────
         openDispatch(row) {
@@ -1191,15 +1203,16 @@ export default {
             }
         },
         // ── Labels straight from the Dispatch tab (no batch yet) ──────
-        // The label builders take a batch for its date and lines; before a
-        // batch exists we hand them the order's remaining lines dated today.
+        // The label builders take a batch for its date and lines; the
+        // builders get the order's label quantities dated today (remaining
+        // while mid-dispatch, full ordered once the order is Dispatched).
         dispatchPseudoBatch() {
             const rec = this.dispatchRecord || {}
             return {
                 batchNo: '',
                 at: new Date(),
                 lines: (rec.lineItems || [])
-                    .map(li => ({ sku: li.sku, description: li.description, qty: Math.max(0, this.remainingOf(li)) }))
+                    .map(li => ({ sku: li.sku, description: li.description, qty: this.labelQtyOf(li) }))
                     .filter(l => String(l.sku || '').trim() && l.qty > 0)
             }
         },
