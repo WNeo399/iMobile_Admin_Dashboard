@@ -212,41 +212,6 @@ export const moduleRoutes = [
         ]
       },
       {
-        // Accessories — same Stock Monitoring / Collections functionality
-        // as Spare Parts but over its own collection set (meta.scope
-        // switches the data source in the shared pages/API). Deliberately
-        // no Tencent purchase-order integration and no Create PO.
-        path: "accessories",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Accessories", icon: "el-icon-headset" },
-        children: [
-          {
-            path: "/imobile/accessories/stockMonitoring",
-            component: (resolve) => require(["@/views/accessories/stockmonitoring"], resolve),
-            name: "AccessoryStockMonitoring",
-            meta: {
-              title: "Stock Monitoring",
-              icon: "el-icon-data-line",
-              permissions: ["zoho:stock:view"],
-              scope: "accessories"
-            }
-          },
-          {
-            path: "/imobile/accessories/collections",
-            component: (resolve) => require(["@/views/accessories/collection"], resolve),
-            name: "AccessoryCollections",
-            meta: {
-              title: "Collections",
-              icon: "el-icon-files",
-              permissions: ["zoho:collection:view"],
-              scope: "accessories"
-            }
-          }
-        ]
-      },
-      {
         // Flattened Purchase Order entry for the iMobile Purchase role ONLY —
         // they get iMobile → Purchase Order without the Spare Parts level
         // (which for them would hold this single page). Everyone else keeps
@@ -342,6 +307,45 @@ export const moduleRoutes = [
           }
         ]
       },
+    ]
+  },
+  {
+    // iMobile Accessories — promoted out of the iMobile group to its own
+    // top-level menu (2026-09). Same Stock Monitoring / Collections
+    // functionality as Spare Parts but over its own collection set
+    // (meta.scope switches the data source in the shared pages/API).
+    // Deliberately no Tencent purchase-order integration and no Create PO.
+    // Page paths keep /imobile/accessories/... so existing deep links
+    // keep working.
+    path: "/imobileAccessories",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "iMobile Accessories", icon: "el-icon-headset" },
+    children: [
+      {
+        path: "/imobile/accessories/stockMonitoring",
+        component: (resolve) => require(["@/views/accessories/stockmonitoring"], resolve),
+        name: "AccessoryStockMonitoring",
+        meta: {
+          title: "Stock Monitoring",
+          icon: "el-icon-data-line",
+          permissions: ["zoho:stock:view"],
+          scope: "accessories"
+        }
+      },
+      {
+        path: "/imobile/accessories/collections",
+        component: (resolve) => require(["@/views/accessories/collection"], resolve),
+        name: "AccessoryCollections",
+        meta: {
+          title: "Collections",
+          icon: "el-icon-files",
+          permissions: ["zoho:collection:view"],
+          scope: "accessories"
+        }
+      }
     ]
   },
   {

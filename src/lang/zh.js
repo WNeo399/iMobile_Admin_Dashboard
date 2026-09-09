@@ -23,6 +23,7 @@ export default {
     'Products': '产品',
     'Reference Data': '基础数据',
     'Accessories': '配件',
+    'iMobile Accessories': 'iMobile 配件',
     'Repair': '维修',
     'Credit Note': '贷记单',
     'Special Order': '特殊订单',
