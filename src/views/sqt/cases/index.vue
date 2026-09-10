@@ -483,7 +483,9 @@
 
                 <el-form-item label="Note" required>
                     <el-input v-model="changeStatusForm.note" type="textarea" :rows="3"
-                        placeholder="Reason for this status change (required)" />
+                        :placeholder="changeStatusForm.status === 'unrepairable'
+                            ? 'Why is this device unrepairable? (required)'
+                            : 'Reason for this status change (required)'" />
                 </el-form-item>
             </el-form>
             <div slot="footer">
@@ -605,12 +607,6 @@
                                         {{ (scope.row.identifiers && (scope.row.identifiers.partNumber || scope.row.identifiers.sku)) || '—' }}
                                     </span>
                                 </div>
-                            </template>
-                        </el-table-column>
-                        <el-table-column v-if="canViewPrice" label="Price" width="120" align="right">
-                            <template slot-scope="scope">
-                                <span v-if="scope.row.price">AUD {{ Number(scope.row.price).toFixed(2) }}</span>
-                                <span v-else style="color: #c0c4cc">—</span>
                             </template>
                         </el-table-column>
                     </el-table>
@@ -1137,6 +1133,19 @@
                 </el-radio-group>
             </div>
 
+            <el-form :model="markUnrepairableForm" size="small" class="unrepairable-reason-form">
+                <el-form-item label="Reason" required>
+                    <el-input
+                        v-model="markUnrepairableForm.reason"
+                        type="textarea"
+                        :rows="3"
+                        maxlength="1000"
+                        show-word-limit
+                        placeholder="Why is this device unrepairable? (required)…"
+                    />
+                </el-form-item>
+            </el-form>
+
             <div slot="footer">
                 <el-button
                     type="primary"
@@ -1403,12 +1412,6 @@
                                 <el-table-column label="SKU" prop="sku" width="130">
                                     <template slot-scope="scope">
                                         {{ scope.row.sku || '—' }}
-                                    </template>
-                                </el-table-column>
-                                <el-table-column v-if="canViewPrice" label="Unit Price" width="120" align="right">
-                                    <template slot-scope="scope">
-                                        <span v-if="scope.row.unitPrice">AUD {{ Number(scope.row.unitPrice).toFixed(2) }}</span>
-                                        <span v-else>—</span>
                                     </template>
                                 </el-table-column>
                                 <el-table-column label="Sent" prop="quantitySent" width="70" align="center" />
@@ -1763,7 +1766,7 @@ export default {
             markUnrepairableSubmitting: false,
             // deviceExpected → whether the shop has the customer's device on
             // hand for return; seeds returnTracking.device.expected.
-            markUnrepairableForm: { deviceExpected: true },
+            markUnrepairableForm: { deviceExpected: true, reason: '' },
 
             markBerDialogOpen: false,
             markBerCase: null,
@@ -1859,6 +1862,9 @@ export default {
             }
             return items
         },
+        // Parts prices show only inside the Send Parts dialog (and only to
+        // Admin / TechElite Admin) — every other price surface on this page
+        // was removed on request.
         canViewPrice() {
             const roles = this.$store.getters.roles || []
             return roles.includes('admin') || roles.includes('techelite-admin')
@@ -3006,19 +3012,26 @@ export default {
         handleMarkUnrepairable(row) {
             this.markUnrepairableCase = row
             // Default to "have the device for return" — the if-possible path.
-            this.markUnrepairableForm = { deviceExpected: true }
+            this.markUnrepairableForm = { deviceExpected: true, reason: '' }
             this.markUnrepairableDialogOpen = true
         },
         async submitMarkUnrepairable() {
             if (!this.markUnrepairableCase) return
+            const reason = (this.markUnrepairableForm.reason || '').trim()
+            if (!reason) {
+                this.$message.warning('Please enter why the device is unrepairable')
+                return
+            }
             this.markUnrepairableSubmitting = true
             try {
                 const deviceExpected = this.markUnrepairableForm.deviceExpected
                 const res = await changeCaseStatus(this.markUnrepairableCase._id, {
                     status: 'unrepairable',
-                    note: deviceExpected
-                        ? 'Shop marked the device as unrepairable — customer device held for return'
-                        : 'Shop marked the device as unrepairable — customer device not available for return',
+                    // The typed reason leads; the device-availability tail keeps
+                    // what the old canned note recorded.
+                    note: reason + (deviceExpected
+                        ? ' — customer device held for return'
+                        : ' — customer device not available for return'),
                     updatedBy: 'Admin',
                     // Seeds returnTracking.device.expected on the backend.
                     deviceExpected
@@ -4038,6 +4051,9 @@ export default {
         margin: 0 0 8px 0;
         white-space: normal;
     }
+}
+.unrepairable-reason-form {
+    margin-top: 12px;
 }
 
 .repaired-items-table {
