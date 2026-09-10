@@ -66,6 +66,17 @@
                 <el-table v-loading="loading" :data="showProductList" @selection-change="handleSelectionChange"
                     @sort-change="handleSorting" ref="table" empty-text="No Data" stripe border row-key="id">
                     <el-table-column v-if="!isAccessories" type="selection" width="50" align="center" :reserve-selection="true" />
+                    <!-- Accessories: the item's (first) Zoho product image,
+                         lazy-loaded per visible page through the backend
+                         proxy. Click opens the full-size viewer. -->
+                    <el-table-column v-if="isAccessories" label="Image" width="76" align="center" key="image">
+                        <template slot-scope="scope">
+                            <el-image v-if="itemImages[scope.row.id]" :src="itemImages[scope.row.id]"
+                                :preview-src-list="[itemImages[scope.row.id]]" fit="contain" class="item-thumb" />
+                            <i v-else-if="itemImages[scope.row.id] === undefined" class="el-icon-loading item-thumb-none" />
+                            <i v-else class="el-icon-picture-outline item-thumb-none" title="No image" />
+                        </template>
+                    </el-table-column>
                     <el-table-column label="Product" align="left" header-align="center" key="product"
                         min-width="300" sortable="custom" prop="productName">
                         <template slot-scope="scope">
@@ -74,7 +85,9 @@
                                     :href="`https://inventory.zoho.com/app/746138234#/inventory/items/${scope.row.id}`"
                                     target="_blank" rel="noopener" :title="scope.row.productName">{{ scope.row.productName }}</a>
                                 <div class="product-meta">
-                                    <span class="p-sku">SKU: {{ scope.row.sku || '—' }}</span>
+                                    <span v-if="scope.row.sku" class="p-sku p-sku-copy" title="Click to copy SKU"
+                                        @click.stop="copySku(scope.row.sku)">SKU: {{ scope.row.sku }}</span>
+                                    <span v-else class="p-sku">SKU: —</span>
                                     <span v-if="scope.row.location" class="p-loc"><i class="el-icon-location-outline" /> {{ scope.row.location }}</span>
                                     <span v-if="scope.row.category" class="p-cat"><i class="el-icon-collection-tag" /> {{ scope.row.category }}</span>
                                 </div>
@@ -85,17 +98,17 @@
                         sortable="custom" :show-overflow-tooltip="true" />
 
                     <!-- Accessories show Zoho's two stock figures stacked in one
-                         column: Physical (shipment-driven, the shelf reality —
-                         sorting uses it) over Accounting (invoice-driven).
+                         column: Accounting (invoice-driven) over Physical
+                         (shipment-driven, the shelf reality — sorting uses it).
                          Accounting turns amber when the two disagree. -->
                     <el-table-column v-if="isAccessories" label="Stock" align="center" key="accStock"
                         prop="stock" width="140" sortable="custom">
                         <template slot-scope="scope">
-                            <div class="stock-line"><span class="stock-label">Physical</span> <b>{{ scope.row.stock }}</b></div>
                             <div class="stock-line">
                                 <span class="stock-label">Acct</span>
                                 <span :class="{ 'stock-diff': Number(scope.row.accountingStock) !== Number(scope.row.stock) }">{{ scope.row.accountingStock }}</span>
                             </div>
+                            <div class="stock-line"><span class="stock-label">Physical</span> <b>{{ scope.row.stock }}</b></div>
                         </template>
                     </el-table-column>
 
@@ -257,7 +270,7 @@
 <script>
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
-import { getCurrentStock, getSalesTotal, updateItemReorderLevel } from "../../api/zoho/stockMonitoring";
+import { getCurrentStock, getSalesTotal, updateItemReorderLevel, getItemImage } from "../../api/zoho/stockMonitoring";
 import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
 import { getCollectionGroups, getCollectionDetail } from "../../api/zoho/products/collection";
 import { getProductDetail } from "../../api/zoho/products/product";
@@ -288,6 +301,10 @@ export default {
             currentCollection: "",
             // Inline reorder-point edit — one row at a time.
             rpEdit: { id: null, value: 0, saving: false },
+            // Item id → object URL of its Zoho product image ('' = the
+            // item has none). Filled lazily per visible page; accessories
+            // only. Object URLs are revoked on destroy.
+            itemImages: {},
             // Edit Collection dialog state. `editingCollection` is the
             // full collection document (from /detail/:id) — the tree
             // nodes only carry {label, value} so a fetch is required
@@ -368,6 +385,12 @@ export default {
     created() {
 
         this.getCollectionGroup()
+    },
+    beforeDestroy() {
+        // Free the image object URLs this session created.
+        for (const url of Object.values(this.itemImages)) {
+            if (url) { try { URL.revokeObjectURL(url) } catch (e) { /* ignore */ } }
+        }
     },
     watch: {
         duration() {
@@ -640,15 +663,9 @@ export default {
         getList() {
             const that = this
             this.loading = true
-            const page = this.queryParams.pageNum
-            const pageSize = this.queryParams.pageSize
             getCurrentStock({ collection: that.currentCollection, scope: that.scope || undefined }).then(resp => {
                 that.productList = resp
-                that.total = resp.length
-                that.showProductList = resp.slice(
-                    (page - 1) * pageSize,
-                    page * pageSize
-                )
+                that.handlePagination()
                 that.loading = false
                 that.$nextTick(() => {
                     that.handleGetSalesTotal()
@@ -663,14 +680,43 @@ export default {
             this.applyPurchaseFilter = true
             this.purchaseFilterType = type
         },
+        // Every path that renders rows (search, sort, page change, load)
+        // goes through here, so the active filters can never be dropped —
+        // sorting or paging used to slice the UNFILTERED master list,
+        // silently discarding the search.
         handlePagination() {
-            const that = this
+            const filtered = this.productList.filter(item => this.matchesFilters(item))
+            this.total = filtered.length
             const page = this.queryParams.pageNum
             const pageSize = this.queryParams.pageSize
-            this.showProductList = this.productList.slice(
+            this.showProductList = filtered.slice(
                 (page - 1) * pageSize,
                 page * pageSize
             )
+            this.loadRowImages()
+        },
+        // Fetch product images for the rows now on screen (accessories
+        // only), a few at a time, each exactly once per session — the
+        // result (or "no image") is cached by item id.
+        loadRowImages() {
+            if (!this.isAccessories) return
+            if (!this._imageFetches) this._imageFetches = new Set()
+            const queue = this.showProductList.filter(r =>
+                this.itemImages[r.id] === undefined && !this._imageFetches.has(r.id))
+            queue.forEach(r => this._imageFetches.add(r.id))
+            const worker = async () => {
+                while (queue.length) {
+                    const row = queue.shift()
+                    try {
+                        const blob = await getItemImage(row.id)
+                        const url = blob && blob.size ? URL.createObjectURL(blob) : ''
+                        this.$set(this.itemImages, row.id, url)
+                    } catch (e) {
+                        this.$set(this.itemImages, row.id, '')
+                    }
+                }
+            }
+            for (let i = 0; i < Math.min(4, queue.length); i++) worker()
         },
         handleSorting({ prop, order }) {
             if (!order) {
@@ -844,15 +890,25 @@ export default {
             return this.matchesBaseFilters(item) && matchQuick
         },
         handleQuery() {
-            const filteredList = this.productList.filter(item => this.matchesFilters(item))
-
             this.queryParams.pageNum = 1
-            this.total = filteredList.length
-
-            this.showProductList = filteredList.slice(
-                0,
-                this.queryParams.pageSize
-            )
+            this.handlePagination()
+        },
+        // Same textarea+execCommand pattern the rest of the app uses —
+        // works regardless of the clipboard API's secure-context rules.
+        copySku(sku) {
+            const ta = document.createElement('textarea')
+            ta.value = sku
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            try {
+                document.execCommand('copy')
+                this.$message.success(`SKU ${sku} copied`)
+            } catch (e) {
+                this.$message.warning('Copy failed — select the text manually.')
+            }
+            document.body.removeChild(ta)
         },
         // ── Inline reorder-point edit (writes back to Zoho) ───────────
         // Enter in the input: blur first so el-input-number commits the
@@ -908,13 +964,7 @@ export default {
                 category: '',
                 quick: '',
             }
-
-            this.total = this.productList.length
-
-            this.showProductList = this.productList.slice(
-                0,
-                this.queryParams.pageSize
-            )
+            this.handlePagination()
         }
     }
 }
@@ -1190,6 +1240,29 @@ export default {
     margin-top: 3px;
     font-size: 12px;
     color: #909399;
+}
+
+.item-thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 4px;
+    background: #f5f7fa;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.item-thumb-none {
+    font-size: 20px;
+    color: #dcdfe6;
+}
+
+.product-meta .p-sku-copy {
+    cursor: pointer;
+}
+
+.product-meta .p-sku-copy:hover {
+    color: #409EFF;
+    text-decoration: underline;
 }
 
 .product-meta .p-loc i {

@@ -16,6 +16,16 @@ export function getSalesTotal(query) {
   })
 }
 
+// Item's product image, proxied through the backend (Zoho needs OAuth).
+// Resolves to a Blob; an empty blob (204) means the item has no image.
+export function getItemImage(itemId) {
+  return request({
+    url: `/zoho/items/${itemId}/image`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
 // Inline reorder-point edit — pushes straight to Zoho Inventory.
 export function updateItemReorderLevel(itemId, reorderLevel) {
   return request({
