@@ -50,9 +50,11 @@
             <el-table-column label="Action" align="center" class-name="small-padding fixed-width">
                 <template slot-scope="scope" v-if="scope.row.roleId !== 1">
                     <el-button size="mini" type="text" icon="el-icon-edit"
-                        @click="handleUpdate(scope.row)">修改</el-button>
+                        @click="handleUpdate(scope.row)">Edit</el-button>
+                    <el-button size="mini" type="text" icon="el-icon-document-copy"
+                        @click="handleCopy(scope.row)">Copy</el-button>
                     <el-button size="mini" type="text" icon="el-icon-delete"
-                        @click="handleDelete(scope.row)">删除</el-button>
+                        @click="handleDelete(scope.row)">Delete</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -78,7 +80,7 @@
 <script>
 import CollectionGroupDialog from "./CollectionGroup/collectionGroup.vue"
 import CollectionFormDialog from "./CollectionFormDialog.vue"
-import { getCollectionList, deleteCollection } from "../../../api/zoho/products/collection";
+import { getCollectionList, deleteCollection, copyCollection } from "../../../api/zoho/products/collection";
 export default {
     components: {
         CollectionGroupDialog,
@@ -180,6 +182,20 @@ export default {
         handleUpdate(row) {
             this.editingCollection = row
             this.dialogVisible = true
+        },
+        // Duplicate the whole collection (criteria, products, note — all
+        // of it) as a Draft named "<title> - Copy".
+        async handleCopy(row) {
+            this.loading = true
+            try {
+                const res = await copyCollection(row._id, this.scope)
+                this.$message.success((res && res.message) || 'Collection copied as a draft')
+                this.getList()
+            } catch (error) {
+                console.error(error)
+                this.$message.error('Copy failed')
+                this.loading = false
+            }
         },
         async handleDelete(row) {
             const that = this

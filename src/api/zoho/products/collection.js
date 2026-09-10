@@ -53,11 +53,29 @@ export function getCollectionDetail(id, scope) {
   })
 }
 
+// Duplicate a collection (everything it carries) as a draft named
+// "<title> - Copy".
+export function copyCollection(id, scope) {
+  return request({
+    url: `${base(scope)}/copy/${id}`,
+    method: 'post'
+  })
+}
+
 export function deleteCollection(data, scope) {
   return request({
     url: `${base(scope)}/delete`,
     method: 'post',
     data
+  })
+}
+
+// Flat Zoho item-category list ({id, name}) for the criteria builder's
+// Category picker. Not scoped — categories are org-wide.
+export function getZohoCategories() {
+  return request({
+    url: '/zoho/product/categories',
+    method: 'get'
   })
 }
 
