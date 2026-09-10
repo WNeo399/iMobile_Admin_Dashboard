@@ -24,7 +24,7 @@ export const CRITERIA_FIELDS = [
     { key: "name", label: "Product Name", column: "Item Name", input: "text" },
     { key: "location", label: "Location", column: "Location", input: "text" },
     { key: "category", label: "Category", column: "Category ID", input: "category" },
-    { key: "classification", label: "Classification (Tag)", column: "Classification", input: "text" },
+    { key: "classification", label: "Classification", column: "Classification", input: "text" },
     { key: "brand", label: "Brand", column: "Brand", input: "text" }
 ];
 
