@@ -135,3 +135,13 @@ export function listReturns(query) {
     params: query,
   });
 }
+
+// Admin-only review of an unrepairable case's reason — writes the
+// unrepairableReview flag the scheduled processor filters on.
+export function reviewUnrepairableCase(id, data) {
+  return request({
+    url: `/sqt/cases/review-unrepairable/${id}`,
+    method: "post",
+    data,
+  });
+}

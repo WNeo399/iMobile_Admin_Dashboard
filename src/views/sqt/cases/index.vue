@@ -167,6 +167,19 @@
                     <el-tag closable size="small" @close="clearStatusFilter">
                         Status: {{ statusLabel(activeStatus) }}<template v-if="activeReturn"> · {{ returnLabel(activeReturn) }}</template>
                     </el-tag>
+                    <!-- Reviewed filter, Unrepairable view only — feeds the
+                         same `reviewed` param the scheduled processor uses. -->
+                    <el-radio-group
+                        v-if="activeStatus === 'unrepairable'"
+                        v-model="reviewFilter"
+                        size="mini"
+                        class="review-filter"
+                        @change="onReviewFilterChange"
+                    >
+                        <el-radio-button label="">All</el-radio-button>
+                        <el-radio-button label="true">Reviewed</el-radio-button>
+                        <el-radio-button label="false">Awaiting review</el-radio-button>
+                    </el-radio-group>
                 </div>
 
                 <!--
@@ -225,6 +238,16 @@
                             >
                                 {{ statusLabel(scope.row.status) }}
                             </el-tag>
+                            <!-- Unrepairable cases show whether an admin has
+                                 reviewed the reason yet. -->
+                            <div v-if="scope.row.status === 'unrepairable'" class="review-state">
+                                <el-tag
+                                    v-if="scope.row.unrepairableReview && scope.row.unrepairableReview.reviewedAt"
+                                    size="mini" type="success" effect="plain"
+                                    :title="`Reviewed by ${scope.row.unrepairableReview.reviewedBy || '—'} on ${formatDateTime(scope.row.unrepairableReview.reviewedAt)}`"
+                                ><i class="el-icon-check" /> Reviewed</el-tag>
+                                <el-tag v-else size="mini" type="info" effect="plain">Awaiting review</el-tag>
+                            </div>
                             <!--
                                 For on-hold cases, show the reason captured in
                                 the status-history entry. Truncated with CSS;
@@ -1003,22 +1026,63 @@
             </div>
         </el-dialog>
 
-        <!-- Start Repair dialog (Waiting-for-drop-off action) -->
+        <!-- Start Repair dialog (Waiting-for-drop-off action).
+             IMEI on file → just a reminder to check it against the device.
+             None on file → the shop enters it (saved onto the case), or
+             uses "Can't get the IMEI" — recorded in the status note. -->
         <el-dialog
             :title="startRepairDialogTitle"
             :visible.sync="startRepairDialogOpen"
-            width="460px"
+            width="520px"
             append-to-body
         >
             <div class="parts-received-question">
                 Move this case to <b>Repairing</b>?
             </div>
 
-            <div slot="footer">
+            <el-alert
+                v-if="startRepairRecordedImei"
+                type="warning"
+                :closable="false"
+                show-icon
+                class="sr-imei-reminder"
+            >
+                <template slot="title">
+                    Before starting, check the device's IMEI (dial <b>*#06#</b>)
+                    matches the one on file:
+                    <b class="sr-imei-code">{{ startRepairRecordedImei }}</b>
+                </template>
+            </el-alert>
+
+            <div class="sr-imei-block">
+                <div v-if="startRepairRecordedImei" class="sr-imei-label">
+                    Enter or scan the IMEI from the device — it must match the
+                    one on file to proceed.
+                </div>
+                <div v-else class="sr-imei-label">
+                    There is no IMEI on file for this device — dial <b>*#06#</b> on it
+                    and enter the IMEI so the case record is complete.
+                </div>
+                <el-input
+                    v-model="startRepairForm.imei"
+                    placeholder="Enter or scan the IMEI…"
+                    maxlength="25"
+                    clearable
+                    @input="startRepairImeiError = ''"
+                />
+                <div v-if="startRepairImeiError" class="sr-imei-error">{{ startRepairImeiError }}</div>
+            </div>
+
+            <div slot="footer" class="sr-imei-footer">
+                <el-button
+                    :disabled="startRepairSubmitting"
+                    @click="submitStartRepair(true)"
+                >Can't get the IMEI</el-button>
+                <span class="sr-imei-footer-spacer" />
                 <el-button
                     type="primary"
                     :loading="startRepairSubmitting"
-                    @click="submitStartRepair"
+                    @click="submitStartRepair(false)"
                 >Confirm</el-button>
                 <el-button @click="startRepairDialogOpen = false">Cancel</el-button>
             </div>
@@ -1156,24 +1220,51 @@
             </div>
         </el-dialog>
 
-        <!-- Mark BER dialog (Unrepairable action) -->
+        <!-- Review Unrepairable dialog (Unrepairable action, ADMIN only).
+             Replaces the old Mark BER action: the admin reads the shop's
+             unrepairable reason, may adjust it, and saving stamps
+             unrepairableReview — the flag the scheduled processor of
+             reviewed unrepairable cases filters on. -->
         <el-dialog
-            :title="markBerDialogTitle"
-            :visible.sync="markBerDialogOpen"
-            width="460px"
+            :title="reviewUnrepDialogTitle"
+            :visible.sync="reviewUnrepDialogOpen"
+            width="560px"
             append-to-body
+            :close-on-click-modal="false"
         >
-            <div class="parts-received-question">
-                Mark this unrepairable case as <b>BER</b> (handled)?
-            </div>
-
+            <template v-if="reviewUnrepCase">
+                <el-alert
+                    v-if="reviewUnrepCase.unrepairableReview && reviewUnrepCase.unrepairableReview.reviewedAt"
+                    type="success"
+                    :closable="false"
+                    show-icon
+                    class="review-unrep-state"
+                    :title="`Already reviewed by ${reviewUnrepCase.unrepairableReview.reviewedBy || '—'} on ${formatDateTime(reviewUnrepCase.unrepairableReview.reviewedAt)} — saving again updates the reason.`"
+                />
+                <div class="review-unrep-orig">
+                    <label>Shop's note when the case went Unrepairable</label>
+                    <div>{{ unrepairableNote(reviewUnrepCase) || '— no note recorded —' }}</div>
+                </div>
+                <el-form :model="reviewUnrepForm" size="small">
+                    <el-form-item label="Unrepairable reason" required>
+                        <el-input
+                            v-model="reviewUnrepForm.reason"
+                            type="textarea"
+                            :rows="4"
+                            maxlength="1000"
+                            show-word-limit
+                            placeholder="Confirm or adjust why this device is unrepairable…"
+                        />
+                    </el-form-item>
+                </el-form>
+            </template>
             <div slot="footer">
                 <el-button
                     type="primary"
-                    :loading="markBerSubmitting"
-                    @click="submitMarkBer"
-                >Confirm</el-button>
-                <el-button @click="markBerDialogOpen = false">Cancel</el-button>
+                    :loading="reviewUnrepSubmitting"
+                    @click="submitReviewUnrepairable"
+                >Save Review</el-button>
+                <el-button @click="reviewUnrepDialogOpen = false">Cancel</el-button>
             </div>
         </el-dialog>
 
@@ -1644,7 +1735,7 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
-import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile, markCaseReturns, uploadCaseAttachment, deleteCaseAttachment } from '@/api/sqt/cases'
+import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile, markCaseReturns, uploadCaseAttachment, deleteCaseAttachment, reviewUnrepairableCase } from '@/api/sqt/cases'
 import { checkPermi } from '@/utils/permission'
 import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
 import { listShops } from '@/api/sqt/shops'
@@ -1751,6 +1842,9 @@ export default {
             startRepairDialogOpen: false,
             startRepairCase: null,
             startRepairSubmitting: false,
+            // IMEI check on Start Repair — the typed IMEI and its inline error.
+            startRepairForm: { imei: '' },
+            startRepairImeiError: '',
 
             markRepairedDialogOpen: false,
             markRepairedCase: null,
@@ -1768,9 +1862,13 @@ export default {
             // hand for return; seeds returnTracking.device.expected.
             markUnrepairableForm: { deviceExpected: true, reason: '' },
 
-            markBerDialogOpen: false,
-            markBerCase: null,
-            markBerSubmitting: false,
+            reviewUnrepDialogOpen: false,
+            reviewUnrepCase: null,
+            reviewUnrepSubmitting: false,
+            reviewUnrepForm: { reason: '' },
+            // Reviewed-state filter while looking at Unrepairable cases:
+            // '' = all, 'true' = reviewed, 'false' = awaiting review.
+            reviewFilter: '',
 
             // Require Extra Parts — shop-raised request for more parts on an
             // in-progress case. Note is mandatory.
@@ -2026,6 +2124,13 @@ export default {
             if (!this.startRepairCase) return 'Start Repair'
             return `Start Repair — ${this.caseLabel(this.startRepairCase)}`
         },
+        // The case's IMEI as digits, but only when it's a real IMEI —
+        // placeholder text ("Not Provided…") counts as none on file.
+        startRepairRecordedImei() {
+            const raw = this.startRepairCase && this.startRepairCase.device && this.startRepairCase.device.imei
+            const digits = String(raw || '').replace(/\D/g, '')
+            return /^\d{14,17}$/.test(digits) ? digits : ''
+        },
         markRepairedDialogTitle() {
             if (!this.markRepairedCase) return 'Mark Repaired'
             return `Mark Repaired — ${this.caseLabel(this.markRepairedCase)}`
@@ -2038,9 +2143,12 @@ export default {
             if (!this.markUnrepairableCase) return 'Mark Unrepairable'
             return `Mark Unrepairable — ${this.caseLabel(this.markUnrepairableCase)}`
         },
-        markBerDialogTitle() {
-            if (!this.markBerCase) return 'Mark BER'
-            return `Mark BER — ${this.caseLabel(this.markBerCase)}`
+        reviewUnrepDialogTitle() {
+            if (!this.reviewUnrepCase) return 'Review Unrepairable'
+            return `Review Unrepairable — ${this.caseLabel(this.reviewUnrepCase)}`
+        },
+        isAdmin() {
+            return ((this.$store.getters.roles) || []).includes('admin')
         },
         requireExtraPartsDialogTitle() {
             if (!this.requireExtraPartsCase) return 'Require Extra Parts'
@@ -2259,7 +2367,12 @@ export default {
                     a.push({ label: 'Mark Collected', icon: 'el-icon-finished', click: () => this.handleMarkCollected(row) })
                     break
                 case 'unrepairable':
-                    a.push({ label: 'Mark BER', icon: 'el-icon-refresh-right', permission: 'sqt:case:markBer', click: () => this.handleMarkBer(row) })
+                    // Review replaced Mark BER (2026-09-10) — ADMIN only, and
+                    // role-gated rather than permission-gated because
+                    // TechElite's sqt:*:* would match any sqt permission.
+                    if (this.isAdmin) {
+                        a.push({ label: 'Review Reason', icon: 'el-icon-view', click: () => this.handleReviewUnrepairable(row) })
+                    }
                     break
                 case 'repaired-and-collected':
                     a.push({ label: 'Select Parts', icon: 'el-icon-shopping-cart-2', permission: 'sqt:case:selectParts', click: () => this.handleSelectParts(row) })
@@ -2331,6 +2444,7 @@ export default {
                 if (this.queryParams.shopId) params.shopId = this.queryParams.shopId
                 if (this.activeStatus) params.status = this.activeStatus
                 if (this.activeReturn) params.returnSummary = this.activeReturn
+                if (this.activeStatus === 'unrepairable' && this.reviewFilter) params.reviewed = this.reviewFilter
 
                 const res = await listCases(params)
                 this.list = res.data || []
@@ -2370,6 +2484,7 @@ export default {
                 if (this.queryParams.shopId) baseParams.shopId = this.queryParams.shopId
                 if (this.activeStatus) baseParams.status = this.activeStatus
                 if (this.activeReturn) baseParams.returnSummary = this.activeReturn
+                if (this.activeStatus === 'unrepairable' && this.reviewFilter) baseParams.reviewed = this.reviewFilter
 
                 const PAGE = 500
                 let page = 1
@@ -2499,6 +2614,8 @@ export default {
             // term doesn't silently keep the new status's list filtered.
             this.queryParams.search = ''
             this.queryParams.page = 1
+            // The reviewed filter only makes sense inside Unrepairable.
+            if (this.activeStatus !== 'unrepairable') this.reviewFilter = ''
             this.getList()
             // On mobile the tree lives inside a drawer; close it once a status
             // is picked so the user sees the filtered table immediately.
@@ -2507,7 +2624,12 @@ export default {
         clearStatusFilter() {
             this.activeStatus = null
             this.activeReturn = null
+            this.reviewFilter = ''
             this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
+            this.queryParams.page = 1
+            this.getList()
+        },
+        onReviewFilterChange() {
             this.queryParams.page = 1
             this.getList()
         },
@@ -2527,6 +2649,7 @@ export default {
             this.queryParams = { page: 1, pageSize: 20, search: '', shopId: '' }
             this.activeStatus = null
             this.activeReturn = null
+            this.reviewFilter = ''
             this.$refs.statusTreeRef && this.$refs.statusTreeRef.setCurrentKey('all')
             this.getList()
         },
@@ -2945,6 +3068,8 @@ export default {
         },
         handleStartRepair(row) {
             this.startRepairCase = row
+            this.startRepairForm = { imei: '' }
+            this.startRepairImeiError = ''
             this.startRepairDialogOpen = true
         },
         handleMarkRepaired(row) {
@@ -3052,33 +3177,42 @@ export default {
                 this.markUnrepairableSubmitting = false
             }
         },
-        handleMarkBer(row) {
-            this.markBerCase = row
-            this.markBerDialogOpen = true
+        // The shop's note from the status-history entry that made the case
+        // unrepairable — the raw material the admin reviews.
+        unrepairableNote(row) {
+            const hist = Array.isArray(row && row.statusHistory) ? row.statusHistory : []
+            const entry = [...hist].reverse().find(h => h && h.status === 'unrepairable' && h.note)
+            return (entry && entry.note) || ''
         },
-        async submitMarkBer() {
-            if (!this.markBerCase) return
-            this.markBerSubmitting = true
+        handleReviewUnrepairable(row) {
+            this.reviewUnrepCase = row
+            const existing = row.unrepairableReview && row.unrepairableReview.reason
+            this.reviewUnrepForm = { reason: existing || this.unrepairableNote(row) }
+            this.reviewUnrepDialogOpen = true
+        },
+        async submitReviewUnrepairable() {
+            if (!this.reviewUnrepCase) return
+            const reason = (this.reviewUnrepForm.reason || '').trim()
+            if (!reason) {
+                this.$message.warning('Enter the unrepairable reason')
+                return
+            }
+            this.reviewUnrepSubmitting = true
             try {
-                const res = await changeCaseStatus(this.markBerCase._id, {
-                    status: 'ber',
-                    note: 'Unrepairable case handled — moved to BER',
-                    updatedBy: 'Admin'
-                })
-                this.$message.success('Moved to BER')
+                const res = await reviewUnrepairableCase(this.reviewUnrepCase._id, { reason })
+                this.$message.success('Review saved')
                 const updated = res && res.data
                 if (updated) {
                     const idx = this.list.findIndex(c => c._id === updated._id)
                     if (idx !== -1) this.$set(this.list, idx, updated)
                 }
-                this.markBerDialogOpen = false
-                this.refreshAll()
+                this.reviewUnrepDialogOpen = false
             } catch (e) {
                 console.error(e)
-                const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to update'
+                const msg = (e.response && e.response.data && e.response.data.message) || 'Failed to save the review'
                 this.$message.error(msg)
             } finally {
-                this.markBerSubmitting = false
+                this.reviewUnrepSubmitting = false
             }
         },
         handleRequireExtraParts(row) {
@@ -3293,15 +3427,37 @@ export default {
                 this.markCollectedSubmitting = false
             }
         },
-        async submitStartRepair() {
+        async submitStartRepair(skipImei) {
             if (!this.startRepairCase) return
+            const recorded = this.startRepairRecordedImei
+            const payload = { status: 'repairing', updatedBy: 'Admin' }
+            let note = 'Device received from customer — repair started'
+            if (skipImei === true) {
+                note += ' — IMEI could not be obtained'
+            } else {
+                const typed = String(this.startRepairForm.imei || '').replace(/\D/g, '')
+                if (!/^\d{14,17}$/.test(typed)) {
+                    this.startRepairImeiError = 'Enter the IMEI shown on the device (dial *#06#) — or use "Can\'t get the IMEI".'
+                    return
+                }
+                if (recorded) {
+                    // On-file IMEI: the typed one must match it to proceed.
+                    if (typed !== recorded) {
+                        this.startRepairImeiError = `That IMEI doesn't match the one on file (${recorded}). Check you have the right device — if it really can't be matched, use "Can't get the IMEI".`
+                        return
+                    }
+                    note += ` — IMEI ${typed} verified`
+                } else {
+                    // Saved onto the case by the backend, atomically with
+                    // the status change.
+                    payload.imei = typed
+                    note += ` — IMEI ${typed} recorded at drop-off`
+                }
+            }
+            payload.note = note
             this.startRepairSubmitting = true
             try {
-                const res = await changeCaseStatus(this.startRepairCase._id, {
-                    status: 'repairing',
-                    note: 'Device received from customer — repair started',
-                    updatedBy: 'Admin'
-                })
+                const res = await changeCaseStatus(this.startRepairCase._id, payload)
                 this.$message.success('Moved to Repairing')
                 const updated = res && res.data
                 if (updated) {
@@ -4054,6 +4210,76 @@ export default {
 }
 .unrepairable-reason-form {
     margin-top: 12px;
+}
+
+/* Unrepairable review */
+.review-state {
+    margin-top: 4px;
+}
+.review-filter {
+    margin-left: 10px;
+}
+.review-unrep-state {
+    margin-bottom: 12px;
+}
+.review-unrep-orig {
+    margin-bottom: 14px;
+    label {
+        display: block;
+        font-size: 11px;
+        color: #909399;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 4px;
+    }
+    div {
+        font-size: 13px;
+        color: #303133;
+        background: #f8f9fb;
+        border: 1px solid #ebeef5;
+        border-radius: 6px;
+        padding: 8px 10px;
+        white-space: pre-wrap;
+    }
+}
+
+/* Start Repair — IMEI verification. The stock warning-alert amber text
+   on the pale yellow band was hard to read — dark text instead, with
+   the IMEI itself popped in red. */
+.sr-imei-reminder {
+    margin-top: 4px;
+    ::v-deep .el-alert__title {
+        line-height: 1.6;
+        color: #303133;
+        font-size: 13px;
+        .sr-imei-code {
+            color: #f56c6c;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+        }
+    }
+}
+.sr-imei-block {
+    margin-top: 4px;
+}
+.sr-imei-label {
+    font-size: 13px;
+    color: #606266;
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+.sr-imei-error {
+    color: #f56c6c;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 6px;
+}
+.sr-imei-footer {
+    display: flex;
+    align-items: center;
+}
+.sr-imei-footer-spacer {
+    flex: 1;
 }
 
 .repaired-items-table {
