@@ -1268,6 +1268,84 @@
             </div>
         </el-dialog>
 
+        <!-- Service Report dialog (Completed action, ADMIN only).
+             Everything the case already knows is prefilled; Inspection
+             Findings and Labour Performed are typed by the admin, the
+             Parts Used lines start from the case's selected parts and
+             stay editable, and attached images fill the second page. -->
+        <el-dialog
+            :title="svcRptCase ? `Service Report — Case ${svcRptCase.caseId}` : 'Service Report'"
+            :visible.sync="svcRptOpen"
+            width="720px"
+            top="4vh"
+            append-to-body
+            :close-on-click-modal="false"
+        >
+            <div v-if="svcRptCase" class="svcrpt-body">
+                <!-- What the report already knows — read-only, straight
+                     from the case, exactly what lands in the PDF's grid. -->
+                <div class="svcrpt-summary">
+                    <div><label>Service Request</label><div>{{ svcRptCase.serviceRequestId || '—' }}</div></div>
+                    <div><label>Repair Shop</label><div>{{ svcRptCase.shopName || '—' }}</div></div>
+                    <div><label>Created At</label><div>{{ svcRptDateStr(svcRptCase.createdAt) || '—' }}</div></div>
+                    <div><label>Repaired At</label><div>{{ svcRptRepairedStr(svcRptCase) || '—' }}</div></div>
+                    <div><label>Customer</label><div>{{ [(svcRptCase.customer || {}).firstName, (svcRptCase.customer || {}).lastName].filter(Boolean).join(' ') || '—' }}</div></div>
+                    <div><label>Phone</label><div>{{ (svcRptCase.customer || {}).phone || '—' }}</div></div>
+                    <div><label>Email</label><div>{{ (svcRptCase.customer || {}).email || '—' }}</div></div>
+                    <div><label>IMEI</label><div>{{ (svcRptCase.device || {}).imei || 'Not recorded' }}</div></div>
+                </div>
+
+                <el-form label-position="top" size="small" class="svcrpt-form" @submit.native.prevent>
+                    <div class="svcrpt-two">
+                        <el-form-item label="Device">
+                            <el-input v-model="svcRptForm.device" maxlength="140" />
+                        </el-form-item>
+                        <el-form-item label="Reported Fault">
+                            <el-input v-model="svcRptForm.fault" maxlength="600" />
+                        </el-form-item>
+                    </div>
+                    <el-form-item required>
+                        <span slot="label">Inspection Findings <span class="svcrpt-hint-inline">— written onto the report, in your words</span></span>
+                        <el-input v-model="svcRptForm.findings" type="textarea" :rows="3" maxlength="1200"
+                            placeholder="e.g. The device was inspected and found to have …" />
+                    </el-form-item>
+                    <div class="svcrpt-two">
+                        <el-form-item>
+                            <span slot="label">Parts Used <span class="svcrpt-hint-inline">— one per line, from the selected parts</span></span>
+                            <el-input v-model="svcRptForm.parts" type="textarea" :rows="6" maxlength="1500" />
+                        </el-form-item>
+                        <el-form-item required>
+                            <span slot="label">Labour Performed <span class="svcrpt-hint-inline">— one per line</span></span>
+                            <el-input v-model="svcRptForm.labour" type="textarea" :rows="6" maxlength="1000" />
+                        </el-form-item>
+                    </div>
+                    <el-form-item>
+                        <span slot="label">Attachments <span class="svcrpt-hint-inline">— photos for the report's second page</span></span>
+                        <input ref="svcRptFile" type="file" accept="image/*" multiple style="display: none" @change="onSvcRptFiles" />
+                        <div class="svcrpt-att-list">
+                            <div v-for="(a, i) in svcRptAtts" :key="i" class="svcrpt-att">
+                                <img :src="a.dataUrl" />
+                                <el-button size="mini" type="text" icon="el-icon-close" class="svcrpt-att-x"
+                                    @click="svcRptAtts.splice(i, 1)" />
+                            </div>
+                            <div class="svcrpt-att svcrpt-att-add" @click="$refs.svcRptFile.click()">
+                                <i class="el-icon-plus" />
+                            </div>
+                        </div>
+                    </el-form-item>
+                </el-form>
+            </div>
+            <div slot="footer" class="svcrpt-footer">
+                <span v-if="svcRptAtts.length" class="svcrpt-hint">
+                    {{ svcRptAtts.length }} image(s) attached
+                </span>
+                <span class="svcrpt-footer-spacer" />
+                <el-button size="small" icon="el-icon-view" @click="makeServiceReport(true)">Preview</el-button>
+                <el-button size="small" type="primary" icon="el-icon-download" @click="makeServiceReport(false)">Download PDF</el-button>
+                <el-button size="small" @click="svcRptOpen = false">Cancel</el-button>
+            </div>
+        </el-dialog>
+
         <!-- Require Extra Parts dialog (Parts Arrived / Waiting for Drop-off / Repairing) -->
         <el-dialog
             :title="requireExtraPartsDialogTitle"
@@ -1736,6 +1814,7 @@
 <script>
 import TreePanel from '@/components/TreePanel'
 import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendCaseParts, markPartsReceived, changeCaseStatus, markCaseRepaired, selectCaseParts, attachCaseOrderFile, markCaseReturns, uploadCaseAttachment, deleteCaseAttachment, reviewUnrepairableCase } from '@/api/sqt/cases'
+import { buildServiceReportPdf, serviceReportFileName, DEFAULT_LABOUR } from '@/utils/sqtServiceReportPdf'
 import { checkPermi } from '@/utils/permission'
 import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
 import { listShops } from '@/api/sqt/shops'
@@ -1866,6 +1945,11 @@ export default {
             reviewUnrepCase: null,
             reviewUnrepSubmitting: false,
             reviewUnrepForm: { reason: '' },
+            // Service Report (Completed cases, admin only)
+            svcRptOpen: false,
+            svcRptCase: null,
+            svcRptForm: { device: '', fault: '', findings: '', parts: '', labour: '' },
+            svcRptAtts: [],
             // Reviewed-state filter while looking at Unrepairable cases:
             // '' = all, 'true' = reviewed, 'false' = awaiting review.
             reviewFilter: '',
@@ -2376,6 +2460,12 @@ export default {
                     break
                 case 'repaired-and-collected':
                     a.push({ label: 'Select Parts', icon: 'el-icon-shopping-cart-2', permission: 'sqt:case:selectParts', click: () => this.handleSelectParts(row) })
+                    break
+                case 'completed':
+                    // Customer-facing Service Report PDF — admin only.
+                    if (this.isAdmin) {
+                        a.push({ label: 'Service Report', icon: 'el-icon-document', click: () => this.openServiceReport(row) })
+                    }
                     break
                 case 'waiting-solvup':
                     // Same dialog as Select Parts — it pre-ticks the parts
@@ -3183,6 +3273,123 @@ export default {
             const hist = Array.isArray(row && row.statusHistory) ? row.statusHistory : []
             const entry = [...hist].reverse().find(h => h && h.status === 'unrepairable' && h.note)
             return (entry && entry.note) || ''
+        },
+        // ── Service Report (Completed cases, admin only) ─────────────
+        // "SAMSUNG GALAXY Z FOLD7 1TB BLACK" + modelName "Samsung Z Fold 7
+        // (F966)" → "Samsung Galaxy Z Fold7 (F966) 1TB Black" — the way the
+        // approved example writes the device line. Editable in the dialog.
+        svcRptDevice(d) {
+            if (!d) return ''
+            let s = String(d.description || '').trim()
+            if (s) {
+                s = s.toLowerCase()
+                    .replace(/\b[a-z]/g, ch => ch.toUpperCase())
+                    // "1tb"/"256gb" carry no word boundary after the digit,
+                    // so the title-case pass can't reach them — uppercase
+                    // the size unit case-insensitively.
+                    .replace(/(\d+)\s?(gb|tb)\b/gi, (m, n, u) => n + u.toUpperCase())
+                    .replace(/\bIphone\b/g, 'iPhone')
+                    .replace(/\bIpad\b/g, 'iPad')
+            } else {
+                s = d.modelName || ''
+            }
+            const code = /\(([^)]+)\)/.exec(String(d.modelName || ''))
+            if (code && !s.includes('(' + code[1] + ')')) {
+                const m = /\b\d+\s?(?:GB|TB)\b/.exec(s)
+                s = m
+                    ? s.slice(0, m.index).trimEnd() + ' (' + code[1] + ') ' + s.slice(m.index)
+                    : s + ' (' + code[1] + ')'
+            }
+            return s
+        },
+        svcRptDateStr(v) {
+            const d = new Date(v)
+            if (!v || isNaN(d.getTime())) return ''
+            return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+        },
+        // When the device came back repaired — the latest
+        // repaired/collected entry in the status history.
+        svcRptRepairedStr(row) {
+            const e = [...((row && row.statusHistory) || [])].reverse()
+                .find(h => h && (h.status === 'repaired-and-collected' || h.status === 'repaired'))
+            return this.svcRptDateStr(e && e.at)
+        },
+        openServiceReport(row) {
+            this.svcRptCase = row
+            const d = row.device || {}
+            const model = String(d.modelName || '').trim()
+            const parts = (row.partsForInvoice || []).map(p => {
+                const name = p.partName || p.name || ''
+                return (model ? model + ' ' : '') + name + (p.sku ? ' (SKU ' + p.sku + ')' : '')
+            })
+            this.svcRptForm = {
+                device: this.svcRptDevice(d),
+                fault: String(row.describedFault || '').replace(/^['"]|['"]$/g, ''),
+                findings: '',
+                parts: parts.join('\n'),
+                labour: DEFAULT_LABOUR.join('\n')
+            }
+            this.svcRptAtts = []
+            this.svcRptOpen = true
+        },
+        onSvcRptFiles(e) {
+            const files = [...((e.target && e.target.files) || [])]
+            e.target.value = ''
+            for (const f of files) {
+                if (!/^image\//.test(f.type)) continue
+                const reader = new FileReader()
+                reader.onload = () => {
+                    const img = new Image()
+                    img.onload = () => {
+                        this.svcRptAtts.push({ dataUrl: reader.result, w: img.naturalWidth, h: img.naturalHeight })
+                    }
+                    img.src = reader.result
+                }
+                reader.readAsDataURL(f)
+            }
+        },
+        makeServiceReport(preview) {
+            const row = this.svcRptCase
+            if (!row) return
+            const f = this.svcRptForm
+            if (!String(f.findings).trim()) {
+                this.$message.warning('Enter the Inspection Findings')
+                return
+            }
+            const labour = String(f.labour).split('\n').map(s => s.trim()).filter(Boolean)
+            if (!labour.length) {
+                this.$message.warning('Enter at least one Labour Performed line')
+                return
+            }
+            try {
+                const doc = buildServiceReportPdf({
+                    caseId: row.caseId || '',
+                    serviceRequest: row.serviceRequestId || '',
+                    status: 'Completed',
+                    repairShop: row.shopName || '',
+                    createdAt: this.svcRptDateStr(row.createdAt),
+                    repairedAt: this.svcRptRepairedStr(row),
+                    customer: [(row.customer || {}).firstName, (row.customer || {}).lastName].filter(Boolean).join(' '),
+                    phone: (row.customer || {}).phone || '',
+                    email: (row.customer || {}).email || '',
+                    device: f.device,
+                    imei: (row.device || {}).imei || 'Not recorded',
+                    fault: f.fault,
+                    findings: f.findings,
+                    parts: String(f.parts).split('\n').map(s => s.trim()).filter(Boolean),
+                    labour,
+                    attachments: this.svcRptAtts
+                })
+                if (preview) {
+                    const w = window.open(doc.output('bloburl'), '_blank', 'noopener,noreferrer')
+                    if (!w) this.$message.warning('Pop-up blocked — use Download instead.')
+                } else {
+                    doc.save(serviceReportFileName(row.caseId))
+                }
+            } catch (err) {
+                console.error('Service report failed:', err)
+                this.$message.error('Could not build the service report')
+            }
         },
         handleReviewUnrepairable(row) {
             this.reviewUnrepCase = row
@@ -4210,6 +4417,112 @@ export default {
 }
 .unrepairable-reason-form {
     margin-top: 12px;
+}
+
+/* Service Report dialog */
+.svcrpt-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.svcrpt-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px 16px;
+    background: #f8f9fb;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    padding: 12px 14px;
+    label {
+        display: block;
+        font-size: 10px;
+        color: #909399;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 2px;
+    }
+    div > div {
+        font-size: 12.5px;
+        color: #303133;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+.svcrpt-form {
+    ::v-deep .el-form-item {
+        margin-bottom: 14px;
+    }
+    ::v-deep .el-form-item__label {
+        padding-bottom: 2px;
+        font-weight: 600;
+        color: #606266;
+        line-height: 1.4;
+    }
+}
+.svcrpt-two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+}
+.svcrpt-hint {
+    font-size: 12px;
+    color: #909399;
+    line-height: 1.4;
+}
+.svcrpt-hint-inline {
+    font-size: 11px;
+    font-weight: 400;
+    color: #909399;
+}
+.svcrpt-att-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.svcrpt-att {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f5f7fa;
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+}
+.svcrpt-att-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-style: dashed;
+    border-color: #c0c4cc;
+    color: #909399;
+    font-size: 20px;
+    cursor: pointer;
+    &:hover {
+        border-color: #409eff;
+        color: #409eff;
+    }
+}
+.svcrpt-att-x {
+    position: absolute;
+    top: 0;
+    right: 2px;
+    color: #f56c6c;
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 50%;
+    padding: 2px;
+}
+.svcrpt-footer {
+    display: flex;
+    align-items: center;
+}
+.svcrpt-footer-spacer {
+    flex: 1;
 }
 
 /* Unrepairable review */
