@@ -169,6 +169,15 @@
                     <el-select v-model="baCurrency" size="small" style="width:90px" :disabled="baSaving">
                         <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                     </el-select>
+                    <!-- Which of the supplier's OWN suppliers this list came
+                         from — applies to every device in this submission. -->
+                    <template v-if="isSupplier">
+                        <span class="rs-ba-cur-label">{{ $tp('Supplier') }}</span>
+                        <el-select v-model="baSupplier" size="small" clearable filterable
+                            style="width:170px" :disabled="baSaving" :placeholder="$tp('Optional')">
+                            <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
+                        </el-select>
+                    </template>
                     <el-button v-if="baRows.length" size="small" plain :disabled="baSaving"
                         @click="baRows = []">{{ $tp('Clear') }}</el-button>
                 </div>
@@ -411,6 +420,9 @@
                                 </b>
                             </div>
                             <div class="rs-ident-cell"><span>{{ $tp('A Number') }}</span><b>{{ form.aNumber || '—' }}</b></div>
+                            <div v-if="editRow.supplier && editRow.supplier.name" class="rs-ident-cell">
+                                <span>{{ $tp('Supplier') }}</span><b>{{ editRow.supplier.name }}</b>
+                            </div>
                             <div class="rs-ident-cell">
                                 <span>{{ $tp('Added') }}</span>
                                 <b>{{ histDate(editRow.createdAt) }}<span v-if="editRow.createdBy" class="rs-cycles"> · {{ editRow.createdBy }}</span></b>
@@ -512,6 +524,14 @@
                                 <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                             </el-select>
                         </el-input>
+                    </el-form-item>
+                    <!-- New stock only: which of the supplier's OWN suppliers
+                         the unit came from (Suppliers page manages the list). -->
+                    <el-form-item v-if="isSupplier && !editRow" :label="$tp('Supplier')">
+                        <el-select v-model="form.supplierId" clearable filterable class="rs-full"
+                            :placeholder="$tp('Optional')">
+                            <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
+                        </el-select>
                     </el-form-item>
                     <el-form-item :label="$tp('Note')">
                         <el-input v-model="form.note" type="textarea" :rows="2" resize="none" :placeholder="$tp('Optional')" />
@@ -630,7 +650,7 @@ import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
     bulkAssignLocation, lookupSoldDevice, createSalesReturn,
-    getSupplyBatches, createSupplyBatch, addToSupplyBatch
+    getSupplyBatches, createSupplyBatch, addToSupplyBatch, getRefurbSuppliers
 } from '@/api/refurbished'
 
 // The grading scale we actually use.
@@ -686,6 +706,13 @@ export default {
             // The menu only shows once the batch list actually loaded — an
             // account without supply access keeps the plain button.
             baBatchesOk: false,
+            // A phone supplier's own suppliers (Suppliers page) — picked
+            // when creating stock so each unit records where it came from.
+            // Loaded once per session; baSupplier applies to the whole
+            // bulk-add list, form.supplierId to a single add.
+            mySuppliers: [],
+            mySuppliersLoaded: false,
+            baSupplier: '',
 
             // Assign To Exyon — scan a list, move it in one call.
             exyonVisible: false,
@@ -715,7 +742,7 @@ export default {
             form: {
                 imei: '', model: '', color: '', storage: '', grade: '',
                 costPrice: '', currency: 'AUD',
-                stockSource: '', blackbeltChecked: false, note: '',
+                stockSource: '', blackbeltChecked: false, note: '', supplierId: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
                 batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: ''
             },
@@ -825,9 +852,21 @@ export default {
             return {
                 imei: '', model: '', color: '', storage: '', grade: '',
                 costPrice: '', currency: 'AUD',
-                stockSource: '', blackbeltChecked: false, note: '',
+                stockSource: '', blackbeltChecked: false, note: '', supplierId: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
                 batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: ''
+            }
+        },
+        // The supplier's own suppliers list (Suppliers page) — for the
+        // pick-where-it-came-from selects. Loaded once, suppliers only.
+        async loadMySuppliers() {
+            if (!this.isSupplier || this.mySuppliersLoaded) return
+            try {
+                const r = await getRefurbSuppliers({})
+                this.mySuppliers = r.suppliers || []
+                this.mySuppliersLoaded = true
+            } catch (e) {
+                this.mySuppliers = []
             }
         },
         async load() {
@@ -876,6 +915,8 @@ export default {
             this.baBatches = []
             this.baPickVisible = false
             this.baBatchesOk = false
+            this.baSupplier = ''
+            this.loadMySuppliers()
             // Pending drafts the new devices could board. An account without
             // supply access fails here and simply never sees the menu.
             getSupplyBatches({ pendingFor: 'me' }).then(r => {
@@ -1000,6 +1041,7 @@ export default {
                         grade: row.grade,
                         costPrice: row.costPrice,
                         currency: this.baCurrency,
+                        supplierId: this.baSupplier || undefined,
                         ...row.bb
                     })
                     if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
@@ -1177,6 +1219,7 @@ export default {
             this.lookupMessage = ''
             this.editVisible = true
             if (!row) {
+                this.loadMySuppliers()
                 this.$nextTick(() => {
                     const el = this.$refs.imeiInput
                     if (el && el.focus) el.focus()

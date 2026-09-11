@@ -54,6 +54,7 @@ export default {
     'Supply Batches': '供货批次',
     'For Repair': '待维修',
     'Repairers': '维修商',
+    'Suppliers': '供应商',
     'Consignment': '寄售',
     'Insights': '概览',
     'Devices': '设备',
@@ -393,6 +394,16 @@ export default {
     'Remove "{name}"?': '确定移除“{name}”吗？',
     'Repairer removed': '维修商已移除',
     'Failed to remove the repairer': '移除维修商失败',
+    // Suppliers (a phone supplier's own upstream suppliers)
+    'Add Supplier': '添加供应商',
+    'Supplier': '供应商',
+    'No suppliers yet — add where your stock comes from.': '暂无供应商 — 添加您的进货来源',
+    'Supplier name is required': '请输入供应商名称',
+    'Supplier updated': '供应商已更新',
+    'Supplier added': '供应商已添加',
+    'Supplier removed': '供应商已移除',
+    'Failed to load suppliers': '加载供应商失败',
+    'Failed to remove the supplier': '移除供应商失败',
 
     // ── Consignment (Insights / Devices / Shops) ────────────────────
     'Consignment Insights': '寄售概览',

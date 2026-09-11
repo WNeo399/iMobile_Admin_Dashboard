@@ -204,6 +204,21 @@ export function cancelSupplyBatch(id) {
   return request({ url: `/refurbished/supply/${id}/cancel`, method: 'post' })
 }
 
+// ── Suppliers — a phone supplier's own upstream suppliers ─────────────
+// Phone-supplier only; scoped server-side to the caller's stock source.
+export function getRefurbSuppliers(query) {
+  return request({ url: '/refurbished/suppliers', method: 'get', params: query })
+}
+export function createRefurbSupplier(data) {
+  return request({ url: '/refurbished/suppliers', method: 'post', data })
+}
+export function updateRefurbSupplier(id, data) {
+  return request({ url: `/refurbished/suppliers/${id}`, method: 'put', data })
+}
+export function deleteRefurbSupplier(id) {
+  return request({ url: `/refurbished/suppliers/${id}`, method: 'delete' })
+}
+
 // ── Repairers — the workshops we send faulty devices to ───────────────
 export function getRepairers(query) {
   return request({ url: '/refurbished/repairers', method: 'get', params: query })

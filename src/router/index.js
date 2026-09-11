@@ -588,6 +588,19 @@ export const moduleRoutes = [
         }
       },
       {
+        // A phone supplier's own upstream suppliers — where their stock
+        // comes from. Data is scoped server-side to their stock source;
+        // exclusiveRoles keeps the page off every staff sidebar.
+        path: "/refurbished/suppliers",
+        component: (resolve) => require(["@/views/refurbished/suppliers"], resolve),
+        name: "RefurbishedSuppliers",
+        meta: {
+          title: "Suppliers",
+          icon: "el-icon-office-building",
+          exclusiveRoles: ["phone-supplier"]
+        }
+      },
+      {
         // The selling side: everything that moves stock to and from
         // customers.
         path: "sales",
