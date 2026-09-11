@@ -404,6 +404,7 @@ export default {
     'Supplier removed': '供应商已移除',
     'Failed to load suppliers': '加载供应商失败',
     'Failed to remove the supplier': '移除供应商失败',
+    'No supplier': '无供应商',
 
     // ── Consignment (Insights / Devices / Shops) ────────────────────
     'Consignment Insights': '寄售概览',

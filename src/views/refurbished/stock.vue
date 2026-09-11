@@ -16,6 +16,13 @@
             <el-select v-model="query.location" size="small" clearable :placeholder="$tp('Location')" class="f-sel-w" @change="reload">
                 <el-option v-for="l in filters.locations" :key="l" :label="$tenum(l)" :value="l" />
             </el-select>
+            <!-- Suppliers filter by which of THEIR suppliers a unit came
+                 from (picked at creation). -->
+            <el-select v-if="isSupplier" v-model="query.supplierId" size="small" clearable filterable
+                :placeholder="$tp('Supplier')" class="f-sel-w" @change="reload">
+                <el-option :label="$tp('No supplier')" value="none" />
+                <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
+            </el-select>
             <!-- Suppliers work one undifferentiated shelf — status is an
                  internal view, so the filter and column stay ours. -->
             <el-select v-if="!isSupplier" v-model="query.status" size="small" clearable :placeholder="$tp('Status')" class="f-sel" @change="reload">
@@ -90,6 +97,11 @@
             </el-table-column>
             <el-table-column prop="stockSource" :label="$tp('Stock Source')" min-width="130" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
+            </el-table-column>
+            <!-- Suppliers see which of THEIR suppliers each unit came from
+                 (picked at creation; blank for stock added before then). -->
+            <el-table-column v-if="isSupplier" :label="$tp('Supplier')" min-width="140" show-overflow-tooltip>
+                <template slot-scope="s">{{ (s.row.supplier && s.row.supplier.name) || '—' }}</template>
             </el-table-column>
             <!-- Set by who recorded the device (supplier vs our staff) or
                  picked when receiving through Incoming Stocks. -->
@@ -686,7 +698,7 @@ export default {
             filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [] },
             query: {
                 page: 1, pageSize: 25, search: '',
-                grade: '', stockSource: '', location: '', status: '',
+                grade: '', stockSource: '', location: '', status: '', supplierId: '',
                 sort: 'createdAt', order: 'desc'
             },
             // Bulk Add — scan many codes, create them together.
@@ -843,6 +855,9 @@ export default {
     created() {
         this.loadFilters()
         this.load()
+        // Suppliers get a Supplier column + filter — the options are their
+        // own suppliers list.
+        this.loadMySuppliers()
     },
     activated() {
         this.load()

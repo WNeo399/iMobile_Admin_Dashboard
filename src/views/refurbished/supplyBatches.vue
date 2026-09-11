@@ -65,14 +65,23 @@
 
         <!-- ── Create ───────────────────────────────────────────────── -->
         <el-dialog :title="editing ? $tp('Edit {batch}', { batch: editing.batchNo }) : $tp('New Supply Batch')"
-            :visible.sync="createVisible" width="820px" top="6vh" :close-on-click-modal="false">
+            :visible.sync="createVisible" :width="isSupplier ? '880px' : '820px'" top="6vh" :close-on-click-modal="false">
             <div class="sb-form">
                 <div class="sb-field">
                     <label>{{ $tp('Add devices') }} <span class="sb-dim">{{ $tp('— search your In Stock devices by IMEI / serial / model') }}</span></label>
-                    <el-input v-model="pickerSearch" size="small" clearable :placeholder="$tp('Scan or type, then Enter…')"
-                        prefix-icon="el-icon-search" @keyup.enter.native="searchDevices" @clear="pickerResults = []">
-                        <el-button slot="append" icon="el-icon-search" :loading="pickerLoading" @click="searchDevices" />
-                    </el-input>
+                    <div class="sb-scan-row">
+                        <el-input v-model="pickerSearch" size="small" clearable :placeholder="$tp('Scan or type, then Enter…')"
+                            prefix-icon="el-icon-search" class="sb-scan-input"
+                            @keyup.enter.native="searchDevices" @clear="pickerResults = []">
+                            <el-button slot="append" icon="el-icon-search" :loading="pickerLoading" @click="searchDevices" />
+                        </el-input>
+                        <!-- One currency for every cost typed in this dialog
+                             (new units and filled-in missing costs alike). -->
+                        <span class="sb-cur-label">{{ $tp('Cost currency') }}</span>
+                        <el-select v-model="crCurrency" size="small" style="width:90px">
+                            <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
+                        </el-select>
+                    </div>
                     <div v-if="pickerResults.length" class="sb-picker">
                         <div v-for="d in pickerResults" :key="d._id" class="sb-pick-row">
                             <div class="sb-pick-info">
@@ -112,7 +121,7 @@
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Device" min-width="280">
+                    <el-table-column label="Device" min-width="260">
                         <template slot-scope="s">
                             <!-- Blackbelt's answer is the identity; typing is
                                  only for devices it doesn't know. -->
@@ -145,13 +154,28 @@
                             <template v-else>{{ s.row.grade || '—' }}</template>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Cost')" width="110" align="right">
+                    <!-- New units type their cost here; an existing unit with
+                         NO cost on the register gets the same input (the
+                         figure is written onto the device when the batch is
+                         saved, in the dialog's Cost currency). A recorded
+                         cost displays as-is. -->
+                    <el-table-column :label="$tp('Cost') + ' (' + crCurrency + ')'" width="120" align="right">
                         <template slot-scope="s">
-                            <el-input-number v-if="s.row.isNew" v-model="s.row.costPrice" size="mini" :min="0"
-                                :precision="2" :controls="false" class="sble-cost" />
+                            <el-input-number v-if="s.row.isNew || s.row.costMissing" v-model="s.row.costPrice"
+                                size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
                             <template v-else>
                                 {{ s.row.costPrice == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.costPrice).toFixed(2) }}
                             </template>
+                        </template>
+                    </el-table-column>
+                    <!-- Which of the supplier's OWN suppliers the unit came
+                         from — shown and settable per line. -->
+                    <el-table-column v-if="isSupplier" :label="$tp('Supplier')" width="118">
+                        <template slot-scope="s">
+                            <el-select v-if="!s.row.__group" v-model="s.row.supplierId" size="mini"
+                                clearable filterable placeholder="—" class="sb-full">
+                                <el-option v-for="sp in mySuppliers" :key="sp._id" :label="sp.name" :value="sp._id" />
+                            </el-select>
                         </template>
                     </el-table-column>
                     <el-table-column label="" width="50" align="center">
@@ -231,6 +255,9 @@
                             {{ s.row.costPrice == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.costPrice).toFixed(2) }}
                         </template>
                     </el-table-column>
+                    <el-table-column v-if="isSupplier" :label="$tp('Supplier')" width="130" show-overflow-tooltip>
+                        <template slot-scope="s">{{ (s.row.supplier && s.row.supplier.name) || '—' }}</template>
+                    </el-table-column>
                     <el-table-column :label="$tp('Received')" width="150" align="center">
                         <template slot-scope="s">
                             <el-tag v-if="s.row.received" size="mini" type="success" effect="plain"
@@ -260,7 +287,7 @@
 import {
     getSupplyBatches, getSupplyBatch, createSupplyBatch, updateSupplyBatch,
     confirmSupplyBatch, cancelSupplyBatch,
-    getRefurbDevices, lookupRefurbDevice, createRefurbDevice
+    getRefurbDevices, lookupRefurbDevice, createRefurbDevice, getRefurbSuppliers
 } from '@/api/refurbished'
 
 import { buildSupplyBatchPdf, supplyBatchPdfFileName, groupSupplyLines, supplyGroupName } from '@/utils/supplyBatchPdf'
@@ -268,6 +295,7 @@ import * as XLSX from 'xlsx-js-style'
 
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
+const CURRENCIES = ['AUD', 'CNY', 'HKD']
 const CODE_RE = /^[A-Z0-9]{10,20}$/
 
 export default {
@@ -288,6 +316,11 @@ export default {
             pickerResults: [],
             pickerLoading: false,
             pickerSearched: false,
+            // The supplier's own suppliers (Suppliers page) — the per-line
+            // Supplier picks in the create/edit dialog.
+            mySuppliers: [],
+            // One currency for every cost typed in the dialog.
+            crCurrency: 'AUD',
 
             detailVisible: false,
             detail: null
@@ -295,6 +328,7 @@ export default {
     },
     computed: {
         gradeOptions() { return GRADES },
+        currencies() { return CURRENCIES },
         // Both dialog tables show the lines grouped by model under
         // full-width header rows (lineSpan collapses the other cells).
         groupedFormLines() {
@@ -342,6 +376,9 @@ export default {
     },
     created() {
         this.load()
+        if (this.isSupplier) {
+            getRefurbSuppliers({}).then(r => { this.mySuppliers = r.suppliers || [] }).catch(() => { })
+        }
         // Landed here from the Stock page's Bulk Action (suppliers only).
         if (this.$route.query.create) {
             this.$router.replace({ query: {} })
@@ -374,6 +411,7 @@ export default {
         // ── create ───────────────────────────────────────────────────
         openCreate() {
             this.editing = null
+            this.crCurrency = 'AUD'
             this.form = { notes: '', tracking: '', lines: [] }
             this.collapsedFormGroups = {}
             this.pickerSearch = ''
@@ -428,19 +466,26 @@ export default {
         // A Pending batch reopens in the create dialog with its lines.
         openEdit(row) {
             this.editing = row
+            this.crCurrency = 'AUD'
             this.form = {
                 notes: row.notes || '',
                 tracking: row.tracking || '',
-                lines: (row.lines || []).map(l => ({
-                    deviceId: String(l.deviceId),
-                    imei: l.imei,
-                    model: l.model || '',
-                    color: l.color || '',
-                    storage: l.storage || '',
-                    grade: l.grade || '',
-                    costPrice: l.costPrice == null ? null : l.costPrice,
-                    currency: l.currency || 'AUD'
-                }))
+                lines: (row.lines || []).map(l => {
+                    const supplierId = (l.supplier && String(l.supplier.id)) || ''
+                    return {
+                        deviceId: String(l.deviceId),
+                        imei: l.imei,
+                        model: l.model || '',
+                        color: l.color || '',
+                        storage: l.storage || '',
+                        grade: l.grade || '',
+                        costPrice: l.costPrice == null ? undefined : l.costPrice,
+                        currency: l.currency || 'AUD',
+                        costMissing: l.costPrice == null,
+                        supplierId,
+                        origSupplierId: supplierId
+                    }
+                })
             }
             this.collapsedFormGroups = {}
             this.pickerSearch = ''
@@ -548,6 +593,9 @@ export default {
                 model: '', modelDraft: '', color: '', storage: '', grade: '',
                 costPrice: undefined,
                 currency: 'AUD',
+                costMissing: false,
+                supplierId: '',
+                origSupplierId: '',
                 bbChecking: true,
                 bbFound: false,
                 bb: {}
@@ -597,6 +645,7 @@ export default {
         addLine(d) {
             if (this.isPicked(d)) return
             this.unfoldFor(d)
+            const supplierId = (d.supplier && String(d.supplier.id)) || ''
             this.form.lines.push({
                 deviceId: String(d._id),
                 imei: d.imei,
@@ -604,8 +653,13 @@ export default {
                 color: d.color || '',
                 storage: d.storage || '',
                 grade: d.grade || '',
-                costPrice: d.costPrice == null ? null : d.costPrice,
-                currency: d.currency || 'AUD'
+                costPrice: d.costPrice == null ? undefined : d.costPrice,
+                currency: d.currency || 'AUD',
+                // No cost on the register yet — the dialog can fill it
+                // (written back to the device on save).
+                costMissing: d.costPrice == null,
+                supplierId,
+                origSupplierId: supplierId
             })
         },
         async save() {
@@ -639,16 +693,34 @@ export default {
                         storage: l.storage,
                         grade: l.grade,
                         costPrice: l.costPrice,
-                        currency: l.currency || 'AUD',
+                        currency: this.crCurrency,
+                        supplierId: l.supplierId || undefined,
                         ...l.bb
                     })
                     if (!r || r.success === false) throw new Error((r && r.message) || this.$tp('Could not add {imei} to the register', { imei: l.imei }))
                     l.deviceId = String(r.id)
                 }
+                // Gaps filled in the dialog on EXISTING devices — a cost
+                // typed for a unit that had none, or a supplier pick —
+                // ride along and are written to the device docs before
+                // the batch snapshots them.
+                const deviceUpdates = this.form.lines
+                    .filter(l => !l.isNew)
+                    .map(l => {
+                        const u = { deviceId: l.deviceId }
+                        if (l.costMissing && l.costPrice != null && l.costPrice !== '') {
+                            u.costPrice = l.costPrice
+                            u.currency = this.crCurrency
+                        }
+                        if (l.supplierId !== l.origSupplierId) u.supplierId = l.supplierId
+                        return u
+                    })
+                    .filter(u => u.costPrice !== undefined || u.supplierId !== undefined)
                 const payload = {
                     notes: this.form.notes,
                     tracking: this.form.tracking,
-                    deviceIds: this.form.lines.map(l => l.deviceId)
+                    deviceIds: this.form.lines.map(l => l.deviceId),
+                    deviceUpdates
                 }
                 const r = this.editing
                     ? await updateSupplyBatch(this.editing._id, payload)
@@ -745,6 +817,9 @@ export default {
 .sble-model { flex: 1; min-width: 120px; }
 .sble-small { width: 100px; }
 .sble-cost { width: 90px; }
+.sb-scan-row { display: flex; align-items: center; gap: 8px; }
+.sb-scan-input { flex: 1; min-width: 0; }
+.sb-cur-label { font-size: 12px; color: #909399; white-space: nowrap; }
 .sb-full { width: 100%; }
 .sb-group { font-size: 12px; font-weight: 700; color: #303133; white-space: nowrap; }
 .sb-group-recv { color: #67c23a; font-weight: 600; }
