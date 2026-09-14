@@ -193,7 +193,7 @@
                                 @input="v => setDetail(s.row, 'model', v)" />
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Colour')" min-width="115" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Colour')" min-width="105" show-overflow-tooltip>
                         <template slot-scope="s">
                             <span v-if="s.row.bbDevice && s.row.bbDevice.color">{{ s.row.bbDevice.color }}</span>
                             <span v-else-if="isPersisted(s.row)">{{ s.row.color || '—' }}</span>
@@ -201,7 +201,7 @@
                                 @input="v => setDetail(s.row, 'color', v)" />
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Capacity')" width="100" align="center">
+                    <el-table-column :label="$tp('Capacity')" width="96" align="center">
                         <template slot-scope="s">
                             <span v-if="s.row.bbDevice && s.row.bbDevice.storage">{{ s.row.bbDevice.storage }}</span>
                             <span v-else-if="isPersisted(s.row)">{{ s.row.capacity || '—' }}</span>
@@ -209,13 +209,22 @@
                                 @input="v => setDetail(s.row, 'capacity', v)" />
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Battery')" width="80" align="center">
+                    <el-table-column :label="$tp('Battery')" width="70" align="center">
                         <template slot-scope="s">{{ battery(s.row) == null ? '—' : battery(s.row) + '%' }}</template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Price')" width="100" align="right">
-                        <template slot-scope="s">{{ money(s.row.price, batch.currency) }}</template>
+                    <!-- OUR landed cost when one is known (bold, AUD; hover
+                         shows the supplier's price), else the supplier's
+                         live price off the register. -->
+                    <el-table-column :label="$tp('Price')" width="96" align="right">
+                        <template slot-scope="s">
+                            <b v-if="s.row.ourPrice != null"
+                                :title="$tp('Supplier') + ' ' + money(supplierPriceOf(s.row), supplierCurrencyOf(s.row))">
+                                {{ money(s.row.ourPrice, 'AUD') }}
+                            </b>
+                            <template v-else>{{ money(supplierPriceOf(s.row), supplierCurrencyOf(s.row)) }}</template>
+                        </template>
                     </el-table-column>
-                    <el-table-column label="Blackbelt" width="95" align="center">
+                    <el-table-column label="Blackbelt" width="80" align="center">
                         <template slot-scope="s">
                             <i v-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" :title="$tp('Report found')" />
                             <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" :title="$tp('No report')" />
@@ -241,7 +250,7 @@
                     </el-table-column>
                     <!-- "Received" only once Add Received to Stock has run —
                          a scan on its own is just the ticked checkbox. -->
-                    <el-table-column :label="$tp('Status')" width="130" align="center">
+                    <el-table-column :label="$tp('Status')" width="112" align="center">
                         <template slot-scope="s">
                             <span v-if="s.row.deviceId" class="ri-ok"><i class="el-icon-check" /> {{ $tp('Received') }}</span>
                             <span v-else-if="s.row.alreadyInStock" class="ri-warn" :title="$tp('This code is already in the register')">
@@ -259,6 +268,13 @@
                     @click="recheck">{{ sweepRunning ? $tp('Checking…') : $tp('Check Blackbelt') + ` (${checkableCount})` }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting"
                     @click="downloadReceived">{{ $tp('Download Received') }}</el-button>
+                <!-- OUR landed cost per model · storage, in its own dialog:
+                     applied now to devices already received, remembered on
+                     the lines for the ones still on the road. -->
+                <!-- The footer renders while `batch` is still loading (the
+                     body has the v-if, the footer doesn't) — guard it. -->
+                <el-button size="small" plain type="primary" icon="el-icon-money"
+                    :disabled="!((batch && batch.lines) || []).length" @click="openCostDialog">{{ $tp('Adjust Cost Price') }}</el-button>
                 <span class="ri-spacer" />
                 <span v-if="checkedCodes.length" class="ri-foot-note">{{ $tp('{n} scanned, not yet added', { n: checkedCodes.length }) }}</span>
                 <el-button size="small" @click="onTakeBeforeClose(() => { takeVisible = false })">{{ $tp('Close') }}</el-button>
@@ -281,12 +297,56 @@
                 <el-select v-model="receiveLocation" :placeholder="$tp('Select a location')" style="width: 100%">
                     <el-option v-for="l in receiveLocations" :key="l" :label="$tenum(l)" :value="l" />
                 </el-select>
+                <!-- Landed costs come from the Adjust Cost Price dialog;
+                     this just says what will be applied. -->
+                <div v-if="enteredCostGroups" class="ri-recv-note">
+                    {{ $tp('Cost (AUD) entered for {n} group(s) — applied to their devices on receive.', { n: enteredCostGroups }) }}
+                </div>
             </div>
             <span slot="footer">
                 <el-button size="small" @click="receiveVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" :loading="committing" :disabled="!receiveLocation"
                     @click="commit">{{ $tp('Confirm') }}</el-button>
             </span>
+        </el-dialog>
+
+        <!-- ── Adjust cost price ────────────────────────────────────── -->
+        <!-- OUR landed cost (supplier price + shipping + FX), one AUD
+             figure per model · storage in this batch. Saving applies it
+             to already-received devices immediately and stores it on the
+             remaining lines, to be applied when they are received. -->
+        <el-dialog :title="$tp('Adjust Cost Price')" :visible.sync="costVisible" width="520px" append-to-body>
+            <div class="ri-costd">
+                <div class="ri-costd-head">
+                    <span>{{ $tp('Model · Storage') }}</span>
+                    <span>{{ $tp('Cost (AUD)') }}</span>
+                </div>
+                <div class="ri-costd-list">
+                    <div v-for="g in costGroups" :key="g.name" class="ri-costd-row">
+                        <div class="ri-costd-name">
+                            <div class="ri-costd-model">{{ g.name }}</div>
+                            <div class="ri-costd-sub">
+                                {{ $tp('{n} device(s)', { n: g.count }) }}<span v-if="g.received" class="ri-costd-recv"> · {{ $tp('{n} received', { n: g.received }) }}</span>
+                                <span v-if="g.supMin != null"> · {{ $tp('Supplier') }}
+                                    {{ g.supMin === g.supMax
+                                        ? money(g.supMin, g.supCur)
+                                        : money(g.supMin, g.supCur) + ' – ' + money(g.supMax, g.supCur) }}</span>
+                            </div>
+                        </div>
+                        <el-input-number :value="costDraft[g.name]" size="small" :min="0" :precision="2"
+                            :controls="false" placeholder="0.00" class="ri-costd-in"
+                            @input="v => $set(costDraft, g.name, v)" />
+                    </div>
+                </div>
+            </div>
+            <div slot="footer" class="ri-costd-dfoot">
+                <span class="ri-costd-note">{{ $tp('{n} of {m} priced', { n: draftPricedCount, m: costGroups.length }) }}</span>
+                <span>
+                    <el-button size="small" @click="costVisible = false">{{ $tp('Cancel') }}</el-button>
+                    <el-button type="primary" size="small" :loading="savingCosts" :disabled="!draftPricedCount"
+                        @click="savePrices">{{ $tp('Save') }}</el-button>
+                </span>
+            </div>
         </el-dialog>
 
         <!-- ── Which received stock to download ─────────────────────── -->
@@ -400,7 +460,7 @@
 <script>
 import {
     getIncomingBatches, createIncomingBatch, getIncomingBatch,
-    commitIncoming, sellIncoming, recheckIncoming, deleteIncomingBatch,
+    commitIncoming, sellIncoming, saveIncomingCosts, recheckIncoming, deleteIncomingBatch,
     getIncomingReceived, getRefurbCustomers, createRefurbCustomer
 } from '@/api/refurbished'
 // xlsx-js-style — the styled SheetJS fork the other dashboard exports use,
@@ -474,6 +534,14 @@ export default {
             receiveVisible: false,
             receiveLocation: '',
             receiveLocations: ['iMobile', 'Assigned To Exyon'],
+            // OUR landed cost (AUD) per model · storage group — filled from
+            // the Adjust Cost Price dialog (and from costs already stored on
+            // the lines) and fanned out to each device of the group.
+            receiveCosts: {},
+            // The Adjust Cost Price dialog edits a draft, so Cancel is free.
+            costVisible: false,
+            costDraft: {},
+            savingCosts: false,
             committing: false,
             rechecking: false,
             exporting: false,
@@ -598,6 +666,50 @@ export default {
                 out.push(...scanned, ...rest)
             }
             return out
+        },
+        // How many model · storage groups have a landed cost — the Receive
+        // popup mentions it as a reminder.
+        enteredCostGroups() {
+            return Object.values(this.receiveCosts).filter(v => v != null && v !== '').length
+        },
+        // Same count over the dialog's draft, for its footer + Save gate.
+        draftPricedCount() {
+            return Object.values(this.costDraft).filter(v => v != null && v !== '').length
+        },
+        // Every model · storage group on the batch's list, for the Adjust
+        // Cost Price dialog — same ordering as the stock-take table.
+        costGroups() {
+            const groups = new Map()
+            for (const l of (this.batch && this.batch.lines) || []) {
+                const k = this.groupKey(l)
+                if (!groups.has(k)) groups.set(k, { name: k, count: 0, received: 0, supMin: null, supMax: null, supCur: '' })
+                const g = groups.get(k)
+                g.count++
+                if (l.deviceId || l.received) g.received++
+                // The supplier's charge for the group — live off the
+                // register where possible — as a range when units differ.
+                const p = Number(this.supplierPriceOf(l))
+                if (isFinite(p)) {
+                    g.supMin = g.supMin == null ? p : Math.min(g.supMin, p)
+                    g.supMax = g.supMax == null ? p : Math.max(g.supMax, p)
+                    if (!g.supCur) g.supCur = this.supplierCurrencyOf(l)
+                }
+            }
+            const split = n => {
+                const i = n.lastIndexOf(' · ')
+                return i < 0 ? [n, ''] : [n.slice(0, i), n.slice(i + 3)]
+            }
+            const rank = s => {
+                const m = /^(\d+(?:\.\d+)?)\s*(GB|TB)$/i.exec(s)
+                return m ? parseFloat(m[1]) * (m[2].toUpperCase() === 'TB' ? 1024 : 1) : Number.MAX_SAFE_INTEGER
+            }
+            return [...groups.values()].sort((a, b) => {
+                const [am, as] = split(a.name)
+                const [bm, bs] = split(b.name)
+                if (am === '(No model)' && bm !== '(No model)') return 1
+                if (bm === '(No model)' && am !== '(No model)') return -1
+                return am.localeCompare(bm) || (rank(as) - rank(bs)) || as.localeCompare(bs)
+            })
         },
         // The scanned lines being sold, oldest scan first — the same order
         // the sale is submitted in.
@@ -804,6 +916,7 @@ export default {
             this.localExtras = []
             this.gradePicks = {}
             this.detailPicks = {}
+            this.receiveCosts = {}
             this.takeVisible = true
             await this.refreshBatch(row._id)
             this.focusScan()
@@ -814,8 +927,66 @@ export default {
                 const r = await getIncomingBatch(id || this.batch._id)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.batch = r.batch
+                // Costs stored on the lines (Adjust Cost Price, or an earlier
+                // receive) show back up in the group inputs — without
+                // clobbering anything typed this session.
+                for (const l of r.batch.lines || []) {
+                    if (l.ourCost == null) continue
+                    const k = this.groupKey(l)
+                    if (this.receiveCosts[k] == null) this.$set(this.receiveCosts, k, l.ourCost)
+                }
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to load the batch')))
+            }
+        },
+        // The Adjust Cost Price dialog: drafts seeded from what's already
+        // known (stored line costs / this session's saves).
+        openCostDialog() {
+            if (!this.batch) return
+            const draft = {}
+            for (const g of this.costGroups) {
+                draft[g.name] = this.receiveCosts[g.name] != null ? this.receiveCosts[g.name] : undefined
+            }
+            this.costDraft = draft
+            this.costVisible = true
+        },
+        // Persist the per-group landed costs without receiving anything:
+        // stored on the batch lines (auto-applied when those lines are
+        // received later) and applied NOW to devices already received —
+        // for batches that came in before the price was known.
+        async savePrices() {
+            if (this.savingCosts || !this.batch) return
+            const costs = {}
+            for (const l of this.batch.lines || []) {
+                const v = this.costDraft[this.groupKey(l)]
+                if (v != null && v !== '') costs[l.code] = v
+            }
+            if (!Object.keys(costs).length) {
+                this.$message.warning(this.$tp('Enter a price for at least one model first.'))
+                return
+            }
+            this.savingCosts = true
+            try {
+                const r = await saveIncomingCosts(this.batch._id, { costs })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                let msg = this.$tp('Prices saved to {n} line(s)', { n: r.savedLines })
+                if (r.updatedDevices) msg += ' · ' + this.$tp('{n} received device(s) updated', { n: r.updatedDevices })
+                this.$message.success(msg)
+                if ((r.skipped || []).length) {
+                    this.$notify.warning({
+                        title: this.$tp('Some devices were skipped'),
+                        message: r.skipped.map(s => `${s.code}: ${s.reason}`).join('\n'),
+                        duration: 0
+                    })
+                }
+                // The saved figures become the session's working set too.
+                this.receiveCosts = { ...this.costDraft }
+                this.costVisible = false
+                await this.refreshBatch()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to save the prices')))
+            } finally {
+                this.savingCosts = false
             }
         },
         // Only while a Blackbelt sweep is actually running.
@@ -1082,8 +1253,17 @@ export default {
                 for (const c of codes) {
                     if (this.gradePicks[c]) grades[c] = this.gradePicks[c]
                 }
+                // Fan the per-group cost out to each device's code — the
+                // server never has to re-derive the dialog's grouping.
+                const all = [...this.localExtras, ...((this.batch && this.batch.lines) || [])]
+                const byCode = new Map(all.map(l => [l.code, l]))
+                const costs = {}
+                for (const c of codes) {
+                    const v = this.receiveCosts[this.groupKey(byCode.get(c) || { code: c })]
+                    if (v != null && v !== '') costs[c] = v
+                }
                 const r = await commitIncoming(this.batch._id, {
-                    codes, grades, details: this.pickedDetails(codes), location: this.receiveLocation
+                    codes, grades, details: this.pickedDetails(codes), location: this.receiveLocation, costs
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const skipped = (r.skipped || []).length
@@ -1103,7 +1283,7 @@ export default {
                 this.localExtras = []
                 this.gradePicks = {}
                 this.detailPicks = {}
-            this.detailPicks = {}
+                this.receiveCosts = {}
                 await this.refreshBatch()
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to add to stock')))
@@ -1234,6 +1414,14 @@ export default {
             this.scanTone = tone
             this.scanMessage = message
         },
+        // The supplier's charge for a line — the live overlay when the GET
+        // provided one, else the upload snapshot (also covers localExtras).
+        supplierPriceOf(l) {
+            return l.supplierPriceLive != null ? l.supplierPriceLive : l.price
+        },
+        supplierCurrencyOf(l) {
+            return l.supplierCurrencyLive || (this.batch && this.batch.currency) || 'AUD'
+        },
         money(v, cur) {
             const n = Number(v)
             if (v == null || !isFinite(n)) return '—'
@@ -1327,6 +1515,7 @@ export default {
 /* Receive confirmation popup */
 .ri-recv-line { font-size: 13px; color: #303133; margin-bottom: 14px; }
 .ri-recv-label { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.ri-recv-note { margin-top: 12px; font-size: 12px; color: #909399; }
 .ri-foot-note { font-size: 12px; color: #909399; }
 /* Sell-off-the-shipment dialog */
 .ri-sell { display: flex; flex-direction: column; gap: 14px; }
@@ -1368,7 +1557,35 @@ export default {
 /* Row click is the toggle — the checkbox only displays the state, and the
    pointer cursor advertises the click. */
 .ri-row-check { pointer-events: none; }
-.ri-group { font-size: 12px; font-weight: 700; color: #303133; text-align: left; padding-left: 6px; white-space: nowrap; }
+.ri-group {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 700; color: #303133;
+    text-align: left; padding-left: 6px; white-space: nowrap;
+}
+.ri-costd { display: flex; flex-direction: column; }
+.ri-costd-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px 6px;
+    font-size: 11px; font-weight: 600; color: #909399;
+    text-transform: uppercase; letter-spacing: .04em;
+}
+.ri-costd-list {
+    border: 1px solid #ebeef5; border-radius: 6px;
+    max-height: 340px; overflow: auto;
+}
+.ri-costd-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 14px;
+    + .ri-costd-row { border-top: 1px solid #f2f4f7; }
+    &:hover { background: #f8f9fb; }
+}
+.ri-costd-model { font-size: 13px; font-weight: 600; color: #303133; line-height: 1.3; }
+.ri-costd-sub { font-size: 11px; color: #909399; margin-top: 1px; }
+.ri-costd-recv { color: #67c23a; }
+.ri-costd-in { width: 120px; flex: none; }
+.ri-costd-in ::v-deep input { text-align: right; }
+.ri-costd-dfoot { display: flex; align-items: center; justify-content: space-between; }
+.ri-costd-note { font-size: 12px; color: #909399; }
 .ri-group-recv { color: #67c23a; font-weight: 600; }
 .ri-group-rem { color: #e6a23c; font-weight: 600; }
 ::v-deep .el-table .ri-row-group > td { background: #f4f6fa; cursor: pointer; }

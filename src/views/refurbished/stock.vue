@@ -432,8 +432,24 @@
                                 </b>
                             </div>
                             <div class="rs-ident-cell"><span>{{ $tp('A Number') }}</span><b>{{ form.aNumber || '—' }}</b></div>
-                            <div v-if="editRow.supplier && editRow.supplier.name" class="rs-ident-cell">
+                            <!-- The supplier's own upstream supplier: theirs
+                                 to change right here; read-only for staff. -->
+                            <div v-if="isSupplier" class="rs-ident-cell">
+                                <span>{{ $tp('Supplier') }}</span>
+                                <el-select :value="viewSupplierId" size="mini" clearable filterable placeholder="—"
+                                    :disabled="supplierSaving" class="rs-ident-supsel" @change="changeDeviceSupplier">
+                                    <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
+                                </el-select>
+                            </div>
+                            <div v-else-if="editRow.supplier && editRow.supplier.name" class="rs-ident-cell">
                                 <span>{{ $tp('Supplier') }}</span><b>{{ editRow.supplier.name }}</b>
+                            </div>
+                            <!-- What the supplier charged, once OUR landed
+                                 cost has taken over costPrice. Staff only —
+                                 a supplier's Cost field IS this figure. -->
+                            <div v-if="!isSupplier && editRow.supplierPrice != null" class="rs-ident-cell">
+                                <span>{{ $tp('Supplier Price') }}</span>
+                                <b>{{ (editRow.supplierCurrency || 'AUD') + ' ' + Number(editRow.supplierPrice).toFixed(2) }}</b>
                             </div>
                             <div class="rs-ident-cell">
                                 <span>{{ $tp('Added') }}</span>
@@ -724,6 +740,9 @@ export default {
             // bulk-add list, form.supplierId to a single add.
             mySuppliers: [],
             mySuppliersLoaded: false,
+            // View dialog: the device's supplier pick (phone supplier only).
+            viewSupplierId: '',
+            supplierSaving: false,
             baSupplier: '',
 
             // Assign To Exyon — scan a list, move it in one call.
@@ -1212,6 +1231,8 @@ export default {
             this.dlgTab = 'detail'
             this.report = null
             this.reportError = ''
+            this.viewSupplierId = (row && row.supplier && String(row.supplier.id)) || ''
+            if (row && this.isSupplier) this.loadMySuppliers()
             this.form = row
                 ? {
                     imei: row.imei || '', model: row.model || '', color: row.color || '',
@@ -1239,6 +1260,25 @@ export default {
                     const el = this.$refs.imeiInput
                     if (el && el.focus) el.focus()
                 })
+            }
+        },
+        // Re-point the unit at another of the supplier's own suppliers —
+        // saved straight from the View dialog's ident cell.
+        async changeDeviceSupplier(v) {
+            if (!this.editRow || this.supplierSaving) return
+            const prev = this.viewSupplierId
+            this.viewSupplierId = v || ''
+            this.supplierSaving = true
+            try {
+                const r = await updateRefurbDevice(this.editRow._id, { supplierId: v || '' })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(this.editRow, 'supplier', (r.device && r.device.supplier) || null)
+                this.$message.success(this.$tp('Supplier updated'))
+            } catch (e) {
+                this.viewSupplierId = prev
+                this.$message.error(this.msg(e, this.$tp('Failed to update the supplier')))
+            } finally {
+                this.supplierSaving = false
             }
         },
         // Typing a different IMEI invalidates whatever was resolved before.
@@ -1559,6 +1599,7 @@ export default {
 }
 .rs-ident-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
 .rs-ident-cell { display: flex; flex-direction: column; line-height: 1.4; min-width: 0; }
+.rs-ident-supsel { width: 100%; max-width: 170px; margin-top: 2px; }
 .rs-ident-cell span { font-size: 11px; color: #909399; }
 .rs-ident-cell b { font-size: 13px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-ident-warn { font-size: 12px; color: #E6A23C; margin-bottom: 8px; line-height: 1.5; }

@@ -210,25 +210,66 @@
         </el-dialog>
 
         <!-- ── Detail ───────────────────────────────────────────────── -->
-        <el-dialog :title="detail ? detail.batchNo : ''" :visible.sync="detailVisible" width="760px">
+        <el-dialog :visible.sync="detailVisible" :width="isSupplier ? '840px' : '780px'" top="6vh">
+            <!-- Batch number + status where the eye lands first. -->
+            <template slot="title">
+                <div v-if="detail" class="sb-dtitle">
+                    <span class="sb-dtitle-no">{{ detail.batchNo }}</span>
+                    <el-tag v-if="detail.status === 'Cancelled'" size="small" type="info" effect="plain">{{ $tenum('Cancelled') }}</el-tag>
+                    <el-tag v-else-if="detail.status === 'Pending'" size="small" type="warning" effect="plain">{{ $tenum('Pending') }}</el-tag>
+                    <el-tag v-else-if="detail.received === detail.total && detail.total" size="small" type="success" effect="plain">{{ $tp('Received') }}</el-tag>
+                    <el-tag v-else size="small" effect="plain">{{ $tp('In Transit') }}</el-tag>
+                    <span v-if="!isSupplier && detail.stockSource" class="sb-dtitle-src">{{ detail.stockSource }}</span>
+                </div>
+            </template>
             <div v-if="detail" class="sb-detail">
-                <div class="sb-detail-grid">
-                    <div v-if="!isSupplier"><label>{{ $tp('Stock Source') }}</label><div>{{ detail.stockSource }}</div></div>
-                    <div><label>{{ $tp('Created') }}</label><div>{{ formatDateTime(detail.createdAt) }} · {{ detail.createdBy || '—' }}</div></div>
-                    <div><label>{{ $tp('Status') }}</label><div>{{ $tenum(detail.status) }}</div></div>
-                    <div v-if="detail.confirmedAt">
-                        <label>{{ $tp('Confirmed') }}</label>
-                        <div>{{ formatDateTime(detail.confirmedAt) }} · {{ detail.confirmedBy || '—' }}</div>
+                <!-- The batch at a glance. -->
+                <div class="sb-stats">
+                    <div class="sb-stat">
+                        <div class="sb-stat-v">{{ detail.total }}</div>
+                        <div class="sb-stat-l">{{ $tp('Devices') }}</div>
                     </div>
-                    <div v-if="detail.status !== 'Pending'"><label>{{ $tp('Received') }}</label><div>{{ detail.received }} / {{ detail.total }}</div></div>
-                    <div v-if="detail.tracking"><label>{{ $tp('Tracking') }}</label><div>{{ detail.tracking }}</div></div>
-                    <div v-if="detail.status === 'Cancelled'">
+                    <template v-if="detail.status === 'Sent'">
+                        <div class="sb-stat">
+                            <div class="sb-stat-v sb-v-ok">{{ detail.received }}</div>
+                            <div class="sb-stat-l">{{ $tp('Received') }}</div>
+                        </div>
+                        <div class="sb-stat">
+                            <div class="sb-stat-v" :class="detail.total - detail.received ? 'sb-v-warn' : ''">{{ detail.total - detail.received }}</div>
+                            <div class="sb-stat-l">{{ $tp('In Transit') }}</div>
+                        </div>
+                    </template>
+                    <div v-if="detailCostTotal" class="sb-stat">
+                        <div class="sb-stat-v">{{ detailCostTotal.currency }} {{ detailCostTotal.total.toFixed(2) }}</div>
+                        <div class="sb-stat-l">{{ $tp('Cost total') }}</div>
+                    </div>
+                </div>
+                <el-progress v-if="receivedPct != null" :percentage="receivedPct" :stroke-width="6" :show-text="false"
+                    :color="receivedPct === 100 ? '#67c23a' : '#409eff'" class="sb-progress" />
+
+                <div class="sb-meta">
+                    <div class="sb-meta-row">
+                        <label>{{ $tp('Created') }}</label>
+                        <div>{{ formatDateTime(detail.createdAt) }} <span v-if="detail.createdBy" class="sb-dim">· {{ detail.createdBy }}</span></div>
+                    </div>
+                    <div v-if="detail.confirmedAt" class="sb-meta-row">
+                        <label>{{ $tp('Confirmed') }}</label>
+                        <div>{{ formatDateTime(detail.confirmedAt) }} <span v-if="detail.confirmedBy" class="sb-dim">· {{ detail.confirmedBy }}</span></div>
+                    </div>
+                    <div v-if="detail.status === 'Cancelled'" class="sb-meta-row">
                         <label>{{ $tp('Cancelled') }}</label>
-                        <div>{{ formatDateTime(detail.cancelledAt) }} · {{ detail.cancelledBy || '—' }}</div>
+                        <div>{{ formatDateTime(detail.cancelledAt) }} <span v-if="detail.cancelledBy" class="sb-dim">· {{ detail.cancelledBy }}</span></div>
+                    </div>
+                    <div v-if="detail.tracking" class="sb-meta-row">
+                        <label>{{ $tp('Tracking') }}</label>
+                        <div class="sb-track">
+                            <span>{{ detail.tracking }}</span>
+                            <el-button type="text" icon="el-icon-document-copy" class="sb-copy" @click="copyTracking" />
+                        </div>
                     </div>
                 </div>
                 <el-table :data="groupedDetailLines" border size="mini" max-height="380"
-                    :row-class-name="r => (r.row.__group ? 'sb-row-grouphead' : '')" :span-method="lineSpan"
+                    :row-class-name="r => (r.row.__group ? 'sb-row-grouphead' : (r.row.received ? 'sb-row-received' : ''))" :span-method="lineSpan"
                     @row-click="r => toggleGroup(r, collapsedDetailGroups)">
                     <el-table-column label="IMEI" min-width="150">
                         <template slot-scope="s">
@@ -266,19 +307,24 @@
                         </template>
                     </el-table-column>
                 </el-table>
-                <div v-if="detailCostTotal" class="sb-detail-total">
-                    {{ $tp('Cost total') }}
-                    <b>{{ detailCostTotal.currency }} {{ detailCostTotal.total.toFixed(2) }}</b>
+                <div v-if="detail.notes" class="sb-field">
+                    <label>{{ $tp('Notes') }}</label>
+                    <div class="sb-notes">{{ detail.notes }}</div>
                 </div>
-                <div v-if="detail.notes" class="sb-notes">{{ detail.notes }}</div>
             </div>
-            <span slot="footer">
-                <el-button size="small" icon="el-icon-download" @click="downloadXlsx">Excel</el-button>
-                <el-button size="small" icon="el-icon-document" @click="downloadPdf">PDF</el-button>
-                <el-button v-if="isSupplier && detail && detail.status === 'Pending'" size="small" type="success" plain
-                    icon="el-icon-check" @click="confirmBatch(detail)">{{ $tp('Confirm') }}</el-button>
-                <el-button size="small" @click="detailVisible = false">{{ $tp('Close') }}</el-button>
-            </span>
+            <!-- Downloads live left, actions right — the primary actions
+                 stay under the right hand where dialogs put them. -->
+            <div slot="footer" class="sb-dfooter">
+                <div>
+                    <el-button size="small" icon="el-icon-download" @click="downloadXlsx">Excel</el-button>
+                    <el-button size="small" icon="el-icon-document" @click="downloadPdf">PDF</el-button>
+                </div>
+                <div>
+                    <el-button v-if="isSupplier && detail && detail.status === 'Pending'" size="small" type="success" plain
+                        icon="el-icon-check" @click="confirmBatch(detail)">{{ $tp('Confirm') }}</el-button>
+                    <el-button size="small" @click="detailVisible = false">{{ $tp('Close') }}</el-button>
+                </div>
+            </div>
         </el-dialog>
     </div>
 </template>
@@ -372,6 +418,11 @@ export default {
         },
         isSupplier() {
             return (this.$store.getters.roles || []).includes('phone-supplier')
+        },
+        // Receiving progress, only while the box is actually on the road.
+        receivedPct() {
+            if (!this.detail || this.detail.status !== 'Sent' || !this.detail.total) return null
+            return Math.round((this.detail.received / this.detail.total) * 100)
         }
     },
     created() {
@@ -463,14 +514,22 @@ export default {
             if (!row.__group) return [1, 1]
             return columnIndex === 0 ? [1, 99] : [0, 0]
         },
-        // A Pending batch reopens in the create dialog with its lines.
-        openEdit(row) {
-            this.editing = row
+        // A Pending batch reopens in the create dialog with its lines —
+        // read through the detail endpoint, which overlays the register's
+        // live data, so a cost set on the Stock page since the draft was
+        // saved shows up instead of the stale snapshot.
+        async openEdit(row) {
+            let batch = row
+            try {
+                const r = await getSupplyBatch(row._id)
+                batch = r.batch || row
+            } catch (e) { /* fall back to the list row */ }
+            this.editing = batch
             this.crCurrency = 'AUD'
             this.form = {
-                notes: row.notes || '',
-                tracking: row.tracking || '',
-                lines: (row.lines || []).map(l => {
+                notes: batch.notes || '',
+                tracking: batch.tracking || '',
+                lines: (batch.lines || []).map(l => {
                     const supplierId = (l.supplier && String(l.supplier.id)) || ''
                     return {
                         deviceId: String(l.deviceId),
@@ -735,6 +794,19 @@ export default {
             }
         },
 
+        copyTracking() {
+            const v = (this.detail && this.detail.tracking) || ''
+            if (!v) return
+            const ta = document.createElement('textarea')
+            ta.value = v
+            document.body.appendChild(ta)
+            ta.select()
+            try {
+                document.execCommand('copy')
+                this.$message.success(this.$tp('Copied'))
+            } catch (e) { /* clipboard blocked — the number is still on screen */ }
+            document.body.removeChild(ta)
+        },
         // ── detail / cancel ──────────────────────────────────────────
         async openDetail(row) {
             try {
@@ -786,7 +858,6 @@ export default {
     gap: 6px;
     label { font-size: 12px; font-weight: 600; color: #606266; }
 }
-.sb-detail-total { text-align: right; font-size: 13px; color: #606266; b { color: #303133; margin-left: 6px; } }
 .sb-picker {
     margin-top: 8px;
     border: 1px solid #ebeef5;
@@ -828,16 +899,38 @@ export default {
 ::v-deep .el-table .sb-row-grouphead:hover > td { background: #eef1f7; }
 ::v-deep .el-table .sb-row-new > td { background: #fdf9ee; }
 ::v-deep .el-table .sb-row-new:hover > td { background: #faf3e0; }
+::v-deep .el-table .sb-row-received > td { background: #f5faf0; }
+::v-deep .el-table .sb-row-received:hover > td { background: #eef6e6; }
 
 .sb-detail { display: flex; flex-direction: column; gap: 12px; }
-.sb-detail-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px 16px;
-    label { font-size: 11px; color: #909399; text-transform: uppercase; letter-spacing: .04em; }
-    div > div { font-size: 13px; color: #303133; }
+.sb-dtitle { display: flex; align-items: center; gap: 10px; }
+.sb-dtitle-no { font-size: 17px; font-weight: 700; color: #303133; }
+.sb-dtitle-src {
+    font-size: 12px; color: #909399; background: #f4f6fa;
+    border: 1px solid #ebeef5; border-radius: 10px; padding: 1px 10px;
 }
-.sb-detail-total { text-align: right; font-size: 13px; color: #606266; b { color: #303133; margin-left: 6px; } }
+.sb-stats { display: flex; gap: 10px; }
+.sb-stat {
+    flex: 1; text-align: center; padding: 10px 12px;
+    background: #f8f9fb; border: 1px solid #ebeef5; border-radius: 8px;
+}
+.sb-stat-v { font-size: 20px; font-weight: 700; color: #303133; line-height: 1.2; }
+.sb-v-ok { color: #67c23a; }
+.sb-v-warn { color: #e6a23c; }
+.sb-stat-l { font-size: 11px; color: #909399; text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+.sb-progress { margin-top: -4px; }
+.sb-meta {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px;
+    background: #f8f9fb; border: 1px solid #ebeef5; border-radius: 8px; padding: 10px 14px;
+}
+.sb-meta-row {
+    display: flex; flex-direction: column; gap: 1px;
+    label { font-size: 11px; color: #909399; text-transform: uppercase; letter-spacing: .04em; }
+    > div { font-size: 13px; color: #303133; }
+}
+.sb-track { display: flex; align-items: center; gap: 4px; }
+.sb-copy { padding: 0; }
+.sb-dfooter { display: flex; align-items: center; justify-content: space-between; }
 .sb-notes {
     font-size: 12px; color: #606266; background: #f8f9fb;
     border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px;

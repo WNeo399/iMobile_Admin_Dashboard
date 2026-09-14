@@ -159,6 +159,12 @@ export function commitIncoming(id, data) {
 export function sellIncoming(id, data) {
   return request({ url: `/refurbished/incoming/${id}/sell`, method: 'post', data, timeout: 120000 })
 }
+// Save OUR landed cost (AUD) per code without receiving: stored on the
+// batch lines (applied when they're received) and applied immediately to
+// devices already received. Body: { costs: { code: aud } }.
+export function saveIncomingCosts(id, data) {
+  return request({ url: `/refurbished/incoming/${id}/costs`, method: 'post', data, timeout: 120000 })
+}
 // Everything received against a batch, joined to its location in the
 // register and the sales order it went out on (if any).
 export function getIncomingReceived(id) {
