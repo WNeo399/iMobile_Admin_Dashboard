@@ -39,6 +39,14 @@
                         <el-radio-button label="paid">Paid</el-radio-button>
                         <el-radio-button label="outstanding">Outstanding</el-radio-button>
                     </el-radio-group>
+                    <!-- Device sales are invoiced with "Device" in the number;
+                         everything else is spare parts. Narrows the whole
+                         scope (KPIs + download follow). -->
+                    <el-radio-group v-model="typeMode" size="small">
+                        <el-radio-button label="all">All</el-radio-button>
+                        <el-radio-button label="parts">Spare Parts</el-radio-button>
+                        <el-radio-button label="device">Device</el-radio-button>
+                    </el-radio-group>
                     <span class="stmt-flex" />
                     <span class="stmt-count">{{ filteredOrders.length }} of {{ orders.length }} invoices</span>
                 </div>
@@ -164,6 +172,8 @@ export default {
             orders: [],
             dateRange: null,
             statusMode: 'all',
+            // all | parts | device — parts = no "Device" in the invoice number.
+            typeMode: 'all',
             vendorFilter: '',
             detailVisible: false, detail: null, detailLoading: false,
             ordersPage: 1, ordersPageSize: 10,
@@ -201,6 +211,8 @@ export default {
         // the KPI figures are measured over, before a card narrows the table.
         scopedOrders() {
             let rows = this.vendorFilter ? this.orders.filter(o => this.vendorLabel(o) === this.vendorFilter) : this.orders
+            if (this.typeMode === 'device') rows = rows.filter(o => this.isDeviceRow(o))
+            else if (this.typeMode === 'parts') rows = rows.filter(o => !this.isDeviceRow(o))
             const r = this.dateRange
             if (r && r[0]) { const f = this.startOfDay(r[0]); rows = rows.filter(o => { const d = this.orderDate(o); return d && d.getTime() >= f }) }
             if (r && r[1]) { const t = this.endOfDay(r[1]); rows = rows.filter(o => { const d = this.orderDate(o); return d && d.getTime() <= t }) }
@@ -345,12 +357,20 @@ export default {
         // summary, styled like a printed statement. Respects the vendor selection
         // and the date period; the All/Outstanding toggle does NOT apply (a running
         // statement must include every transaction to stay coherent).
+        // Device sales carry "Device" in the invoice number.
+        isDeviceRow(o) {
+            return /device/i.test(String(o.invoiceNumber || ''))
+        },
         downloadExcel() {
             const money = n => Number(n) || 0
-            // A statement is for the selected vendor only.
-            const src = this.vendorFilter
+            // A statement is for the selected vendor only. The type filter
+            // narrows it too — including the opening balance, so a filtered
+            // statement's ledger still adds up.
+            let src = this.vendorFilter
                 ? this.orders.filter(o => this.vendorLabel(o) === this.vendorFilter)
                 : this.orders.slice()
+            if (this.typeMode === 'device') src = src.filter(o => this.isDeviceRow(o))
+            else if (this.typeMode === 'parts') src = src.filter(o => !this.isDeviceRow(o))
 
             const times = src.map(o => this.orderDate(o)).filter(Boolean).map(d => d.getTime())
             const startMs = (this.dateRange && this.dateRange[0])
