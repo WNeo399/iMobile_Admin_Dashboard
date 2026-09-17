@@ -231,9 +231,13 @@ export const moduleRoutes = [
         // The snapshot dashboard now lives INSIDE Stock Monitoring (the
         // Dashboard tab above the category tree, and the page's landing
         // view) — this hidden redirect keeps old deep links working.
+        // It must carry the target's permission: a permission-less child
+        // survives the route filter for EVERY user, which kept this whole
+        // group on the sidebar (empty) for roles with no access to it.
         path: "/zohoInventory/stockDashboard",
         redirect: "/zohoInventory/stockMonitoring",
-        hidden: true
+        hidden: true,
+        meta: { permissions: ["zoho:stock:view"] }
       },
       {
         // All spare-parts SKUs with the four price-list rates from the
