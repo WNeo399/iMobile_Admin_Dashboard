@@ -26,6 +26,10 @@ export function resetConsignLoginPassword(loginId, password) {
 export function getConsignDevices(params) {
   return request({ url: '/consignment/devices', method: 'get', params })
 }
+// Assignment batches — one per Assign, i.e. one per send to a shop.
+export function getConsignBatches(params) {
+  return request({ url: '/consignment/devices/batches', method: 'get', params })
+}
 // Resolve Stock IDs / IMEIs against the ExEngine stock DB.
 export function lookupConsignDevices(codes) {
   return request({ url: '/consignment/devices/lookup', method: 'post', data: { codes }, timeout: 30000 })

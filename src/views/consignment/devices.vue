@@ -27,6 +27,12 @@
                 style="width: 200px" @change="reload">
                 <el-option v-for="s in shops" :key="s._id" :label="s.name" :value="s._id" />
             </el-select>
+            <!-- The send a device went out on. Picking one narrows the list
+                 to that batch; Print List prints it as a delivery list. -->
+            <el-select v-model="batchFilter" size="small" :placeholder="$tp('Batch')" clearable filterable
+                style="width: 230px" @change="reload">
+                <el-option v-for="b in batches" :key="b.batchId" :label="batchLabel(b)" :value="b.batchId" />
+            </el-select>
             <el-input v-model="search" size="small" clearable prefix-icon="el-icon-search"
                 :placeholder="$tp('IMEI / serial / product…')" style="width: 240px" @keyup.enter.native="reload" @clear="reload" />
             <span class="cd-spacer" />
@@ -87,6 +93,15 @@
                 <template slot-scope="s"><b>{{ money(s.row.shopPrice) }}</b></template>
             </el-table-column>
             <el-table-column v-if="isAdmin" :label="$tp('Shop')" prop="shopName" width="140" show-overflow-tooltip />
+            <!-- The assignment batch the device went out on — click for the
+                 batch detail (and its printable delivery list). -->
+            <el-table-column :label="$tp('Batch')" width="95" align="center">
+                <template slot-scope="s">
+                    <el-button v-if="s.row.batchId" type="text" class="cd-batch-link"
+                        @click="openBatchDetail(s.row.batchId, s.row)">{{ s.row.batchNo || $tp('View') }}</el-button>
+                    <span v-else class="cd-dash">—</span>
+                </template>
+            </el-table-column>
             <el-table-column :label="$tp('Received')" width="95" align="center">
                 <template slot-scope="s">{{ dateStr(s.row.receivedAt) }}</template>
             </el-table-column>
@@ -108,6 +123,42 @@
                 @current-change="p => { page = p; load() }"
                 @size-change="s => { pageSize = s; page = 1; load() }" />
         </div>
+
+        <!-- Batch detail — opened from a batch number; Print lives here. -->
+        <el-dialog :visible.sync="batchDlgVisible" width="720px" top="8vh" append-to-body>
+            <div slot="title" class="cd-dialog-title">
+                <i class="el-icon-box" /> {{ (batchDlg.meta && batchDlg.meta.batchNo) || $tp('Batch') }}
+                <span v-if="isAdmin && batchDlg.meta && batchDlg.meta.shopName" class="cd-batch-shop">{{ batchDlg.meta.shopName }}</span>
+            </div>
+            <div v-if="batchDlg.meta" class="cd-batch-meta">
+                {{ $tp('Assigned') }} {{ dateStr(batchDlg.meta.assignedAt) }}<template
+                    v-if="batchDlg.meta.assignedBy"> · {{ batchDlg.meta.assignedBy }}</template>
+                · {{ $tp('{n} device(s)', { n: batchDlg.rows.length }) }}
+            </div>
+            <el-table :data="batchDlg.rows" v-loading="batchDlg.loading" size="mini" border max-height="380">
+                <el-table-column type="index" width="42" align="center" />
+                <el-table-column :label="$tp('Product')" min-width="220">
+                    <template slot-scope="s">
+                        {{ s.row.productName }}
+                        <el-tag v-if="s.row.grade" size="mini" effect="plain" class="cd-grade">{{ s.row.grade }}</el-tag>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$tp('IMEI / Serial')" width="150">
+                    <template slot-scope="s"><span class="cd-mono">{{ s.row.imei || s.row.stockId || '—' }}</span></template>
+                </el-table-column>
+                <el-table-column :label="$tp('Shop Price')" width="95" align="right">
+                    <template slot-scope="s"><b>{{ money(s.row.shopPrice) }}</b></template>
+                </el-table-column>
+                <el-table-column :label="$tp('Status')" width="110" align="center">
+                    <template slot-scope="s"><span class="cd-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span></template>
+                </el-table-column>
+            </el-table>
+            <span slot="footer">
+                <el-button size="small" icon="el-icon-printer" :disabled="!batchDlg.rows.length"
+                    @click="printBatch">{{ $tp('Print List') }}</el-button>
+                <el-button size="small" type="primary" @click="batchDlgVisible = false">{{ $tp('Close') }}</el-button>
+            </span>
+        </el-dialog>
 
         <!-- Assign batch dialog — resolve Stock IDs / IMEIs from the ExEngine DB -->
         <el-dialog :visible.sync="assignVisible" width="780px" append-to-body :close-on-click-modal="false">
@@ -175,7 +226,7 @@
 
 <script>
 import auth from '@/plugins/auth'
-import { getConsignDevices, getConsignShops, assignConsignDevices, updateConsignDeviceStatus, lookupConsignDevices } from '@/api/consignment'
+import { getConsignDevices, getConsignShops, getConsignBatches, assignConsignDevices, updateConsignDeviceStatus, lookupConsignDevices } from '@/api/consignment'
 
 const STATUS_LIST = [
     { value: 'in-transit', label: 'In Transit', color: '#E6A23C', bg: '#FDF6EC' },
@@ -199,6 +250,10 @@ export default {
             pageSize: 50,
             statusFilter: '',
             shopFilter: '',
+            batchFilter: '',
+            batches: [],
+            batchDlgVisible: false,
+            batchDlg: { meta: null, rows: [], loading: false },
             search: '',
             shops: [],
             selection: [],
@@ -226,6 +281,7 @@ export default {
     },
     created() {
         this.load()
+        this.loadBatches()
         if (this.isAdmin) {
             getConsignShops().then(r => { if (r && r.success) this.shops = r.shops || [] }).catch(() => {})
         }
@@ -233,6 +289,7 @@ export default {
     // Keep-alive revisits skip created() — refresh devices + shop options.
     activated() {
         this.load()
+        this.loadBatches()
         if (this.isAdmin) {
             getConsignShops().then(r => { if (r && r.success) this.shops = r.shops || [] }).catch(() => {})
         }
@@ -246,6 +303,7 @@ export default {
                     pageSize: this.pageSize,
                     status: this.statusFilter || undefined,
                     shopId: this.shopFilter || undefined,
+                    batchId: this.batchFilter || undefined,
                     search: this.search || undefined
                 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
@@ -259,6 +317,107 @@ export default {
             }
         },
         reload() { this.page = 1; this.load() },
+        // ── Batches (one per Assign — one per send to a shop) ──
+        async loadBatches() {
+            try {
+                const r = await getConsignBatches()
+                if (r && r.success !== false) this.batches = r.batches || []
+            } catch (e) { /* non-fatal — the dropdown just stays empty */ }
+        },
+        batchLabel(b) {
+            const parts = [b.batchNo || this.dateStr(b.assignedAt)]
+            if (this.isAdmin && b.shopName) parts.push(b.shopName)
+            parts.push(this.$tp('{n} device(s)', { n: b.count }))
+            return parts.join(' · ')
+        },
+        // Open a batch's detail from its number: the batch meta plus every
+        // device on it (assigns cap at 500, one page covers it).
+        async openBatchDetail(batchId, row) {
+            const meta = this.batches.find(b => b.batchId === batchId)
+                || (row ? {
+                    batchId, batchNo: row.batchNo || '', shopName: row.shopName || '',
+                    assignedAt: row.assignedAt, assignedBy: row.assignedBy || ''
+                } : null)
+            this.batchDlg = { meta, rows: [], loading: true }
+            this.batchDlgVisible = true
+            try {
+                const r = await getConsignDevices({ batchId, page: 1, pageSize: 500 })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.batchDlg.rows = r.rows || []
+            } catch (e) {
+                this.batchDlgVisible = false
+                this.$message.error(this.msg(e, this.$tp('Failed to load the batch')))
+            } finally {
+                this.batchDlg.loading = false
+            }
+        },
+        // Print the open batch as a delivery list: render a plain print
+        // document into a hidden iframe (no popup for blockers to eat)
+        // and hand it to the browser's print dialog.
+        printBatch() {
+            const rows = this.batchDlg.rows
+            if (!rows.length) return
+            try {
+                const b = this.batchDlg.meta || {}
+                const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                const line = (d, i) => `<tr>
+                    <td class="n">${i + 1}</td>
+                    <td>${esc(d.productName)}${d.sku ? `<div class="sub">SKU: ${esc(d.sku)}</div>` : ''}</td>
+                    <td class="mono">${esc(d.imei || d.stockId || '—')}</td>
+                    <td class="c">${esc(d.grade || '—')}</td>
+                    <td class="r">${d.shopPrice == null ? '—' : '$' + Number(d.shopPrice).toFixed(2)}</td>
+                </tr>`
+                const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+                    <title>${esc(b.batchNo || 'Consignment')} ${esc(b.shopName || '')} ${esc(this.dateStr(b.assignedAt))}</title>
+                    <style>
+                        body { font: 12px/1.5 Arial, sans-serif; color: #111; margin: 28px; }
+                        h1 { font-size: 18px; margin: 0 0 2px; }
+                        .meta { color: #555; margin-bottom: 14px; }
+                        table { width: 100%; border-collapse: collapse; }
+                        th, td { border: 1px solid #999; padding: 5px 8px; text-align: left; vertical-align: top; }
+                        th { background: #f0f0f0; }
+                        .n { width: 30px; text-align: right; color: #555; }
+                        .c { text-align: center; width: 55px; }
+                        .r { text-align: right; width: 80px; white-space: nowrap; }
+                        .mono { font-family: Consolas, monospace; white-space: nowrap; }
+                        .sub { color: #777; font-size: 11px; }
+                        /* The browser prints its own date/title header and
+                           URL footer INTO the page margins — zero those and
+                           pad the body instead, so only the list lands on
+                           paper. */
+                        @page { margin: 0; }
+                        @media print { body { margin: 14mm 12mm; } }
+                    </style></head><body>
+                    <h1>Consignment Delivery List${b.batchNo ? ' — ' + esc(b.batchNo) : ''}${b.shopName ? ' — ' + esc(b.shopName) : ''}</h1>
+                    <div class="meta">
+                        Assigned ${esc(this.dateStr(b.assignedAt))}${b.assignedBy ? ' by ' + esc(b.assignedBy) : ''}
+                        · ${rows.length} device${rows.length === 1 ? '' : 's'}
+                    </div>
+                    <table><thead><tr>
+                        <th class="n">#</th><th>Product</th><th>IMEI / Serial</th>
+                        <th class="c">Grade</th><th class="r">Price</th>
+                    </tr></thead><tbody>${rows.map(line).join('')}</tbody></table>
+                    </body></html>`
+                // A hidden iframe instead of window.open: popup blockers
+                // (and embedded browsers) can't interfere, and the print
+                // dialog carries only the list.
+                const old = document.getElementById('cd-print-frame')
+                if (old) old.remove()
+                const frame = document.createElement('iframe')
+                frame.id = 'cd-print-frame'
+                frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;'
+                document.body.appendChild(frame)
+                const doc = frame.contentDocument || frame.contentWindow.document
+                doc.open()
+                doc.write(html)
+                doc.close()
+                setTimeout(() => {
+                    try { frame.contentWindow.focus(); frame.contentWindow.print() } catch (e) { /* dialog dismissed */ }
+                }, 350)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Could not build the print list')))
+            }
+        },
         toggleStatus(v) {
             this.statusFilter = this.statusFilter === v ? '' : v
             this.reload()
@@ -438,6 +597,9 @@ export default {
 
 .cd-dialog-title { font-size: 15px; font-weight: 600; color: #303133; }
 .cd-dialog-title i { color: #67c23a; margin-right: 6px; }
+.cd-batch-link { padding: 0; font-size: 12px; font-weight: 600; }
+.cd-batch-shop { margin-left: 8px; font-weight: 400; color: #909399; font-size: 13px; }
+.cd-batch-meta { color: #606266; font-size: 12px; margin-bottom: 10px; }
 
 .cd-mono { font-family: Consolas, Menlo, monospace; font-size: 12px; }
 .cd-prod { font-weight: 600; color: #303133; line-height: 1.3; }
