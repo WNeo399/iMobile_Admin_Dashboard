@@ -78,12 +78,6 @@
                     <span class="sd-card-title">{{ activeTileLabel }}</span>
                     <el-tag size="mini" effect="plain">{{ total.toLocaleString() }} items</el-tag>
                     <div class="sd-spacer" />
-                    <el-button v-if="!isAccessories && multipleSelection.length && !showHidden && !isSeaView && seaFreightId"
-                        type="text" size="mini" :loading="seaAdding"
-                        @click="addSelectedToSea">Add to 海运 ({{ multipleSelection.length }})</el-button>
-                    <el-button v-if="!isAccessories && multipleSelection.length && !showHidden" type="text" size="mini"
-                        class="sm-hide-btn" :loading="hiding"
-                        @click="hideSelected">Hide Selected ({{ multipleSelection.length }})</el-button>
                     <el-button v-if="!isAccessories && multipleSelection.length" type="text" size="mini"
                         @click="() => { $refs.table.clearSelection() }">Clear Selection ({{ multipleSelection.length }})</el-button>
                     <el-button v-if="hiddenCount || showHidden" type="text" size="mini"
@@ -224,7 +218,7 @@
                         </template>
                     </el-table-column>
 
-                    <el-table-column label="Operation" align="center" width="200"
+                    <el-table-column label="Operation" align="center" width="240"
                         class-name="small-padding fixed-width">
                         <template slot-scope="scope" v-if="scope.row.userId !== 1">
                             <el-button size="mini" type="text" icon="el-icon-edit"
@@ -233,6 +227,11 @@
                                 @click="openCreatePo(scope.row)">Create PO</el-button>
                             <el-button v-if="showHidden" size="mini" type="text" icon="el-icon-view"
                                 @click="unhideItem(scope.row)">Unhide</el-button>
+                            <!-- The row leaves the list (and its tile counts);
+                                 restore via "N hidden — view". -->
+                            <el-button v-if="!isAccessories && !showHidden" size="mini" type="text"
+                                icon="el-icon-remove-outline" class="sm-hide-op"
+                                @click="hideItem(scope.row)">Hide</el-button>
                             <!-- <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)" v-hasPermi="['system:user:remove']">删除</el-button>
               <el-dropdown size="mini" @command="(command) => handleCommand(command, scope.row)" v-hasPermi="['system:user:resetPwd', 'system:user:edit']">
                 <el-button size="mini" type="text" icon="el-icon-d-arrow-right">更多</el-button>
@@ -369,11 +368,9 @@ export default {
             // tiles included); true = the review view of ONLY hidden rows,
             // each with an Unhide button.
             showHidden: false,
-            hiding: false,
             // The 海运 collection's Mongo id — loaded once; '' until known
             // (the tab renders only when it is).
             seaFreightId: '',
-            seaAdding: false,
             product: {},
             multipleSelection: [],
         }
@@ -574,6 +571,10 @@ export default {
                     return ''
                 }
                 this.currentTab = findLabel(this.treeData, this.currentCollection) || this.currentTab
+                // The 海运 collection lives outside the tree, so the label
+                // lookup can't know it (deep links land here before or after
+                // loadSeaFreight — cover both orders).
+                if (this.seaFreightId && this.currentCollection === this.seaFreightId) this.currentTab = '海运'
 
                 this.$router.replace({
                     query: {
@@ -710,7 +711,9 @@ export default {
         },
         openCreatePo(row) {
             this.poProduct = row
-            this.poForm = { category: '', orderQty: null, note: '' }
+            // A PO raised from the 海运 list goes on the sea-freight sheet
+            // tab by default (still changeable in the picker).
+            this.poForm = { category: this.isSeaView ? '海运平板' : '', orderQty: null, note: '' }
             this.poDialogVisible = true
             if (!this.poCategories.length) {
                 getPoCategories().then(r => { if (r && r.success) this.poCategories = r.categories || [] }).catch(() => {})
@@ -994,7 +997,7 @@ export default {
                     this.seaFreightId = r.id
                     // A ?collection deep link straight onto 海运 resolves its
                     // title here — the tree lookup can't know it.
-                    if (this.currentCollection === r.id && !this.currentTab) this.currentTab = '海运'
+                    if (this.currentCollection === r.id) this.currentTab = '海运'
                 }
             } catch (e) { /* the tab just stays hidden */ }
         },
@@ -1014,30 +1017,6 @@ export default {
                 this.clearSelection()
                 this.getList()
             })
-        },
-        async addSelectedToSea() {
-            if (this.seaAdding || !this.multipleSelection.length) return
-            this.seaAdding = true
-            try {
-                const items = this.multipleSelection.map(r => ({ id: r.id, name: r.productName, sku: r.sku }))
-                const r = await addSeaFreightItems(items)
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                const ids = new Set(items.map(i => String(i.id)))
-                for (const p of this.productList) {
-                    if (ids.has(String(p.id))) this.$set(p, 'seaFreight', true)
-                }
-                this.$refs.table.clearSelection()
-                // The visible rows are re-sliced copies (the sales/purchase
-                // merges replace objects) — rebuild them to show the badges.
-                this.handlePagination()
-                this.$message.success(r.added
-                    ? `${r.added} item${r.added > 1 ? 's' : ''} added to 海运${r.already ? ` (${r.already} already there)` : ''}`
-                    : 'All selected items are already in 海运')
-            } catch (e) {
-                this.$message.error((e && e.message) || 'Failed to add to 海运')
-            } finally {
-                this.seaAdding = false
-            }
         },
         // The per-row ship icon in the product meta — one click adds or
         // removes, mirroring the dashboard's button.
@@ -1075,24 +1054,21 @@ export default {
         // counts) but still exists everywhere else — the Dashboard, buy
         // lists and Price Monitoring are untouched. The stronger,
         // cross-page bucket remains the Archive.
-        async hideSelected() {
-            if (this.hiding || !this.multipleSelection.length) return
-            this.hiding = true
+        // Per-row hide via the meta-line icon (no selection needed).
+        async hideItem(row) {
+            if (row.__hideBusy) return
+            this.$set(row, '__hideBusy', true)
             try {
-                const items = this.multipleSelection.map(r => ({ id: r.id, name: r.productName, sku: r.sku }))
-                const r = await hideStockItems(items)
+                const r = await hideStockItems([{ id: row.id, name: row.productName, sku: row.sku }])
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                const ids = new Set(items.map(i => String(i.id)))
-                for (const p of this.productList) {
-                    if (ids.has(String(p.id))) this.$set(p, 'hidden', true)
-                }
-                this.$refs.table.clearSelection()
+                const master = this.productList.find(p => String(p.id) === String(row.id))
+                if (master) this.$set(master, 'hidden', true)
                 this.handlePagination()
-                this.$message.success(`${items.length} item${items.length > 1 ? 's' : ''} hidden — restore via "${this.hiddenCount} hidden — view"`)
+                this.$message.success(`${row.productName || row.sku || 'Item'} hidden — restore via "${this.hiddenCount} hidden — view"`)
             } catch (e) {
-                this.$message.error((e && e.message) || 'Failed to hide the items')
+                this.$message.error((e && e.message) || 'Failed to hide the item')
             } finally {
-                this.hiding = false
+                this.$set(row, '__hideBusy', false)
             }
         },
         async unhideItem(row) {
@@ -1385,7 +1361,8 @@ export default {
     color: #303133;
 }
 
-.sm-hide-btn { color: #E6A23C; }
+/* The Hide row action — amber so it reads as "tuck away", not delete. */
+.sm-hide-op { color: #E6A23C; }
 /* Green = in 海运, grey = not; click toggles. */
 .p-sea-btn {
     color: #c0c4cc; cursor: pointer;
