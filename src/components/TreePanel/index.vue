@@ -42,6 +42,7 @@
         :filter-node-method="filterNodeMethod"
         :default-expand-all="defaultExpandAll"
         :default-expanded-keys="defaultExpandedKeys"
+        :accordion="accordion"
         :node-key="nodeKey"
         :check-strictly="checkStrictly"
         :show-checkbox="showCheckbox"
@@ -125,6 +126,11 @@ export default {
     },
     // 是否默认展开所有节点
     defaultExpandAll: {
+      type: Boolean,
+      default: false
+    },
+    // 手风琴模式：同级只保持一个节点展开
+    accordion: {
       type: Boolean,
       default: false
     },

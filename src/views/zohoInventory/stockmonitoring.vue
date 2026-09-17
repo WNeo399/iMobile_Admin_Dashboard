@@ -1,7 +1,13 @@
 <template>
     <div class="app-container tree-sidebar-manage-wrap">
+        <!-- Parts: short labels fit a narrower panel; collapsed by default
+             with accordion (opening one brand closes the others). Its own
+             storage key so the old saved width doesn't override the new
+             default. Accessories keeps the previous behaviour. -->
         <tree-panel title="Category" :tree-data="treeData" search-placeholder="Please Enter Categiry"
-            storage-key="dept-sidebar-width" :default-width="228" :defaultExpandAll="true" ref="deptTreeRef"
+            :storage-key="isAccessories ? 'dept-sidebar-width' : 'stock-tree-width'"
+            :default-width="isAccessories ? 228 : 180"
+            :defaultExpandAll="isAccessories" :accordion="!isAccessories" ref="deptTreeRef"
             @node-click="handleNodeClick">
             <!-- The Dashboard tab, pinned above the category tree. Spare
                  Parts only — the Accessories page keeps the plain tree. -->
@@ -14,6 +20,46 @@
                 <div v-if="seaFreightId" :class="['dash-tab', { on: isSeaView }]" @click="openSeaFreight">
                     <i class="el-icon-ship" /> 海运
                 </div>
+            </template>
+            <!-- Whole-tree rearrangement — the same group manager the
+                 Collections page uses. -->
+            <template #actions>
+                <el-tooltip content="Manage folders" placement="right">
+                    <i v-hasPermi="['zoho:collection:view']" class="tree-action-icon el-icon-setting"
+                        @click="openGroupDialog" />
+                </el-tooltip>
+            </template>
+            <!-- Custom node row: label + a hover ⋯ menu for in-place
+                 collection management (edit/copy/move/delete, and folder
+                 ops). Replaces TreePanel's default node, so the icon and
+                 label are re-rendered here. -->
+            <template #node="{ node, data }">
+                <i :class="data.children && data.children.length ? 'el-icon-folder' : 'el-icon-document'"
+                    class="tn-icon" />
+                <span class="tn-label" :title="node.label">{{ node.label }}</span>
+                <el-dropdown v-hasPermi="['zoho:collection:view']" trigger="click" size="small"
+                    class="tn-menu" @command="cmd => treeMenu(cmd, data)">
+                    <i class="el-icon-more tn-menu-icon" @click.stop />
+                    <el-dropdown-menu slot="dropdown">
+                        <template v-if="data.value">
+                            <el-dropdown-item command="edit" icon="el-icon-edit">Edit</el-dropdown-item>
+                            <el-dropdown-item command="delete" icon="el-icon-delete" divided>Delete</el-dropdown-item>
+                        </template>
+                        <template v-else>
+                            <el-dropdown-item command="newCollection" icon="el-icon-plus">New Collection</el-dropdown-item>
+                            <!-- The tree is capped at three levels (brand →
+                                 part type → collections), so only top-level
+                                 folders can grow a sub-folder. -->
+                            <el-dropdown-item v-if="(data.path || []).length < 2" command="newFolder"
+                                icon="el-icon-folder-add">New Sub-folder</el-dropdown-item>
+                            <el-dropdown-item command="renameFolder" icon="el-icon-edit-outline">Rename</el-dropdown-item>
+                            <!-- Only an empty folder can go — no point
+                                 offering Delete on one that can't. -->
+                            <el-dropdown-item v-if="canDeleteFolder(data)" command="deleteFolder"
+                                icon="el-icon-delete" divided>Delete</el-dropdown-item>
+                        </template>
+                    </el-dropdown-menu>
+                </el-dropdown>
             </template>
         </tree-panel>
         <div class="tree-sidebar-content">
@@ -29,13 +75,22 @@
                      items table below keeps its per-scope columns. ── -->
                 <div class="sd-head">
                     <div class="sd-title">
-                        <h2>{{ currentTab || (isAccessories ? 'Accessories' : 'Spare Parts') }}</h2>
+                        <!-- Breadcrumb title: the tree path, leaf emphasised. -->
+                        <h2 v-if="currentPath.length > 1" class="sd-crumbs">
+                            <template v-for="(p, i) in currentPath">
+                                <span :key="'c' + i" :class="i === currentPath.length - 1 ? 'crumb-leaf' : 'crumb'">{{ p }}</span>
+                                <i v-if="i < currentPath.length - 1" :key="'s' + i" class="el-icon-arrow-right crumb-sep" />
+                            </template>
+                        </h2>
+                        <h2 v-else>{{ currentTab || (isAccessories ? 'Accessories' : 'Spare Parts') }}</h2>
                         <div class="sd-asof">live from Zoho · {{ productList.length.toLocaleString() }} items</div>
                     </div>
                     <div class="sd-spacer" />
-                    <el-button v-hasPermi="['zoho:collection:view']" size="small" plain type="primary"
-                        icon="el-icon-plus" :loading="collectionDetailLoading" :disabled="!currentCollection"
-                        @click="handleEditCollection">Add Product</el-button>
+                    <!-- Editing targets ONE collection — hidden on a branch
+                         view, where several are merged. -->
+                    <el-button v-if="!subOptions.length" v-hasPermi="['zoho:collection:view']" size="small"
+                        plain type="primary" icon="el-icon-plus" :loading="collectionDetailLoading"
+                        :disabled="!currentCollection" @click="handleEditCollection">Add Product</el-button>
                     <el-dropdown trigger="click" @command="handleExportCommand">
                         <el-button size="small" plain type="success" icon="el-icon-download">
                             Export <i class="el-icon-arrow-down el-icon--right" />
@@ -56,6 +111,13 @@
                     <el-select v-if="isAccessories" v-model="queryParams.category" size="small" clearable filterable
                         placeholder="Category" class="sd-sel-wide" @change="handleQuery">
                         <el-option v-for="c in categoryOptions" :key="c" :label="c" :value="c" />
+                    </el-select>
+                    <!-- Branch view only: narrow the merged list to one of
+                         the child collections. -->
+                    <el-select v-if="!isAccessories && subOptions.length" v-model="queryParams.subCol"
+                        size="small" clearable filterable placeholder="Category" class="sd-sel-wide"
+                        @change="handleQuery">
+                        <el-option v-for="o in subOptions" :key="o.value" :label="o.label" :value="o.value" />
                     </el-select>
                     <el-button size="mini" type="primary" icon="el-icon-search" @click="handleQuery">Search</el-button>
                     <el-button size="mini" icon="el-icon-refresh" @click="resetQuery">Reset</el-button>
@@ -296,9 +358,12 @@
             :visible.sync="collectionDialogVisible"
             :collection="editingCollection"
             :scope="scope"
-            products-only
+            :products-only="dialogProductsOnly"
             @saved="onCollectionSaved"
         />
+
+        <!-- Whole-tree group manager (shared with the Collections page). -->
+        <CollectionGroupDialog :visible.sync="groupDialogVisible" :scope="scope" />
     </div>
 </template>
 
@@ -307,14 +372,15 @@ import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
 import { getCurrentStock, getSalesTotal, updateItemReorderLevel, getItemImage, hideStockItems, unhideStockItem, getSeaFreight, addSeaFreightItems, removeSeaFreightItem } from "../../api/zoho/stockMonitoring";
 import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
-import { getCollectionGroups, getCollectionDetail } from "../../api/zoho/products/collection";
+import { getCollectionGroups, getCollectionDetail, updateCollectionGroups, deleteCollection } from "../../api/zoho/products/collection";
+import CollectionGroupDialog from "@/views/products/collection/CollectionGroup/collectionGroup.vue"
 import { getProductDetail } from "../../api/zoho/products/product";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
 import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
 import StockDashboard from "./stockDashboard.vue"
 export default {
     name: "StockMonitoring",
-    components: { TreePanel, ProductDetailDialog, CollectionFormDialog, StockDashboard },
+    components: { TreePanel, ProductDetailDialog, CollectionFormDialog, StockDashboard, CollectionGroupDialog },
     data() {
         return {
             // 'dashboard' shows the embedded snapshot dashboard in the
@@ -337,6 +403,9 @@ export default {
             applyPurchaseFilter: false,
             purchaseFilterType: "",
             currentTab: "",
+            // Breadcrumb for the title — the tree path down to the picked
+            // collection, e.g. ['iPhone', 'Screen', 'SVP'].
+            currentPath: [],
             duration: 30,
             treeData: [],
             currentCollection: "",
@@ -353,6 +422,15 @@ export default {
             collectionDialogVisible: false,
             editingCollection: null,
             collectionDetailLoading: false,
+            // Add Product opens the dialog in products-only mode; the tree's
+            // Edit / New Collection open the full form.
+            dialogProductsOnly: true,
+            // In-tree collection management: the raw group docs (the tree
+            // is a projection of these; every mutation rewrites them).
+            rawGroups: [],
+            groupDialogVisible: false,
+            // Folder id a newly created collection should land in.
+            creatingInFolder: null,
             queryParams: {
                 pageNum: 1,
                 pageSize: 20,
@@ -361,7 +439,13 @@ export default {
                 search: '',
                 category: '',
                 quick: '',
+                // In a branch (aggregate) view: narrow to one child
+                // collection's items (matched via each row's memberOf).
+                subCol: ''
             },
+            // The child collections of the open branch — the sub-category
+            // filter's options. Empty outside a branch view.
+            subOptions: [],
             productList: [],
             showProductList: [],
             // false = the normal list (hidden rows excluded everywhere,
@@ -456,6 +540,11 @@ export default {
     watch: {
         duration() {
             this.handleGetSalesTotal()
+        },
+        // The group manager saves inside its own dialog — re-read the tree
+        // when it closes so any rearrangement shows immediately.
+        groupDialogVisible(open) {
+            if (!open) this.getCollectionGroup()
         }
     },
     methods: {
@@ -474,25 +563,19 @@ export default {
         // fetch the detail first, then open.
         async handleEditCollection() {
             if (!this.currentCollection || this.collectionDetailLoading) return
-            this.collectionDetailLoading = true
+            this.dialogProductsOnly = true
+            this.creatingInFolder = null
             try {
-                const res = await getCollectionDetail(this.currentCollection, this.scope)
-                if (!res || res.success === false || !res.data) {
-                    throw new Error((res && res.message) || 'Failed to load collection')
-                }
-                this.editingCollection = res.data
-                this.collectionDialogVisible = true
+                await this.openCollectionEditor(this.currentCollection)
             } catch (e) {
                 console.error('Load collection detail failed:', e)
                 const msg = (e.response && e.response.data && e.response.data.message)
                     || e.message
                     || 'Failed to load collection'
                 this.$message.error(msg)
-            } finally {
-                this.collectionDetailLoading = false
             }
         },
-        onCollectionSaved(saved) {
+        async onCollectionSaved(saved) {
             // Title may have changed — refresh the sidebar tree, which
             // re-reads the groups, keeps the current collection id from
             // the route query, and re-fetches the stock list in its
@@ -501,32 +584,204 @@ export default {
             if (saved && saved.title) {
                 this.currentTab = saved.title
             }
+            try {
+                if (saved && saved._id) {
+                    const copy = { ...saved, _id: String(saved._id) }
+                    if (this.creatingInFolder) {
+                        // A create from the tree — land it in its folder.
+                        const folder = this.findFolder(this.rawGroups, this.creatingInFolder)
+                        if (folder) {
+                            folder.collections = folder.collections || []
+                            folder.collections.push(copy)
+                        }
+                        this.creatingInFolder = null
+                        await updateCollectionGroups(this.rawGroups, this.scope)
+                    } else {
+                        // An edit — keep the tree's embedded copy in step so
+                        // a rename can't leave a stale title behind.
+                        const existing = this.findCopy(this.rawGroups, saved._id)
+                        if (existing) {
+                            Object.assign(existing, copy)
+                            await updateCollectionGroups(this.rawGroups, this.scope)
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Group write-back failed:', e)
+            }
             this.getCollectionGroup()
+        },
+        // ── in-tree collection management ────────────────────────────
+        openGroupDialog() {
+            this.groupDialogVisible = true
+        },
+        canDeleteFolder(data) {
+            const folder = this.findFolder(this.rawGroups, data.fid)
+            return !!folder && !(folder.collections || []).length && !(folder.children || []).length
+        },
+        findFolder(nodes, fid) {
+            for (const n of nodes || []) {
+                if (String(n._id) === String(fid)) return n
+                const hit = this.findFolder(n.children, fid)
+                if (hit) return hit
+            }
+            return null
+        },
+        findCopy(nodes, colId) {
+            for (const n of nodes || []) {
+                const c = (n.collections || []).find(x => String(x._id) === String(colId))
+                if (c) return c
+                const hit = this.findCopy(n.children, colId)
+                if (hit) return hit
+            }
+            return null
+        },
+        // Remove a collection's embedded copy from whichever folder holds
+        // it; returns the copy (for re-homing) or null.
+        pluckCopy(nodes, colId) {
+            for (const n of nodes || []) {
+                const i = (n.collections || []).findIndex(c => String(c._id) === String(colId))
+                if (i !== -1) return n.collections.splice(i, 1)[0]
+                const hit = this.pluckCopy(n.children, colId)
+                if (hit) return hit
+            }
+            return null
+        },
+        removeFolder(nodes, fid) {
+            const i = (nodes || []).findIndex(n => String(n._id) === String(fid))
+            if (i !== -1) { nodes.splice(i, 1); return true }
+            for (const n of nodes || []) {
+                if (n.children && this.removeFolder(n.children, fid)) return true
+            }
+            return false
+        },
+        async saveGroups() {
+            await updateCollectionGroups(this.rawGroups, this.scope)
+            this.getCollectionGroup()
+        },
+        async openCollectionEditor(id) {
+            this.collectionDetailLoading = true
+            try {
+                const res = await getCollectionDetail(id, this.scope)
+                if (!res || res.success === false || !res.data) {
+                    throw new Error((res && res.message) || 'Failed to load collection')
+                }
+                this.editingCollection = res.data
+                this.collectionDialogVisible = true
+            } finally {
+                this.collectionDetailLoading = false
+            }
+        },
+        async treeMenu(cmd, data) {
+            try {
+                if (cmd === 'edit') {
+                    this.dialogProductsOnly = false
+                    this.creatingInFolder = null
+                    await this.openCollectionEditor(data.value)
+                } else if (cmd === 'delete') {
+                    await this.$confirm(`Delete collection "${data.label}"? This cannot be undone.`, 'Delete',
+                        { type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel' })
+                    await deleteCollection({ id: data.value }, this.scope)
+                    this.pluckCopy(this.rawGroups, data.value)
+                    await this.saveGroups()
+                    if (this.currentCollection === data.value) this.openDashboard()
+                    this.$message.success('Collection deleted')
+                } else if (cmd === 'newCollection') {
+                    this.dialogProductsOnly = false
+                    this.creatingInFolder = data.fid
+                    this.editingCollection = null
+                    this.collectionDialogVisible = true
+                } else if (cmd === 'newFolder') {
+                    const { value } = await this.$prompt('Folder name', 'New Sub-folder',
+                        { inputValidator: v => !!String(v || '').trim() || 'Name required' })
+                    const folder = this.findFolder(this.rawGroups, data.fid)
+                    if (!folder) return
+                    folder.children = folder.children || []
+                    folder.children.push({
+                        _id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                        title: String(value).trim(), expanded: false, collections: [], children: []
+                    })
+                    await this.saveGroups()
+                } else if (cmd === 'renameFolder') {
+                    const { value } = await this.$prompt('Folder name', `Rename ${data.label}`,
+                        { inputValue: data.label, inputValidator: v => !!String(v || '').trim() || 'Name required' })
+                    const folder = this.findFolder(this.rawGroups, data.fid)
+                    if (!folder) return
+                    folder.title = String(value).trim()
+                    await this.saveGroups()
+                } else if (cmd === 'deleteFolder') {
+                    const folder = this.findFolder(this.rawGroups, data.fid)
+                    if (!folder) return
+                    if ((folder.collections || []).length || (folder.children || []).length) {
+                        this.$message.warning('Only empty folders can be deleted — move their contents first.')
+                        return
+                    }
+                    await this.$confirm(`Delete folder "${data.label}"?`, 'Delete',
+                        { type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel' })
+                    this.removeFolder(this.rawGroups, data.fid)
+                    await this.saveGroups()
+                }
+            } catch (e) {
+                if (e === 'cancel' || e === 'close') return
+                this.$message.error((e && e.message) || 'Operation failed')
+            }
         },
         getCollectionGroup() {
             getCollectionGroups(this.scope).then(res => {
                 const groups = res.data || []
+                // Kept verbatim — the tree menu's mutations edit these docs
+                // and write them back whole through updateGroup.
+                this.rawGroups = groups
 
-                const buildTree = categories => {
+                // Leaf labels drop the words their ancestors already say:
+                // under iPhone → Screen, "iPhone SVP Screen" shows as "SVP".
+                // Display-only — the collection titles themselves are used by
+                // the snapshot tags and filters and stay untouched. A title
+                // fully covered by its ancestors ("iPad Battery" under
+                // iPad → Battery) shows as "All".
+                const esc = w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                const stripLabel = (title, ancestors) => {
+                    let label = ` ${String(title || '')} `
+                    for (const a of ancestors) {
+                        for (const word of String(a).split(/\s+/).filter(Boolean)) {
+                            label = label.replace(new RegExp(`\\s${esc(word)}(?=\\s)`, 'ig'), ' ')
+                        }
+                    }
+                    return label.replace(/\s+/g, ' ').trim() || 'All'
+                }
+
+                const buildTree = (categories, ancestors = []) => {
                     return categories.map(category => {
-                        const node = {
-                            label: category.title,
-                            children: []
+                        const path = [...ancestors, category.title]
+
+                        const collectionChildren = (category.collections || []).map(item => {
+                            const label = stripLabel(item.title, path)
+                            return {
+                                label,
+                                // The breadcrumb the title shows for this leaf.
+                                path: [...path, label],
+                                value: item._id
+                            }
+                        })
+
+                        const subCategoryChildren = buildTree(category.children || [], path)
+
+                        // A category whose only content is one fully-stripped
+                        // collection ("iPad Screen" under iPad → Screen)
+                        // becomes the clickable leaf itself — no "All" level.
+                        if (collectionChildren.length === 1 && !subCategoryChildren.length
+                            && collectionChildren[0].label === 'All') {
+                            return { label: category.title, path, value: collectionChildren[0].value }
                         }
 
-                        const collectionChildren = (category.collections || []).map(item => ({
-                            label: item.title,
-                            value: item._id
-                        }))
-
-                        const subCategoryChildren = buildTree(category.children || [])
-
-                        node.children = [
-                            ...collectionChildren,
-                            ...subCategoryChildren
-                        ]
-
-                        return node
+                        return {
+                            label: category.title,
+                            path,
+                            // The folder's id in the raw group docs — the
+                            // tree menu's folder operations key off it.
+                            fid: category._id,
+                            children: [...collectionChildren, ...subCategoryChildren]
+                        }
                     })
                 }
 
@@ -562,19 +817,46 @@ export default {
                 // The auto-selected collection (first load / deep link) never
                 // goes through handleNodeClick, so resolve its label here too —
                 // the page title reads it.
-                const findLabel = (nodes, id) => {
+                const findPath = (nodes, id) => {
                     for (const node of nodes || []) {
-                        if (!node.children && node.value === id) return node.label
-                        const hit = findLabel(node.children, id)
+                        if (!node.children && node.value === id) return node.path || [node.label]
+                        const hit = findPath(node.children, id)
                         if (hit) return hit
                     }
-                    return ''
+                    return null
                 }
-                this.currentTab = findLabel(this.treeData, this.currentCollection) || this.currentTab
+                const path = findPath(this.treeData, this.currentCollection)
+                if (path) {
+                    this.currentPath = path
+                    this.currentTab = path[path.length - 1]
+                }
+                // A comma-list deep link is a branch view — find the parent
+                // whose children it spans and restore its title + filter.
+                if (String(this.currentCollection).includes(',')) {
+                    const target = String(this.currentCollection)
+                    const findAgg = nodes => {
+                        for (const n of nodes || []) {
+                            if (n.children && n.children.length && n.children.every(c => !c.children)
+                                && n.children.map(c => c.value).join(',') === target) return n
+                            const hit = findAgg(n.children)
+                            if (hit) return hit
+                        }
+                        return null
+                    }
+                    const agg = findAgg(this.treeData)
+                    if (agg) {
+                        this.currentTab = agg.label
+                        this.currentPath = agg.path || [agg.label]
+                        this.subOptions = agg.children.map(c => ({ label: c.label, value: c.value }))
+                    }
+                }
                 // The 海运 collection lives outside the tree, so the label
                 // lookup can't know it (deep links land here before or after
                 // loadSeaFreight — cover both orders).
-                if (this.seaFreightId && this.currentCollection === this.seaFreightId) this.currentTab = '海运'
+                if (this.seaFreightId && this.currentCollection === this.seaFreightId) {
+                    this.currentTab = '海运'
+                    this.currentPath = ['海运']
+                }
 
                 this.$router.replace({
                     query: {
@@ -593,14 +875,18 @@ export default {
             this.viewMode = 'dashboard'
             this.currentCollection = ''
             this.currentTab = ''
+            this.currentPath = []
+            this.subOptions = []
             if (this.$refs.deptTreeRef) this.$refs.deptTreeRef.setCurrentKey(null)
             if (this.$route.query.collection) this.$router.replace({ query: {} })
         },
-        handleNodeClick(data) {
+        handleNodeClick(data, node) {
             if (!data.children) {
                 this.viewMode = 'list'
                 this.currentTab = data.label
+                this.currentPath = data.path || [data.label]
                 this.currentCollection = data.value
+                this.subOptions = []
                 this.queryParams = {
                     pageNum: 1,
                     pageSize: 20,
@@ -609,6 +895,7 @@ export default {
                     search: '',
                     category: '',
                     quick: '',
+                    subCol: ''
                 },
                     this.$router.replace({
                         query: {
@@ -622,7 +909,36 @@ export default {
                     this.clearSelection()
                     this.getList()
                 })
+            } else if (data.children.length && data.children.every(c => !c.children)) {
+                // A bottom-level parent (every child is a collection).
+                // el-tree toggles the expansion BEFORE this handler runs, so:
+                // collapsed → click → now expanded: just the expand, no
+                // content change; expanded → click → the toggle closed it:
+                // keep it open and load everything under it.
+                if (node && node.expanded) return
+                if (node) node.expanded = true
+                this.openAggregate(data)
             }
+        },
+        // Load the union of every collection under a bottom-level parent
+        // (e.g. iPhone → Screen = all seven screen collections at once);
+        // the children become the sub-category filter.
+        openAggregate(data) {
+            this.viewMode = 'list'
+            this.currentTab = data.label
+            this.currentPath = data.path || [data.label]
+            this.subOptions = data.children.map(c => ({ label: c.label, value: c.value }))
+            this.currentCollection = data.children.map(c => c.value).join(',')
+            this.queryParams = {
+                pageNum: 1, pageSize: 20, sku: undefined, productName: undefined,
+                search: '', category: '', quick: '', subCol: ''
+            }
+            this.$router.replace({ query: { collection: this.currentCollection } }).catch(() => {})
+            this.$nextTick(() => {
+                this.$refs.table && this.$refs.table.clearSort()
+                this.clearSelection()
+                this.getList()
+            })
         },
         handleSelectionChange(val) {
             this.multipleSelection = val;
@@ -966,7 +1282,11 @@ export default {
 
             const matchCategory = !category || item.category === category
 
-            return matchSku && matchProductName && matchSearch && matchCategory
+            // Branch view: one child collection picked in the filter.
+            const matchSub = !this.queryParams.subCol ||
+                (item.memberOf || []).includes(this.queryParams.subCol)
+
+            return matchSku && matchProductName && matchSearch && matchCategory && matchSub
         },
         // The full predicate — shared by the table (handleQuery) and
         // "Export current view", so they can never disagree.
@@ -997,7 +1317,10 @@ export default {
                     this.seaFreightId = r.id
                     // A ?collection deep link straight onto 海运 resolves its
                     // title here — the tree lookup can't know it.
-                    if (this.currentCollection === r.id) this.currentTab = '海运'
+                    if (this.currentCollection === r.id) {
+                        this.currentTab = '海运'
+                        this.currentPath = ['海运']
+                    }
                 }
             } catch (e) { /* the tab just stays hidden */ }
         },
@@ -1005,10 +1328,12 @@ export default {
             if (!this.seaFreightId || this.isSeaView) return
             this.viewMode = 'list'
             this.currentTab = '海运'
+            this.currentPath = ['海运']
             this.currentCollection = this.seaFreightId
+            this.subOptions = []
             this.queryParams = {
                 pageNum: 1, pageSize: 20, sku: undefined, productName: undefined,
-                search: '', category: '', quick: ''
+                search: '', category: '', quick: '', subCol: ''
             }
             if (this.$refs.deptTreeRef) this.$refs.deptTreeRef.setCurrentKey(null)
             this.$router.replace({ query: { collection: this.seaFreightId } })
@@ -1160,6 +1485,7 @@ export default {
                 search: '',
                 category: '',
                 quick: '',
+                subCol: ''
             }
             this.handlePagination()
         }
@@ -1363,6 +1689,24 @@ export default {
 
 /* The Hide row action — amber so it reads as "tuck away", not delete. */
 .sm-hide-op { color: #E6A23C; }
+/* Custom tree node (the TreePanel slot replaces its default row). */
+.tn-icon { font-size: 14px; color: #f5a623; flex-shrink: 0; }
+.tn-icon.el-icon-document { color: #909399; }
+.tn-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tn-menu { flex-shrink: 0; margin-right: 4px; }
+.tn-menu-icon {
+    font-size: 12px; color: #c0c4cc; padding: 3px; border-radius: 3px;
+    opacity: 0; transition: opacity .15s;
+    &:hover { color: #409eff; background: #ecf5ff; }
+}
+.el-tree-node__content:hover .tn-menu-icon { opacity: 1; }
+/* Breadcrumb title: ancestors muted, the picked collection bold. */
+.sd-crumbs {
+    display: flex; align-items: center; gap: 6px;
+    .crumb { font-weight: 500; color: #909399; }
+    .crumb-leaf { font-weight: 700; color: #303133; }
+    .crumb-sep { font-size: 14px; color: #c0c4cc; }
+}
 /* Green = in 海运, grey = not; click toggles. */
 .p-sea-btn {
     color: #c0c4cc; cursor: pointer;
