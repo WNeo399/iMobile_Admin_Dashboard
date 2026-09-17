@@ -21,7 +21,8 @@ const RIGHT = 555
 const PAGE_BOTTOM = 800
 
 // Item columns
-const COL_IMEI = LEFT
+const COL_IDX = LEFT
+const COL_IMEI = LEFT + 26
 const COL_MODEL = 190
 const COL_PRICE = RIGHT
 
@@ -141,6 +142,7 @@ function tableHead(doc, y) {
     doc.setLineWidth(0.8)
     doc.line(LEFT, top, RIGHT, top)
     doc.setFontSize(9)
+    doc.text('#', COL_IDX, top + 14)
     doc.text('IMEI', COL_IMEI, top + 14)
     doc.text('Model', COL_MODEL, top + 14)
     doc.text('Price', COL_PRICE, top + 14, { align: 'right' })
@@ -165,6 +167,7 @@ export function buildRefurbSalesOrderPdf(order) {
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
+    let idx = 0
     for (const l of lines) {
         // Totals need ~86pt; break early so they never straddle a page.
         if (y > PAGE_BOTTOM - 30) {
@@ -173,7 +176,9 @@ export function buildRefurbSalesOrderPdf(order) {
             doc.setFont('helvetica', 'normal')
             doc.setFontSize(9)
         }
+        idx += 1
         doc.setTextColor(DARK)
+        doc.text(String(idx), COL_IDX, y)
         doc.text(String(l.imei || ''), COL_IMEI, y)
         const desc = doc.splitTextToSize(describeLine(l), COL_PRICE - COL_MODEL - 70)
         doc.text(desc[0] || '', COL_MODEL, y)
