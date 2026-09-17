@@ -15,7 +15,9 @@ export default {
     'Dashboard': '仪表盘',
 
     'Spare Parts': '维修零件',
+    'iMobile Spare Parts': 'iMobile 维修零件',
     'Stock Monitoring': '库存监控',
+    'Price Monitoring': '价格监控',
     'Stock Dashboard': '库存看板',
     'Collections': '产品集合',
     'Purchase Order': '采购订单',
@@ -732,6 +734,8 @@ export default {
     '{n} device(s) sent': '已发出 {n} 台设备',
     'Failed to send the devices': '发送设备失败',
     'Could not build the list': '无法生成清单',
+    'Could not build the print list': '无法生成打印清单',
+    'Assigned': '分配于',
     'Choose where they go back to': '请选择退回位置',
     '{n} device(s) returned': '已退回 {n} 台设备',
     'Failed to return the devices': '退回设备失败',

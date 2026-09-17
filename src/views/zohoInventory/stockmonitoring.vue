@@ -1,9 +1,28 @@
 <template>
     <div class="app-container tree-sidebar-manage-wrap">
         <tree-panel title="Category" :tree-data="treeData" search-placeholder="Please Enter Categiry"
-            storage-key="dept-sidebar-width" :defaultExpandAll="true" ref="deptTreeRef" @node-click="handleNodeClick" />
+            storage-key="dept-sidebar-width" :default-width="228" :defaultExpandAll="true" ref="deptTreeRef"
+            @node-click="handleNodeClick">
+            <!-- The Dashboard tab, pinned above the category tree. Spare
+                 Parts only — the Accessories page keeps the plain tree. -->
+            <template v-if="!isAccessories" #top>
+                <div :class="['dash-tab', { on: viewMode === 'dashboard' }]" @click="openDashboard">
+                    <i class="el-icon-odometer" /> Dashboard
+                </div>
+                <!-- The 海运 (sea freight) list — a pinned-products collection
+                     kept out of the category tree and surfaced here instead. -->
+                <div v-if="seaFreightId" :class="['dash-tab', { on: isSeaView }]" @click="openSeaFreight">
+                    <i class="el-icon-ship" /> 海运
+                </div>
+            </template>
+        </tree-panel>
         <div class="tree-sidebar-content">
-            <div class="content-inner">
+            <!-- Dashboard view: the snapshot dashboard embedded whole.
+                 v-if (not v-show) so its data loads only when opened. -->
+            <div v-if="viewMode === 'dashboard'" class="content-inner">
+                <stock-dashboard embedded />
+            </div>
+            <div v-else class="content-inner">
                 <!-- ── Stock-Dashboard-style main section (both scopes) —
                      header, one search box, clickable count tiles. Only the
                      tile set and the Category filter differ per scope; the
@@ -59,9 +78,17 @@
                     <span class="sd-card-title">{{ activeTileLabel }}</span>
                     <el-tag size="mini" effect="plain">{{ total.toLocaleString() }} items</el-tag>
                     <div class="sd-spacer" />
+                    <el-button v-if="!isAccessories && multipleSelection.length && !showHidden && !isSeaView && seaFreightId"
+                        type="text" size="mini" :loading="seaAdding"
+                        @click="addSelectedToSea">Add to 海运 ({{ multipleSelection.length }})</el-button>
+                    <el-button v-if="!isAccessories && multipleSelection.length && !showHidden" type="text" size="mini"
+                        class="sm-hide-btn" :loading="hiding"
+                        @click="hideSelected">Hide Selected ({{ multipleSelection.length }})</el-button>
                     <el-button v-if="!isAccessories && multipleSelection.length" type="text" size="mini"
                         @click="() => { $refs.table.clearSelection() }">Clear Selection ({{ multipleSelection.length }})</el-button>
-                    <el-button v-if="queryParams.quick" type="text" size="mini" @click="pickTile('')">Clear filter</el-button>
+                    <el-button v-if="hiddenCount || showHidden" type="text" size="mini"
+                        @click="toggleShowHidden">{{ showHidden ? 'Back to list' : `${hiddenCount} hidden — view` }}</el-button>
+                    <el-button v-if="queryParams.quick && !showHidden" type="text" size="mini" @click="pickTile('')">Clear filter</el-button>
                 </div>
                 <el-table v-loading="loading" :data="showProductList" @selection-change="handleSelectionChange"
                     @sort-change="handleSorting" ref="table" empty-text="No Data" stripe border row-key="id">
@@ -89,6 +116,13 @@
                                         @click.stop="copySku(scope.row.sku)">SKU: {{ scope.row.sku }}</span>
                                     <span v-else class="p-sku">SKU: —</span>
                                     <span v-if="scope.row.location" class="p-loc"><i class="el-icon-location-outline" /> {{ scope.row.location }}</span>
+                                    <!-- Same signal as the dashboard's ship button: green = in
+                                         海运, grey = not; click toggles membership. -->
+                                    <el-tooltip v-if="!isAccessories" placement="top"
+                                        :content="scope.row.seaFreight ? 'Remove from 海运' : 'Add to 海运'">
+                                        <span :class="['p-sea-btn', { on: scope.row.seaFreight }]"
+                                            @click.stop="toggleSeaItem(scope.row)"><i class="el-icon-ship" /> 海运</span>
+                                    </el-tooltip>
                                     <span v-if="scope.row.category" class="p-cat"><i class="el-icon-collection-tag" /> {{ scope.row.category }}</span>
                                 </div>
                             </div>
@@ -195,8 +229,10 @@
                         <template slot-scope="scope" v-if="scope.row.userId !== 1">
                             <el-button size="mini" type="text" icon="el-icon-edit"
                                 @click="handleGetProductDetail(scope.row.id)">View Detail</el-button>
-                            <el-button v-if="!isAccessories" size="mini" type="text" icon="el-icon-shopping-cart-2"
+                            <el-button v-if="!isAccessories && !showHidden" size="mini" type="text" icon="el-icon-shopping-cart-2"
                                 @click="openCreatePo(scope.row)">Create PO</el-button>
+                            <el-button v-if="showHidden" size="mini" type="text" icon="el-icon-view"
+                                @click="unhideItem(scope.row)">Unhide</el-button>
                             <!-- <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)" v-hasPermi="['system:user:remove']">删除</el-button>
               <el-dropdown size="mini" @command="(command) => handleCommand(command, scope.row)" v-hasPermi="['system:user:resetPwd', 'system:user:edit']">
                 <el-button size="mini" type="text" icon="el-icon-d-arrow-right">更多</el-button>
@@ -270,17 +306,23 @@
 <script>
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
-import { getCurrentStock, getSalesTotal, updateItemReorderLevel, getItemImage } from "../../api/zoho/stockMonitoring";
+import { getCurrentStock, getSalesTotal, updateItemReorderLevel, getItemImage, hideStockItems, unhideStockItem, getSeaFreight, addSeaFreightItems, removeSeaFreightItem } from "../../api/zoho/stockMonitoring";
 import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
 import { getCollectionGroups, getCollectionDetail } from "../../api/zoho/products/collection";
 import { getProductDetail } from "../../api/zoho/products/product";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
 import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
+import StockDashboard from "./stockDashboard.vue"
 export default {
     name: "StockMonitoring",
-    components: { TreePanel, ProductDetailDialog, CollectionFormDialog },
+    components: { TreePanel, ProductDetailDialog, CollectionFormDialog, StockDashboard },
     data() {
         return {
+            // 'dashboard' shows the embedded snapshot dashboard in the
+            // content area; 'list' the per-collection stock table. The
+            // page lands on the dashboard (see created), and picking a
+            // category in the tree switches to the list.
+            viewMode: 'list',
 
             open: false,
             loading: false,
@@ -323,6 +365,15 @@ export default {
             },
             productList: [],
             showProductList: [],
+            // false = the normal list (hidden rows excluded everywhere,
+            // tiles included); true = the review view of ONLY hidden rows,
+            // each with an Unhide button.
+            showHidden: false,
+            hiding: false,
+            // The 海运 collection's Mongo id — loaded once; '' until known
+            // (the tab renders only when it is).
+            seaFreightId: '',
+            seaAdding: false,
             product: {},
             multipleSelection: [],
         }
@@ -378,13 +429,26 @@ export default {
             ]
         },
         activeTileLabel() {
+            if (this.showHidden) return 'Hidden Items'
             const t = this.tiles.find(x => x.key === (this.queryParams.quick || ''))
             return t ? t.label : 'All Items'
+        },
+        hiddenCount() {
+            return this.productList.filter(i => i.hidden).length
+        },
+        isSeaView() {
+            return !!this.seaFreightId && this.currentCollection === this.seaFreightId
         }
     },
     created() {
-
+        // Land on the Dashboard tab unless a deep link names a collection.
+        // Accessories has no Dashboard tab and keeps the old first-category
+        // landing.
+        if (!this.isAccessories && !this.$route.query.collection) {
+            this.viewMode = 'dashboard'
+        }
         this.getCollectionGroup()
+        if (!this.isAccessories) this.loadSeaFreight()
     },
     beforeDestroy() {
         // Free the image object URLs this session created.
@@ -489,6 +553,13 @@ export default {
 
                 this.treeData = buildTree(groups)
 
+                // On the Dashboard tab nothing is auto-selected: the tree is
+                // there, and picking a category (or a ?collection deep link)
+                // is what enters the list view.
+                if (this.viewMode === 'dashboard' && !this.$route.query.collection) {
+                    return
+                }
+
                 this.currentCollection = this.$route.query.collection ? this.$route.query.collection : findFirstCollectionId(groups)
 
                 // The auto-selected collection (first load / deep link) never
@@ -514,8 +585,19 @@ export default {
                 })
             })
         },
+        // The Dashboard tab above the tree — the content pane swaps to the
+        // embedded dashboard and the tree keeps no selection.
+        openDashboard() {
+            if (this.viewMode === 'dashboard') return
+            this.viewMode = 'dashboard'
+            this.currentCollection = ''
+            this.currentTab = ''
+            if (this.$refs.deptTreeRef) this.$refs.deptTreeRef.setCurrentKey(null)
+            if (this.$route.query.collection) this.$router.replace({ query: {} })
+        },
         handleNodeClick(data) {
             if (!data.children) {
+                this.viewMode = 'list'
                 this.currentTab = data.label
                 this.currentCollection = data.value
                 this.queryParams = {
@@ -533,7 +615,9 @@ export default {
                         }
                     })
                 this.$nextTick(() => {
-                    this.$refs.table.clearSort()
+                    // Coming from the Dashboard tab the table mounts on this
+                    // same tick — it may not be in refs yet.
+                    this.$refs.table && this.$refs.table.clearSort()
                     this.clearSelection()
                     this.getList()
                 })
@@ -663,6 +747,9 @@ export default {
         getList() {
             const that = this
             this.loading = true
+            // A fresh collection starts on the normal view, not the
+            // hidden-items review of the previous one.
+            this.showHidden = false
             getCurrentStock({ collection: that.currentCollection, scope: that.scope || undefined }).then(resp => {
                 that.productList = resp
                 that.handlePagination()
@@ -854,6 +941,10 @@ export default {
         // numbers follow the filters while each tile's own count ignores
         // the tile selection (you can still read the other buckets).
         matchesBaseFilters(item) {
+            // Manually hidden items are out of every count and view on this
+            // page; the review toggle flips to showing ONLY them.
+            if (this.showHidden ? !item.hidden : item.hidden) return false
+
             const { sku, productName, search, category } = this.queryParams
 
             const matchSku = !sku || String(item.sku || '')
@@ -891,6 +982,136 @@ export default {
         },
         handleQuery() {
             this.queryParams.pageNum = 1
+            this.handlePagination()
+        },
+        // ── 海运 (sea freight) list ──────────────────────────────────
+        // Backed by a pinned-products collection the tree never shows;
+        // the tab above the tree opens it through the normal list path.
+        async loadSeaFreight() {
+            try {
+                const r = await getSeaFreight()
+                if (r && r.success) {
+                    this.seaFreightId = r.id
+                    // A ?collection deep link straight onto 海运 resolves its
+                    // title here — the tree lookup can't know it.
+                    if (this.currentCollection === r.id && !this.currentTab) this.currentTab = '海运'
+                }
+            } catch (e) { /* the tab just stays hidden */ }
+        },
+        openSeaFreight() {
+            if (!this.seaFreightId || this.isSeaView) return
+            this.viewMode = 'list'
+            this.currentTab = '海运'
+            this.currentCollection = this.seaFreightId
+            this.queryParams = {
+                pageNum: 1, pageSize: 20, sku: undefined, productName: undefined,
+                search: '', category: '', quick: ''
+            }
+            if (this.$refs.deptTreeRef) this.$refs.deptTreeRef.setCurrentKey(null)
+            this.$router.replace({ query: { collection: this.seaFreightId } })
+            this.$nextTick(() => {
+                this.$refs.table && this.$refs.table.clearSort()
+                this.clearSelection()
+                this.getList()
+            })
+        },
+        async addSelectedToSea() {
+            if (this.seaAdding || !this.multipleSelection.length) return
+            this.seaAdding = true
+            try {
+                const items = this.multipleSelection.map(r => ({ id: r.id, name: r.productName, sku: r.sku }))
+                const r = await addSeaFreightItems(items)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const ids = new Set(items.map(i => String(i.id)))
+                for (const p of this.productList) {
+                    if (ids.has(String(p.id))) this.$set(p, 'seaFreight', true)
+                }
+                this.$refs.table.clearSelection()
+                // The visible rows are re-sliced copies (the sales/purchase
+                // merges replace objects) — rebuild them to show the badges.
+                this.handlePagination()
+                this.$message.success(r.added
+                    ? `${r.added} item${r.added > 1 ? 's' : ''} added to 海运${r.already ? ` (${r.already} already there)` : ''}`
+                    : 'All selected items are already in 海运')
+            } catch (e) {
+                this.$message.error((e && e.message) || 'Failed to add to 海运')
+            } finally {
+                this.seaAdding = false
+            }
+        },
+        // The per-row ship icon in the product meta — one click adds or
+        // removes, mirroring the dashboard's button.
+        async toggleSeaItem(row) {
+            if (row.__seaBusy) return
+            this.$set(row, '__seaBusy', true)
+            try {
+                if (row.seaFreight) {
+                    const r = await removeSeaFreightItem(row.id)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    if (this.isSeaView) {
+                        // The current view IS the 海运 list — drop the row.
+                        this.productList = this.productList.filter(p => String(p.id) !== String(row.id))
+                    } else {
+                        const master = this.productList.find(p => String(p.id) === String(row.id))
+                        if (master) this.$set(master, 'seaFreight', false)
+                    }
+                    this.$message.success(`${row.productName || row.sku || 'Item'} removed from 海运`)
+                } else {
+                    const r = await addSeaFreightItems([{ id: row.id, name: row.productName, sku: row.sku }])
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    const master = this.productList.find(p => String(p.id) === String(row.id))
+                    if (master) this.$set(master, 'seaFreight', true)
+                    this.$message.success(`${row.productName || row.sku || 'Item'} added to 海运`)
+                }
+                this.handlePagination()
+            } catch (e) {
+                this.$message.error((e && e.message) || 'Failed to update 海运')
+            } finally {
+                this.$set(row, '__seaBusy', false)
+            }
+        },
+        // ── manual hide list ─────────────────────────────────────────
+        // Page-level only: a hidden item leaves this list (and its tile
+        // counts) but still exists everywhere else — the Dashboard, buy
+        // lists and Price Monitoring are untouched. The stronger,
+        // cross-page bucket remains the Archive.
+        async hideSelected() {
+            if (this.hiding || !this.multipleSelection.length) return
+            this.hiding = true
+            try {
+                const items = this.multipleSelection.map(r => ({ id: r.id, name: r.productName, sku: r.sku }))
+                const r = await hideStockItems(items)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const ids = new Set(items.map(i => String(i.id)))
+                for (const p of this.productList) {
+                    if (ids.has(String(p.id))) this.$set(p, 'hidden', true)
+                }
+                this.$refs.table.clearSelection()
+                this.handlePagination()
+                this.$message.success(`${items.length} item${items.length > 1 ? 's' : ''} hidden — restore via "${this.hiddenCount} hidden — view"`)
+            } catch (e) {
+                this.$message.error((e && e.message) || 'Failed to hide the items')
+            } finally {
+                this.hiding = false
+            }
+        },
+        async unhideItem(row) {
+            try {
+                const r = await unhideStockItem(row.id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const master = this.productList.find(p => String(p.id) === String(row.id))
+                if (master) this.$set(master, 'hidden', false)
+                if (!this.hiddenCount) this.showHidden = false
+                this.handlePagination()
+                this.$message.success(`${row.productName || row.sku || 'Item'} is back on the list`)
+            } catch (e) {
+                this.$message.error((e && e.message) || 'Failed to unhide the item')
+            }
+        },
+        toggleShowHidden() {
+            this.showHidden = !this.showHidden
+            this.queryParams.pageNum = 1
+            if (this.$refs.table) this.$refs.table.clearSelection()
             this.handlePagination()
         },
         // Same textarea+execCommand pattern the rest of the app uses —
@@ -973,6 +1194,48 @@ export default {
 <style scoped>
 .app-container {
     height: 100%;
+}
+
+/* ── Dashboard tab pinned above the category tree ── */
+.dash-tab {
+    margin: 10px 10px 0;
+    padding: 0 10px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #606266;
+    border: 1px solid #e8eaed;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all .15s;
+}
+
+.dash-tab i {
+    color: #909399;
+    font-size: 15px;
+}
+
+.dash-tab:hover {
+    color: #409eff;
+    border-color: #b3d8ff;
+    background: #f0f7ff;
+}
+
+.dash-tab:hover i {
+    color: #409eff;
+}
+
+.dash-tab.on {
+    color: #409eff;
+    background: #e6f0fd;
+    border-color: #b3d8ff;
+}
+
+.dash-tab.on i {
+    color: #409eff;
 }
 
 /* ── Accessories: Stock-Dashboard-style chrome (classes mirror
@@ -1120,6 +1383,14 @@ export default {
     font-size: 13px;
     font-weight: 600;
     color: #303133;
+}
+
+.sm-hide-btn { color: #E6A23C; }
+/* Green = in 海运, grey = not; click toggles. */
+.p-sea-btn {
+    color: #c0c4cc; cursor: pointer;
+    &:hover { color: #909399; }
+    &.on { color: #67C23A; &:hover { color: #529b2e; } }
 }
 
 /* Stacked stock cell (accessories): Physical over Accounting */

@@ -1,10 +1,10 @@
 <template>
-    <div class="app-container sd">
+    <div :class="[embedded ? 'sd-embedded' : 'app-container', 'sd']">
 
         <!-- ── header: what this is, and how old it is ──────────────── -->
         <div class="sd-head">
             <div class="sd-title">
-                <h2>Stock Monitoring</h2>
+                <h2>{{ embedded ? 'Dashboard' : 'Stock Monitoring' }}</h2>
                 <div v-if="snapshotDate" :class="['sd-asof', staleness.tone]">
                     <i :class="staleness.icon" />
                     {{ staleness.text }}
@@ -12,19 +12,19 @@
             </div>
             <div class="sd-spacer" />
 
-            <el-radio-group v-model="scope" size="small" @change="onScope">
-                <el-radio-button label="parts">Spare Parts</el-radio-button>
-                <el-radio-button label="accessory">Accessories</el-radio-button>
-            </el-radio-group>
-
             <el-button size="small" plain type="success" icon="el-icon-download"
                 :loading="exporting" @click="exportCsv">Export</el-button>
         </div>
 
         <!-- A failed or missing run is the one thing worth interrupting
              for: the numbers below would otherwise pass for today's. -->
-        <el-alert v-if="runProblem" :title="runProblem" type="warning" show-icon :closable="false"
-            class="sd-alert" />
+        <el-alert v-if="runProblem" type="warning" show-icon :closable="false" class="sd-alert">
+            <template slot="title">
+                <span>{{ runProblem }}</span>
+                <el-button type="text" size="mini" class="sd-alert-btn" :loading="snapshotRunning"
+                    @click="runSnapshot">{{ snapshotRunning ? 'Updating…' : 'Update Now' }}</el-button>
+            </template>
+        </el-alert>
 
         <!-- ── filters ──────────────────────────────────────────────── -->
         <div class="sd-filters">
@@ -60,9 +60,12 @@
             <el-button size="mini" icon="el-icon-refresh" @click="resetFilters">Reset</el-button>
 
             <div class="sd-spacer" />
-            <span v-if="counts.dormant" class="sd-dim">
-                {{ counts.dormant.toLocaleString() }} dormant hidden
-            </span>
+            <!-- The Archive bucket: criteria matches + manual marks. -->
+            <el-button v-if="counts.archived" type="text" size="mini" class="sd-archived-link"
+                @click="pickTile('archived')">
+                {{ counts.archived.toLocaleString() }} archived
+                {{ query.filter === 'archived' ? '— hide' : '— view' }}
+            </el-button>
         </div>
 
         <!-- ── the counts, each one a filter ────────────────────────── -->
@@ -102,8 +105,7 @@
                 <el-table-column prop="name" label="Product" min-width="300" show-overflow-tooltip>
                     <template slot-scope="s">
                         {{ s.row.name }}
-                        <el-tag v-if="s.row.available < 0" size="mini" type="warning" effect="plain">negative</el-tag>
-                        <el-tag v-else-if="s.row.stale && s.row.available > 0" size="mini" effect="plain">sitting still</el-tag>
+                        <el-tag v-if="s.row.stale && s.row.available > 0" size="mini" effect="plain">sitting still</el-tag>
                     </template>
                 </el-table-column>
 
@@ -144,6 +146,25 @@
                 <el-table-column prop="daysSinceSale" label="Last sold" width="104" sortable="custom">
                     <template slot-scope="s">
                         <span class="sd-dim">{{ lastSold(s.row.daysSinceSale) }}</span>
+                    </template>
+                </el-table-column>
+
+                <el-table-column label="" width="72" align="center">
+                    <template slot-scope="s">
+                        <!-- Add to / remove from the 海运 list (parts only). -->
+                        <el-tooltip v-if="scope === 'parts'" :content="s.row.seaFreight ? 'Remove from 海运' : 'Add to 海运'"
+                            placement="left">
+                            <el-button type="text" size="mini" :loading="s.row.__seaBusy"
+                                :class="['sd-sea-btn', { on: s.row.seaFreight }]" icon="el-icon-ship"
+                                @click.stop="toggleSeaFreight(s.row)" />
+                        </el-tooltip>
+                        <!-- Move to / restore from the Archive bucket. -->
+                        <el-tooltip :content="query.filter === 'archived' ? 'Restore from Archive' : 'Move to Archive'"
+                            placement="left">
+                            <el-button type="text" size="mini" :loading="s.row.__archivedBusy"
+                                :icon="query.filter === 'archived' ? 'el-icon-refresh-left' : 'el-icon-box'"
+                                @click.stop="toggleArchive(s.row)" />
+                        </el-tooltip>
                     </template>
                 </el-table-column>
             </el-table>
@@ -330,8 +351,10 @@
 <script>
 import {
     getStockSummary, getStockItems, getStockItem, getStockShelves,
-    getStockItemSales, getStockItemPurchaseOrders
+    getStockItemSales, getStockItemPurchaseOrders, setStockItemArchived,
+    runStockSnapshot, getStockSnapshotRun
 } from '@/api/stockMonitor'
+import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
 
 // Tiles in the order a buyer reads them: how bad, what is covered, what
 // needs ordering, what is about to, and what is dead weight.
@@ -350,8 +373,16 @@ const SORT_LABELS = {
 
 export default {
     name: 'StockDashboard',
+    props: {
+        // Rendered inside the Stock Monitoring page (Dashboard tab) rather
+        // than as its own route: drop the app-container chrome and retitle,
+        // everything else behaves identically.
+        embedded: { type: Boolean, default: false }
+    },
     data() {
         return {
+            // Fixed: the dashboard lives under iMobile Spare Parts now, so
+            // the accessory scope (and its toggle) is gone.
             scope: 'parts',
             loading: false,
             summaryLoading: false,
@@ -359,6 +390,8 @@ export default {
 
             snapshotDate: null,
             run: null,
+            snapshotRunning: false,
+            snapshotPollTimer: null,
             counts: {},
             options: { categories: [], collections: [], vendors: [], qualities: [] },
             // Over a thousand shelves, so they come from their own endpoint
@@ -397,6 +430,9 @@ export default {
             return TILES.filter(t => !t.partsOnly || this.scope === 'parts')
         },
         activeTile() {
+            if (this.query.filter === 'archived') {
+                return { key: 'archived', label: 'Archive — excluded items (criteria + manual)', tag: 'info' }
+            }
             return TILES.find(t => t.key === this.query.filter) ||
                 { key: 'all', label: 'All items', tag: 'info' }
         },
@@ -418,7 +454,7 @@ export default {
                 return `The last snapshot failed${this.run.error ? ': ' + this.run.error : ''}. The numbers below are from the last good run.`
             }
             if (this.staleness.tone === 'warn') {
-                return 'The snapshot is more than a day old — the daily job may not be running.'
+                return 'The snapshot is more than a day old.'
             }
             return ''
         },
@@ -438,10 +474,63 @@ export default {
         }
     },
     created() {
-        this.reload(true)
+        this.reload()
         this.loadShelves()
+        // A snapshot someone else started (or one surviving a page reload)
+        // should show as in-progress here too.
+        this.checkSnapshotRunning()
+    },
+    beforeDestroy() {
+        if (this.snapshotPollTimer) clearTimeout(this.snapshotPollTimer)
     },
     methods: {
+        // ── on-demand snapshot ───────────────────────────────────────
+        // Kicks off bin/stockSnapshot.js on the server and polls until it
+        // finishes (a run takes a minute or two — longer when Zoho
+        // throttles), then reloads everything from the fresh snapshot.
+        async runSnapshot() {
+            if (this.snapshotRunning) return
+            this.snapshotRunning = true
+            try {
+                const r = await runStockSnapshot()
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.info(r.alreadyRunning
+                    ? 'A snapshot is already running — waiting for it to finish.'
+                    : 'Snapshot started — this takes a minute or two.')
+                this.pollSnapshot()
+            } catch (e) {
+                this.snapshotRunning = false
+                this.$message.error((e && e.message) || 'Failed to start the snapshot')
+            }
+        },
+        pollSnapshot() {
+            if (this.snapshotPollTimer) clearTimeout(this.snapshotPollTimer)
+            this.snapshotPollTimer = setTimeout(async () => {
+                let running = true
+                try {
+                    const r = await getStockSnapshotRun()
+                    running = !r || r.running !== false
+                } catch (e) { /* transient — keep polling */ }
+                if (running) { this.pollSnapshot(); return }
+                this.snapshotRunning = false
+                this.snapshotPollTimer = null
+                await Promise.all([this.reload(), this.loadShelves()])
+                // reload() refreshed run/snapshotDate; runProblem reports a
+                // failed run on its own, so only success needs a toast.
+                if (!this.run || this.run.ok !== false) {
+                    this.$message.success('Snapshot updated.')
+                }
+            }, 10000)
+        },
+        async checkSnapshotRunning() {
+            try {
+                const r = await getStockSnapshotRun()
+                if (r && r.running) {
+                    this.snapshotRunning = true
+                    this.pollSnapshot()
+                }
+            } catch (e) { /* status is best-effort */ }
+        },
         async loadShelves() {
             try {
                 const r = await getStockShelves({ scope: this.scope })
@@ -452,14 +541,24 @@ export default {
                 this.shelves = []
             }
         },
-        async reload(withSummary = false) {
+        async reload() {
             this.query.page = 1
-            await Promise.all([this.loadItems(), withSummary ? this.loadSummary() : this.loadSummary()])
+            await Promise.all([this.loadItems(), this.loadSummary()])
         },
         async loadSummary() {
             this.summaryLoading = true
             try {
-                const r = await getStockSummary({ scope: this.scope })
+                // The filters ride along so the tiles count the same rows
+                // the table below them shows (the tile filter itself does
+                // not — clicking a tile must not zero out its siblings).
+                const r = await getStockSummary({
+                    scope: this.scope,
+                    search: this.query.search,
+                    category: this.query.category,
+                    collection: this.query.collection,
+                    location: this.query.location,
+                    vendor: this.query.vendor
+                })
                 this.snapshotDate = r.snapshotDate
                 this.run = r.run
                 this.counts = r.counts || {}
@@ -483,24 +582,50 @@ export default {
                 this.loading = false
             }
         },
-        onScope() {
-            // On order is meaningless in accessory scope, so a filter or
-            // sort pointing at it would land on an empty list.
-            if (this.scope !== 'parts' && (this.query.filter === 'onOrder' || this.query.sort === 'openPoQty')) {
-                this.query.filter = 'uncovered'
-                this.query.sort = 'units90'
-            }
-            this.query.category = ''
-            this.query.collection = ''
-            this.query.location = ''
-            this.query.vendor = ''
-            this.loadShelves()
-            this.reload()
-        },
         pickTile(key) {
             this.query.filter = this.query.filter === key ? 'all' : key
             this.query.page = 1
             this.loadItems()
+        },
+        // Add a row to (or remove it from) the 海运 list — the pinned
+        // collection the Stock Monitoring page shows as a tab. The badge
+        // flips immediately; the snapshot's collections tag follows at the
+        // next run.
+        async toggleSeaFreight(row) {
+            if (row.__seaBusy) return
+            this.$set(row, '__seaBusy', true)
+            try {
+                const r = row.seaFreight
+                    ? await removeSeaFreightItem(row.itemId)
+                    : await addSeaFreightItems([{ id: row.itemId, name: row.name, sku: row.sku }])
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(row, 'seaFreight', !row.seaFreight)
+                this.$message.success(row.seaFreight
+                    ? `${row.sku || row.name} added to 海运`
+                    : `${row.sku || row.name} removed from 海运`)
+            } catch (e) {
+                this.$message.error((e && e.message) || 'Failed to update 海运')
+            } finally {
+                this.$set(row, '__seaBusy', false)
+            }
+        },
+        // Move a row to the Archive bucket, or restore it from the archived
+        // view. Restoring a criteria-matched name pins it as never-archived.
+        async toggleArchive(row) {
+            if (row.__archivedBusy) return
+            const restoring = this.query.filter === 'archived'
+            this.$set(row, '__archivedBusy', true)
+            try {
+                const r = await setStockItemArchived(row.itemId, restoring)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(`${row.sku || row.name} ${restoring ? 'restored' : 'moved to Archive'}`)
+                this.loadItems()
+                this.loadSummary()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Update failed'))
+            } finally {
+                this.$set(row, '__archivedBusy', false)
+            }
         },
         resetFilters() {
             Object.assign(this.query, {
@@ -508,6 +633,8 @@ export default {
                 sort: 'units90', order: 'desc', page: 1
             })
             this.loadItems()
+            // The tiles were narrowed by the filters — widen them back too.
+            this.loadSummary()
         },
         onSort({ prop, order }) {
             if (!prop || !order) return
@@ -669,8 +796,12 @@ export default {
     &.bad { color: #ff4949; }
 }
 .sd-alert { margin-bottom: 14px; }
+.sd-alert-btn { margin-left: 10px; padding: 0; font-weight: 600; }
 
 .sd-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.sd-archived-link { padding: 0; font-size: 12px; color: #909399; &:hover { color: #409eff; } }
+/* Membership reads off the button itself: green = in 海运, grey = not. */
+.sd-sea-btn { color: #c0c4cc; padding: 2px; &.on { color: #67C23A; } }
 .sd-search { width: 260px; }
 .sd-sel { width: 150px; }
 .sd-sel-sm { width: 120px; }

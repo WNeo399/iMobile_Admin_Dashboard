@@ -24,6 +24,11 @@
       </el-tooltip>
     </div>
 
+    <!-- 顶部插槽：树上方的固定内容（如 Stock Monitoring 的 Dashboard 页签） -->
+    <div class="tree-top" v-show="!collapsed" v-if="$slots.top">
+      <slot name="top"></slot>
+    </div>
+
     <div class="tree-search" v-show="!collapsed" v-if="showSearch">
       <el-input v-model="searchKeyword" :placeholder="searchPlaceholder" clearable size="small" prefix-icon="el-icon-search" @input="onSearch" />
     </div>
@@ -633,6 +638,10 @@ export default {
     color: #409eff;
     background: #ecf5ff;
   }
+}
+
+.tree-top {
+  flex-shrink: 0;
 }
 
 .tree-search {
