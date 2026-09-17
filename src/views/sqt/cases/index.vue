@@ -98,6 +98,26 @@
                         @clear="handleQuery"
                     />
 
+                    <!-- Shop-group filter — Admin + TechElite Admin. Picking a
+                         group also narrows the shop dropdown to its members. -->
+                    <el-select
+                        v-if="canFilterGroups"
+                        v-model="queryParams.groupId"
+                        placeholder="Any group"
+                        clearable
+                        filterable
+                        size="small"
+                        class="filter-shop"
+                        @change="handleGroupChange"
+                    >
+                        <el-option
+                            v-for="g in shopGroups"
+                            :key="g._id"
+                            :label="g.name"
+                            :value="g._id"
+                        />
+                    </el-select>
+
                     <el-select
                         v-model="queryParams.shopId"
                         placeholder="Any shop"
@@ -108,7 +128,7 @@
                         @change="handleShopChange"
                     >
                         <el-option
-                            v-for="s in shops"
+                            v-for="s in shopOptions"
                             :key="s._id"
                             :label="s.storeName"
                             :value="s._id"
@@ -1817,7 +1837,7 @@ import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendC
 import { buildServiceReportPdf, serviceReportFileName, DEFAULT_LABOUR } from '@/utils/sqtServiceReportPdf'
 import { checkPermi } from '@/utils/permission'
 import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
-import { listShops } from '@/api/sqt/shops'
+import { listShops, listShopGroups } from '@/api/sqt/shops'
 import { listParts, createPart } from '@/api/sqt/parts'
 import { listModels } from '@/api/sqt/models'
 import { searchProducts, lookupProductBySku } from '@/api/zoho/products/product'
@@ -1892,7 +1912,9 @@ export default {
             activeStatus: null,
             // Return-rollup filter (BER sub-nodes): 'pending' | 'complete' | 'none'.
             activeReturn: null,
-            queryParams: { page: 1, pageSize: 20, search: '', shopId: '' },
+            queryParams: { page: 1, pageSize: 20, search: '', shopId: '', groupId: '' },
+            // Shop groups for the admin-only group filter.
+            shopGroups: [],
             shops: [],
 
             sendPartsDialogOpen: false,
@@ -2234,6 +2256,20 @@ export default {
         isAdmin() {
             return ((this.$store.getters.roles) || []).includes('admin')
         },
+        // The shop-group filter is for the two admin-side roles — NOT the
+        // shop-scoped ones (their scope already is their shops).
+        canFilterGroups() {
+            const roles = (this.$store.getters.roles) || []
+            return roles.includes('admin') || roles.includes('techelite-admin')
+        },
+        // The shop dropdown narrows to the selected group's members.
+        shopOptions() {
+            if (!this.queryParams.groupId) return this.shops
+            const g = this.shopGroups.find(x => x._id === this.queryParams.groupId)
+            if (!g) return this.shops
+            const ids = new Set((g.shops || []).map(s => String(s._id)))
+            return this.shops.filter(s => ids.has(String(s._id)))
+        },
         requireExtraPartsDialogTitle() {
             if (!this.requireExtraPartsCase) return 'Require Extra Parts'
             return `Require Extra Parts — ${this.caseLabel(this.requireExtraPartsCase)}`
@@ -2337,6 +2373,7 @@ export default {
         //   /sqt/cases?openCase=<id>   pops the detail dialog for that case
         const q = this.$route.query || {}
         if (q.shopId) this.queryParams.shopId = String(q.shopId)
+        this.loadShopGroups()
         this.refreshAll().then(() => {
             if (q.openCase) this.openCaseById(String(q.openCase), q.tab ? String(q.tab) : 'basic')
         })
@@ -2532,6 +2569,7 @@ export default {
                 }
                 if (this.queryParams.search) params.search = this.queryParams.search
                 if (this.queryParams.shopId) params.shopId = this.queryParams.shopId
+                else if (this.canFilterGroups && this.queryParams.groupId) params.groupId = this.queryParams.groupId
                 if (this.activeStatus) params.status = this.activeStatus
                 if (this.activeReturn) params.returnSummary = this.activeReturn
                 if (this.activeStatus === 'unrepairable' && this.reviewFilter) params.reviewed = this.reviewFilter
@@ -2549,9 +2587,10 @@ export default {
         async loadCounts() {
             try {
                 const params = {}
-                // When a shop is selected, scope the status counts to it too so
-                // the tree shows exactly what that shop would see.
+                // When a shop (or group) is selected, scope the status counts
+                // to it too so the tree shows exactly what the table shows.
                 if (this.queryParams.shopId) params.shopId = this.queryParams.shopId
+                else if (this.canFilterGroups && this.queryParams.groupId) params.groupId = this.queryParams.groupId
                 const res = await getCaseCounts(params)
                 this.counts = res.data || { total: 0, byStatus: {} }
             } catch (e) {
@@ -2572,6 +2611,7 @@ export default {
                 const baseParams = {}
                 if (this.queryParams.search) baseParams.search = this.queryParams.search
                 if (this.queryParams.shopId) baseParams.shopId = this.queryParams.shopId
+                else if (this.canFilterGroups && this.queryParams.groupId) baseParams.groupId = this.queryParams.groupId
                 if (this.activeStatus) baseParams.status = this.activeStatus
                 if (this.activeReturn) baseParams.returnSummary = this.activeReturn
                 if (this.activeStatus === 'unrepairable' && this.reviewFilter) baseParams.reviewed = this.reviewFilter
@@ -2673,6 +2713,22 @@ export default {
             this.queryParams.page = 1
             this.refreshAll()
         },
+        handleGroupChange() {
+            // A shop outside the new group can't stay selected.
+            if (this.queryParams.shopId &&
+                !this.shopOptions.some(s => s._id === this.queryParams.shopId)) {
+                this.queryParams.shopId = ''
+            }
+            this.queryParams.page = 1
+            this.refreshAll()
+        },
+        async loadShopGroups() {
+            if (!this.canFilterGroups) return
+            try {
+                const res = await listShopGroups()
+                this.shopGroups = (res && res.data) || []
+            } catch (e) { /* non-fatal — the dropdown just stays empty */ }
+        },
         async loadShops() {
             // Shop-scoped users can't hit the admin shop list endpoint (403);
             // use the accessible shops returned with their profile instead.
@@ -2736,7 +2792,7 @@ export default {
             this.getList()
         },
         resetQuery() {
-            this.queryParams = { page: 1, pageSize: 20, search: '', shopId: '' }
+            this.queryParams = { page: 1, pageSize: 20, search: '', shopId: '', groupId: '' }
             this.activeStatus = null
             this.activeReturn = null
             this.reviewFilter = ''
