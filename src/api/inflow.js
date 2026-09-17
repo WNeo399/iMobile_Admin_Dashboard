@@ -15,6 +15,11 @@ export function getInflowOrder(id) {
   return request({ url: `/inflow/salesorders/${id}`, method: 'get' })
 }
 
+// Rename an order's invoice number (fix a typo / realign with InFlow).
+export function updateInflowInvoiceNumber(id, invoiceNumber) {
+  return request({ url: `/inflow/salesorders/${id}/invoice-number`, method: 'put', data: { invoiceNumber } })
+}
+
 export function recordInflowPayment(id, data) {
   return request({ url: `/inflow/salesorders/${id}/payment`, method: 'post', data })
 }

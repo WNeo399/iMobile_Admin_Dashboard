@@ -109,7 +109,13 @@
         </div>
 
         <!-- Detail dialog -->
-        <el-dialog :title="detail ? detail.invoiceNumber : 'Order'" :visible.sync="detailVisible" width="740px" top="6vh">
+        <el-dialog :visible.sync="detailVisible" width="740px" top="6vh">
+            <template slot="title">
+                <span class="el-dialog__title">{{ detail ? detail.invoiceNumber : 'Order' }}</span>
+                <el-button v-if="detail" v-hasPermi="['inflow:order:create']" type="text" size="mini"
+                    icon="el-icon-edit" class="io-inv-edit" :loading="invRenaming"
+                    @click="editInvoiceNumber" />
+            </template>
             <div v-loading="detailLoading">
                 <template v-if="detail">
                     <el-descriptions :column="2" size="small" border class="io-desc">
@@ -493,7 +499,7 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, createInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, createInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload, updateInflowInvoiceNumber } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 
 export default {
@@ -510,7 +516,7 @@ export default {
                 search: '', customer: '', vendor: '', status: '', type: '',
                 dateFrom: '', dateTo: '', sort: 'invoiceDate', order: 'desc'
             },
-            detailVisible: false, detail: null, detailLoading: false,
+            detailVisible: false, detail: null, detailLoading: false, invRenaming: false,
             liPage: 1, liPageSize: 10,
             payVisible: false, payOrder: null, paying: false,
             payForm: { amount: null, date: this.today(), note: '' },
@@ -650,6 +656,38 @@ export default {
                 this.$message.error(this.msg(e, 'Failed to load order'))
             } finally {
                 this.detailLoading = false
+            }
+        },
+        // Rename the invoice number from the detail dialog. The number is
+        // also the webhook's identity key, so the backend enforces uniqueness.
+        async editInvoiceNumber() {
+            if (!this.detail || this.invRenaming) return
+            const order = this.detail
+            let value
+            try {
+                const r = await this.$prompt('New invoice number', `Rename ${order.invoiceNumber}`, {
+                    confirmButtonText: 'Save',
+                    cancelButtonText: 'Cancel',
+                    inputValue: order.invoiceNumber || '',
+                    inputValidator: v => !!String(v || '').trim() || 'Invoice number is required'
+                })
+                value = String(r.value || '').trim()
+            } catch (e) {
+                return // cancelled
+            }
+            if (!value || value === order.invoiceNumber) return
+            this.invRenaming = true
+            try {
+                const r = await updateInflowInvoiceNumber(order._id, value)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                order.invoiceNumber = r.invoiceNumber
+                const row = this.rows.find(x => x._id === order._id)
+                if (row) row.invoiceNumber = r.invoiceNumber
+                this.$message.success(`Invoice number updated to ${r.invoiceNumber}`)
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to update the invoice number'))
+            } finally {
+                this.invRenaming = false
             }
         },
         openPdf(row) {
@@ -1048,6 +1086,7 @@ export default {
 .io-pdf-frame { width: 100%; height: 100%; border: none; display: block; }
 .io-pdf-open { margin-right: 12px; }
 .io-del { color: #F56C6C; }
+.io-inv-edit { padding: 2px; margin-left: 8px; }
 .io-more-btn { padding: 0 4px; }
 .io-disp-tag { cursor: pointer; }
 .io-disp-create { padding: 2px 0; }
