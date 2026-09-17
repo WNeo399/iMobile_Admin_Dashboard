@@ -1,39 +1,13 @@
 <template>
-  <el-dialog title="Manage Category" :visible="visible" width="900px" @close="handleClose" :close-on-click-modal="false">
+  <!-- Rearrangement only: category structure and order. Creating /
+       placing collections is handled by the tree's ⋯ menus on Stock
+       Monitoring, so the old drag-source Collection panel is gone —
+       collections can still be dragged BETWEEN categories here. -->
+  <el-dialog title="Manage Category" :visible="visible" width="560px" @close="handleClose" :close-on-click-modal="false">
     <div class="collection-dialog">
-      <!-- Left -->
-      <div class="panel">
-        <div class="panel-title">Collection</div>
-
-        <el-input
-          v-model="collectionSearch"
-          size="small"
-          clearable
-          placeholder="Search collection by title"
-          class="collection-search"
-        />
-
-        <draggable
-          v-model="filteredCollections"
-          :group="{ name: 'collection', pull: 'clone', put: false }"
-          :sort="false"
-          class="drag-list"
-        >
-          <div v-for="item in filteredCollections" :key="item._id" class="drag-item">
-            {{ item.title }}
-            <p style="color: #ccc">{{ item.note }}</p>
-          </div>
-        </draggable>
-      </div>
-
-      <!-- Right -->
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Category</div>
-
-          <el-button size="mini" type="primary" @click="addRootCategory">
-            Add Category
-          </el-button>
         </div>
 
         <draggable v-model="categories" group="category-sort" handle=".category-title" class="category-list">
@@ -41,9 +15,6 @@
             v-for="category in categories"
             :key="category._id"
             :category="category"
-            @add-sub-category="addSubCategory"
-            @remove-category="removeCategory"
-            @remove-collection="removeCollection"
             @duplicate="showDuplicateMessage"
           />
         </draggable>
@@ -61,7 +32,7 @@
 <script>
 import draggable from 'vuedraggable'
 import CategoryNode from './categoryNode.vue'
-import { getCollectionList, getCollectionGroups , updateCollectionGroups } from '../../../../api/zoho/products/collection'
+import { getCollectionGroups, updateCollectionGroups } from '../../../../api/zoho/products/collection'
 
 export default {
   name: 'CollectionCategoryDialog',
@@ -87,36 +58,7 @@ export default {
 
   data() {
     return {
-      collectionSearch: '',
-
-      collections: [],
-
-      categories: [
-  
-      ]
-    }
-  },
-
-  computed: {
-    filteredCollections: {
-      get() {
-        const keyword = this.collectionSearch
-          .trim()
-          .toLowerCase()
-
-        if (!keyword) {
-          return this.collections
-        }
-
-        return this.collections.filter(item =>
-          String(item.title || '')
-            .toLowerCase()
-            .includes(keyword)
-        )
-      },
-
-      // draggable requires setter
-      set() {}
+      categories: []
     }
   },
 
@@ -131,86 +73,12 @@ export default {
   methods: {
     async fetchData() {
       try {
-        const res = await getCollectionList({
-          pageNum: 1,
-          pageSize: 999
-        }, this.scope)
-
-        this.collections = res.data || []
-
         const gruop = await getCollectionGroups(this.scope)
         this.categories = gruop.data
       } catch (err) {
         console.error(err)
-        this.$message.error('Failed to fetch collections')
+        this.$message.error('Failed to fetch categories')
       }
-    },
-
-    createCategory(title) {
-      return {
-        _id:
-          'cat-' +
-          Date.now() +
-          '-' +
-          Math.random().toString(36).slice(2),
-
-        title,
-        expanded: true,
-        collections: [],
-        children: []
-      }
-    },
-
-    addRootCategory() {
-      this.$prompt('Category name', 'Add Category', {
-        confirmButtonText: 'Add',
-        cancelButtonText: 'Cancel'
-      }).then(({ value }) => {
-        if (!value) return
-
-        this.categories.push(
-          this.createCategory(value)
-        )
-      })
-    },
-
-    addSubCategory(parentCategory) {
-      this.$prompt('Sub category name', 'Add Sub Category', {
-        confirmButtonText: 'Add',
-        cancelButtonText: 'Cancel'
-      }).then(({ value }) => {
-        if (!value) return
-
-        parentCategory.children.push(
-          this.createCategory(value)
-        )
-      })
-    },
-
-    removeCategory(category) {
-      const removeFromTree = list => {
-        const index = list.findIndex(
-          item => item._id === category._id
-        )
-
-        if (index !== -1) {
-          list.splice(index, 1)
-          return true
-        }
-
-        return list.some(item =>
-          removeFromTree(item.children)
-        )
-      }
-
-      removeFromTree(this.categories)
-    },
-
-    removeCollection(category, collectionId) {
-      category.collections =
-        category.collections.filter(
-          item => item._id !== collectionId
-        )
     },
 
     showDuplicateMessage() {
@@ -248,9 +116,7 @@ async handleSave() {
 
 <style scoped>
 .collection-dialog {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  display: block;
 }
 
 .panel {

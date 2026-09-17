@@ -9,16 +9,6 @@
 
                 <span>{{ category.title }}</span>
             </div>
-
-            <div class="category-actions" @click.stop>
-                <el-button type="text" size="mini" @click="$emit('add-sub-category', category)">
-                    Add Sub
-                </el-button>
-
-                <el-button type="text" size="mini" class="remove-btn" @click="$emit('remove-category', category)">
-                    Remove
-                </el-button>
-            </div>
         </div>
 
         <!-- Expand -->
@@ -30,29 +20,14 @@
                <div>     <span>{{ child.title }}</span>
                     <br>
                     <span style="color:#ccc">{{ child.note }}</span></div>
-
-                    <el-button type="text" size="mini" class="remove-btn" @click.stop="
-                        $emit(
-                            'remove-collection',
-                            category,
-                            child._id
-                        )
-                        ">
-                        Remove
-                    </el-button>
                 </div>
             </draggable>
 
             <!-- Sub Categories -->
             <draggable v-model="category.children" group="category-sort" handle=".category-title"
                 class="sub-category-list">
-                <CategoryNode v-for="sub in category.children" :key="sub._id" :category="sub" @add-sub-category="
-                    $emit('add-sub-category', $event)
-                    " @remove-category="
-            $emit('remove-category', $event)
-            " @remove-collection="
-            $emit('remove-collection', ...arguments)
-            " @duplicate="$emit('duplicate')" />
+                <CategoryNode v-for="sub in category.children" :key="sub._id" :category="sub"
+                    @duplicate="$emit('duplicate')" />
             </draggable>
         </div>
     </div>
