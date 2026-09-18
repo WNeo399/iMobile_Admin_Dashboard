@@ -159,7 +159,7 @@ const TOOLS = [
     {
         id: 'barcode-generator',
         name: 'Barcode Generator',
-        description: 'Search a product and print an 89×36mm barcode label with optional Selling / Platinum prices.',
+        description: 'Search a product and print an 89×36mm QR code label with optional Selling / Platinum prices.',
         icon: 'el-icon-printer',
         color: 'red',
         entry: 'dialog',

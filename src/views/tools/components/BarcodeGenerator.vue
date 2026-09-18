@@ -74,8 +74,8 @@
                                 <div class="bg-price-value">{{ money(form.sellingPrice) }}</div>
                             </div>
                         </div>
-                        <div class="bg-label-barcode">
-                            <img v-if="barcodeUrl" :src="barcodeUrl" />
+                        <div :class="['bg-label-qr', { centred: !form.showSelling && !form.showPlatinum }]">
+                            <img v-if="qrUrl" :src="qrUrl" />
                             <div class="bg-label-sku">{{ form.sku }}</div>
                         </div>
                     </div>
@@ -93,7 +93,7 @@
 </template>
 
 <script>
-import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
 import { searchProducts, getLabelData } from '@/api/zoho/products/product'
 import { buildBarcodeLabelDoc } from '@/utils/barcodeLabel'
 
@@ -105,7 +105,7 @@ export default {
             loading: false,
             printing: false,
             printFrame: null,
-            barcodeUrl: '',
+            qrUrl: '',
             form: {
                 sku: '',
                 name: '',
@@ -118,7 +118,7 @@ export default {
         }
     },
     watch: {
-        'form.sku'() { this.renderBarcode() }
+        'form.sku'() { this.renderQr() }
     },
     beforeDestroy() {
         if (this.printFrame) { this.printFrame.remove(); this.printFrame = null }
@@ -148,7 +148,7 @@ export default {
         async onProductSelected(item) {
             this.keyword = ''
             if (!item || !item.sku) {
-                this.$message.error(`"${(item && item.name) || 'This product'}" has no SKU — a barcode needs one.`)
+                this.$message.error(`"${(item && item.name) || 'This product'}" has no SKU — a QR code needs one.`)
                 return
             }
             this.loading = true
@@ -174,15 +174,16 @@ export default {
                 this.loading = false
             }
         },
-        renderBarcode() {
-            if (!this.form.sku) { this.barcodeUrl = ''; return }
+        async renderQr() {
+            const sku = this.form.sku
+            if (!sku) { this.qrUrl = ''; return }
             try {
-                const canvas = document.createElement('canvas')
-                JsBarcode(canvas, String(this.form.sku), { format: 'CODE128', displayValue: false, margin: 0, width: 4, height: 120 })
-                this.barcodeUrl = canvas.toDataURL('image/png')
+                const url = await QRCode.toDataURL(String(sku), { errorCorrectionLevel: 'M', margin: 0, width: 240 })
+                // A newer pick may have landed while this one rendered.
+                if (this.form.sku === sku) this.qrUrl = url
             } catch (e) {
-                console.error('Barcode render failed:', e)
-                this.barcodeUrl = ''
+                console.error('QR render failed:', e)
+                this.qrUrl = ''
             }
         },
         // Build the exact-size PDF and open the browser print dialog for it via a
@@ -286,9 +287,11 @@ export default {
 .bg-price-block { line-height: 1.15; }
 .bg-price-label { font-size: 11px; color: #111; }
 .bg-price-value { font-size: 20px; font-weight: 700; color: #111; }
-.bg-label-barcode { flex: 1; min-width: 0; text-align: center; }
-.bg-label-barcode img { width: 100%; height: 58px; object-fit: fill; display: block; }
-.bg-label-sku { font-size: 12px; color: #111; letter-spacing: 1px; margin-top: 2px; }
+/* QR sits right (centred with no prices), ~17mm square at the 5px/mm scale */
+.bg-label-qr { margin-left: auto; text-align: center; }
+.bg-label-qr.centred { margin-right: auto; }
+.bg-label-qr img { width: 85px; height: 85px; display: block; margin: 0 auto; image-rendering: pixelated; }
+.bg-label-sku { font-size: 12px; color: #111; letter-spacing: 1px; margin-top: 2px; white-space: nowrap; }
 
 .bg-actions { display: flex; justify-content: flex-end; }
 </style>
