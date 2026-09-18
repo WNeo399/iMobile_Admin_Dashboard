@@ -1417,11 +1417,10 @@
                         <el-descriptions-item label="Case ID">
                             {{ detailCase.caseId || '—' }}
                         </el-descriptions-item>
-                        <el-descriptions-item label="RepairDesk Ticket #">
-                            {{ detailCase.repairDeskTicketNumber || '—' }}
-                        </el-descriptions-item>
-                        <el-descriptions-item label="RepairDesk ID">
-                            {{ detailCase.repairDeskTicketId || '—' }}
+                        <!-- Historical only: cases created before RepairDesk was
+                             retired (Jun 2026) keep the shop's ticket number. -->
+                        <el-descriptions-item v-if="detailCase.repairDeskTicketNumber" label="RepairDesk Ticket #">
+                            {{ detailCase.repairDeskTicketNumber }}
                         </el-descriptions-item>
                         <el-descriptions-item label="Status">
                             <el-tag size="mini" :type="badgeType(detailCase.status)" effect="light">
@@ -3137,14 +3136,6 @@ export default {
                 const res = await sendCaseParts(this.sendPartsCase._id, payload)
                 const soNumber = res && res.data && res.data.salesOrderNumber
                 const soId = res && res.data && res.data.salesOrderId
-                // RepairDesk status mirror is best-effort — warn if it didn't take
-                const rd = res && res.data && res.data.repairDesk
-                if (rd && rd.success === false) {
-                    this.$message.warning(
-                        'Case updated, but the RepairDesk ticket status could not be updated. Please update it manually.'
-                    )
-                    console.warn('RepairDesk update failed:', rd.error)
-                }
                 // Reflect the updated case in the table immediately, then refresh counts/list
                 const updatedCase = res && res.data && res.data.case
                 if (updatedCase) {

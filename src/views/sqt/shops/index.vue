@@ -287,11 +287,6 @@
                                     <el-input v-model="form.externalIds.zohoId" />
                                 </el-form-item>
                             </el-col>
-                            <el-col :span="12">
-                                <el-form-item label="RepairDesk ID">
-                                    <el-input v-model="form.externalIds.repairDeskId" />
-                                </el-form-item>
-                            </el-col>
                         </el-row>
 
                         <el-form-item label="Notes">
@@ -525,7 +520,7 @@ function emptyForm() {
         slug: '',
         status: 'pending',
         googleMapsLink: '',
-        externalIds: { zohoId: '', repairDeskId: '' },
+        externalIds: { zohoId: '' },
         address: {
             raw: '', street: '', suburb: '', state: '', postcode: '', country: 'Australia'
         },
@@ -718,8 +713,7 @@ export default {
                 status: row.status || 'pending',
                 googleMapsLink: row.googleMapsLink || '',
                 externalIds: {
-                    zohoId: row.externalIds && row.externalIds.zohoId || '',
-                    repairDeskId: row.externalIds && row.externalIds.repairDeskId || ''
+                    zohoId: row.externalIds && row.externalIds.zohoId || ''
                 },
                 address: {
                     raw: row.address && row.address.raw || '',
