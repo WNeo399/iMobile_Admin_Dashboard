@@ -253,6 +253,18 @@ export const moduleRoutes = [
         }
       },
       {
+        // Spare parts with no product image in Zoho, from the daily
+        // snapshot's imageId (null = no image). Per-row upload to Zoho.
+        path: "/zohoInventory/missingImages",
+        component: (resolve) => require(["@/views/zohoInventory/missingImages"], resolve),
+        name: "MissingImages",
+        meta: {
+          title: "Missing Images",
+          icon: "el-icon-picture-outline",
+          permissions: ["zoho:stock:view"]
+        }
+      },
+      {
         // Retired from the sidebar (2026-09) — collections are managed on
         // the Stock Monitoring tree now (⋯ menus + the Manage Category
         // gear). The route stays navigable for old links/bookmarks.

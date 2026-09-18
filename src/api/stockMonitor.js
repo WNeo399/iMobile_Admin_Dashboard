@@ -62,3 +62,19 @@ export function setStockItemArchived(itemId, restore) {
 export function updateStockItemPrice(itemId, list, rate) {
   return request({ url: `/stock-monitor/item/${itemId}/price`, method: 'put', data: { list, rate }, timeout: 30000 })
 }
+
+// Upload product images to the item in Zoho (Missing Images page). files:
+// File[] in order — the first becomes the main image when the item has
+// none. Explicit multipart header: the default JSON one leaves multer with
+// no files.
+export function uploadStockItemImages(itemId, files) {
+  const data = new FormData()
+  files.forEach(f => data.append('images', f, f.name))
+  return request({
+    url: `/stock-monitor/item/${itemId}/images`,
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}

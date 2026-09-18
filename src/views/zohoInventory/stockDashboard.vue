@@ -92,25 +92,40 @@
                     @click="pickTile('all')">Clear filter</el-button>
             </div>
 
-            <el-table :data="rows" v-loading="loading" size="mini" border
+            <el-table ref="table" :data="rows" v-loading="loading" size="mini" border
                 :default-sort="{ prop: query.sort, order: query.order === 'asc' ? 'ascending' : 'descending' }"
                 @sort-change="onSort" @row-click="openDetail"
                 empty-text="Nothing matches these filters.">
-                <el-table-column prop="sku" label="SKU" width="120" sortable="custom">
-                    <template slot-scope="s">
-                        <span class="sd-sku">{{ s.row.sku || '—' }}</span>
+                <!-- SKU, product and shelf in one column. The column's own
+                     sort arrows would only cover one field, so the header
+                     carries SKU / Shelf sort links instead. -->
+                <el-table-column prop="name" label="Product" min-width="380">
+                    <template #header>
+                        <div class="sd-prod-head">
+                            <span>Product</span>
+                            <span v-for="k in HEAD_SORTS" :key="k.prop"
+                                :class="['sd-hsort', { on: query.sort === k.prop }]"
+                                @click.stop="sortBy(k.prop)">{{ k.label }}<i
+                                    :class="query.sort !== k.prop ? 'el-icon-d-caret'
+                                        : query.order === 'asc' ? 'el-icon-caret-top' : 'el-icon-caret-bottom'" /></span>
+                        </div>
                     </template>
-                </el-table-column>
-
-                <el-table-column prop="name" label="Product" min-width="300" show-overflow-tooltip>
                     <template slot-scope="s">
-                        {{ s.row.name }}
-                        <el-tag v-if="s.row.stale && s.row.available > 0" size="mini" effect="plain">sitting still</el-tag>
+                        <div class="sd-prod">
+                            <!-- Clicking the image opens the viewer, not the detail drawer. -->
+                            <product-thumb :src="s.row.imageUrl" :item-id="s.row.itemId" />
+                            <div class="sd-prod-text">
+                                <div class="sd-prod-name" :title="s.row.name">
+                                    {{ s.row.name }}
+                                    <el-tag v-if="s.row.stale && s.row.available > 0" size="mini" effect="plain">sitting still</el-tag>
+                                </div>
+                                <div class="sd-prod-meta">
+                                    <span class="sd-sku">{{ s.row.sku || '—' }}</span>
+                                    <span v-if="s.row.location" class="sd-mono"><i class="el-icon-location-outline" /> {{ s.row.location }}</span>
+                                </div>
+                            </div>
+                        </div>
                     </template>
-                </el-table-column>
-
-                <el-table-column prop="location" label="Shelf" width="110" sortable="custom">
-                    <template slot-scope="s"><span class="sd-mono">{{ s.row.location || '—' }}</span></template>
                 </el-table-column>
 
                 <el-table-column prop="available" label="Stock" width="86" align="right" sortable="custom">
@@ -355,6 +370,7 @@ import {
     runStockSnapshot, getStockSnapshotRun
 } from '@/api/stockMonitor'
 import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
+import ProductThumb from '@/components/ProductThumb'
 
 // Tiles in the order a buyer reads them: how bad, what is covered, what
 // needs ordering, what is about to, and what is dead weight.
@@ -370,9 +386,12 @@ const SORT_LABELS = {
     daysOfCover: 'days of cover', daysSinceSale: 'days since last sale',
     sku: 'SKU', name: 'product', location: 'shelf', openPoQty: 'quantity on order'
 }
+// Sort links in the merged Product column's header.
+const HEAD_SORTS = [{ prop: 'sku', label: 'SKU' }, { prop: 'location', label: 'Shelf' }]
 
 export default {
     name: 'StockDashboard',
+    components: { ProductThumb },
     props: {
         // Rendered inside the Stock Monitoring page (Dashboard tab) rather
         // than as its own route: drop the app-container chrome and retitle,
@@ -381,6 +400,7 @@ export default {
     },
     data() {
         return {
+            HEAD_SORTS,
             // Fixed: the dashboard lives under iMobile Spare Parts now, so
             // the accessory scope (and its toggle) is gone.
             scope: 'parts',
@@ -636,6 +656,15 @@ export default {
             // The tiles were narrowed by the filters — widen them back too.
             this.loadSummary()
         },
+        // Header sort link: first click sorts A→Z, again flips. The table's
+        // own arrows are cleared so only one sort shows as active.
+        sortBy(prop) {
+            this.query.order = this.query.sort === prop && this.query.order === 'asc' ? 'desc' : 'asc'
+            this.query.sort = prop
+            this.query.page = 1
+            if (this.$refs.table) this.$refs.table.clearSort()
+            this.loadItems()
+        },
         onSort({ prop, order }) {
             if (!prop || !order) return
             this.query.sort = prop
@@ -786,6 +815,19 @@ export default {
 .sd-num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .sd-mono, .sd-sku { font-variant-numeric: tabular-nums; }
 .sd-sku { font-weight: 600; color: #1890ff; }
+
+/* Merged Product column: thumbnail, name, then SKU + shelf */
+.sd-prod { display: flex; align-items: center; gap: 8px; line-height: 1.35; }
+.sd-prod-text { min-width: 0; }
+.sd-prod-name { color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-prod-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #909399; margin-top: 1px; }
+.sd-prod-head { display: inline-flex; align-items: center; gap: 12px; }
+.sd-hsort {
+    font-weight: normal; font-size: 12px; color: #909399; cursor: pointer; user-select: none;
+    i { margin-left: 2px; font-size: 11px; }
+    &:hover { color: #409eff; }
+    &.on { color: #409eff; font-weight: 600; }
+}
 
 .sd-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .sd-title h2 { margin: 0; font-size: 20px; font-weight: 600; color: #303133; line-height: 1.2; }

@@ -86,13 +86,24 @@
                 <el-table-column prop="name" label="Item" min-width="320" sortable="custom">
                     <template slot-scope="s">
                         <div class="pm-item">
-                            <!-- Straight into the item in Zoho Inventory. -->
-                            <a class="pm-item-link"
-                                :href="`https://inventory.zoho.com/app/746138234#/inventory/items/${s.row.itemId}`"
-                                target="_blank" rel="noopener" :title="s.row.name">{{ s.row.name }}</a>
-                            <div class="pm-item-meta">
-                                <span class="sd-sku">{{ s.row.sku || '—' }}</span>
-                                <el-tag v-if="s.row.__live" size="mini" type="success" effect="plain">live</el-tag>
+                            <!-- Main Zoho image, URL built from the snapshot's image id. -->
+                            <product-thumb :src="s.row.imageUrl" :item-id="s.row.itemId" />
+                            <div class="pm-item-text">
+                                <!-- Straight into the item in Zoho Inventory. -->
+                                <a class="pm-item-link"
+                                    :href="`https://inventory.zoho.com/app/746138234#/inventory/items/${s.row.itemId}`"
+                                    target="_blank" rel="noopener" :title="s.row.name">{{ s.row.name }}</a>
+                                <div class="pm-item-meta">
+                                    <span class="sd-sku">{{ s.row.sku || '—' }}</span>
+                                    <el-tag v-if="s.row.__live" size="mini" type="success" effect="plain">live</el-tag>
+                                </div>
+                                <!-- Row edit: tier-order / below-cost checks on the
+                                     prices as typed (advisory — pushing is allowed). -->
+                                <template v-if="rowEdit.itemId === s.row.itemId">
+                                    <div v-for="w in rowWarnings" :key="w" class="pm-row-warn">
+                                        <i class="el-icon-warning-outline" /> {{ w }}
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </template>
@@ -111,34 +122,51 @@
                 <el-table-column v-for="c in PRICE_COLS" :key="c.prop" :prop="c.prop" :label="c.label"
                     width="140" align="center" sortable="custom">
                     <template slot-scope="s">
-                        <div v-if="pEdit.itemId === s.row.itemId && pEdit.list === c.list" class="pm-edit-wrap" @click.stop>
+                        <!-- Row edit: all four prices of this product at once
+                             (✓ in the action column pushes the changed ones). -->
+                        <div v-if="rowEdit.itemId === s.row.itemId && !pushing[pushKey(s.row, c)]"
+                            class="pm-edit-wrap" @click.stop>
+                            <el-input-number v-model="rowEdit.values[c.list]" size="mini" :min="0" :precision="2"
+                                :controls="false" :class="['pm-input', { changed: rowChanged(c) }]"
+                                @keyup.enter.native="rowEnter" @keyup.esc.native="cancelRowEdit" />
+                            <div v-if="refPrice(s.row, c) != null" class="pm-ref pm-ref-use"
+                                title="Use the formula price" @click="rowUseRef(c)">
+                                ref {{ money(refPrice(s.row, c)) }} <i class="el-icon-document-copy" />
+                            </div>
+                        </div>
+                        <div v-else-if="pEdit.itemId === s.row.itemId && pEdit.list === c.list" class="pm-edit-wrap" @click.stop>
                             <div class="pm-edit">
                                 <el-input-number v-model="pEdit.value" size="mini" :min="0" :precision="2"
-                                    :controls="false" class="pm-input" :disabled="pEdit.saving"
+                                    :controls="false" class="pm-input"
                                     @keyup.enter.native="priceEnter($event, s.row)" />
                                 <!-- Timing matters (same as the reorder editor):
                                      the number input commits on blur/enter, so
                                      SAVE runs on click (after the blur) and
                                      CANCEL on mousedown (before a re-render can
                                      swallow the click). -->
-                                <!-- Once submitted the buttons disappear —
-                                     the "pushing" note below is the only
-                                     indicator until Zoho confirms. -->
-                                <template v-if="!pEdit.saving">
-                                    <el-button type="text" size="mini" icon="el-icon-check" class="pm-save"
-                                        @click="savePriceEdit(s.row)" />
-                                    <el-button type="text" size="mini" icon="el-icon-close" class="pm-cancel"
-                                        @mousedown.native.prevent="cancelPriceEdit" />
-                                </template>
+                                <el-button type="text" size="mini" icon="el-icon-check" class="pm-save"
+                                    @click="savePriceEdit(s.row)" />
+                                <el-button type="text" size="mini" icon="el-icon-close" class="pm-cancel"
+                                    @mousedown.native.prevent="cancelPriceEdit" />
                             </div>
                             <!-- The formula's target, right where the
-                                 correction is being typed. -->
-                            <div v-if="refPrice(s.row, c) != null" class="pm-ref">
-                                ref {{ money(refPrice(s.row, c)) }}
+                                 correction is being typed — click to copy it
+                                 into the input. A click (not mousedown), so
+                                 the input's blur commits first and can't
+                                 overwrite the copied value. -->
+                            <div v-if="refPrice(s.row, c) != null" class="pm-ref pm-ref-use"
+                                title="Use the formula price" @click="useRefPrice(s.row, c)">
+                                ref {{ money(refPrice(s.row, c)) }} <i class="el-icon-document-copy" />
                             </div>
-                            <!-- Zoho's pricebook write takes 10–15s — the cell
-                                 says so while it runs, and closes on confirm. -->
-                            <div v-if="pEdit.saving" class="pm-pushing">
+                        </div>
+                        <!-- Submitted: the new rate shows straight away while
+                             Zoho's 10–15s pricebook write runs in the
+                             background; the cell locks until it confirms. -->
+                        <div v-else-if="pushing[pushKey(s.row, c)]" class="pm-view">
+                            <div class="pm-val">
+                                <span>{{ money(pushing[pushKey(s.row, c)].rate) }}</span>
+                            </div>
+                            <div class="pm-pushing">
                                 <i class="el-icon-loading" /> pushing to Zoho…
                             </div>
                         </div>
@@ -154,7 +182,9 @@
                                  the cells that breach the ±5% band: red =
                                  under formula (margin lost), amber = over. -->
                             <div v-if="s.row.priceRuleBroken && refPrice(s.row, c) != null"
-                                :class="['pm-ref', refDevClass(s.row, c)]">
+                                :class="['pm-ref', refDevClass(s.row, c), { 'pm-ref-click': canEditPrices }]"
+                                :title="canEditPrices ? 'Edit with the formula price filled in' : ''"
+                                @click.stop="canEditPrices && startPriceEdit(s.row, c, refPrice(s.row, c))">
                                 ref {{ money(refPrice(s.row, c)) }}<span v-if="refDevText(s.row, c)"
                                     class="pm-ref-dev">&nbsp;{{ refDevText(s.row, c) }}</span>
                             </div>
@@ -162,21 +192,46 @@
                     </template>
                 </el-table-column>
 
-                <el-table-column label="" width="84" align="center">
+                <el-table-column label="" width="110" align="center">
                     <template slot-scope="s">
-                        <!-- Live check: re-reads this item's four rates from
-                             Zoho and swaps them into the row. -->
-                        <el-tooltip content="Check live from Zoho" placement="left">
-                            <el-button type="text" size="mini" :loading="s.row.__liveLoading"
-                                icon="el-icon-refresh" @click="checkLive(s.row)" />
-                        </el-tooltip>
-                        <!-- Move to / restore from the Archive bucket. -->
-                        <el-tooltip :content="query.filter === 'archived' ? 'Restore from Archive' : 'Move to Archive'"
-                            placement="left">
-                            <el-button type="text" size="mini" :loading="s.row.__archivedBusy"
-                                :icon="query.filter === 'archived' ? 'el-icon-refresh-left' : 'el-icon-box'"
-                                @click="toggleArchive(s.row)" />
-                        </el-tooltip>
+                        <!-- Row edit in progress: push / use formula / cancel.
+                             Push is a click (runs after the input's blur commits
+                             the last typed value); cancel is a mousedown. -->
+                        <template v-if="rowEdit.itemId === s.row.itemId">
+                            <el-tooltip placement="top"
+                                :content="rowChanges.length ? `Push ${rowChanges.length} ${rowChanges.length === 1 ? 'price' : 'prices'} to Zoho` : 'No changes yet'">
+                                <el-button type="text" size="mini" icon="el-icon-check" class="pm-save"
+                                    :disabled="!rowChanges.length" @click="submitRowEdit">{{ rowChanges.length || '' }}</el-button>
+                            </el-tooltip>
+                            <el-tooltip v-if="PRICE_COLS.some(c => refPrice(s.row, c) != null)"
+                                content="Use all formula prices" placement="top">
+                                <el-button type="text" size="mini" icon="el-icon-document-copy" @click="rowUseAllRefs" />
+                            </el-tooltip>
+                            <el-tooltip content="Cancel" placement="top">
+                                <el-button type="text" size="mini" icon="el-icon-close" class="pm-cancel"
+                                    @mousedown.native.prevent="cancelRowEdit" />
+                            </el-tooltip>
+                        </template>
+                        <template v-else>
+                            <!-- All four price lists at once, right in the row. -->
+                            <el-tooltip v-if="canEditPrices" content="Edit all prices" placement="top">
+                                <el-button type="text" size="mini" icon="el-icon-edit-outline"
+                                    @click="openRowEdit(s.row)" />
+                            </el-tooltip>
+                            <!-- Live check: re-reads this item's four rates from
+                                 Zoho and swaps them into the row. -->
+                            <el-tooltip content="Check live from Zoho" placement="top">
+                                <el-button type="text" size="mini" :loading="s.row.__liveLoading"
+                                    icon="el-icon-refresh" @click="checkLive(s.row)" />
+                            </el-tooltip>
+                            <!-- Move to / restore from the Archive bucket. -->
+                            <el-tooltip :content="query.filter === 'archived' ? 'Restore from Archive' : 'Move to Archive'"
+                                placement="top">
+                                <el-button type="text" size="mini" :loading="s.row.__archivedBusy"
+                                    :icon="query.filter === 'archived' ? 'el-icon-refresh-left' : 'el-icon-box'"
+                                    @click="toggleArchive(s.row)" />
+                            </el-tooltip>
+                        </template>
                     </template>
                 </el-table-column>
             </el-table>
@@ -192,6 +247,7 @@
 
 <script>
 import auth from '@/plugins/auth'
+import ProductThumb from '@/components/ProductThumb'
 import { getStockSummary, getStockItems, getStockItemPrices, setStockItemArchived, updateStockItemPrice } from '@/api/stockMonitor'
 
 const TILES = [
@@ -213,6 +269,7 @@ const PLACEHOLDERS = new Set([9999.99, 9000, 8888, 7777, 7000, 6000])
 
 export default {
     name: 'PriceMonitoring',
+    components: { ProductThumb },
     data() {
         return {
             TILES,
@@ -228,8 +285,14 @@ export default {
 
             rows: [],
             total: 0,
-            // Inline price edit — one cell at a time.
-            pEdit: { itemId: null, list: '', prop: '', value: 0, saving: false },
+            // Inline price edit — one cell being typed into at a time.
+            pEdit: { itemId: null, list: '', prop: '', value: 0 },
+            // Pushes to Zoho in flight, keyed `${itemId}|${list}` → { rate }.
+            // They all run at once, so the editor is free for the next price
+            // meanwhile.
+            pushing: {},
+            // Row edit: one product's four prices edited in its table row.
+            rowEdit: { itemId: null, row: null, values: {} },
             query: {
                 filter: 'all',
                 search: '', category: '', collection: '', vendor: '',
@@ -240,6 +303,42 @@ export default {
     computed: {
         canEditPrices() {
             return auth.hasPermi('zoho:stock:edit')
+        },
+        // Price lists whose new value differs from the current one (and that
+        // aren't already mid-push) — what ✓ will send.
+        rowChanges() {
+            const row = this.rowEdit.row
+            if (!row) return []
+            return PRICE_COLS
+                .filter(c => this.rowChanged(c) && !this.pushing[this.pushKey(row, c)])
+                .map(c => ({ col: c, rate: Math.round(Number(this.rowEdit.values[c.list]) * 100) / 100 }))
+        },
+        // Advisory checks on the prices as they would stand after the push:
+        // the tier order (SVIP & WholeSale ≤ VIP ≤ Platinum; SVIP vs WholeSale
+        // unordered) and nothing below cost. Placeholders are skipped.
+        rowWarnings() {
+            const row = this.rowEdit.row
+            if (!row) return []
+            const next = {}
+            for (const c of PRICE_COLS) {
+                const v = this.rowEdit.values[c.list]
+                next[c.list] = v != null && Number.isFinite(Number(v)) ? Number(v) : row[c.prop]
+            }
+            const real = v => (v == null || PLACEHOLDERS.has(Number(v)) ? null : Number(v))
+            const label = { platinum: 'Platinum', vip: 'VIP', svip: 'SVIP', wholesale: 'WholeSale' }
+            const out = []
+            for (const [lo, hi] of [['svip', 'vip'], ['wholesale', 'vip'], ['vip', 'platinum'], ['svip', 'platinum'], ['wholesale', 'platinum']]) {
+                const a = real(next[lo]), b = real(next[hi])
+                if (a != null && b != null && a > b + 1e-9) out.push(`${label[lo]} ${this.money(a)} is above ${label[hi]} ${this.money(b)}`)
+            }
+            const cost = Number(row.purchasePrice)
+            if (cost > 0) {
+                for (const c of PRICE_COLS) {
+                    const v = real(next[c.list])
+                    if (v != null && v < cost) out.push(`${c.label} ${this.money(v)} is below the purchase price ${this.money(cost)}`)
+                }
+            }
+            return out
         },
         activeTile() {
             if (this.query.filter === 'archived') {
@@ -377,47 +476,132 @@ export default {
         },
 
         // ── Inline price edit → push to Zoho ──
-        startPriceEdit(row, col) {
-            if (this.pEdit.saving) return
+        pushKey(row, col) {
+            return `${row.itemId}|${col.list}`
+        },
+        // `prefill` opens the editor with that value instead of the current rate.
+        startPriceEdit(row, col, prefill) {
+            if (this.pushing[this.pushKey(row, col)]) return
             this.pEdit = {
                 itemId: row.itemId, list: col.list, prop: col.prop,
-                value: row[col.prop] == null ? 0 : Number(row[col.prop]), saving: false
+                value: prefill != null ? prefill : row[col.prop] == null ? 0 : Number(row[col.prop])
             }
         },
+        useRefPrice(row, col) {
+            const ref = this.refPrice(row, col)
+            if (ref == null) return
+            this.pEdit.value = ref
+            // Back into the input so Enter still saves.
+            this.$nextTick(() => {
+                const input = document.querySelector('.pm-edit-wrap .pm-input input')
+                if (input) input.focus()
+            })
+        },
         cancelPriceEdit() {
-            this.pEdit = { itemId: null, list: '', prop: '', value: 0, saving: false }
+            this.pEdit = { itemId: null, list: '', prop: '', value: 0 }
         },
         // Enter: blur first so el-input-number commits, then save.
         priceEnter(evt, row) {
             if (evt && evt.target) evt.target.blur()
             this.$nextTick(() => this.savePriceEdit(row))
         },
-        async savePriceEdit(row) {
-            if (this.pEdit.saving || this.pEdit.itemId !== row.itemId) return
+        savePriceEdit(row) {
+            if (this.pEdit.itemId !== row.itemId) return
             const { list, prop, value } = this.pEdit
             const rate = Number(value)
             if (!Number.isFinite(rate) || rate < 0) {
                 this.$message.error('Enter a valid price')
                 return
             }
-            // Zoho's pricebook write takes 10–15s server-side. The editor
-            // stays open (disabled) with a "pushing" note in the cell, and
-            // closes only once Zoho confirms; on failure it re-enables so
-            // the value can be retried or cancelled.
-            this.pEdit.saving = true
+            // Zoho's pricebook write takes 10–15s, so it runs in the
+            // background: the editor closes now and the next price can be
+            // typed while this one is still pushing.
+            // Every push starts at once, same product included — the backend
+            // serialises only its quick snapshot/flags update per product.
+            const key = `${row.itemId}|${list}`
+            this.cancelPriceEdit()
+            this.$set(this.pushing, key, { rate })
+            this.pushPrice(row, list, prop, rate, key)
+        },
+        // Resolves true on success. `quiet` skips the per-price success toast
+        // (the all-prices dialog shows one summary instead); failures always
+        // toast, naming the list and the value that didn't save.
+        async pushPrice(row, list, prop, rate, key, quiet = false) {
+            const label = row.sku || row.name
             try {
                 const r = await updateStockItemPrice(row.itemId, list, rate)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$set(row, prop, r.rate)
-                if (r.flags) for (const k of Object.keys(r.flags)) this.$set(row, k, r.flags[k])
-                this.$message.success(`${row.sku || row.name} · ${list} → $${Number(r.rate).toFixed(2)} pushed to Zoho`)
-                this.cancelPriceEdit()
+                // The list may have been refreshed/re-paged meanwhile — update
+                // whichever row object is on screen for this product now.
+                const target = this.rows.find(x => x.itemId === row.itemId) || row
+                this.$set(target, prop, r.rate)
+                // Pushes for one product can finish in any order; only take
+                // flags newer than the ones already applied.
+                if (r.flags && !(r.flagsSeq < (target.__flagsSeq || 0))) {
+                    for (const k of Object.keys(r.flags)) this.$set(target, k, r.flags[k])
+                    target.__flagsSeq = r.flagsSeq || 0
+                }
+                if (!quiet) this.$message.success(`${label} · ${list} → $${Number(r.rate).toFixed(2)} pushed to Zoho`)
                 // No auto-refresh: the row stays where it is (its cell
                 // colours update from the returned flags) — the Refresh
                 // button in the card head re-counts on demand.
+                return true
             } catch (e) {
-                this.$message.error(`${row.sku || row.name}: ` + this.msg(e, 'price push failed'))
-                this.pEdit.saving = false
+                this.$message.error(`${label} · ${list} $${rate.toFixed(2)} not saved: ` + this.msg(e, 'price push failed'))
+                return false
+            } finally {
+                this.$delete(this.pushing, key)
+            }
+        },
+        // ── All four price lists for one product, in its row ──
+        openRowEdit(row) {
+            if (this.pEdit.itemId === row.itemId) this.cancelPriceEdit()
+            const values = {}
+            for (const c of PRICE_COLS) values[c.list] = row[c.prop] == null ? undefined : Number(row[c.prop])
+            this.rowEdit = { itemId: row.itemId, row, values }
+        },
+        cancelRowEdit() {
+            this.rowEdit = { itemId: null, row: null, values: {} }
+        },
+        rowChanged(col) {
+            const v = this.rowEdit.values[col.list]
+            if (v == null || !Number.isFinite(Number(v))) return false
+            const cur = this.rowEdit.row[col.prop]
+            return cur == null || Math.round(Number(v) * 100) !== Math.round(Number(cur) * 100)
+        },
+        rowUseRef(col) {
+            const ref = this.refPrice(this.rowEdit.row, col)
+            if (ref != null && !this.pushing[this.pushKey(this.rowEdit.row, col)]) this.rowEdit.values[col.list] = ref
+        },
+        rowUseAllRefs() {
+            for (const c of PRICE_COLS) this.rowUseRef(c)
+        },
+        // Enter in any of the row's inputs: blur first so el-input-number
+        // commits the typed value, then push.
+        rowEnter(evt) {
+            if (evt && evt.target) evt.target.blur()
+            this.$nextTick(() => this.submitRowEdit())
+        },
+        async submitRowEdit() {
+            const row = this.rowEdit.row
+            const changes = this.rowChanges
+            if (!row || !changes.length) return
+            this.cancelRowEdit()
+            if (this.pEdit.itemId === row.itemId) this.cancelPriceEdit()
+            // Still one Zoho call per price list (one pricebook each) — all
+            // sent at once; the backend keeps the product's flags consistent.
+            const results = await Promise.all(changes.map(({ col, rate }) => {
+                const key = this.pushKey(row, col)
+                this.$set(this.pushing, key, { rate })
+                return this.pushPrice(row, col.list, col.prop, rate, key, true).then(ok => ({ col, rate, ok }))
+            }))
+            const done = results.filter(r => r.ok)
+            const label = row.sku || row.name
+            const list = done.map(r => `${r.col.label} $${r.rate.toFixed(2)}`).join(', ')
+            if (done.length === results.length) {
+                this.$message.success(`${label} · ${list} pushed to Zoho`)
+            } else if (done.length) {
+                this.$message.warning(`${label}: ${done.length} of ${results.length} prices pushed (${list}) — see the error for the rest`)
             }
         },
         // The formula's reference rate for a cell (null when the item has
@@ -545,8 +729,9 @@ export default {
 }
 .sd-tile.tone-warn .sd-tile-value { color: #e6a23c; }
 
-/* Merged Item column: name links to Zoho, SKU underneath */
-.pm-item { line-height: 1.35; }
+/* Merged Item column: thumbnail, name links to Zoho, SKU underneath */
+.pm-item { display: flex; align-items: center; gap: 8px; line-height: 1.35; }
+.pm-item-text { min-width: 0; }
 .pm-item-link {
     color: #303133; text-decoration: none;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -573,6 +758,14 @@ export default {
 }
 .pm-editable:hover .pm-pencil { opacity: 1; color: #409eff; }
 .pm-edit-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+/* Clickable reference price: in the editor it copies into the input; on an
+   off-formula cell it opens the editor pre-filled. */
+.pm-ref-use { cursor: pointer; color: #409eff; &:hover { text-decoration: underline; } }
+
+/* Row edit: a value that will be pushed, and the row's advisory warnings. */
+.pm-input.changed ::v-deep .el-input__inner { border-color: #409eff; background: #ecf5ff; }
+.pm-row-warn { font-size: 11px; color: #e6a23c; line-height: 1.4; margin-top: 2px; }
+.pm-ref-click { cursor: pointer; &:hover { text-decoration: underline; } }
 .pm-edit { display: inline-flex; align-items: center; gap: 2px; }
 .pm-pushing { font-size: 11px; color: #e6a23c; white-space: nowrap; }
 .pm-input { width: 90px; }
