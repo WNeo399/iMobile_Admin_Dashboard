@@ -253,14 +253,15 @@ export const moduleRoutes = [
         }
       },
       {
+        // Retired from the sidebar (2026-09) — collections are managed on
+        // the Stock Monitoring tree now (⋯ menus + the Manage Category
+        // gear). The route stays navigable for old links/bookmarks.
         path: "/zohoInventory/collections",
         component: (resolve) => require(["@/views/products/collection"], resolve),
         name: "Collections",
+        hidden: true,
         meta: {
           title: "Collections",
-          // Stacked files icon for a grouping of products; previously
-          // shared `goods` with Stock Monitoring and rendered blank.
-          icon: "el-icon-files",
           permissions: ["zoho:collection:view"]
         }
       },
