@@ -239,8 +239,14 @@
                             <div class="sb-stat-l">{{ $tp('In Transit') }}</div>
                         </div>
                     </template>
-                    <div v-if="detailCostTotal" class="sb-stat">
-                        <div class="sb-stat-v">{{ detailCostTotal.currency }} {{ detailCostTotal.total.toFixed(2) }}</div>
+                    <!-- One figure for a single-currency batch; one per
+                         currency for a mixed one — sums in different
+                         currencies can't be added together. -->
+                    <div v-if="detailCostTotals" class="sb-stat">
+                        <div v-if="detailCostTotals.length === 1" class="sb-stat-v">{{ detailCostTotals[0].currency }} {{ detailCostTotals[0].total.toFixed(2) }}</div>
+                        <div v-else class="sb-stat-v sb-stat-multi">
+                            <div v-for="t in detailCostTotals" :key="t.currency">{{ t.currency }}: {{ t.total.toFixed(2) }}</div>
+                        </div>
                         <div class="sb-stat-l">{{ isSupplier ? $tp('Price total') : $tp('Cost total') }}</div>
                     </div>
                 </div>
@@ -412,17 +418,19 @@ export default {
             return out
         },
         storageOptions() { return STORAGES },
-        // Batch total — only when every priced line shares one
-        // currency (amounts in different currencies can't be added up).
-        detailCostTotal() {
-            const priced = ((this.detail && this.detail.lines) || []).filter(l => this.lineAmount(l) != null)
-            if (!priced.length) return null
-            const currencies = [...new Set(priced.map(l => l.currency || 'AUD'))]
-            if (currencies.length !== 1) return null
-            return {
-                currency: currencies[0],
-                total: Math.round(priced.reduce((s, l) => s + (Number(this.lineAmount(l)) || 0), 0) * 100) / 100
+        // Batch total, per currency: one entry for a single-currency batch,
+        // several for a mixed one (amounts in different currencies can't be
+        // added up).
+        detailCostTotals() {
+            const sums = {}
+            for (const l of (this.detail && this.detail.lines) || []) {
+                const amount = this.lineAmount(l)
+                if (amount == null) continue
+                const cur = l.currency || 'AUD'
+                sums[cur] = (sums[cur] || 0) + (Number(amount) || 0)
             }
+            const totals = Object.keys(sums).sort().map(currency => ({ currency, total: Math.round(sums[currency] * 100) / 100 }))
+            return totals.length ? totals : null
         },
         isSupplier() {
             return (this.$store.getters.roles || []).includes('phone-supplier')
@@ -934,6 +942,8 @@ export default {
 .sb-stat-v { font-size: 20px; font-weight: 700; color: #303133; line-height: 1.2; }
 .sb-v-ok { color: #67c23a; }
 .sb-v-warn { color: #e6a23c; }
+/* Several currencies: one line each, smaller so the tile keeps its height */
+.sb-stat-multi { font-size: 14px; line-height: 1.4; }
 .sb-stat-l { font-size: 11px; color: #909399; text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
 .sb-progress { margin-top: -4px; }
 .sb-meta {
