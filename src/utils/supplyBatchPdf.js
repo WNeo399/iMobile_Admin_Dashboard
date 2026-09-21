@@ -5,7 +5,9 @@
 // and a received tick per line so the sheet works as a packing list on the
 // way out and a checklist on arrival.
 //
-// buildSupplyBatchPdf({ batch }) where `batch` is the loaded batch
+// buildSupplyBatchPdf({ batch, priceLabel }) where `batch` is the loaded
+// batch and priceLabel heads the money column ('Cost' for staff, 'Price'
+// for a supplier, whose figure is what they charge us).
 // ({ batchNo, stockSource, tracking, notes, createdAt, createdBy,
 //    lines: [{ imei, model, color, storage, grade, costPrice, currency,
 //              received, receivedAt }] }).
@@ -80,7 +82,7 @@ export function groupSupplyLines(lines) {
         .map(([name, g]) => ({ name, rows: g.rows }))
 }
 
-export function buildSupplyBatchPdf({ batch }) {
+export function buildSupplyBatchPdf({ batch, priceLabel }) {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' })
     const groups = groupSupplyLines(batch.lines)
 
@@ -135,7 +137,7 @@ export function buildSupplyBatchPdf({ batch }) {
         doc.text('Colour', COL.colour, y)
         doc.text('Storage', COL.storage, y)
         doc.text('Grade', COL.grade, y)
-        doc.text('Cost', COL.costRight, y, { align: 'right' })
+        doc.text(priceLabel || 'Cost', COL.costRight, y, { align: 'right' })
         doc.text('Received', COL.receivedRight, y, { align: 'right' })
         y += 6
         doc.setDrawColor(180)

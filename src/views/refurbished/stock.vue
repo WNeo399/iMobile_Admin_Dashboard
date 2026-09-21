@@ -23,6 +23,15 @@
                 <el-option :label="$tp('No supplier')" value="none" />
                 <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
             </el-select>
+            <!-- One supply batch's line-up, wherever those units are now. -->
+            <el-select v-model="query.supplyBatchId" size="small" clearable filterable
+                :placeholder="$tp('Supply Batch')" class="f-sel-w" @change="reload">
+                <el-option v-for="b in filters.supplyBatches" :key="b.id"
+                    :label="b.batchNo + ' · ' + $tp('{n} device(s)', { n: b.devices })" :value="b.id">
+                    <span>{{ b.batchNo }}</span>
+                    <span class="rs-opt-dim">{{ $tp('{n} device(s)', { n: b.devices }) }}<template v-if="!isSupplier && b.stockSource"> · {{ b.stockSource }}</template></span>
+                </el-option>
+            </el-select>
             <!-- Suppliers work one undifferentiated shelf — status is an
                  internal view, so the filter and column stay ours. -->
             <el-select v-if="!isSupplier" v-model="query.status" size="small" clearable :placeholder="$tp('Status')" class="f-sel" @change="reload">
@@ -92,7 +101,7 @@
             </el-table-column>
             <!-- A supplier device's cost is their price TO iMobile — the
                  same figure either side of the handover, so everyone sees it. -->
-            <el-table-column prop="costPrice" :label="$tp('Cost Price')" width="120" align="right">
+            <el-table-column prop="costPrice" :label="isSupplier ? $tp('Price') : $tp('Cost Price')" width="120" align="right">
                 <template slot-scope="s">{{ s.row.costPrice == null ? '—' : money(s.row.costPrice, s.row.currency) }}</template>
             </el-table-column>
             <el-table-column prop="stockSource" :label="$tp('Stock Source')" min-width="130" show-overflow-tooltip>
@@ -177,7 +186,7 @@
                         clearable :disabled="baSaving" @keyup.enter.native="baScan" />
                     <!-- Applies to every cost typed below — named, so nobody
                          mistakes the little AUD box for anything else. -->
-                    <span class="rs-ba-cur-label">{{ $tp('Cost currency') }}</span>
+                    <span class="rs-ba-cur-label">{{ isSupplier ? $tp('Currency') : $tp('Cost currency') }}</span>
                     <el-select v-model="baCurrency" size="small" style="width:90px" :disabled="baSaving">
                         <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                     </el-select>
@@ -235,7 +244,7 @@
                             </el-select>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Cost') + ' (' + baCurrency + ')'" width="110" align="center">
+                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + baCurrency + ')'" width="110" align="center">
                         <template slot-scope="s">
                             <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2"
                                 :controls="false" class="bae-cost" />
@@ -545,7 +554,7 @@
                             <el-radio-button v-for="g in gradeOptions" :key="g" :label="g" />
                         </el-radio-group>
                     </el-form-item>
-                    <el-form-item :label="$tp('Cost Price')">
+                    <el-form-item :label="isSupplier ? $tp('Price') : $tp('Cost Price')">
                         <el-input v-model="form.costPrice" class="rs-cost" placeholder="0.00"
                             @input="onCostInput">
                             <el-select slot="prepend" v-model="form.currency" class="rs-cur">
@@ -711,10 +720,10 @@ export default {
             currencies: CURRENCIES,
             grades: GRADES,
             storageOptions: STORAGES,
-            filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [] },
+            filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [], supplyBatches: [] },
             query: {
                 page: 1, pageSize: 25, search: '',
-                grade: '', stockSource: '', location: '', status: '', supplierId: '',
+                grade: '', stockSource: '', location: '', status: '', supplierId: '', supplyBatchId: '',
                 sort: 'createdAt', order: 'desc'
             },
             // Bulk Add — scan many codes, create them together.
@@ -922,7 +931,8 @@ export default {
                 if (r && r.success !== false) {
                     this.filters = {
                         models: r.models || [], grades: r.grades || [], stockSources: r.stockSources || [],
-                        storages: r.storages || [], colors: r.colors || [], locations: r.locations || []
+                        storages: r.storages || [], colors: r.colors || [], locations: r.locations || [],
+                        supplyBatches: r.supplyBatches || []
                     }
                 }
             } catch (e) { /* non-fatal — the dropdowns just stay empty */ }
@@ -1609,6 +1619,9 @@ export default {
 .rs-imei { line-height: 1.35; }
 .rs-serial { font-size: 11px; color: #909399; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
 .rs-grades ::v-deep .el-radio-button__inner { padding: 7px 14px; }
+/* Batch picker: the device count sits quietly beside the batch number. */
+.rs-opt-dim { float: right; margin-left: 18px; color: #909399; font-size: 12px; }
+
 /* Cost price: currency picker sits in the input's prepend slot. Element
    already positions a select there, via negative margins that offset the
    prepend's own padding — overriding that padding breaks the layout, so

@@ -77,7 +77,7 @@
                         </el-input>
                         <!-- One currency for every cost typed in this dialog
                              (new units and filled-in missing costs alike). -->
-                        <span class="sb-cur-label">{{ $tp('Cost currency') }}</span>
+                        <span class="sb-cur-label">{{ isSupplier ? $tp('Currency') : $tp('Cost currency') }}</span>
                         <el-select v-model="crCurrency" size="small" style="width:90px">
                             <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                         </el-select>
@@ -159,7 +159,7 @@
                          figure is written onto the device when the batch is
                          saved, in the dialog's Cost currency). A recorded
                          cost displays as-is. -->
-                    <el-table-column :label="$tp('Cost') + ' (' + crCurrency + ')'" width="120" align="right">
+                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + crCurrency + ')'" width="120" align="right">
                         <template slot-scope="s">
                             <el-input-number v-if="s.row.isNew || s.row.costMissing" v-model="s.row.costPrice"
                                 size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
@@ -241,7 +241,7 @@
                     </template>
                     <div v-if="detailCostTotal" class="sb-stat">
                         <div class="sb-stat-v">{{ detailCostTotal.currency }} {{ detailCostTotal.total.toFixed(2) }}</div>
-                        <div class="sb-stat-l">{{ $tp('Cost total') }}</div>
+                        <div class="sb-stat-l">{{ isSupplier ? $tp('Price total') : $tp('Cost total') }}</div>
                     </div>
                 </div>
                 <el-progress v-if="receivedPct != null" :percentage="receivedPct" :stroke-width="6" :show-text="false"
@@ -291,9 +291,17 @@
                     <el-table-column :label="$tp('Grade')" width="70" align="center">
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Cost')" width="110" align="right">
+                    <el-table-column v-if="!isSupplier" :label="$tp('Cost')" width="110" align="right">
                         <template slot-scope="s">
                             {{ s.row.costPrice == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.costPrice).toFixed(2) }}
+                        </template>
+                    </el-table-column>
+                    <!-- The supplier's own charge. Our landed cost takes over
+                         the register once a unit is received, so it never
+                         reaches here — a unit they never priced shows a dash. -->
+                    <el-table-column v-else :label="$tp('Price')" width="110" align="right">
+                        <template slot-scope="s">
+                            {{ s.row.price == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.price).toFixed(2) }}
                         </template>
                     </el-table-column>
                     <el-table-column v-if="isSupplier" :label="$tp('Supplier')" width="130" show-overflow-tooltip>
@@ -404,20 +412,25 @@ export default {
             return out
         },
         storageOptions() { return STORAGES },
-        // Batch cost total — only when every priced line shares one
+        // Batch total — only when every priced line shares one
         // currency (amounts in different currencies can't be added up).
         detailCostTotal() {
-            const priced = ((this.detail && this.detail.lines) || []).filter(l => l.costPrice != null)
+            const priced = ((this.detail && this.detail.lines) || []).filter(l => this.lineAmount(l) != null)
             if (!priced.length) return null
             const currencies = [...new Set(priced.map(l => l.currency || 'AUD'))]
             if (currencies.length !== 1) return null
             return {
                 currency: currencies[0],
-                total: Math.round(priced.reduce((s, l) => s + (Number(l.costPrice) || 0), 0) * 100) / 100
+                total: Math.round(priced.reduce((s, l) => s + (Number(this.lineAmount(l)) || 0), 0) * 100) / 100
             }
         },
         isSupplier() {
             return (this.$store.getters.roles || []).includes('phone-supplier')
+        },
+        // A batch line's money column: our cost for staff, the supplier's
+        // own charge (line.price, served instead of cost) for a supplier.
+        lineAmount() {
+            return l => (this.isSupplier ? l.price : l.costPrice)
         },
         // Receiving progress, only while the box is actually on the road.
         receivedPct() {
@@ -599,7 +612,11 @@ export default {
         // ── downloads — the same grouped list, on paper or in a sheet ─
         downloadPdf() {
             try {
-                buildSupplyBatchPdf({ batch: this.detail }).save(supplyBatchPdfFileName(this.detail))
+                const batch = this.isSupplier
+                    ? { ...this.detail, lines: (this.detail.lines || []).map(l => ({ ...l, costPrice: l.price })) }
+                    : this.detail
+                buildSupplyBatchPdf({ batch, priceLabel: this.isSupplier ? 'Price' : 'Cost' })
+                    .save(supplyBatchPdfFileName(this.detail))
             } catch (e) {
                 console.error('Supply batch PDF failed:', e)
                 this.$message.error(this.$tp('Could not build the PDF.'))
@@ -616,7 +633,7 @@ export default {
                     ['Created', this.formatDateTime(d.createdAt) + (d.createdBy ? ' · ' + d.createdBy : '')],
                     ['Notes', d.notes || ''],
                     [],
-                    ['Model', 'IMEI / Serial', 'Colour', 'Storage', 'Grade', 'Cost', 'Currency', 'Received', 'Received At']
+                    ['Model', 'IMEI / Serial', 'Colour', 'Storage', 'Grade', this.isSupplier ? 'Price' : 'Cost', 'Currency', 'Received', 'Received At']
                         .map(v => ({ v, s: head }))
                 ]
                 for (const g of groupSupplyLines(d.lines || [])) {
@@ -624,7 +641,7 @@ export default {
                     for (const l of g.rows) {
                         rows.push([
                             l.model || '', l.imei || '', l.color || '', l.storage || '', l.grade || '',
-                            l.costPrice == null ? '' : Number(l.costPrice), l.currency || 'AUD',
+                            this.lineAmount(l) == null ? '' : Number(this.lineAmount(l)), l.currency || 'AUD',
                             l.received ? 'Yes' : '', l.receivedAt ? this.formatDateTime(l.receivedAt) : ''
                         ])
                     }
