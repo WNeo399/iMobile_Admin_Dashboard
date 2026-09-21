@@ -86,7 +86,7 @@
                 <el-table-column prop="name" label="Item" min-width="320" sortable="custom">
                     <template slot-scope="s">
                         <div class="pm-item">
-                            <!-- Main Zoho image, URL built from the snapshot's image id. -->
+                            <!-- Main Zoho image, URL built from the register's image id. -->
                             <product-thumb :src="s.row.imageUrl" :item-id="s.row.itemId" />
                             <div class="pm-item-text">
                                 <!-- Straight into the item in Zoho Inventory. -->
@@ -111,7 +111,7 @@
 
                 <el-table-column prop="available" label="Stock" width="86" align="center" sortable="custom">
                     <template slot-scope="s">
-                        <span :class="['sd-num', s.row.available <= 0 ? 'sd-bad' : '']">{{ s.row.available }}</span>
+                        <span :class="['sd-num', s.row.available <= 0 ? 'sd-bad' : '']" :title="liveTitle(s.row)">{{ s.row.available }}<i v-if="s.row.__stockLive" class="sd-live-dot" /></span>
                     </template>
                 </el-table-column>
 
@@ -248,6 +248,7 @@
 <script>
 import auth from '@/plugins/auth'
 import ProductThumb from '@/components/ProductThumb'
+import liveStockMixin from './liveStockMixin'
 import { getStockSummary, getStockItems, getStockItemPrices, setStockItemArchived, updateStockItemPrice } from '@/api/stockMonitor'
 
 const TILES = [
@@ -270,6 +271,7 @@ const PLACEHOLDERS = new Set([9999.99, 9000, 8888, 7777, 7000, 6000])
 export default {
     name: 'PriceMonitoring',
     components: { ProductThumb },
+    mixins: [liveStockMixin],
     data() {
         return {
             TILES,
@@ -357,10 +359,10 @@ export default {
         runProblem() {
             if (!this.snapshotDate) return 'No stock snapshot has been taken yet — run the daily job to populate this page.'
             if (this.run && this.run.ok === false) {
-                return `The last snapshot failed${this.run.error ? ': ' + this.run.error : ''}. The numbers below are from the last good run.`
+                return `The last stock refresh failed${this.run.error ? ': ' + this.run.error : ''}. The numbers below are from the last good run.`
             }
             if (this.staleness.tone === 'warn') {
-                return 'The snapshot is more than a day old — the daily job may not be running.'
+                return 'The numbers are more than a day old — the daily refresh may not be running.'
             }
             return ''
         }
@@ -401,6 +403,7 @@ export default {
                 this.rows = r.rows || []
                 this.total = r.total || 0
                 this.snapshotDate = r.snapshotDate || this.snapshotDate
+                this.overlayLiveStock(this.rows)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Could not load the price list'))
             } finally {
@@ -517,7 +520,7 @@ export default {
             // background: the editor closes now and the next price can be
             // typed while this one is still pushing.
             // Every push starts at once, same product included — the backend
-            // serialises only its quick snapshot/flags update per product.
+            // serialises only its quick register/flags update per product.
             const key = `${row.itemId}|${list}`
             this.cancelPriceEdit()
             this.$set(this.pushing, key, { rate })
@@ -773,6 +776,8 @@ export default {
 .pm-save { color: #67c23a; padding: 2px; }
 .pm-cancel { color: #909399; padding: 2px; }
 
+/* Stock read live from Zoho for the rows on screen */
+.sd-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #67c23a; margin-left: 4px; vertical-align: middle; }
 .sd-card { background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; overflow: hidden; }
 .sd-card-head {
     display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #ebeef5;

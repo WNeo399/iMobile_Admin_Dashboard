@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 
-// Stock Dashboard — reads the daily snapshot, never Zoho, so every call
+// Stock Dashboard — reads the stock register, never Zoho, so every call
 // here returns in milliseconds. Everything is "as of" the last run; the
 // summary carries the date and run status so the page can say how old it is.
 
@@ -21,7 +21,7 @@ export function getStockItem(itemId) {
 }
 
 // Who bought it. This one reads Zoho live — invoice numbers and customer
-// names aren't in the snapshot — so it is slower than the rest and loads
+// names aren't in the register — so it is slower than the rest and loads
 // only when a drawer opens.
 export function getStockItemSales(itemId, params) {
   return request({ url: `/stock-monitor/item/${itemId}/sales`, method: 'get', params, timeout: 30000 })
@@ -41,7 +41,7 @@ export function getStockItemPrices(itemId) {
   return request({ url: `/stock-monitor/item/${itemId}/prices`, method: 'get', timeout: 30000 })
 }
 
-// Trigger the daily snapshot now (dashboard's "Update snapshot" button).
+// Refresh the register now (the dashboard's "Update Now" button).
 // Returns immediately; poll getStockSnapshotRun() until running is false.
 export function runStockSnapshot() {
   return request({ url: '/stock-monitor/snapshot/run', method: 'post' })
@@ -58,7 +58,7 @@ export function setStockItemArchived(itemId, restore) {
 }
 
 // Push one price-list rate to Zoho Inventory (merge endpoint — only this
-// item is touched) and mirror it into today's snapshot.
+// item is touched) and mirror it into the register.
 export function updateStockItemPrice(itemId, list, rate) {
   return request({ url: `/stock-monitor/item/${itemId}/price`, method: 'put', data: { list, rate }, timeout: 30000 })
 }
@@ -77,4 +77,16 @@ export function uploadStockItemImages(itemId, files) {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000
   })
+}
+
+// Live stock for the rows on screen — one Zoho Inventory read per page of
+// ids. Overlaid on the stored numbers by liveStockMixin.
+export function getLiveStock(itemIds) {
+  return request({ url: '/stock-monitor/live', method: 'get', params: { ids: itemIds.join(',') }, timeout: 30000 })
+}
+
+// Units sold per week for one item, live from Zoho Analytics — the item
+// drawer's trend.
+export function getStockItemSalesTrend(itemId, weeks) {
+  return request({ url: `/stock-monitor/item/${itemId}/sales-trend`, method: 'get', params: { weeks }, timeout: 30000 })
 }

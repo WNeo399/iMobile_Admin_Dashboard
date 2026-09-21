@@ -130,16 +130,16 @@
 
                 <el-table-column prop="available" label="Stock" width="86" align="right" sortable="custom">
                     <template slot-scope="s">
-                        <span :class="['sd-num', stockTone(s.row)]">{{ s.row.available }}</span>
+                        <span :class="['sd-num', stockTone(s.row)]" :title="liveTitle(s.row)">{{ s.row.available }}<i v-if="s.row.__stockLive" class="sd-live-dot" /></span>
                     </template>
                 </el-table-column>
 
                 <el-table-column prop="units30" label="30-day" width="88" align="right" sortable="custom">
-                    <template slot-scope="s"><span class="sd-num">{{ s.row.units30 }}</span></template>
+                    <template slot-scope="s"><span class="sd-num">{{ u(s.row.units30) }}</span></template>
                 </el-table-column>
 
                 <el-table-column prop="units90" label="90-day" width="88" align="right" sortable="custom">
-                    <template slot-scope="s"><span class="sd-num">{{ s.row.units90 }}</span></template>
+                    <template slot-scope="s"><span class="sd-num">{{ u(s.row.units90) }}</span></template>
                 </el-table-column>
 
                 <el-table-column prop="daysOfCover" label="Cover" width="92" align="right" sortable="custom">
@@ -212,7 +212,7 @@
                 <div class="sd-dbody">
                     <div class="sd-stats">
                         <div><label>In stock</label>
-                            <b :class="stockTone(detail.item)">{{ detail.item.available }}</b></div>
+                            <b :class="stockTone(detail.item)" :title="liveTitle(detail.item)">{{ detail.item.available }}<i v-if="detail.item.__stockLive" class="sd-live-dot" /></b></div>
                         <div><label>On order</label>
                             <b :class="detail.item.openPoQty > 0 ? 'sd-good' : 'sd-bad'">{{ detail.item.openPoQty }}</b></div>
                         <div><label>Cover</label>
@@ -221,15 +221,19 @@
                             <b>{{ lastSold(detail.item.daysSinceSale) }}</b></div>
                     </div>
 
+                    <!-- The 90-day window by scope. -->
                     <div class="sd-splits">
-                        <div><label>Sold on orders</label><b>{{ detail.item.onlineUnits }}</b></div>
-                        <div><label>Used at the counter</label><b>{{ detail.item.offlineUnits }}</b></div>
+                        <div><label>On orders</label><b>{{ scopeUnits(detail.item.units90, 'online') }}</b></div>
+                        <div><label>InFlow counter</label><b>{{ scopeUnits(detail.item.units90, 'inflow') }}</b></div>
+                        <div><label>Repair team</label><b>{{ scopeUnits(detail.item.units90, 'repair') }}</b></div>
+                        <div><label>Neto store</label><b>{{ scopeUnits(detail.item.units90, 'neto') }}</b></div>
+                        <div><label>Dashboard dispatch</label><b>{{ scopeUnits(detail.item.units90, 'dashboard') }}</b></div>
                         <div><label>Unit cost</label><b>{{ money(detail.item.purchasePrice) }}</b></div>
                         <div><label>Preferred vendor</label><b>{{ detail.item.preferVendor || '—' }}</b></div>
                     </div>
 
                     <!-- Who bought it. Read live from Zoho, because invoice
-                         numbers and customer names are not in the snapshot,
+                         numbers and customer names are not in the register,
                          so it arrives after the rest of the drawer. -->
                     <div class="sd-section">
                         <div class="sd-section-head">
@@ -262,8 +266,8 @@
                         </div>
                         <div v-else class="sd-empty">
                             No invoice has carried this item.
-                            <span v-if="detail.item.offlineUnits > 0" class="sd-dim">
-                                <br>{{ detail.item.offlineUnits }} units left as counter usage, which has no invoice.
+                            <span v-if="offline(detail.item.units90) > 0" class="sd-dim">
+                                <br>{{ offline(detail.item.units90) }} units left through the counter, workshop, Neto or dispatch, which carry no invoice.
                             </span>
                         </div>
                     </div>
@@ -330,8 +334,8 @@
                             </template>
                             <template v-else>
                                 No purchase order has ever been raised for this item in Zoho.
-                                <span v-if="detail.item.units90 > 0" class="sd-dim">
-                                    <br>{{ detail.item.units90 }} units sold in 90 days.
+                                <span v-if="u(detail.item.units90) > 0" class="sd-dim">
+                                    <br>{{ u(detail.item.units90) }} units sold in 90 days.
                                 </span>
                             </template>
                         </div>
@@ -346,16 +350,22 @@
                         </div>
                     </div>
 
-                    <div v-if="detail.history.length > 1" class="sd-section">
+                    <!-- Units sold per week, live from Zoho Analytics. Zoho
+                         keeps no stock-on-a-past-date, so the trend is sales. -->
+                    <div class="sd-section">
                         <div class="sd-section-head">
-                            <span>Stock since {{ detail.history[0].snapshotDate }}</span>
+                            <span>Sales by week · last {{ trendWeeks }} weeks</span>
+                            <span v-if="trendLoading" class="sd-dim"><i class="el-icon-loading" /> reading Zoho…</span>
+                            <span v-else-if="trendError" class="sd-bad">{{ trendError }}</span>
+                            <span v-else class="sd-dim">{{ trendTotal }} units</span>
                         </div>
-                        <el-table :data="detail.history.slice().reverse()" size="mini" border max-height="200">
-                            <el-table-column prop="snapshotDate" label="Day" width="110" />
-                            <el-table-column prop="available" label="Stock" width="80" align="right" />
-                            <el-table-column prop="units30" label="30-day" width="88" align="right" />
-                            <el-table-column prop="openPoQty" label="On order" align="right" />
-                        </el-table>
+                        <div v-if="!trendLoading && !trendError && trend.length" class="sd-trend">
+                            <div v-for="(w, i) in trend" :key="i" class="sd-trend-col" :title="trendTitle(w)">
+                                <div class="sd-trend-val">{{ w.units || '' }}</div>
+                                <div class="sd-trend-bar"><div class="sd-trend-fill" :style="{ height: trendHeight(w) }" /></div>
+                                <div class="sd-trend-lbl">{{ weekLabel(w) }}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -367,8 +377,9 @@
 import {
     getStockSummary, getStockItems, getStockItem, getStockShelves,
     getStockItemSales, getStockItemPurchaseOrders, setStockItemArchived,
-    runStockSnapshot, getStockSnapshotRun
+    runStockSnapshot, getStockSnapshotRun, getStockItemSalesTrend
 } from '@/api/stockMonitor'
+import liveStockMixin from './liveStockMixin'
 import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
 import ProductThumb from '@/components/ProductThumb'
 
@@ -392,6 +403,7 @@ const HEAD_SORTS = [{ prop: 'sku', label: 'SKU' }, { prop: 'location', label: 'S
 export default {
     name: 'StockDashboard',
     components: { ProductThumb },
+    mixins: [liveStockMixin],
     props: {
         // Rendered inside the Stock Monitoring page (Dashboard tab) rather
         // than as its own route: drop the app-container chrome and retitle,
@@ -410,6 +422,8 @@ export default {
 
             snapshotDate: null,
             run: null,
+            // The hourly Zoho sync's last pass (from /summary).
+            sync: null,
             snapshotRunning: false,
             snapshotPollTimer: null,
             counts: {},
@@ -439,6 +453,11 @@ export default {
 
             // Purchase orders come from Zoho too, and load alongside
             // the sales history rather than blocking the drawer.
+            // Sales by week, live from Zoho Analytics.
+            trend: [],
+            trendLoading: false,
+            trendError: '',
+            trendWeeks: 12,
             purchaseOrders: [],
             poOnOrder: 0,
             poLoading: false,
@@ -446,6 +465,9 @@ export default {
         }
     },
     computed: {
+        trendTotal() {
+            return Math.round(this.trend.reduce((s, w) => s + (w.units || 0), 0) * 100) / 100
+        },
         tiles() {
             return TILES.filter(t => !t.partsOnly || this.scope === 'parts')
         },
@@ -457,24 +479,35 @@ export default {
                 { key: 'all', label: 'All items', tag: 'info' }
         },
         sortLabel() { return SORT_LABELS[this.query.sort] || this.query.sort },
-        // How old the numbers are, said plainly. A snapshot older than a
+        // The hourly sync: "synced 12 min ago", or its last error.
+        syncText() {
+            const s = this.sync
+            if (!s || !s.lastRunAt) return ''
+            if (s.lastError && (!s.lastResult || new Date(s.lastError.at) > new Date(s.lastRunAt))) {
+                return 'catalogue sync failed'
+            }
+            const mins = Math.max(0, Math.round((Date.now() - new Date(s.lastRunAt).getTime()) / 60000))
+            return mins < 1 ? 'synced just now' : mins < 120 ? `synced ${mins} min ago` : `synced ${Math.round(mins / 60)} h ago`
+        },
+        // How old the numbers are, said plainly. A refresh older than a
         // day is a broken cron, not a rounding detail.
         staleness() {
             if (!this.snapshotDate) return { tone: 'bad', icon: 'el-icon-warning-outline', text: 'No snapshot yet' }
             const days = Math.floor((Date.now() - new Date(this.snapshotDate + 'T00:00:00').getTime()) / 86400000)
             const win = this.run && this.run.salesWindowDays ? ` · ${this.run.salesWindowDays}-day sales` : ''
             const items = this.counts.all ? ` · ${this.counts.all.toLocaleString()} items` : ''
-            if (days <= 0) return { tone: 'ok', icon: 'el-icon-time', text: `Counted today${items}${win}` }
-            if (days === 1) return { tone: 'ok', icon: 'el-icon-time', text: `Counted yesterday${items}${win}` }
-            return { tone: 'warn', icon: 'el-icon-warning-outline', text: `Counted ${days} days ago${items}${win}` }
+            const sync = this.syncText ? ` · ${this.syncText}` : ''
+            if (days <= 0) return { tone: 'ok', icon: 'el-icon-time', text: `Counted today${items}${win}${sync}` }
+            if (days === 1) return { tone: 'ok', icon: 'el-icon-time', text: `Counted yesterday${items}${win}${sync}` }
+            return { tone: 'warn', icon: 'el-icon-warning-outline', text: `Counted ${days} days ago${items}${win}${sync}` }
         },
         runProblem() {
             if (!this.snapshotDate) return 'No stock snapshot has been taken yet — run the daily job to populate this page.'
             if (this.run && this.run.ok === false) {
-                return `The last snapshot failed${this.run.error ? ': ' + this.run.error : ''}. The numbers below are from the last good run.`
+                return `The last stock refresh failed${this.run.error ? ': ' + this.run.error : ''}. The numbers below are from the last good run.`
             }
             if (this.staleness.tone === 'warn') {
-                return 'The snapshot is more than a day old.'
+                return 'The stock numbers are more than a day old.'
             }
             return ''
         },
@@ -496,7 +529,7 @@ export default {
     created() {
         this.reload()
         this.loadShelves()
-        // A snapshot someone else started (or one surviving a page reload)
+        // A refresh someone else started (or one surviving a page reload)
         // should show as in-progress here too.
         this.checkSnapshotRunning()
     },
@@ -504,10 +537,10 @@ export default {
         if (this.snapshotPollTimer) clearTimeout(this.snapshotPollTimer)
     },
     methods: {
-        // ── on-demand snapshot ───────────────────────────────────────
+        // ── on-demand refresh ────────────────────────────────────────
         // Kicks off bin/stockSnapshot.js on the server and polls until it
         // finishes (a run takes a minute or two — longer when Zoho
-        // throttles), then reloads everything from the fresh snapshot.
+        // throttles), then reloads everything from the fresh register.
         async runSnapshot() {
             if (this.snapshotRunning) return
             this.snapshotRunning = true
@@ -515,8 +548,8 @@ export default {
                 const r = await runStockSnapshot()
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.info(r.alreadyRunning
-                    ? 'A snapshot is already running — waiting for it to finish.'
-                    : 'Snapshot started — this takes a minute or two.')
+                    ? 'A refresh is already running — waiting for it to finish.'
+                    : 'Refresh started — this takes a couple of minutes.')
                 this.pollSnapshot()
             } catch (e) {
                 this.snapshotRunning = false
@@ -538,7 +571,7 @@ export default {
                 // reload() refreshed run/snapshotDate; runProblem reports a
                 // failed run on its own, so only success needs a toast.
                 if (!this.run || this.run.ok !== false) {
-                    this.$message.success('Snapshot updated.')
+                    this.$message.success('Stock numbers updated.')
                 }
             }, 10000)
         },
@@ -582,6 +615,7 @@ export default {
                 this.snapshotDate = r.snapshotDate
                 this.run = r.run
                 this.counts = r.counts || {}
+                this.sync = r.sync || null
                 if (r.options) this.options = r.options
             } catch (e) {
                 this.$message.error(this.msg(e, 'Could not load the stock summary'))
@@ -596,6 +630,9 @@ export default {
                 this.rows = r.rows || []
                 this.total = r.total || 0
                 this.snapshotDate = r.snapshotDate || this.snapshotDate
+                // Not awaited: the list paints from the register and the
+                // live figures land on it a moment later.
+                this.overlayLiveStock(this.rows)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Could not load the stock list'))
             } finally {
@@ -609,7 +646,7 @@ export default {
         },
         // Add a row to (or remove it from) the 海运 list — the pinned
         // collection the Stock Monitoring page shows as a tab. The badge
-        // flips immediately; the snapshot's collections tag follows at the
+        // flips immediately; the row's collections tag follows at the
         // next run.
         async toggleSeaFreight(row) {
             if (row.__seaBusy) return
@@ -687,8 +724,18 @@ export default {
             this.poError = ''
             try {
                 this.detail = await getStockItem(row.itemId)
-                // Not awaited: the snapshot half of the drawer renders at
+                // The row already carries live stock once the page overlay
+                // has landed; the drawer shows that same figure.
+                if (row.__stockLive) {
+                    Object.assign(this.detail.item, {
+                        available: row.available, stockOnHand: row.stockOnHand, committed: row.committed,
+                        storedAvailable: row.storedAvailable, __stockLive: true
+                    })
+                }
+                // Not awaited: the register half of the drawer renders at
                 // once and the Zoho half fills in behind it.
+                this.trend = []
+                this.loadTrend(row.itemId)
                 this.loadSales(row.itemId)
                 this.loadPurchaseOrders(row.itemId)
             } catch (e) {
@@ -734,7 +781,45 @@ export default {
             }
         },
 
-        // Export what is on screen, not the whole snapshot — the filters
+        // A sales window as stored: { total, online, inflow, repair, neto,
+        // dashboard } — or a plain number on a row not yet refreshed.
+        u(w) {
+            return w && typeof w === 'object' ? (w.total || 0) : (Number(w) || 0)
+        },
+        scopeUnits(w, key) {
+            return w && typeof w === 'object' ? (w[key] || 0) : 0
+        },
+        offline(w) {
+            return w && typeof w === 'object' ? Math.round(((w.total || 0) - (w.online || 0)) * 100) / 100 : 0
+        },
+        async loadTrend(itemId) {
+            this.trendLoading = true
+            this.trendError = ''
+            try {
+                const r = await getStockItemSalesTrend(itemId, this.trendWeeks)
+                if (!this.detail || this.detail.item.itemId !== itemId) return
+                this.trend = r.trend || []
+            } catch (e) {
+                if (!this.detail || this.detail.item.itemId !== itemId) return
+                this.trend = []
+                this.trendError = this.msg(e, 'Could not read the sales trend from Zoho.')
+            } finally {
+                this.trendLoading = false
+            }
+        },
+        trendHeight(w) {
+            const max = Math.max(0, ...this.trend.map(x => x.units || 0))
+            return max > 0 ? Math.round(((w.units || 0) / max) * 100) + '%' : '0%'
+        },
+        weekLabel(w) {
+            return new Date(w.from).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+        },
+        trendTitle(w) {
+            const day = d => new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+            return `${day(w.from)} – ${day(w.to)}: ${w.units} units (${w.online} on orders, ${w.offline} at the counter)`
+        },
+
+        // Export what is on screen, not the whole register — the filters
         // are how someone says which list they want.
         async exportCsv() {
             this.exporting = true
@@ -747,7 +832,7 @@ export default {
                 const cell = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`
                 const lines = [head.map(cell).join(',')]
                 for (const x of r.rows || []) {
-                    lines.push([x.sku, x.name, x.location, x.available, x.units7, x.units30, x.units90,
+                    lines.push([x.sku, x.name, x.location, x.available, this.u(x.units7), this.u(x.units30), this.u(x.units90),
                         x.daysOfCover, x.openPoQty, x.daysSinceSale, x.preferVendor, x.category,
                         (x.collections || []).join(' / ')].map(cell).join(','))
                 }
@@ -892,6 +977,17 @@ export default {
     label { font-size: 11px; color: #909399; }
     b { font-size: 20px; line-height: 1; font-variant-numeric: tabular-nums; }
 }
+/* Stock read live from Zoho for the rows on screen */
+.sd-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #67c23a; margin-left: 4px; vertical-align: middle; }
+
+/* Sales by week: one column per week, bar height relative to the best week */
+.sd-trend { display: flex; align-items: flex-end; gap: 4px; height: 96px; padding: 0 2px; }
+.sd-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+.sd-trend-val { font-size: 10px; color: #606266; font-variant-numeric: tabular-nums; line-height: 1; height: 12px; }
+.sd-trend-bar { width: 100%; height: 56px; display: flex; align-items: flex-end; background: #f5f7fa; border-radius: 2px; margin-top: 2px; }
+.sd-trend-fill { width: 100%; background: #409eff; border-radius: 2px; min-height: 0; }
+.sd-trend-lbl { font-size: 10px; color: #909399; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
 .sd-section { display: flex; flex-direction: column; gap: 10px; }
 .sd-section-head {
     display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; color: #303133;
