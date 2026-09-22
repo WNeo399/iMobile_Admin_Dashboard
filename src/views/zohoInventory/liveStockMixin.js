@@ -2,8 +2,9 @@
 //
 // The list, tiles and sort come from the stock register (as of its last
 // refresh); the number in the Stock column is then replaced by Zoho's
-// current figure — one Inventory call per page — and marked so the two can
-// be told apart. A read that lands after the page has moved on to another
+// current figure — one Inventory call per page. No mark on the number (the
+// user asked for none); the stored figure stays on the row as
+// storedAvailable. A read that lands after the page has moved on to another
 // list is dropped rather than painted onto the wrong rows. If Zoho is slow
 // or down the stored figure simply stands.
 import { getLiveStock } from '@/api/stockMonitor'
@@ -33,12 +34,6 @@ export default {
             } catch (e) {
                 // The stored figure stands.
             }
-        },
-        liveTitle(row) {
-            if (!row.__stockLive) return 'As of the last refresh'
-            return row.storedAvailable === row.available
-                ? 'Live from Zoho'
-                : `Live from Zoho (was ${row.storedAvailable} at the last refresh)`
         }
     }
 }

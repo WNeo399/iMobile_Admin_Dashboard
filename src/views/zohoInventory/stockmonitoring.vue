@@ -4,10 +4,14 @@
              with accordion (opening one brand closes the others). Its own
              storage key so the old saved width doesn't override the new
              default. Accessories keeps the previous behaviour. -->
-        <tree-panel title="Category" :tree-data="treeData" search-placeholder="Please Enter Categiry"
+        <!-- Browse mode swaps the collection tree for the register's own
+             Brand → Series → Classification tree; clicking any node lists
+             it (the arrow expands), so clicks must not toggle expansion. -->
+        <tree-panel title="Category" :tree-data="browse ? browseTree : treeData" search-placeholder="Please Enter Categiry"
             :storage-key="isAccessories ? 'dept-sidebar-width' : 'stock-tree-width'"
             :default-width="isAccessories ? 228 : 180"
-            :defaultExpandAll="isAccessories" :accordion="!isAccessories" ref="deptTreeRef"
+            :defaultExpandAll="isAccessories" :accordion="!isAccessories && !browse"
+            :expand-on-click-node="!browse" ref="deptTreeRef"
             @node-click="handleNodeClick">
             <!-- The Dashboard tab, pinned above the category tree. Spare
                  Parts only — the Accessories page keeps the plain tree. -->
@@ -20,11 +24,20 @@
                 <div v-if="seaFreightId" :class="['dash-tab', { on: isSeaView }]" @click="openSeaFreight">
                     <i class="el-icon-ship" /> 海运
                 </div>
+                <!-- Browse = every part by its own fields (Brand → Series →
+                     Classification), counted from the register; Collections =
+                     the hand-made lists. Remembered per browser. -->
+                <div class="sm-mode">
+                    <span :class="['sm-mode-btn', { on: sideMode === 'browse' }]" @click="switchSideMode('browse')">
+                        <i class="el-icon-s-grid" /> Browse</span>
+                    <span :class="['sm-mode-btn', { on: sideMode === 'collections' }]" @click="switchSideMode('collections')">
+                        <i class="el-icon-folder-opened" /> Collections</span>
+                </div>
             </template>
             <!-- Whole-tree rearrangement — the same group manager the
                  Collections page uses. -->
             <template #actions>
-                <el-tooltip content="Manage folders" placement="right">
+                <el-tooltip v-if="!browse" content="Manage folders" placement="right">
                     <i v-hasPermi="['zoho:collection:view']" class="tree-action-icon el-icon-setting"
                         @click="openGroupDialog" />
                 </el-tooltip>
@@ -37,7 +50,9 @@
                 <i :class="data.children && data.children.length ? 'el-icon-folder' : 'el-icon-document'"
                     class="tn-icon" />
                 <span class="tn-label" :title="node.label">{{ node.label }}</span>
-                <el-dropdown v-hasPermi="['zoho:collection:view']" trigger="click" size="small"
+                <!-- Browse nodes carry a count and no menu. -->
+                <span v-if="data.browse" class="tn-count">{{ data.count.toLocaleString() }}</span>
+                <el-dropdown v-else v-hasPermi="['zoho:collection:view']" trigger="click" size="small"
                     class="tn-menu" @command="cmd => treeMenu(cmd, data)">
                     <i class="el-icon-more tn-menu-icon" @click.stop />
                     <el-dropdown-menu slot="dropdown">
@@ -88,7 +103,7 @@
                     <div class="sd-spacer" />
                     <!-- Editing targets ONE collection — hidden on a branch
                          view, where several are merged. -->
-                    <el-button v-if="!subOptions.length" v-hasPermi="['zoho:collection:view']" size="small"
+                    <el-button v-if="!subOptions.length && !browse" v-hasPermi="['zoho:collection:view']" size="small"
                         plain type="primary" icon="el-icon-plus" :loading="collectionDetailLoading"
                         :disabled="!currentCollection" @click="handleEditCollection">Add Product</el-button>
                     <el-dropdown trigger="click" @command="handleExportCommand">
@@ -108,6 +123,18 @@
                     <el-input v-model="queryParams.search" size="small" clearable class="sd-search"
                         placeholder="SKU or product name" prefix-icon="el-icon-search"
                         @keyup.enter.native="handleQuery" @clear="handleQuery" />
+                    <!-- Browse mode: narrow the node by quality, or by series /
+                         compatible model — one cascader, Series › Model, multi-
+                         pick; a series on its own means the whole series. The
+                         counts are this node's. -->
+                    <el-select v-if="browse" v-model="browseQuery.quality" size="small" clearable filterable
+                        placeholder="Quality" class="sd-sel" @change="handleQuery">
+                        <el-option v-for="q in browseState.qualities" :key="q.value || '__none__'"
+                            :label="`${q.value || '(no quality)'} (${q.count.toLocaleString()})`" :value="q.value || '__none__'" />
+                    </el-select>
+                    <el-cascader v-if="browse" v-model="browseQuery.models" size="small" clearable filterable collapse-tags
+                        class="sd-casc" placeholder="Series / compatible model" :options="browseState.seriesModels"
+                        :props="{ multiple: true, checkStrictly: true, emitPath: true }" @change="handleQuery" />
                     <el-select v-if="isAccessories" v-model="queryParams.category" size="small" clearable filterable
                         placeholder="Category" class="sd-sel-wide" @change="handleQuery">
                         <el-option v-for="c in categoryOptions" :key="c" :label="c" :value="c" />
@@ -372,7 +399,7 @@ import { getProductDetail } from "../../api/zoho/products/product";
 // Spare parts read the stock register (2026-09-22) — one call for a
 // collection's rows and their sales windows — and overlay live stock on the
 // rows shown. Accessories still read Zoho live through getCurrentStock.
-import { getStockCollectionItems, getLiveStock } from "@/api/stockMonitor";
+import { getStockCollectionItems, getLiveStock, getBrowseTree, getBrowseItems } from "@/api/stockMonitor";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
 import ProductThumb from "@/components/ProductThumb"
 import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
@@ -410,6 +437,20 @@ export default {
             // header says so.
             asOf: { snapshotDate: null, metricsAt: null },
             liveSeq: 0,
+            // Browse mode (parts): the catalogue by its own fields. The
+            // sidebar mode is remembered per browser; browseSel is the
+            // picked node's { brand, series, classification, sub }; the
+            // list is server-paged, so productList holds one page and the
+            // tiles / hidden count / quality breakdown come with it.
+            sideMode: 'collections',
+            browseTree: [],
+            browseTreeLoading: false,
+            browseSel: null,
+            browseSeq: 0,
+            // browseQuery.models holds cascader paths: [series] = the whole
+            // series, [series, model] = one model (any of them matches).
+            browseQuery: { quality: '', models: [], sort: '', order: '' },
+            browseState: { tiles: null, hiddenCount: 0, qualities: [], seriesModels: [] },
             treeData: [],
             currentCollection: "",
             // Inline reorder-point edit — one row at a time.
@@ -470,6 +511,9 @@ export default {
         isAccessories() {
             return this.scope === 'accessories'
         },
+        browse() {
+            return this.sideMode === 'browse' && !this.isAccessories
+        },
         // Distinct categories present in the loaded collection.
         categoryOptions() {
             return [...new Set(this.productList.map(p => p.category).filter(Boolean))]
@@ -497,6 +541,17 @@ export default {
                     { key: 'belowReorder', label: 'Under Reorder', value: this.belowReorderCount, tone: 'warn', note: 'at or below reorder point' }
                 ]
             }
+            // Browse mode: the counts came with the page, over the whole node.
+            if (this.browse) {
+                const t = this.browseState.tiles || {}
+                return [
+                    { key: '', label: 'All Items', value: t.all || 0, tone: 'ok', note: 'in this category' },
+                    { key: 'zero', label: 'Out of Stock', value: t.zero || 0, tone: 'bad', note: 'stock at 0' },
+                    { key: 'noOnOrder', label: 'No on Order', value: t.noOnOrder || 0, tone: 'bad', note: 'out of stock, nothing ordered' },
+                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'on the supplier order sheet' },
+                    { key: 'underMonth', label: "Under a Month's Cover", value: t.underMonth || 0, tone: 'warn', note: `stock below ${this.duration}-day sales` }
+                ]
+            }
             // Spare Parts: purchasing-led buckets. "On order" reads the
             // Tencent order sheet via the Purchase column's data.
             const oos = base.filter(i => Number(i.stock) <= 0)
@@ -514,6 +569,7 @@ export default {
             return t ? t.label : 'All Items'
         },
         hiddenCount() {
+            if (this.browse) return this.browseState.hiddenCount || 0
             return this.productList.filter(i => i.hidden).length
         },
         isSeaView() {
@@ -525,7 +581,7 @@ export default {
             return this.isAccessories ? [15, 30, 45, 60, 90] : [7, 14, 30, 90]
         },
         asOfText() {
-            const n = `${this.productList.length.toLocaleString()} items`
+            const n = `${(this.browse ? this.total : this.productList.length).toLocaleString()} items`
             if (this.isAccessories) return `live from Zoho · ${n}`
             if (!this.asOf.metricsAt) return n
             const mins = Math.max(0, Math.round((Date.now() - new Date(this.asOf.metricsAt).getTime()) / 60000))
@@ -541,11 +597,19 @@ export default {
             this.viewMode = 'dashboard'
         }
         this.getCollectionGroup()
-        if (!this.isAccessories) this.loadSeaFreight()
+        if (!this.isAccessories) {
+            this.loadSeaFreight()
+            try {
+                if (localStorage.getItem('stock-side-mode') === 'browse' || this.$route.query.browse) this.sideMode = 'browse'
+            } catch (e) { /* the default stands */ }
+            if (this.sideMode === 'browse') this.loadBrowseTree()
+        }
     },
     watch: {
         duration() {
             if (this.isAccessories) this.handleGetSalesTotal()
+            // Browse: the Under-a-Month tile follows the window — re-ask.
+            else if (this.browse) this.loadBrowse()
             else this.applyStoredSales()
         },
         // The group manager saves inside its own dialog — re-read the tree
@@ -884,10 +948,12 @@ export default {
             this.currentTab = ''
             this.currentPath = []
             this.subOptions = []
+            this.browseSel = null
             if (this.$refs.deptTreeRef) this.$refs.deptTreeRef.setCurrentKey(null)
-            if (this.$route.query.collection) this.$router.replace({ query: {} })
+            if (this.$route.query.collection || this.$route.query.browse) this.$router.replace({ query: {} })
         },
         handleNodeClick(data, node) {
+            if (this.browse) { this.openBrowseNode(data); return }
             if (!data.children) {
                 this.viewMode = 'list'
                 this.currentTab = data.label
@@ -1076,6 +1142,7 @@ export default {
             // A fresh collection starts on the normal view, not the
             // hidden-items review of the previous one.
             this.showHidden = false
+            if (this.browse) { this.loadBrowse(); return }
             if (!this.isAccessories) {
                 // The register: rows with their sales windows in one call.
                 // Purchase data is a Mongo read as before; stock on the
@@ -1113,6 +1180,9 @@ export default {
         // sorting or paging used to slice the UNFILTERED master list,
         // silently discarding the search.
         handlePagination() {
+            // Browse mode is server-paged: every path that re-renders rows
+            // (search, tile, page, hidden review) asks for the page again.
+            if (this.browse) { this.loadBrowse(); return }
             const filtered = this.productList.filter(item => this.matchesFilters(item))
             this.total = filtered.length
             const page = this.queryParams.pageNum
@@ -1124,6 +1194,14 @@ export default {
             if (!this.isAccessories) this.overlayLiveStock()
         },
         handleSorting({ prop, order }) {
+            if (this.browse) {
+                const map = { productName: 'name', stock: 'stock' }
+                this.browseQuery.sort = order ? (map[prop] || '') : ''
+                this.browseQuery.order = order === 'descending' ? 'desc' : 'asc'
+                this.queryParams.pageNum = 1
+                this.loadBrowse()
+                return
+            }
             if (!order) {
                 this.queryParams.pageNum = 1
                 this.handlePagination()
@@ -1154,7 +1232,19 @@ export default {
         },
         // Export dropdown: the filtered view, the whole collection, or (parts
         // only, when rows are ticked) the selection.
-        handleExportCommand(command) {
+        async handleExportCommand(command) {
+            if (this.browse && command !== 'selection') {
+                // Server-paged, so the rows are fetched for the export: the
+                // current filters for the view, none of them for the full list.
+                try {
+                    const r = await getBrowseItems({ ...this.browseParams(command === 'full'), all: 1 })
+                    if (r && r.capped) this.$message.warning('Export capped at 5,000 rows — narrow the category')
+                    this.doExport(((r && r.rows) || []).map(row => this.withStoredSales(row)))
+                } catch (e) {
+                    this.$message.error('Could not fetch the rows to export')
+                }
+                return
+            }
             this.doExport(command === 'selection' ? this.multipleSelection
                 : command === 'view' ? this.productList.filter(item => this.matchesFilters(item))
                     : this.productList)
@@ -1246,18 +1336,118 @@ export default {
         // column shows the picked one as Zoho (online orders) + Other
         // (counter / workshop / Neto / dispatch). Re-run on a window change
         // — no request, the numbers are already here.
+        withStoredSales(item) {
+            const u = (item.sales && item.sales[String(this.duration)]) || { total: 0, online: 0 }
+            return {
+                ...item,
+                zohoSales: Math.round(u.online * 100) / 100,
+                offlineSales: Math.round((u.total - u.online) * 100) / 100
+            }
+        },
         applyStoredSales() {
             if (this.isAccessories) return
-            const d = String(this.duration)
-            this.productList = this.productList.map(item => {
-                const u = (item.sales && item.sales[d]) || { total: 0, online: 0 }
-                return {
-                    ...item,
-                    zohoSales: Math.round(u.online * 100) / 100,
-                    offlineSales: Math.round((u.total - u.online) * 100) / 100
-                }
-            })
+            this.productList = this.productList.map(item => this.withStoredSales(item))
             this.handlePagination()
+        },
+        // ── Browse mode ──────────────────────────────────────────────
+        switchSideMode(mode) {
+            if (mode === this.sideMode) return
+            this.sideMode = mode
+            try { localStorage.setItem('stock-side-mode', mode) } catch (e) { /* fine */ }
+            // The open list belongs to the other tree — back to the Dashboard.
+            if (this.viewMode === 'list') this.openDashboard()
+            if (mode === 'browse' && !this.browseTree.length) this.loadBrowseTree()
+        },
+        async loadBrowseTree() {
+            if (this.browseTreeLoading) return
+            this.browseTreeLoading = true
+            try {
+                const r = await getBrowseTree({ scope: 'parts' })
+                this.browseTree = (r && r.tree) || []
+                // A ?browse deep link: open its node once the tree is here.
+                const key = this.$route.query.browse
+                if (key && this.browse) {
+                    const find = nodes => {
+                        for (const n of nodes || []) {
+                            if (n.key === key) return n
+                            const hit = find(n.children)
+                            if (hit) return hit
+                        }
+                        return null
+                    }
+                    const node = find(this.browseTree)
+                    if (node) this.openBrowseNode(node)
+                }
+            } catch (e) {
+                this.$message.error('Could not load the category tree')
+            } finally {
+                this.browseTreeLoading = false
+            }
+        },
+        // Any node lists everything under it; the tree arrow expands.
+        openBrowseNode(data) {
+            this.viewMode = 'list'
+            this.browseSel = data.sel
+            this.currentTab = data.label
+            this.currentPath = data.path || [data.label]
+            this.currentCollection = ''
+            this.subOptions = []
+            this.showHidden = false
+            this.queryParams = {
+                pageNum: 1, pageSize: this.queryParams.pageSize || 20, sku: undefined, productName: undefined,
+                search: '', category: '', quick: '', subCol: ''
+            }
+            this.browseQuery = { quality: '', models: [], sort: '', order: '' }
+            this.$router.replace({ query: { browse: data.key } }).catch(() => {})
+            this.$nextTick(() => {
+                this.$refs.table && this.$refs.table.clearSort()
+                this.clearSelection()
+                this.loadBrowse()
+            })
+        },
+        // The query for the picked node and the filters above the table.
+        browseParams(ignoreTile) {
+            const s = this.browseSel || {}
+            const p = { scope: 'parts', page: this.queryParams.pageNum, pageSize: this.queryParams.pageSize, days: this.duration }
+            for (const k of ['brand', 'series', 'classification', 'sub']) if (s[k] !== undefined) p[k] = s[k]
+            if (this.queryParams.search) p.search = this.queryParams.search
+            if (this.browseQuery.quality) p.quality = this.browseQuery.quality
+            const picks = this.browseQuery.models || []
+            const seriesIn = picks.filter(x => x.length === 1).map(x => x[0])
+            const models = picks.filter(x => x.length === 2).map(x => x[1])
+            if (seriesIn.length) p.seriesIn = seriesIn
+            if (models.length) p.models = models
+            if (this.browseQuery.sort) { p.sort = this.browseQuery.sort; p.order = this.browseQuery.order }
+            if (!ignoreTile && this.queryParams.quick) p.tile = this.queryParams.quick
+            if (this.showHidden) p.hidden = 1
+            return p
+        },
+        // One page of the node with its counts. A reply that lands after
+        // the selection moved on is dropped.
+        async loadBrowse() {
+            if (!this.browseSel) return
+            const seq = ++this.browseSeq
+            this.loading = true
+            try {
+                const r = await getBrowseItems(this.browseParams())
+                if (seq !== this.browseSeq) return
+                this.productList = ((r && r.rows) || []).map(row => this.withStoredSales(row))
+                this.showProductList = this.productList
+                this.total = (r && r.total) || 0
+                this.browseState = {
+                    tiles: (r && r.tiles) || null,
+                    hiddenCount: (r && r.hiddenCount) || 0,
+                    qualities: (r && r.qualities) || [],
+                    seriesModels: (r && r.seriesModels) || []
+                }
+                this.asOf = { snapshotDate: r && r.snapshotDate, metricsAt: r && r.metricsAt }
+                this.overlayLiveStock()
+                this.$nextTick(() => this.handleGetPurchase())
+            } catch (e) {
+                if (seq === this.browseSeq) this.$message.error('Could not load this category')
+            } finally {
+                if (seq === this.browseSeq) this.loading = false
+            }
         },
         // Zoho's current stock for the rows on this page, painted over the
         // register's figure (no mark — the user asked for none). Tiles and
@@ -1528,6 +1718,8 @@ export default {
                 quick: '',
                 subCol: ''
             }
+            this.browseQuery.quality = ''
+            this.browseQuery.models = []
             this.handlePagination()
         }
     }
@@ -1538,6 +1730,35 @@ export default {
 .app-container {
     height: 100%;
 }
+
+/* ── Browse | Collections switch above the tree ── */
+.sm-mode {
+    display: flex;
+    margin: 10px 10px 0;
+    border: 1px solid #e8eaed;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.sm-mode-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 28px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #909399;
+    cursor: pointer;
+    transition: all .15s;
+}
+.sm-mode-btn + .sm-mode-btn { border-left: 1px solid #e8eaed; }
+.sm-mode-btn:hover { color: #409eff; background: #f0f7ff; }
+.sm-mode-btn.on { color: #409eff; background: #e6f0fd; }
+/* The count beside a Browse node. */
+.tn-count { flex-shrink: 0; margin-right: 6px; font-size: 11px; color: #c0c4cc; font-variant-numeric: tabular-nums; }
+.sd-sel { width: 200px; }
+.sd-casc { width: 320px; }
 
 /* ── Dashboard tab pinned above the category tree ── */
 .dash-tab {

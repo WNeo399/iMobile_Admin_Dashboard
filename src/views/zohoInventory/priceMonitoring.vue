@@ -111,7 +111,7 @@
 
                 <el-table-column prop="available" label="Stock" width="86" align="center" sortable="custom">
                     <template slot-scope="s">
-                        <span :class="['sd-num', s.row.available <= 0 ? 'sd-bad' : '']" :title="liveTitle(s.row)">{{ s.row.available }}<i v-if="s.row.__stockLive" class="sd-live-dot" /></span>
+                        <span :class="['sd-num', s.row.available <= 0 ? 'sd-bad' : '']">{{ s.row.available }}</span>
                     </template>
                 </el-table-column>
 
@@ -777,7 +777,6 @@ export default {
 .pm-cancel { color: #909399; padding: 2px; }
 
 /* Stock read live from Zoho for the rows on screen */
-.sd-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #67c23a; margin-left: 4px; vertical-align: middle; }
 .sd-card { background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; overflow: hidden; }
 .sd-card-head {
     display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #ebeef5;

@@ -122,6 +122,14 @@
                                 <div class="sd-prod-meta">
                                     <span class="sd-sku">{{ s.row.sku || '—' }}</span>
                                     <span v-if="s.row.location" class="sd-mono"><i class="el-icon-location-outline" /> {{ s.row.location }}</span>
+                                    <!-- Add to / remove from the 海运 list (parts only) — under
+                                         the product, as on the Stock Monitoring list: green =
+                                         in 海运, grey = not; click toggles membership. -->
+                                    <el-tooltip v-if="scope === 'parts'" placement="top"
+                                        :content="s.row.seaFreight ? 'Remove from 海运' : 'Add to 海运'">
+                                        <span :class="['sd-sea-btn', { on: s.row.seaFreight }]" @click.stop="toggleSeaFreight(s.row)"><i
+                                                :class="s.row.__seaBusy ? 'el-icon-loading' : 'el-icon-ship'" /> 海运</span>
+                                    </el-tooltip>
                                 </div>
                             </div>
                         </div>
@@ -130,7 +138,7 @@
 
                 <el-table-column prop="available" label="Stock" width="86" align="right" sortable="custom">
                     <template slot-scope="s">
-                        <span :class="['sd-num', stockTone(s.row)]" :title="liveTitle(s.row)">{{ s.row.available }}<i v-if="s.row.__stockLive" class="sd-live-dot" /></span>
+                        <span :class="['sd-num', stockTone(s.row)]">{{ s.row.available }}</span>
                     </template>
                 </el-table-column>
 
@@ -164,15 +172,8 @@
                     </template>
                 </el-table-column>
 
-                <el-table-column label="" width="72" align="center">
+                <el-table-column label="" width="48" align="center">
                     <template slot-scope="s">
-                        <!-- Add to / remove from the 海运 list (parts only). -->
-                        <el-tooltip v-if="scope === 'parts'" :content="s.row.seaFreight ? 'Remove from 海运' : 'Add to 海运'"
-                            placement="left">
-                            <el-button type="text" size="mini" :loading="s.row.__seaBusy"
-                                :class="['sd-sea-btn', { on: s.row.seaFreight }]" icon="el-icon-ship"
-                                @click.stop="toggleSeaFreight(s.row)" />
-                        </el-tooltip>
                         <!-- Move to / restore from the Archive bucket. -->
                         <el-tooltip :content="query.filter === 'archived' ? 'Restore from Archive' : 'Move to Archive'"
                             placement="left">
@@ -212,7 +213,7 @@
                 <div class="sd-dbody">
                     <div class="sd-stats">
                         <div><label>In stock</label>
-                            <b :class="stockTone(detail.item)" :title="liveTitle(detail.item)">{{ detail.item.available }}<i v-if="detail.item.__stockLive" class="sd-live-dot" /></b></div>
+                            <b :class="stockTone(detail.item)">{{ detail.item.available }}</b></div>
                         <div><label>On order</label>
                             <b :class="detail.item.openPoQty > 0 ? 'sd-good' : 'sd-bad'">{{ detail.item.openPoQty }}</b></div>
                         <div><label>Cover</label>
@@ -928,7 +929,11 @@ export default {
 .sd-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .sd-archived-link { padding: 0; font-size: 12px; color: #909399; &:hover { color: #409eff; } }
 /* Membership reads off the button itself: green = in 海运, grey = not. */
-.sd-sea-btn { color: #c0c4cc; padding: 2px; &.on { color: #67C23A; } }
+.sd-sea-btn {
+    color: #c0c4cc; cursor: pointer; white-space: nowrap;
+    &:hover { color: #909399; }
+    &.on { color: #67C23A; &:hover { color: #529b2e; } }
+}
 .sd-search { width: 260px; }
 .sd-sel { width: 150px; }
 .sd-sel-sm { width: 120px; }
@@ -978,7 +983,6 @@ export default {
     b { font-size: 20px; line-height: 1; font-variant-numeric: tabular-nums; }
 }
 /* Stock read live from Zoho for the rows on screen */
-.sd-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #67c23a; margin-left: 4px; vertical-align: middle; }
 
 /* Sales by week: one column per week, bar height relative to the best week */
 .sd-trend { display: flex; align-items: flex-end; gap: 4px; height: 96px; padding: 0 2px; }

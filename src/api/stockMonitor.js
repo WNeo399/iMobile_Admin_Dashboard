@@ -86,6 +86,18 @@ export function getStockCollectionItems(params) {
   return request({ url: '/stock-monitor/collection-items', method: 'get', params })
 }
 
+// Browse mode: the catalogue as Device Brand → Series → Classification →
+// Sub Classification with counts, from the register.
+export function getBrowseTree(params) {
+  return request({ url: '/stock-monitor/browse-tree', method: 'get', params })
+}
+
+// One node of that tree, server-paged: tile counts, the quality breakdown,
+// and a page of rows (all=1: every row, for export).
+export function getBrowseItems(params) {
+  return request({ url: '/stock-monitor/browse-items', method: 'get', params })
+}
+
 // Live stock for the rows on screen — one Zoho Inventory read per page of
 // ids. Overlaid on the stored numbers by liveStockMixin.
 export function getLiveStock(itemIds) {
