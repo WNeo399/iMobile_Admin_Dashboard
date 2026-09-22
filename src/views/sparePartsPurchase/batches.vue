@@ -156,11 +156,11 @@
                         <template v-else>{{ fmtDay(s.row.orderedAt) }}</template>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Unit Price')" width="110" align="center">
+                <!-- Required to ship: prefilled from the line, editable on every line. -->
+                <el-table-column :label="$tp('Unit Price') + ' *'" width="110" align="center">
                     <template slot-scope="s">
-                        <el-input-number v-if="s.row.status === 'pending'" v-model="s.row.unitPrice" size="mini" :min="0" :precision="2"
-                            :controls="false" placeholder="¥" style="width:88px" />
-                        <template v-else>{{ yuan(s.row.unitPrice) }}</template>
+                        <el-input-number v-model="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false" placeholder="¥"
+                            style="width:88px" :class="{ 'spb-short': s.row.unitPrice == null }" />
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered Qty')" width="90" align="center">
@@ -441,6 +441,10 @@ export default {
             else if (q.create) this.openCreate()
         })
     },
+    // Coming back to the tab (kept alive by the tags bar): fresh data.
+    activated() {
+        this.load()
+    },
     methods: {
         fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink,
         can(p) {
@@ -553,7 +557,7 @@ export default {
                 tracking: this.createForm.tracking,
                 shippedAt: this.createForm.shippedAt,
                 note: this.createForm.note,
-                lines: this.createForm.lines.map(l => ({ orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.status === 'pending' ? l.unitPrice : undefined }))
+                lines: this.createForm.lines.map(l => ({ orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
         async saveDraft() {
@@ -685,7 +689,8 @@ export default {
             if (!this.createForm.zohoVendorId) { this.$message.warning(this.$tp('Select the Zoho vendor')); return }
             for (const l of this.createForm.lines) {
                 if (!l.qty || l.qty < 1) { this.$message.warning(this.$tp('{sku}: enter the shipped quantity', { sku: l.sku || l.productName })); return }
-                if (l.status === 'pending' && !l.supplier) { this.$message.warning(this.$tp('{no}: pick a supplier', { no: l.orderNo })); return }
+                if (l.status === 'pending' && !l.supplier) { this.$message.warning(this.$tp('{sku}: pick a supplier', { sku: l.sku || l.productName })); return }
+                if (l.unitPrice == null || l.unitPrice === '') { this.$message.warning(this.$tp('{sku}: enter the unit price', { sku: l.sku || l.productName })); return }
             }
             this.creating = true
             try {

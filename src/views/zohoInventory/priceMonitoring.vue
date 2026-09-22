@@ -85,7 +85,7 @@
                 @sort-change="onSort" empty-text="Nothing matches these filters.">
                 <el-table-column prop="name" label="Item" min-width="320" sortable="custom">
                     <template slot-scope="s">
-                        <div class="pm-item">
+                        <div class="pm-item" :data-item="s.row.itemId">
                             <!-- Main Zoho image, URL built from the register's image id. -->
                             <product-thumb :src="s.row.imageUrl" :item-id="s.row.itemId" />
                             <div class="pm-item-text">
@@ -159,15 +159,32 @@
                                 ref {{ money(refPrice(s.row, c)) }} <i class="el-icon-document-copy" />
                             </div>
                         </div>
-                        <!-- Submitted: the new rate shows straight away while
-                             Zoho's 10–15s pricebook write runs in the
-                             background; the cell locks until it confirms. -->
+                        <!-- Being pushed (Push all in progress): the cell locks. -->
                         <div v-else-if="pushing[pushKey(s.row, c)]" class="pm-view">
                             <div class="pm-val">
                                 <span>{{ money(pushing[pushKey(s.row, c)].rate) }}</span>
                             </div>
                             <div class="pm-pushing">
                                 <i class="el-icon-loading" /> pushing to Zoho…
+                            </div>
+                        </div>
+                        <!-- Queued: the new rate waits in the loading zone until
+                             it is pushed. Click to change it, × to drop it. -->
+                        <!-- mousedown, not click: the ✓ that queued the value re-renders
+                             this cell before its click finishes bubbling, and a click
+                             handler here would reopen the editor at once. -->
+                        <div v-else-if="queue[pushKey(s.row, c)]" :class="['pm-view', canEditPrices ? 'pm-editable' : '']"
+                            title="Queued for Zoho — click to change"
+                            @mousedown="canEditPrices && startPriceEdit(s.row, c, queue[pushKey(s.row, c)].rate)">
+                            <div class="pm-val">
+                                <span class="pm-queued-val">{{ money(queue[pushKey(s.row, c)].rate) }}</span>
+                                <i v-if="canEditPrices" class="el-icon-close pm-queued-x" title="Remove from the queue"
+                                    @mousedown.stop @click.stop="dequeue(pushKey(s.row, c))" />
+                            </div>
+                            <div class="pm-queued">
+                                <span v-if="queue[pushKey(s.row, c)].error" class="pm-queued-err">
+                                    <i class="el-icon-warning" /> {{ queue[pushKey(s.row, c)].error }}</span>
+                                <template v-else><i class="el-icon-upload2" /> was {{ money(queue[pushKey(s.row, c)].from) }}</template>
                             </div>
                         </div>
                         <div v-else :class="['pm-view', canEditPrices ? 'pm-editable' : '']"
@@ -242,6 +259,80 @@
                     :total="total" @current-change="onPage" @size-change="onSize" />
             </div>
         </div>
+
+        <!-- ── The loading zone ─────────────────────────────────────
+             Price edits wait here and go to Zoho together: the server
+             writes them one call at a time, because Zoho refuses more
+             than a handful of simultaneous pricebook writes. Sticks to
+             the bottom of the window, so the push is always in reach;
+             "Review changes" opens the list. -->
+        <div v-if="queueCount || pushingAll" :class="['pm-zone', { pushing: pushingAll }]">
+            <div class="pm-zone-bar">
+                <template v-if="pushingAll">
+                    <i class="el-icon-loading pm-zone-icon" />
+                    <span class="pm-zone-text">Pushing to Zoho… <b>{{ pushProgress.done }}</b> of {{ pushProgress.total }}
+                        <span v-if="pushProgress.failed" class="pm-zone-bad">· {{ pushProgress.failed }} refused</span></span>
+                    <el-progress :percentage="pushPercent" :show-text="false" :stroke-width="6" class="pm-zone-progress"
+                        :status="pushProgress.failed ? 'exception' : undefined" />
+                    <div class="sd-spacer" />
+                    <span class="sd-dim">the cells being written are locked meanwhile</span>
+                </template>
+                <template v-else>
+                    <i class="el-icon-upload2 pm-zone-icon" />
+                    <span class="pm-zone-text"><b>{{ queueCount }}</b> price {{ queueCount === 1 ? 'change' : 'changes' }}
+                        on <b>{{ queueGroups.length }}</b> {{ queueGroups.length === 1 ? 'product' : 'products' }} waiting for Zoho
+                        <span v-if="queueErrors" class="pm-zone-bad">· {{ queueErrors }} refused on the last push</span></span>
+                    <div class="sd-spacer" />
+                    <el-button size="small" plain icon="el-icon-tickets" @click="reviewVisible = true">Review changes</el-button>
+                    <el-button size="small" plain @click="confirmClear">Discard all</el-button>
+                    <el-button size="small" type="primary" icon="el-icon-upload2" @click="pushAll">
+                        {{ queueCount === 1 ? 'Push it to Zoho' : `Push all ${queueCount} to Zoho` }}
+                    </el-button>
+                </template>
+            </div>
+        </div>
+
+        <!-- Review: everything queued, one row per product, a chip per price
+             list (old → new, the change in %). A chip's × drops that change,
+             the bin the product's; clicking a chip reopens the cell. -->
+        <el-dialog title="Price changes waiting for Zoho" :visible.sync="reviewVisible" width="860px" append-to-body top="6vh">
+            <div class="pm-review-list">
+                <div v-for="g in queueGroups" :key="g.itemId" class="pm-zone-row">
+                    <div class="pm-zone-item">
+                        <div class="pm-zone-name" :title="g.name">{{ g.name }}</div>
+                        <div class="sd-dim">{{ g.sku || '—' }}</div>
+                    </div>
+                    <div class="pm-zone-chips">
+                        <div v-for="q in g.changes" :key="q.key" :class="['pm-chip', { err: q.error }]"
+                            :title="q.error ? q.error : 'Click to change'" @click="editQueued(q)">
+                            <span class="pm-chip-list">{{ q.label }}</span>
+                            <span class="pm-chip-from">{{ money(q.from) }}</span>
+                            <i class="el-icon-right" />
+                            <b class="pm-chip-to">{{ money(q.rate) }}</b>
+                            <span v-if="deltaText(q)" :class="['pm-chip-delta', deltaClass(q)]">{{ deltaText(q) }}</span>
+                            <i class="el-icon-close pm-chip-x" title="Remove this change" @click.stop="dequeue(q.key)" />
+                        </div>
+                        <div v-for="q in g.changes.filter(x => x.error)" :key="q.key + ':err'" class="pm-zone-err">
+                            <i class="el-icon-warning" /> {{ q.label }}: {{ q.error }}
+                        </div>
+                    </div>
+                    <el-tooltip content="Remove this product's changes" placement="top">
+                        <el-button type="text" size="mini" icon="el-icon-delete" class="pm-zone-drop"
+                            @click="dequeueItem(g.itemId)" />
+                    </el-tooltip>
+                </div>
+                <div v-if="!queueGroups.length" class="pm-review-empty">Nothing queued.</div>
+            </div>
+            <span slot="footer">
+                <span class="pm-review-sum">{{ queueCount }} {{ queueCount === 1 ? 'change' : 'changes' }} on
+                    {{ queueGroups.length }} {{ queueGroups.length === 1 ? 'product' : 'products' }}</span>
+                <el-button size="small" plain :disabled="!queueCount" @click="confirmClear">Discard all</el-button>
+                <el-button size="small" @click="reviewVisible = false">Close</el-button>
+                <el-button size="small" type="primary" icon="el-icon-upload2" :disabled="!queueCount" @click="pushAll">
+                    {{ queueCount === 1 ? 'Push it to Zoho' : `Push all ${queueCount} to Zoho` }}
+                </el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
@@ -249,7 +340,7 @@
 import auth from '@/plugins/auth'
 import ProductThumb from '@/components/ProductThumb'
 import liveStockMixin from './liveStockMixin'
-import { getStockSummary, getStockItems, getStockItemPrices, setStockItemArchived, updateStockItemPrice } from '@/api/stockMonitor'
+import { getStockSummary, getStockItems, getStockItemPrices, setStockItemArchived, pushStockItemPrices } from '@/api/stockMonitor'
 
 const TILES = [
     { key: 'all', label: 'All Items', tone: 'ok', tag: 'info', note: 'matching the filters' },
@@ -267,6 +358,9 @@ const PRICE_COLS = [
     { prop: 'priceWholesale', label: 'WholeSale', list: 'wholesale' }
 ]
 const PLACEHOLDERS = new Set([9999.99, 9000, 8888, 7777, 7000, 6000])
+// Changes per request when pushing: the server makes at most one Zoho call
+// per price list for each, so the progress moves every few seconds.
+const PUSH_CHUNK = 20
 
 export default {
     name: 'PriceMonitoring',
@@ -289,10 +383,17 @@ export default {
             total: 0,
             // Inline price edit — one cell being typed into at a time.
             pEdit: { itemId: null, list: '', prop: '', value: 0 },
-            // Pushes to Zoho in flight, keyed `${itemId}|${list}` → { rate }.
-            // They all run at once, so the editor is free for the next price
-            // meanwhile.
+            // Cells locked while "Push all" is running, keyed `${itemId}|${list}` → { rate }.
             pushing: {},
+            // The loading zone: edits waiting to go to Zoho together, keyed
+            // `${itemId}|${list}` → { key, itemId, sku, name, list, prop, label,
+            // rate, from, error }. Kept in localStorage so a reload keeps them.
+            queue: {},
+            pushingAll: false,
+            // How far the chunked push has got (drives the progress bar).
+            pushProgress: { done: 0, total: 0, failed: 0 },
+            // The review dialog (the queued changes, product by product).
+            reviewVisible: false,
             // Row edit: one product's four prices edited in its table row.
             rowEdit: { itemId: null, row: null, values: {} },
             query: {
@@ -306,6 +407,23 @@ export default {
         canEditPrices() {
             return auth.hasPermi('zoho:stock:edit')
         },
+        // The zone's list: one row per product, its changes in tier order.
+        queueGroups() {
+            const order = PRICE_COLS.map(c => c.list)
+            const groups = new Map()
+            for (const q of Object.values(this.queue)) {
+                let g = groups.get(q.itemId)
+                if (!g) { g = { itemId: q.itemId, name: q.name, sku: q.sku, changes: [] }; groups.set(q.itemId, g) }
+                g.changes.push(q)
+            }
+            for (const g of groups.values()) g.changes.sort((a, b) => order.indexOf(a.list) - order.indexOf(b.list))
+            return [...groups.values()]
+        },
+        pushPercent() {
+            return this.pushProgress.total ? Math.round((this.pushProgress.done / this.pushProgress.total) * 100) : 0
+        },
+        queueCount() { return Object.keys(this.queue).length },
+        queueErrors() { return Object.values(this.queue).filter(q => q.error).length },
         // Price lists whose new value differs from the current one (and that
         // aren't already mid-push) — what ✓ will send.
         rowChanges() {
@@ -368,6 +486,7 @@ export default {
         }
     },
     created() {
+        this.restoreQueue()
         this.reload()
     },
     methods: {
@@ -510,50 +629,146 @@ export default {
         },
         savePriceEdit(row) {
             if (this.pEdit.itemId !== row.itemId) return
-            const { list, prop, value } = this.pEdit
-            const rate = Number(value)
+            const { list, value } = this.pEdit
+            const rate = Math.round(Number(value) * 100) / 100
             if (!Number.isFinite(rate) || rate < 0) {
                 this.$message.error('Enter a valid price')
                 return
             }
-            // Zoho's pricebook write takes 10–15s, so it runs in the
-            // background: the editor closes now and the next price can be
-            // typed while this one is still pushing.
-            // Every push starts at once, same product included — the backend
-            // serialises only its quick register/flags update per product.
-            const key = `${row.itemId}|${list}`
+            // Nothing goes to Zoho yet: the change joins the loading zone and
+            // leaves with the next "Push all".
             this.cancelPriceEdit()
-            this.$set(this.pushing, key, { rate })
-            this.pushPrice(row, list, prop, rate, key)
+            const col = PRICE_COLS.find(c => c.list === list)
+            this.enqueue(row, col, rate)
         },
-        // Resolves true on success. `quiet` skips the per-price success toast
-        // (the all-prices dialog shows one summary instead); failures always
-        // toast, naming the list and the value that didn't save.
-        async pushPrice(row, list, prop, rate, key, quiet = false) {
-            const label = row.sku || row.name
+        // ── The loading zone ──
+        // Same product + price list replaces the earlier entry. A change back
+        // to the current rate simply drops the entry.
+        enqueue(row, col, rate) {
+            const key = this.pushKey(row, col)
+            if (this.pushing[key]) { this.$message.warning('That price is being pushed right now — try again in a moment'); return }
+            const from = row[col.prop] == null ? null : Number(row[col.prop])
+            if (from != null && Math.round(from * 100) === Math.round(rate * 100)) { this.dequeue(key); return }
+            this.$set(this.queue, key, {
+                key, itemId: row.itemId, sku: row.sku || '', name: row.name || '',
+                list: col.list, prop: col.prop, label: col.label, rate, from, error: ''
+            })
+            this.saveQueue()
+        },
+        // Drop every change of one product.
+        dequeueItem(itemId) {
+            for (const k of Object.keys(this.queue)) if (this.queue[k].itemId === itemId) this.$delete(this.queue, k)
+            this.saveQueue()
+            if (!this.queueCount) this.reviewVisible = false
+        },
+        // A chip opens the cell's editor when the row is on this page.
+        editQueued(q) {
+            const row = this.rows.find(r => r.itemId === q.itemId)
+            const col = PRICE_COLS.find(c => c.list === q.list)
+            if (!row || !col) { this.$message.info('That product is not on this page — search for it to change the price'); return }
+            this.reviewVisible = false
+            this.startPriceEdit(row, col, q.rate)
+            const el = this.$el.querySelector(`[data-item="${q.itemId}"]`)
+            if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        },
+        // The change as a percentage of the current rate ("+2.4%").
+        deltaText(q) {
+            if (q.from == null || !(Number(q.from) > 0)) return ''
+            const pct = ((Number(q.rate) - Number(q.from)) / Number(q.from)) * 100
+            if (Math.abs(pct) < 0.05) return ''
+            return `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`
+        },
+        deltaClass(q) {
+            return q.from != null && Number(q.rate) < Number(q.from) ? 'down' : 'up'
+        },
+        confirmClear() {
+            const n = this.queueCount
+            this.$confirm(`Discard ${n === 1 ? 'the queued price change' : `all ${n} queued price changes`}? Nothing has been sent to Zoho.`,
+                'Discard changes', { type: 'warning', confirmButtonText: 'Discard', cancelButtonText: 'Keep' })
+                .then(() => { this.clearQueue(); this.reviewVisible = false })
+                .catch(() => {})
+        },
+        dequeue(key) {
+            this.$delete(this.queue, key)
+            this.saveQueue()
+            if (!this.queueCount) this.reviewVisible = false
+        },
+        clearQueue() {
+            this.queue = {}
+            this.saveQueue()
+        },
+        saveQueue() {
+            try { localStorage.setItem('pm-price-queue', JSON.stringify(this.queue)) } catch (e) { /* storage unavailable — the queue still works for this page */ }
+        },
+        restoreQueue() {
             try {
-                const r = await updateStockItemPrice(row.itemId, list, rate)
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                // The list may have been refreshed/re-paged meanwhile — update
-                // whichever row object is on screen for this product now.
-                const target = this.rows.find(x => x.itemId === row.itemId) || row
-                this.$set(target, prop, r.rate)
-                // Pushes for one product can finish in any order; only take
-                // flags newer than the ones already applied.
-                if (r.flags && !(r.flagsSeq < (target.__flagsSeq || 0))) {
-                    for (const k of Object.keys(r.flags)) this.$set(target, k, r.flags[k])
-                    target.__flagsSeq = r.flagsSeq || 0
+                const q = JSON.parse(localStorage.getItem('pm-price-queue') || '{}')
+                if (q && typeof q === 'object' && !Array.isArray(q)) this.queue = q
+            } catch (e) { this.queue = {} }
+        },
+        // Everything queued goes to Zoho in requests of PUSH_CHUNK changes,
+        // one after the other; the server writes each request one Zoho call
+        // at a time. Rows on screen take the new rates and flags as each
+        // request comes back; whatever Zoho refused stays queued with its
+        // reason, and the review dialog opens on it.
+        async pushAll() {
+            const items = Object.values(this.queue)
+            if (!items.length || this.pushingAll) return
+            this.pushingAll = true
+            this.reviewVisible = false
+            this.pushProgress = { done: 0, total: items.length, failed: 0 }
+            for (const q of items) this.$set(this.pushing, q.key, { rate: q.rate })
+            let pushed = 0
+            let failed = 0
+            let interrupted = ''
+            try {
+                for (let i = 0; i < items.length; i += PUSH_CHUNK) {
+                    const chunk = items.slice(i, i + PUSH_CHUNK)
+                    const r = await pushStockItemPrices(chunk.map(q => ({ itemId: q.itemId, list: q.list, rate: q.rate })))
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    const answered = new Set()
+                    for (const res of r.results || []) {
+                        const key = `${res.itemId}|${res.list}`
+                        answered.add(key)
+                        const q = this.queue[key]
+                        if (res.ok) {
+                            const target = this.rows.find(x => x.itemId === res.itemId)
+                            if (target) {
+                                const col = PRICE_COLS.find(c => c.list === res.list)
+                                if (col) this.$set(target, col.prop, res.rate)
+                                if (res.flags && !(res.flagsSeq < (target.__flagsSeq || 0))) {
+                                    for (const k of Object.keys(res.flags)) this.$set(target, k, res.flags[k])
+                                    target.__flagsSeq = res.flagsSeq || 0
+                                }
+                            }
+                            this.$delete(this.queue, key)
+                            pushed++
+                        } else if (q) {
+                            this.$set(q, 'error', res.message || 'not saved')
+                            failed++
+                        }
+                    }
+                    // A change the server did not answer for stays queued, flagged.
+                    for (const q of chunk) {
+                        if (!answered.has(q.key) && this.queue[q.key]) { this.$set(this.queue[q.key], 'error', 'no answer from the server'); failed++ }
+                        this.$delete(this.pushing, q.key)
+                    }
+                    this.pushProgress = { done: Math.min(i + chunk.length, items.length), total: items.length, failed }
+                    this.saveQueue()
                 }
-                if (!quiet) this.$message.success(`${label} · ${list} → $${Number(r.rate).toFixed(2)} pushed to Zoho`)
-                // No auto-refresh: the row stays where it is (its cell
-                // colours update from the returned flags) — the Refresh
-                // button in the card head re-counts on demand.
-                return true
             } catch (e) {
-                this.$message.error(`${label} · ${list} $${rate.toFixed(2)} not saved: ` + this.msg(e, 'price push failed'))
-                return false
+                interrupted = this.msg(e, 'Push interrupted')
             } finally {
-                this.$delete(this.pushing, key)
+                this.pushing = {}
+                this.pushingAll = false
+            }
+            if (interrupted) {
+                this.$message.error(`${interrupted} — ${this.queueCount} ${this.queueCount === 1 ? 'change is' : 'changes are'} still queued`)
+            } else if (failed) {
+                this.reviewVisible = true
+                this.$message.warning(`${pushed} pushed to Zoho, ${failed} refused — still queued, with the reason`)
+            } else {
+                this.$message.success(`${pushed} price ${pushed === 1 ? 'change' : 'changes'} pushed to Zoho`)
             }
         },
         // ── All four price lists for one product, in its row ──
@@ -585,27 +800,16 @@ export default {
             if (evt && evt.target) evt.target.blur()
             this.$nextTick(() => this.submitRowEdit())
         },
-        async submitRowEdit() {
+        submitRowEdit() {
             const row = this.rowEdit.row
             const changes = this.rowChanges
             if (!row || !changes.length) return
             this.cancelRowEdit()
             if (this.pEdit.itemId === row.itemId) this.cancelPriceEdit()
-            // Still one Zoho call per price list (one pricebook each) — all
-            // sent at once; the backend keeps the product's flags consistent.
-            const results = await Promise.all(changes.map(({ col, rate }) => {
-                const key = this.pushKey(row, col)
-                this.$set(this.pushing, key, { rate })
-                return this.pushPrice(row, col.list, col.prop, rate, key, true).then(ok => ({ col, rate, ok }))
-            }))
-            const done = results.filter(r => r.ok)
+            // Into the loading zone; they leave with the next "Push all".
+            for (const { col, rate } of changes) this.enqueue(row, col, rate)
             const label = row.sku || row.name
-            const list = done.map(r => `${r.col.label} $${r.rate.toFixed(2)}`).join(', ')
-            if (done.length === results.length) {
-                this.$message.success(`${label} · ${list} pushed to Zoho`)
-            } else if (done.length) {
-                this.$message.warning(`${label}: ${done.length} of ${results.length} prices pushed (${list}) — see the error for the rest`)
-            }
+            this.$message.success(`${label}: ${changes.length} ${changes.length === 1 ? 'price' : 'prices'} queued in the loading zone`)
         },
         // The formula's reference rate for a cell (null when the item has
         // no cost price).
@@ -771,6 +975,12 @@ export default {
 .pm-ref-click { cursor: pointer; &:hover { text-decoration: underline; } }
 .pm-edit { display: inline-flex; align-items: center; gap: 2px; }
 .pm-pushing { font-size: 11px; color: #e6a23c; white-space: nowrap; }
+/* Queued cells */
+.pm-queued { font-size: 11px; color: #e6a23c; white-space: nowrap; }
+.pm-queued-val { color: #e6a23c; font-weight: 600; }
+.pm-queued-x { margin-left: 4px; color: #c0c4cc; cursor: pointer; }
+.pm-queued-x:hover { color: #f56c6c; }
+.pm-queued-err { color: #f56c6c; }
 .pm-input { width: 90px; }
 .pm-input ::v-deep .el-input__inner { padding: 0 6px; text-align: right; }
 .pm-save { color: #67c23a; padding: 2px; }
@@ -783,4 +993,49 @@ export default {
 }
 .sd-card-title { font-size: 13px; font-weight: 600; color: #303133; }
 .sd-pager { padding: 12px 14px; text-align: right; }
+
+/* The loading zone: sticks to the bottom of the window while the list
+   scrolls, in its normal place once the page end is reached. */
+.pm-zone {
+    /* the right margin keeps the Push button clear of the floating AI Agent button */
+    position: sticky; bottom: 12px; z-index: 5; margin: 12px 72px 0 0;
+    background: #fff; border: 1px solid #f5dab1; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .12);
+    &.pushing { border-color: #b3d8ff; }
+}
+.pm-zone-bar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: #fdf6ec; font-size: 13px; color: #606266;
+    .pm-zone.pushing & { background: #ecf5ff; }
+}
+.pm-zone-icon { font-size: 18px; color: #e6a23c; .pm-zone.pushing & { color: #409eff; } }
+.pm-zone-text b { color: #303133; }
+.pm-zone-bad { color: #f56c6c; }
+.pm-zone-progress { width: 320px; margin-left: 6px; }
+.pm-review-list { max-height: 60vh; overflow: auto; margin: -10px 0; }
+.pm-review-empty { padding: 24px; text-align: center; color: #909399; font-size: 13px; }
+.pm-review-sum { float: left; line-height: 32px; font-size: 13px; color: #909399; }
+.pm-zone-row {
+    display: flex; align-items: flex-start; gap: 12px; padding: 8px 4px; border-bottom: 1px solid #f2f6fc;
+    &:last-child { border-bottom: 0; }
+    &:hover { background: #fafafa; }
+}
+.pm-zone-item { flex: 0 0 300px; min-width: 0; line-height: 1.35; }
+.pm-zone-name { font-size: 12px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-zone-chips { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pm-chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 14px;
+    border: 1px solid #f5dab1; background: #fdf6ec; font-size: 12px; cursor: pointer;
+    font-variant-numeric: tabular-nums; line-height: 1.4;
+    &:hover { border-color: #e6a23c; }
+    &.err { border-color: #fbc4c4; background: #fef0f0; }
+    .el-icon-right { color: #c0c4cc; font-size: 11px; }
+}
+.pm-chip-list { color: #909399; font-size: 11px; font-weight: 600; }
+.pm-chip-from { color: #909399; text-decoration: line-through; }
+.pm-chip-to { color: #303133; }
+.pm-chip-delta { font-size: 11px; &.up { color: #67c23a; } &.down { color: #e6a23c; } }
+.pm-chip-x { color: #c0c4cc; margin-left: 2px; &:hover { color: #f56c6c; } }
+.pm-zone-err { flex-basis: 100%; font-size: 11px; color: #f56c6c; }
+.pm-zone-drop { color: #c0c4cc; padding: 4px; margin-top: 2px; &:hover { color: #f56c6c; } }
 </style>

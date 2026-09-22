@@ -464,14 +464,12 @@ import { createOrders, updateOrder, cancelOrder, purchasesByItemIds } from '@/ap
 import { CATEGORIES as PO_CATEGORIES } from '../sparePartsPurchase/shared'
 import { hasPermission } from '@/utils/permission'
 
-// Tiles in the order a buyer reads them: how bad, what is covered, what
-// needs ordering, what is about to, and what is dead weight.
+// Tiles in the order a buyer reads them: how bad, what needs ordering, what
+// is covered. (The cover and sitting-still tiles went at the user's ask.)
 const TILES = [
     { key: 'outOfStock', label: 'Out of stock', tone: 'plain', tag: 'danger', note: 'nothing on the shelf' },
     { key: 'uncovered', label: 'Nothing on order', tone: 'bad', tag: 'danger', note: 'the buy list' },
-    { key: 'onOrder', label: 'On order', tone: 'good', tag: 'success', note: 'covered by a PO', partsOnly: true },
-    { key: 'belowCover', label: "Under a month's cover", tone: 'warn', tag: 'warning', note: 'stock < 30-day sales' },
-    { key: 'sittingStill', label: 'Sitting still', tone: 'plain', tag: 'info', note: 'holding stock, no 14-day sales' }
+    { key: 'onOrder', label: 'On order', tone: 'good', tag: 'success', note: 'covered by a PO', partsOnly: true }
 ]
 // The sales windows the register stores (see utils/stockItems.js).
 const SALES_DAYS = [7, 14, 30, 90]
@@ -1193,7 +1191,8 @@ export default {
 .sd-sel { width: 150px; }
 .sd-sel-sm { width: 120px; }
 
-.sd-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.sd-tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+.sd-tiles > .sd-tile { flex: 1 1 200px; max-width: 340px; }
 .sd-tile {
     background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; padding: 14px 16px;
     display: flex; flex-direction: column; gap: 6px; cursor: pointer;

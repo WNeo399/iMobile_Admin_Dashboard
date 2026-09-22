@@ -8,7 +8,7 @@
                 <span class="spp-node">
                     <i :class="data.id === 'root' ? 'el-icon-notebook-2' : 'el-icon-document'" class="spp-node-icon" />
                     <span class="spp-node-label" :title="data.label">{{ data.label }}</span>
-                    <span v-if="data.count != null" class="spp-node-count">{{ data.count }}</span>
+                    <span v-if="data.count != null" :class="['spp-node-count', { 'is-zero': !data.count }]" :title="$tp('Pending')">{{ data.count }}</span>
                 </span>
             </template>
         </tree-panel>
@@ -16,6 +16,11 @@
         <div class="spp-main">
             <div class="spp-topbar">
                 <el-checkbox v-model="openOnly" class="spp-toggle" @change="onOpenOnly">{{ $tp('Open orders only') }}</el-checkbox>
+                <!-- Several pending lines with one supplier happen on the Order
+                     Batches page (the list to send them comes from there). -->
+                <el-button v-if="can('spp:order:supply')" size="small" icon="el-icon-document-checked"
+                    @click="$router.push({ path: '/sparePartsPurchase/order-batches', query: { create: '1' } })">{{ $tp('Create Order Batch') }}</el-button>
+                <el-button size="small" icon="el-icon-download" :loading="exporting" @click="exportList">{{ $tp('Export') }}</el-button>
                 <el-button v-if="can('spp:order:create')" type="success" size="small" icon="el-icon-plus" @click="openCreate">{{ $tp('Create PO') }}</el-button>
                 <el-button v-if="can('spp:batch:create')" type="warning" plain size="small" icon="el-icon-truck" @click="goCreateBatch">{{ $tp('Create Batch') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
@@ -223,7 +228,7 @@
             </span>
         </el-dialog>
 
-        <!-- ── Place order ──────────────────────────────────────────── -->
+        <!-- ── Place order (one line) ───────────────────────────────── -->
         <el-dialog :visible.sync="placeVisible" width="480px" append-to-body>
             <div slot="title" class="spp-dlg-head"><i class="el-icon-document-checked" /> {{ $tp('Place order') }}</div>
             <div v-if="placeRow" class="spp-card">
@@ -239,13 +244,14 @@
                             <el-option v-for="s in suppliers" :key="s" :label="s" :value="s" />
                         </el-select>
                     </el-form-item>
-                    <el-form-item :label="$tp('Unit Price')" class="spp-col">
+                    <el-form-item :label="$tp('Unit Price') + ' (' + $tp('optional') + ')'" class="spp-col">
                         <el-input v-model="placeForm.unitPrice" type="number" min="0" placeholder="0.00" style="width:100%">
                             <template slot="prepend">¥</template>
                         </el-input>
                     </el-form-item>
                 </div>
-                <div class="spp-hint"><i class="el-icon-time" /> {{ $tp('The order time is recorded as now and the line moves to Ordered.') }}</div>
+                <div class="spp-hint"><i class="el-icon-time" /> {{ $tp('The order time is recorded as now and the line moves to Ordered.') }}
+                    {{ $tp('The price can wait until the line ships.') }}</div>
             </el-form>
             <span slot="footer">
                 <el-button size="small" @click="placeVisible = false">{{ $tp('Cancel') }}</el-button>
@@ -350,6 +356,7 @@
 <script>
 import TreePanel from '@/components/TreePanel'
 import { hasPermission } from '@/utils/permission'
+import * as XLSX from 'xlsx-js-style'
 import {
     listOrders, getOrder, createOrders, updateOrder, quoteOrder, placeOrder, shortageOrder,
     cancelOrder, reopenOrder, searchProducts
@@ -388,11 +395,12 @@ export default {
             createSearch: '',
             createLines: [],
             creating: false,
-            // Place order
+            // Place order — one row
             placeVisible: false,
             placeRow: null,
             placeForm: { supplier: '', unitPrice: undefined },
             placing: false,
+            exporting: false,
             // Quote
             quoteVisible: false,
             quoteRow: null,
@@ -408,11 +416,12 @@ export default {
     },
     computed: {
         treeData() {
-            // Every category, even empty — the count is the lines still to arrive.
+            // Every category, even empty — the count is the lines still
+            // waiting to be placed (pending), in red.
             const cats = this.categories.length ? this.categories : CATEGORIES
-            const open = cat => (this.byCategory[cat] && this.byCategory[cat].open) || 0
-            const children = cats.map(cat => ({ id: cat, label: this.catLabel(cat), count: open(cat) }))
-            const total = Object.keys(this.byCategory).reduce((sum, cat) => sum + open(cat), 0)
+            const pending = cat => (this.byCategory[cat] && this.byCategory[cat].pending) || 0
+            const children = cats.map(cat => ({ id: cat, label: this.catLabel(cat), count: pending(cat) }))
+            const total = Object.keys(this.byCategory).reduce((sum, cat) => sum + pending(cat), 0)
             return [{ id: 'root', label: this.$tp('All orders'), count: total, children }]
         },
         canEither() {
@@ -426,6 +435,11 @@ export default {
         }
     },
     created() {
+        this.load()
+    },
+    // Coming back to the tab (kept alive by the tags bar) — e.g. from Order
+    // Batches after placing lines — must show fresh data.
+    activated() {
         this.load()
     },
     methods: {
@@ -596,6 +610,58 @@ export default {
                 this.placing = false
             }
         },
+        // ── Export ─────────────────────────────────────────────────
+        // The current tab (category, status / supplier / search filters, open
+        // toggle) as an Excel sheet — every page of it.
+        async exportList() {
+            this.exporting = true
+            try {
+                const base = {
+                    category: this.activeCategory || undefined,
+                    status: this.activeStatus || undefined,
+                    supplier: this.activeSupplier || undefined,
+                    open: (!this.activeStatus && this.openOnly) ? 1 : undefined,
+                    search: this.search || undefined,
+                    sort: 'oldest',
+                    pageSize: 200
+                }
+                const all = []
+                for (let page = 1; page <= 50; page++) {
+                    const r = await listOrders({ ...base, page })
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    all.push(...(r.rows || []))
+                    if (all.length >= (r.total || 0) || !(r.rows || []).length) break
+                }
+                if (!all.length) { this.$message.info(this.$tp('Nothing to export')); return }
+                const t = k => this.$tp(k)
+                const data = all.map(r => ({
+                    [t('Date')]: fmtDay(r.createdAt),
+                    ['SKU']: r.sku || '',
+                    [t('Product')]: r.productName || '',
+                    [t('Category')]: this.catLabel(r.category),
+                    [t('Qty')]: r.orderQty,
+                    [t('Unit Price')]: r.unitPrice != null ? r.unitPrice : (r.quotedPrice != null ? r.quotedPrice : ''),
+                    [t('Supplier')]: r.supplier || '',
+                    [t('Status')]: this.statusLabel(r.status),
+                    [t('Ordered')]: fmtWhen(r.orderedAt) === '—' ? '' : fmtWhen(r.orderedAt),
+                    [t('Shipped Qty')]: r.shippedQty != null ? r.shippedQty : '',
+                    [t('Batch')]: r.batchNo || '',
+                    [t('Tracking')]: r.tracking || '',
+                    [t('Received')]: fmtDay(r.receivedAt) === '—' ? '' : fmtDay(r.receivedAt),
+                    [t('Note')]: r.note || ''
+                }))
+                const ws = XLSX.utils.json_to_sheet(data)
+                ws['!cols'] = [10, 10, 60, 14, 6, 10, 12, 10, 16, 10, 10, 16, 10, 30].map(w => ({ wch: w }))
+                const wb = XLSX.utils.book_new()
+                const sheet = (this.activeCategory ? this.catLabel(this.activeCategory) : t('All orders')).replace(/[\\/?*[\]:]/g, ' ').slice(0, 30)
+                XLSX.utils.book_append_sheet(wb, ws, sheet)
+                XLSX.writeFile(wb, `${t('Purchase Orders')} - ${sheet} - ${fmtDay(new Date().toISOString())}.xlsx`)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Export failed')))
+            } finally {
+                this.exporting = false
+            }
+        },
         openQuote(row) {
             this.quoteRow = row
             this.quoteForm = { unitPrice: row.quotedPrice != null ? row.quotedPrice : undefined }
@@ -701,7 +767,8 @@ export default {
 .spp-node { display: flex; align-items: center; min-width: 0; width: 100%; }
 .spp-node-icon { color: #909399; margin-right: 6px; flex-shrink: 0; }
 .spp-node-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.spp-node-count { flex-shrink: 0; margin-left: 8px; font-size: 11px; color: #909399; font-variant-numeric: tabular-nums; }
+.spp-node-count { flex-shrink: 0; margin-left: 8px; font-size: 11px; font-weight: 600; color: #f56c6c; font-variant-numeric: tabular-nums; }
+.spp-node-count.is-zero { color: #c0c4cc; font-weight: 400; }
 .spp-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .spp-toggle { margin-right: auto; }
 .spp-header { margin-bottom: 8px; }

@@ -357,6 +357,18 @@ export const moduleRoutes = [
         }
       },
       {
+        // 下单批次: pending lines placed with one supplier, the list sent to
+        // them, and their quoted prices keyed back in.
+        path: "order-batches",
+        component: (resolve) => require(["@/views/sparePartsPurchase/orderBatches"], resolve),
+        name: "SppOrderBatches",
+        meta: {
+          title: "Order Batches",
+          icon: "el-icon-document-checked",
+          permissions: ["spp:order:supply"]
+        }
+      },
+      {
         path: "batches",
         component: (resolve) => require(["@/views/sparePartsPurchase/batches"], resolve),
         name: "SppBatches",

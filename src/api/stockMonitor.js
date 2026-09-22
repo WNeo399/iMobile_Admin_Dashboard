@@ -62,6 +62,12 @@ export function setStockItemArchived(itemId, restore) {
 export function updateStockItemPrice(itemId, list, rate) {
   return request({ url: `/stock-monitor/item/${itemId}/price`, method: 'put', data: { list, rate }, timeout: 30000 })
 }
+// Many price changes at once — the server writes them to Zoho one call at
+// a time (Zoho refuses more than a few simultaneous pricebook writes).
+// changes: [{ itemId, list, rate }] → { pushed, failed, results[] }
+export function pushStockItemPrices(changes) {
+  return request({ url: '/stock-monitor/prices/bulk', method: 'put', data: { changes }, timeout: 300000 })
+}
 
 // Upload product images to the item in Zoho (Missing Images page). files:
 // File[] in order — the first becomes the main image when the item has

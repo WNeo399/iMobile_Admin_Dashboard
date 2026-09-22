@@ -31,6 +31,21 @@ export function quoteOrder(id, unitPrice) {
 export function placeOrder(id, data) {
   return request({ url: `${BASE}/orders/${id}/place`, method: 'post', data })
 }
+// ── Order batches (下单批次) ─────────────────────────────────────────
+export function listOrderBatches(params) {
+  return request({ url: `${BASE}/order-batches`, method: 'get', params })
+}
+export function getOrderBatch(id) {
+  return request({ url: `${BASE}/order-batches/${id}`, method: 'get' })
+}
+// { supplier, note, orderIds } — the selected pending lines placed as one batch
+export function createOrderBatch(data) {
+  return request({ url: `${BASE}/order-batches`, method: 'post', data })
+}
+// { lines: [{ orderId, unitPrice }] } — the supplier's prices onto the lines
+export function priceOrderBatch(id, data) {
+  return request({ url: `${BASE}/order-batches/${id}/prices`, method: 'put', data })
+}
 export function shortageOrder(id, note) {
   return request({ url: `${BASE}/orders/${id}/shortage`, method: 'post', data: { note } })
 }
