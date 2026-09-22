@@ -334,6 +334,41 @@ export const moduleRoutes = [
     ]
   },
   {
+    // Spare Parts Purchase — the in-app purchase process (2026-09): what
+    // iMobile asks for, what the purchase partner buys and ships, what
+    // arrives. Replaces the sheet-backed iMobile → Purchase Order page once
+    // its open orders are imported. Shared by admin, iMobile Admin and the
+    // Parts Supplier role (spp:* permissions).
+    path: "/sparePartsPurchase",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "Spare Parts Purchase", icon: "el-icon-shopping-cart-2" },
+    children: [
+      {
+        path: "orders",
+        component: (resolve) => require(["@/views/sparePartsPurchase/orders"], resolve),
+        name: "SppOrders",
+        meta: {
+          title: "Purchase Order",
+          icon: "el-icon-notebook-2",
+          permissions: ["spp:order:view"]
+        }
+      },
+      {
+        path: "batches",
+        component: (resolve) => require(["@/views/sparePartsPurchase/batches"], resolve),
+        name: "SppBatches",
+        meta: {
+          title: "Batches",
+          icon: "el-icon-truck",
+          permissions: ["spp:batch:view"]
+        }
+      }
+    ]
+  },
+  {
     // iMobile Accessories — promoted out of the iMobile group to its own
     // top-level menu (2026-09). Same Stock Monitoring / Collections
     // functionality as Spare Parts but over its own collection set

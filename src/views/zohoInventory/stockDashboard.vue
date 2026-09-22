@@ -94,7 +94,7 @@
 
             <el-table ref="table" :data="rows" v-loading="loading" size="mini" border
                 :default-sort="{ prop: query.sort, order: query.order === 'asc' ? 'ascending' : 'descending' }"
-                @sort-change="onSort" @row-click="openDetail"
+                @sort-change="onSort"
                 empty-text="Nothing matches these filters.">
                 <!-- SKU, product and shelf in one column. The column's own
                      sort arrows would only cover one field, so the header
@@ -142,27 +142,58 @@
                     </template>
                 </el-table-column>
 
-                <el-table-column prop="units30" label="30-day" width="88" align="right" sortable="custom">
-                    <template slot-scope="s"><span class="sd-num">{{ u(s.row.units30) }}</span></template>
-                </el-table-column>
-
-                <el-table-column prop="units90" label="90-day" width="88" align="right" sortable="custom">
-                    <template slot-scope="s"><span class="sd-num">{{ u(s.row.units90) }}</span></template>
-                </el-table-column>
-
-                <el-table-column prop="daysOfCover" label="Cover" width="92" align="right" sortable="custom">
-                    <template slot-scope="s">
-                        <span :class="['sd-num', coverTone(s.row.daysOfCover)]">{{ coverText(s.row.daysOfCover) }}</span>
+                <!-- Units sold in one window — the register keeps 7, 14, 30 and
+                     90 days; the header picks which (30 by default) and the
+                     column sorts on the chosen one. -->
+                <el-table-column :prop="'units' + salesDays" width="126" align="right" sortable="custom" class-name="sd-sales-col">
+                    <template #header>
+                        <span class="sd-sales-head">
+                            Sold
+                            <el-select v-model="salesDays" size="mini" class="sd-sales-days" @click.native.stop @change="onSalesDays">
+                                <el-option v-for="d in SALES_DAYS" :key="d" :label="d + 'd'" :value="d" />
+                            </el-select>
+                        </span>
                     </template>
+                    <template slot-scope="s"><span class="sd-num">{{ u(s.row['units' + salesDays]) }}</span></template>
                 </el-table-column>
 
-                <!-- Accessory purchasing runs outside imb_purchase_order, so
-                     an On order column there would read 0 for everything. -->
-                <el-table-column v-if="scope === 'parts'" prop="openPoQty" label="On order" width="96"
+                <!-- Open purchases in Spare Parts Purchase by stage — pending
+                     (待处理), ordered (已下单), shipped (已发货) — with the Tencent
+                     sheet figure underneath while it still exists. -->
+                <!-- Inline too: with nothing on order, a click on the cell
+                     takes a quantity and raises a PO; a lone pending line's
+                     quantity can be changed in place (0 cancels it). -->
+                <el-table-column v-if="scope === 'parts'" prop="openPoQty" label="On order" width="150"
                     align="right" sortable="custom">
                     <template slot-scope="s">
-                        <span v-if="s.row.openPoQty > 0" class="sd-num sd-good">{{ s.row.openPoQty }}</span>
-                        <span v-else class="sd-dim">—</span>
+                        <div class="sd-oo-cell" @click.stop="onOoCellClick(s.row)">
+                            <div v-if="s.row.__edit" class="sd-oo sd-oo-editing">
+                                <span>{{ s.row.__edit.kind === 'new' ? 'PO' : 'Pending' }}</span>
+                                <input v-focus v-model.number="s.row.__edit.value" type="number" min="0" class="sd-oo-input"
+                                    @keyup.enter="commitQty(s.row)" @keyup.esc="cancelQty(s.row)" />
+                                <i class="el-icon-check sd-oo-ok" title="Save (Enter)" @click.stop="commitQty(s.row)" />
+                                <i class="el-icon-close sd-oo-no" title="Cancel (Esc)" @click.stop="cancelQty(s.row)" />
+                            </div>
+                            <template v-else>
+                                <template v-if="sppOpen(s.row) > 0">
+                                    <div v-if="s.row.__spp.pending" :class="['sd-oo', 'sd-oo-pending', { editable: canEditPending(s.row) }]"
+                                        :title="canEditPending(s.row) ? 'Click to change the pending quantity — 0 cancels it' : '待处理 — asked for, not yet placed'"
+                                        @click.stop="canEditPending(s.row) ? startQty(s.row, 'pending') : null">
+                                        <span>Pending</span><b>{{ s.row.__spp.pending }}</b></div>
+                                    <div v-if="s.row.__spp.ordered" class="sd-oo sd-oo-ordered" title="已下单 — placed with the supplier">
+                                        <span>Ordered</span><b>{{ s.row.__spp.ordered }}</b></div>
+                                    <div v-if="s.row.__spp.shipped" class="sd-oo sd-oo-shipped" title="已发货 — on its way in a batch">
+                                        <span>Shipped</span><b>{{ s.row.__spp.shipped }}</b></div>
+                                    <div v-if="s.row.__spp.shortage" class="sd-oo sd-oo-shortage" title="缺货 — the supplier cannot get it">
+                                        <span>Shortage</span><b>{{ s.row.__spp.shortage }}</b></div>
+                                </template>
+                                <div v-if="s.row.openPoQty > 0" :class="sppOpen(s.row) > 0 ? 'sd-dim' : 'sd-num sd-good'"
+                                    title="On the Tencent sheet">{{ s.row.openPoQty }}<span v-if="sppOpen(s.row) > 0"> sheet</span></div>
+                                <div v-if="!(sppOpen(s.row) > 0)" :class="['sd-dim', { 'sd-oo-add': canCreatePo }]"
+                                    :title="canCreatePo ? 'Click, type a quantity and press Enter to create a PO' : ''">
+                                    {{ s.row.openPoQty > 0 ? '' : '—' }}<span v-if="canCreatePo" class="sd-oo-plus">+ PO</span></div>
+                            </template>
+                        </div>
                     </template>
                 </el-table-column>
 
@@ -172,8 +203,17 @@
                     </template>
                 </el-table-column>
 
-                <el-table-column label="" width="48" align="center">
+                <el-table-column label="" width="100" align="center">
                     <template slot-scope="s">
+                        <!-- The item drawer (rows no longer open it on click). -->
+                        <el-tooltip content="Detail" placement="left">
+                            <el-button type="text" size="mini" icon="el-icon-view" @click.stop="openDetail(s.row)" />
+                        </el-tooltip>
+                        <!-- Raise a purchase order line for this part. -->
+                        <el-tooltip v-if="canCreatePo && scope === 'parts'" content="Create PO" placement="left">
+                            <el-button type="text" size="mini" icon="el-icon-shopping-cart-2" class="sd-po-btn"
+                                @click.stop="openCreatePo(s.row)" />
+                        </el-tooltip>
                         <!-- Move to / restore from the Archive bucket. -->
                         <el-tooltip :content="query.filter === 'archived' ? 'Restore from Archive' : 'Move to Archive'"
                             placement="left">
@@ -184,6 +224,41 @@
                     </template>
                 </el-table-column>
             </el-table>
+
+            <!-- Create PO: one line into Spare Parts Purchase. The category
+                 is the part's classification, or 海运 when the part is on
+                 the 海运 list; the quantity starts at what the reorder level
+                 is short by. -->
+            <el-dialog :visible.sync="poVisible" width="500px" append-to-body>
+                <div slot="title" class="sd-po-head"><i class="el-icon-shopping-cart-2" /> Create Purchase Order</div>
+                <div v-if="poRow" class="sd-po-card">
+                    <div class="sd-po-name" :title="poRow.name">{{ poRow.name }}</div>
+                    <div class="sd-dim">
+                        SKU {{ poRow.sku || '—' }} · stock {{ poRow.available }}
+                        · reorder level {{ poRow.reorderLevel || '—' }}<span v-if="sppOpen(poRow) > 0"> · {{ sppOpen(poRow) }} already on order</span>
+                    </div>
+                </div>
+                <el-form label-position="top" size="small" @submit.native.prevent>
+                    <div class="sd-po-row">
+                        <el-form-item label="Category" class="sd-po-col">
+                            <el-select v-model="poForm.category" style="width:100%">
+                                <el-option v-for="c in PO_CATEGORIES" :key="c" :label="c" :value="c" />
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item label="Quantity" class="sd-po-col">
+                            <el-input-number v-model="poForm.orderQty" :min="1" :precision="0" :step="1"
+                                controls-position="right" style="width:100%" />
+                        </el-form-item>
+                    </div>
+                    <el-form-item label="Note">
+                        <el-input v-model="poForm.note" maxlength="200" placeholder="Optional" />
+                    </el-form-item>
+                </el-form>
+                <span slot="footer">
+                    <el-button size="small" @click="poVisible = false">Cancel</el-button>
+                    <el-button type="primary" size="small" icon="el-icon-check" :loading="poSaving" @click="submitCreatePo">Create PO</el-button>
+                </span>
+            </el-dialog>
 
             <div class="sd-pager">
                 <el-pagination background layout="total, sizes, prev, pager, next"
@@ -383,6 +458,11 @@ import {
 import liveStockMixin from './liveStockMixin'
 import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
 import ProductThumb from '@/components/ProductThumb'
+// Create PO from a row goes to the Spare Parts Purchase module (the in-app
+// process), not the Tencent sheet — the user tests the new process here.
+import { createOrders, updateOrder, cancelOrder, purchasesByItemIds } from '@/api/sparePartsPurchase'
+import { CATEGORIES as PO_CATEGORIES } from '../sparePartsPurchase/shared'
+import { hasPermission } from '@/utils/permission'
 
 // Tiles in the order a buyer reads them: how bad, what is covered, what
 // needs ordering, what is about to, and what is dead weight.
@@ -393,8 +473,10 @@ const TILES = [
     { key: 'belowCover', label: "Under a month's cover", tone: 'warn', tag: 'warning', note: 'stock < 30-day sales' },
     { key: 'sittingStill', label: 'Sitting still', tone: 'plain', tag: 'info', note: 'holding stock, no 14-day sales' }
 ]
+// The sales windows the register stores (see utils/stockItems.js).
+const SALES_DAYS = [7, 14, 30, 90]
 const SORT_LABELS = {
-    units90: '90-day units', units30: '30-day units', available: 'stock',
+    units90: '90-day units', units30: '30-day units', units14: '14-day units', units7: '7-day units', available: 'stock',
     daysOfCover: 'days of cover', daysSinceSale: 'days since last sale',
     sku: 'SKU', name: 'product', location: 'shelf', openPoQty: 'quantity on order'
 }
@@ -405,6 +487,10 @@ export default {
     name: 'StockDashboard',
     components: { ProductThumb },
     mixins: [liveStockMixin],
+    directives: {
+        // the inline quantity box takes the cursor as soon as it appears
+        focus: { inserted(el) { el.focus(); if (el.select) el.select() } }
+    },
     props: {
         // Rendered inside the Stock Monitoring page (Dashboard tab) rather
         // than as its own route: drop the app-container chrome and retitle,
@@ -438,7 +524,7 @@ export default {
             query: {
                 filter: 'uncovered',
                 search: '', category: '', collection: '', location: '', vendor: '',
-                sort: 'units90', order: 'desc', page: 1, pageSize: 20
+                sort: 'units30', order: 'desc', page: 1, pageSize: 20
             },
 
             detailVisible: false,
@@ -462,10 +548,25 @@ export default {
             purchaseOrders: [],
             poOnOrder: 0,
             poLoading: false,
-            poError: ''
+            poError: '',
+
+            // The sales window the Sold column shows (and sorts on).
+            SALES_DAYS,
+            salesDays: 30,
+
+            // Create PO (Spare Parts Purchase) from a row.
+            PO_CATEGORIES,
+            poVisible: false,
+            poRow: null,
+            poForm: { category: '', orderQty: 1, note: '' },
+            poSaving: false,
+            sppSeq: 0
         }
     },
     computed: {
+        canCreatePo() {
+            return hasPermission(this.$store.getters.permissions, 'spp:order:create')
+        },
         trendTotal() {
             return Math.round(this.trend.reduce((s, w) => s + (w.units || 0), 0) * 100) / 100
         },
@@ -634,6 +735,7 @@ export default {
                 // Not awaited: the list paints from the register and the
                 // live figures land on it a moment later.
                 this.overlayLiveStock(this.rows)
+                this.overlaySpp(this.rows)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Could not load the stock list'))
             } finally {
@@ -644,6 +746,117 @@ export default {
             this.query.filter = this.query.filter === key ? 'all' : key
             this.query.page = 1
             this.loadItems()
+        },
+        // ── Spare Parts Purchase ───────────────────────────────────
+        // Open purchase lines per row from the new module, painted on
+        // after the page loads (the register's openPoQty is the sheet's).
+        async overlaySpp(rows) {
+            const ids = (rows || []).map(r => r.itemId).filter(Boolean)
+            if (!ids.length || !hasPermission(this.$store.getters.permissions, 'spp:order:view')) return
+            const seq = ++this.sppSeq
+            try {
+                const r = await purchasesByItemIds(ids)
+                if (seq !== this.sppSeq || !r || !r.data) return
+                for (const row of rows) this.$set(row, '__spp', r.data[row.itemId] || null)
+            } catch (e) { /* the column just shows the sheet figure */ }
+        },
+        // ── Inline quantity in the On order cell ───────────────────
+        canEditPending(row) {
+            const s = row && row.__spp
+            return this.canCreatePo && !!s && Array.isArray(s.pendingLines) && s.pendingLines.length === 1
+        },
+        poCategoryFor(row) {
+            return row.seaFreight ? '海运' : (PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other')
+        },
+        onOoCellClick(row) {
+            if (row.__edit || !this.canCreatePo) return
+            if (this.sppOpen(row) === 0) this.startQty(row, 'new')
+        },
+        startQty(row, kind) {
+            this.$set(row, '__edit', { kind, value: kind === 'pending' ? row.__spp.pending : '', busy: false })
+        },
+        cancelQty(row) {
+            this.$set(row, '__edit', null)
+        },
+        // Enter or leaving the box commits: a new PO for the typed quantity,
+        // or the pending line's new quantity (0 cancels that line).
+        async commitQty(row) {
+            const e = row.__edit
+            if (!e || e.busy) return
+            const qty = Math.round(Number(e.value))
+            if (e.kind === 'new') {
+                if (!Number.isFinite(qty) || qty < 1) { this.cancelQty(row); return }
+                e.busy = true
+                try {
+                    const r = await createOrders([{
+                        itemId: row.itemId, sku: row.sku, productName: row.name, imageId: row.imageId,
+                        category: this.poCategoryFor(row), orderQty: qty, note: ''
+                    }])
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$message.success(`PO created: ${row.sku || row.name} × ${qty}`)
+                    this.$set(row, '__edit', null)
+                    this.overlaySpp([row])
+                } catch (err) {
+                    this.$message.error(this.msg(err, 'Could not create the purchase order'))
+                    e.busy = false
+                }
+                return
+            }
+            const line = row.__spp.pendingLines[0]
+            if (!Number.isFinite(qty) || qty < 0 || qty === line.orderQty) { this.cancelQty(row); return }
+            e.busy = true
+            try {
+                if (qty === 0) {
+                    await this.$confirm(`Cancel the pending purchase order for ${row.sku || row.name}?`, 'Cancel PO',
+                        { type: 'warning', confirmButtonText: 'Cancel PO', cancelButtonText: 'Keep' })
+                    const r = await cancelOrder(line.id)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$message.success(`Pending PO for ${row.sku || row.name} cancelled`)
+                } else {
+                    const r = await updateOrder(line.id, { orderQty: qty })
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$message.success(`Pending quantity for ${row.sku || row.name} is now ${qty}`)
+                }
+                this.$set(row, '__edit', null)
+                this.overlaySpp([row])
+            } catch (err) {
+                if (err !== 'cancel' && err !== 'close') this.$message.error(this.msg(err, 'Could not update the purchase order'))
+                this.$set(row, '__edit', null)
+            }
+        },
+        // Everything still to arrive: waiting, placed, in transit, short.
+        sppOpen(row) {
+            const s = row && row.__spp
+            return s ? (s.pending || 0) + (s.ordered || 0) + (s.shipped || 0) + (s.shortage || 0) : 0
+        },
+        openCreatePo(row) {
+            this.poRow = row
+            const short = (Number(row.reorderLevel) || 0) - (Number(row.available) || 0) - this.sppOpen(row)
+            this.poForm = {
+                category: row.seaFreight ? '海运' : (PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other'),
+                orderQty: short > 0 ? short : 1,
+                note: ''
+            }
+            this.poVisible = true
+        },
+        async submitCreatePo() {
+            if (!this.poForm.orderQty || this.poForm.orderQty < 1) { this.$message.warning('Quantity must be at least 1'); return }
+            this.poSaving = true
+            try {
+                const row = this.poRow
+                const r = await createOrders([{
+                    itemId: row.itemId, sku: row.sku, productName: row.name, imageId: row.imageId,
+                    category: this.poForm.category, orderQty: this.poForm.orderQty, note: this.poForm.note
+                }])
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(`${(r.orderNos || [])[0] || 'Purchase order'} created for ${row.sku || row.name}`)
+                this.poVisible = false
+                this.overlaySpp([row])
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Could not create the purchase order'))
+            } finally {
+                this.poSaving = false
+            }
         },
         // Add a row to (or remove it from) the 海运 list — the pinned
         // collection the Stock Monitoring page shows as a tab. The badge
@@ -688,7 +901,7 @@ export default {
         resetFilters() {
             Object.assign(this.query, {
                 filter: 'all', search: '', category: '', collection: '', location: '', vendor: '',
-                sort: 'units90', order: 'desc', page: 1
+                sort: 'units30', order: 'desc', page: 1
             })
             this.loadItems()
             // The tiles were narrowed by the filters — widen them back too.
@@ -709,6 +922,15 @@ export default {
             this.query.order = order === 'ascending' ? 'asc' : 'desc'
             this.query.page = 1
             this.loadItems()
+        },
+        // A different window: the rows already carry every window, so only
+        // a list sorted by sales needs to come back in the new order.
+        onSalesDays(d) {
+            if (/^units\d+$/.test(this.query.sort)) {
+                this.query.sort = 'units' + d
+                this.query.page = 1
+                this.loadItems()
+            }
         },
         onPage(p) { this.query.page = p; this.loadItems() },
         onSize(s) { this.query.pageSize = s; this.query.page = 1; this.loadItems() },
@@ -899,6 +1121,39 @@ export default {
 .sd-warn { color: #e6a23c; }
 .sd-bad { color: #ff4949; }
 .sd-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* "Sold [30d] ⇅" on one line: tight select, no wrapping, slim cell padding. */
+.sd-sales-head { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.sd-sales-days { width: 58px; }
+.sd-sales-days ::v-deep .el-input__inner { height: 22px; line-height: 22px; padding: 0 18px 0 5px; font-size: 12px; }
+.sd-sales-days ::v-deep .el-input__icon { line-height: 22px; width: 18px; }
+::v-deep th.sd-sales-col .cell { white-space: nowrap; padding-left: 6px; padding-right: 4px; display: inline-flex; align-items: center; }
+.sd-oo-ok, .sd-oo-no { cursor: pointer; font-size: 13px; padding: 2px; border-radius: 3px; }
+.sd-oo-ok { color: #67c23a; }
+.sd-oo-no { color: #909399; }
+.sd-oo-ok:hover, .sd-oo-no:hover { background: #f2f6fc; }
+/* On order by stage — the PO page's status colours. */
+.sd-oo { display: flex; justify-content: flex-end; gap: 6px; font-size: 11px; line-height: 1.35; white-space: nowrap; }
+.sd-oo span { color: #909399; }
+.sd-oo b { font-variant-numeric: tabular-nums; min-width: 14px; text-align: right; }
+.sd-oo-pending b { color: #e6a23c; }
+.sd-oo-ordered b { color: #409eff; }
+.sd-oo-shipped b { color: #8b5cf6; }
+.sd-oo-shortage b { color: #f56c6c; }
+.sd-oo-cell { min-height: 18px; }
+.sd-oo.editable { cursor: pointer; }
+.sd-oo.editable:hover b { text-decoration: underline; }
+.sd-oo-add { cursor: pointer; }
+.sd-oo-plus { display: none; margin-left: 4px; font-size: 11px; color: #409eff; }
+.sd-oo-add:hover .sd-oo-plus { display: inline; }
+.sd-oo-input { width: 58px; height: 20px; font-size: 12px; text-align: right; border: 1px solid #409eff; border-radius: 3px; padding: 0 4px; outline: none; color: #303133; }
+.sd-oo-input::-webkit-outer-spin-button, .sd-oo-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sd-po-btn { color: #409eff; }
+.sd-po-head { font-size: 15px; font-weight: 600; color: #303133; }
+.sd-po-head i { color: #409eff; margin-right: 4px; }
+.sd-po-card { padding: 10px 12px; border: 1px solid #ebeef5; border-radius: 6px; background: #fafafa; margin-bottom: 12px; }
+.sd-po-name { color: #303133; line-height: 1.3; margin-bottom: 2px; }
+.sd-po-row { display: flex; gap: 12px; }
+.sd-po-col { flex: 1; }
 .sd-mono, .sd-sku { font-variant-numeric: tabular-nums; }
 .sd-sku { font-weight: 600; color: #1890ff; }
 
@@ -965,7 +1220,7 @@ export default {
 }
 .sd-card-title { font-size: 13px; font-weight: 600; color: #303133; }
 .sd-pager { padding: 12px 14px; text-align: right; }
-::v-deep .el-table__row { cursor: pointer; }
+::v-deep .el-table__row { cursor: default; }
 
 .sd-drawer { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
 .sd-dh { padding: 16px 20px; border-bottom: 1px solid #ebeef5; display: flex; align-items: flex-start; gap: 12px; }

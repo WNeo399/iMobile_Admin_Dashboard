@@ -39,6 +39,7 @@ import InflowCustomerHome from './dashboard/InflowCustomerHome'
 import PhoneSupplierHome from './dashboard/PhoneSupplierHome'
 import ConsignmentShopHome from './dashboard/ConsignmentShopHome'
 import ImobilePurchaseHome from './dashboard/ImobilePurchaseHome'
+import PartsSupplierHome from './dashboard/PartsSupplierHome'
 
 // Role-aware home shell. Picks the dashboard variant that matches the user's
 // primary role; falls back to an admin-ish view for unknown roles so an
@@ -53,7 +54,8 @@ const ROLE_TO_COMPONENT = {
     'inflow-customer': 'InflowCustomerHome',
     'phone-supplier': 'PhoneSupplierHome',
     'consignment-shop': 'ConsignmentShopHome',
-    'imobile-purchase': 'ImobilePurchaseHome'
+    'imobile-purchase': 'ImobilePurchaseHome',
+    'parts-supplier': 'PartsSupplierHome'
 }
 
 // localStorage key for the admin "view as" preference. Per-browser so two
