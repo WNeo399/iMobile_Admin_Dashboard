@@ -70,13 +70,15 @@ export function deleteCollection(data, scope) {
   })
 }
 
-// Flat Zoho item-category list ({id, name}) for the criteria builder's
-// Category picker. Not scoped — categories are org-wide.
-export function getZohoCategories() {
-  return request({
-    url: '/zoho/product/categories',
-    method: 'get'
-  })
+// The criteria builder's vocabulary and value lists — fields, conditions,
+// and the register's current values for each pick list in this scope.
+export function getFilterOptions(scope) {
+  return request({ url: `${base(scope)}/filter-options`, method: 'get' })
+}
+
+// "Matches N items" for a rule as it is being built: { count, sample }.
+export function previewFilter(rows, scope) {
+  return request({ url: `${base(scope)}/filter-preview`, method: 'post', data: { rows } })
 }
 
 export function getCollectionGroups(scope) {

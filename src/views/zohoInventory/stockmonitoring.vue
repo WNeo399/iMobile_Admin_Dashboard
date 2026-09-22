@@ -83,7 +83,7 @@
                             </template>
                         </h2>
                         <h2 v-else>{{ currentTab || (isAccessories ? 'Accessories' : 'Spare Parts') }}</h2>
-                        <div class="sd-asof">live from Zoho · {{ productList.length.toLocaleString() }} items</div>
+                        <div class="sd-asof">{{ asOfText }}</div>
                     </div>
                     <div class="sd-spacer" />
                     <!-- Editing targets ONE collection — hidden on a branch
@@ -178,6 +178,8 @@
                             </div>
                         </template>
                     </el-table-column>
+                    <!-- Spare parts: the register's figure, replaced by Zoho's
+                         current one for the rows on this page. -->
                     <el-table-column v-if="!isAccessories" label="Current Stock" align="center" key="stock" prop="stock" width="140"
                         sortable="custom" :show-overflow-tooltip="true" />
 
@@ -233,13 +235,11 @@
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <span>Sales</span>
 
+                                <!-- Spare parts offer the windows the register
+                                     stores; Accessories (still read live) keep
+                                     the old set. -->
                                 <el-select v-model="duration" placeholder="Filter" size="mini" style="width:60px">
-                                    <el-option label="15" :value="15" />
-                                    <el-option label="30" :value="30" />
-                                    <el-option label="45" :value="45" />
-                                    <el-option label="60" :value="60" />
-                                    <el-option label="90" :value="90" />
-
+                                    <el-option v-for="d in durationOptions" :key="d" :label="String(d)" :value="d" />
                                 </el-select>
                                 days
                             </div>
@@ -369,6 +369,10 @@ import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
 import { getCollectionGroups, getCollectionDetail, updateCollectionGroups, deleteCollection } from "../../api/zoho/products/collection";
 import CollectionGroupDialog from "@/views/products/collection/CollectionGroup/collectionGroup.vue"
 import { getProductDetail } from "../../api/zoho/products/product";
+// Spare parts read the stock register (2026-09-22) — one call for a
+// collection's rows and their sales windows — and overlay live stock on the
+// rows shown. Accessories still read Zoho live through getCurrentStock.
+import { getStockCollectionItems, getLiveStock } from "@/api/stockMonitor";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
 import ProductThumb from "@/components/ProductThumb"
 import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
@@ -402,6 +406,10 @@ export default {
             // collection, e.g. ['iPhone', 'Screen', 'SVP'].
             currentPath: [],
             duration: 30,
+            // When the register's numbers were taken (parts only) — the
+            // header says so.
+            asOf: { snapshotDate: null, metricsAt: null },
+            liveSeq: 0,
             treeData: [],
             currentCollection: "",
             // Inline reorder-point edit — one row at a time.
@@ -510,6 +518,19 @@ export default {
         },
         isSeaView() {
             return !!this.seaFreightId && this.currentCollection === this.seaFreightId
+        },
+        // The sales windows on offer: the four the register stores for
+        // parts; the live read's five for accessories.
+        durationOptions() {
+            return this.isAccessories ? [15, 30, 45, 60, 90] : [7, 14, 30, 90]
+        },
+        asOfText() {
+            const n = `${this.productList.length.toLocaleString()} items`
+            if (this.isAccessories) return `live from Zoho · ${n}`
+            if (!this.asOf.metricsAt) return n
+            const mins = Math.max(0, Math.round((Date.now() - new Date(this.asOf.metricsAt).getTime()) / 60000))
+            const age = mins < 60 ? `${mins} min ago` : mins < 48 * 60 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} days ago`
+            return `counted ${age} · ${n}`
         }
     },
     created() {
@@ -524,7 +545,8 @@ export default {
     },
     watch: {
         duration() {
-            this.handleGetSalesTotal()
+            if (this.isAccessories) this.handleGetSalesTotal()
+            else this.applyStoredSales()
         },
         // The group manager saves inside its own dialog — re-read the tree
         // when it closes so any rearrangement shows immediately.
@@ -1054,6 +1076,21 @@ export default {
             // A fresh collection starts on the normal view, not the
             // hidden-items review of the previous one.
             this.showHidden = false
+            if (!this.isAccessories) {
+                // The register: rows with their sales windows in one call.
+                // Purchase data is a Mongo read as before; stock on the
+                // page shown is overlaid live in handlePagination.
+                getStockCollectionItems({ collection: that.currentCollection }).then(resp => {
+                    that.productList = (resp && resp.rows) || []
+                    that.asOf = { snapshotDate: resp && resp.snapshotDate, metricsAt: resp && resp.metricsAt }
+                    that.applyStoredSales()
+                    that.loading = false
+                    that.$nextTick(() => that.handleGetPurchase())
+                }).catch(() => {
+                    that.loading = false
+                })
+                return
+            }
             getCurrentStock({ collection: that.currentCollection, scope: that.scope || undefined }).then(resp => {
                 that.productList = resp
                 that.handlePagination()
@@ -1084,6 +1121,7 @@ export default {
                 (page - 1) * pageSize,
                 page * pageSize
             )
+            if (!this.isAccessories) this.overlayLiveStock()
         },
         handleSorting({ prop, order }) {
             if (!order) {
@@ -1202,6 +1240,48 @@ export default {
 
             const fileName = `${this.currentTab || 'stock-monitoring'}_${today}.xlsx`
             XLSX.writeFile(workbook, fileName)
+        },
+        // ── the register (spare parts) ───────────────────────────────
+        // Each row carries the four windows { total, online }; the Sales
+        // column shows the picked one as Zoho (online orders) + Other
+        // (counter / workshop / Neto / dispatch). Re-run on a window change
+        // — no request, the numbers are already here.
+        applyStoredSales() {
+            if (this.isAccessories) return
+            const d = String(this.duration)
+            this.productList = this.productList.map(item => {
+                const u = (item.sales && item.sales[d]) || { total: 0, online: 0 }
+                return {
+                    ...item,
+                    zohoSales: Math.round(u.online * 100) / 100,
+                    offlineSales: Math.round((u.total - u.online) * 100) / 100
+                }
+            })
+            this.handlePagination()
+        },
+        // Zoho's current stock for the rows on this page, painted over the
+        // register's figure (no mark — the user asked for none). Tiles and
+        // sorting keep the stored figure, as on the dashboard. A read that
+        // lands after the page has moved on is dropped; if Zoho is slow or
+        // down the stored figure simply stands.
+        async overlayLiveStock() {
+            const ids = this.showProductList.map(r => r.id).filter(Boolean)
+            if (!ids.length) return
+            const seq = ++this.liveSeq
+            try {
+                const r = await getLiveStock(ids)
+                if (seq !== this.liveSeq || !r || !r.stock) return
+                // Look the rows up again: purchase data may have replaced
+                // the page's objects while the read was in flight.
+                for (const row of this.showProductList) {
+                    const s = r.stock[String(row.id)]
+                    if (!s) continue
+                    this.$set(row, 'stock', s.available)
+                    this.$set(row, 'accountingStock', s.accountingStock)
+                }
+            } catch (e) {
+                // The stored figure stands.
+            }
         },
         // ── tile helpers ──────────────────────────────────────────────
         // Not-yet-received quantity on the supplier order sheet (attached to
@@ -1532,6 +1612,7 @@ export default {
     font-size: 12px;
     color: #909399;
 }
+
 
 .sd-filters {
     display: flex;

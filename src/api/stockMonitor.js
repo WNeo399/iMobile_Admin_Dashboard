@@ -79,6 +79,13 @@ export function uploadStockItemImages(itemId, files) {
   })
 }
 
+// The Stock Monitoring list for one collection (or a comma-list branch)
+// from the register: rows with their four sales windows, in one call and
+// nothing from Zoho. The page overlays live stock on the rows it shows.
+export function getStockCollectionItems(params) {
+  return request({ url: '/stock-monitor/collection-items', method: 'get', params })
+}
+
 // Live stock for the rows on screen — one Zoho Inventory read per page of
 // ids. Overlaid on the stored numbers by liveStockMixin.
 export function getLiveStock(itemIds) {

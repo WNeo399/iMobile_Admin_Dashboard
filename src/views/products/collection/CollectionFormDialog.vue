@@ -20,7 +20,7 @@
     <el-dialog
         :title="dialogTitle"
         :visible="visible"
-        width="720px"
+        width="760px"
         append-to-body
         @update:visible="(v) => $emit('update:visible', v)"
         @close="onClose"
@@ -48,12 +48,11 @@
                 </el-select>
             </el-form-item>
             <!--
-                Collections can combine BOTH sources — a criteria
-                expression (resolved via Zoho Analytics) and manually
-                picked products. Either alone also works; submitForm
-                enforces "at least one". The Type column in the list
-                derives its label from which sources are populated
-                (Criteria / Selection / Combined).
+                Collections can combine BOTH sources — a rule over the
+                stock register and manually picked products. Either alone
+                also works; submitForm enforces "at least one". The Type
+                column in the list derives its label from which sources
+                are populated (Criteria / Selection / Combined).
 
                 Product picks come from Zoho Commerce search; each is
                 translated via SKU into a real Zoho Inventory item_id
@@ -130,52 +129,60 @@
             </el-form-item>
 
             <el-form-item v-if="!productsOnly" label="Criteria" prop="criteria">
-                <!-- Structured builder (default): pick a field, a condition
-                     and a value per row; rows combine with AND. The raw
-                     textarea remains as Advanced mode for hand-written
-                     criteria (and legacy collections open there). -->
-                <template v-if="criteriaMode === 'builder'">
-                    <div v-for="(row, idx) in criteriaRows" :key="idx" class="crit-row">
-                        <span v-if="idx === 0" class="crit-join crit-join-first">Where</span>
-                        <el-select v-else v-model="row.join" class="crit-join">
-                            <el-option label="AND" value="and" />
-                            <el-option label="OR" value="or" />
-                        </el-select>
-                        <el-select v-model="row.field" placeholder="Field" class="crit-field"
-                            @change="onCritFieldChange(row)">
-                            <el-option v-for="f in criteriaFields" :key="f.key" :label="f.label" :value="f.key" />
-                        </el-select>
-                        <el-select v-model="row.op" placeholder="Condition" class="crit-op">
-                            <el-option v-for="o in opsFor(row)" :key="o.key" :label="o.label" :value="o.key" />
-                        </el-select>
-                        <el-select v-if="fieldDef(row).input === 'category'" v-model="row.value"
-                            placeholder="Pick a category…" filterable class="crit-value"
-                            :loading="categoriesLoading">
-                            <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-                        </el-select>
-                        <el-input v-else v-model="row.value" placeholder="Value" class="crit-value" clearable />
-                        <el-button size="mini" type="text" icon="el-icon-delete" class="crit-remove"
-                            @click="criteriaRows.splice(idx, 1)" />
-                    </div>
-                    <div class="crit-bar">
-                        <el-button size="mini" plain icon="el-icon-plus" @click="addCriteriaRow">Add criteria</el-button>
-                        <el-checkbox v-model="criteriaActiveOnly" class="crit-active">Active items only</el-checkbox>
-                    </div>
-                    <div v-if="builtCriteria" class="crit-preview">{{ builtCriteria }}</div>
-                </template>
-                <el-input
-                    v-else
-                    v-model="form.criteria"
-                    type="textarea"
-                    :rows="2"
-                    placeholder="Optional — Zoho Analytics criteria, e.g. &quot;SKU&quot; LIKE '5470%'"
-                />
+                <!-- The rule: rows of field / condition / value over the
+                     stock register, joined AND / OR (consecutive ANDs group,
+                     OR starts a new group). Fields, conditions and the
+                     pick-list values come from the backend, which is also
+                     what evaluates the rule — there is no raw expression to
+                     write (2026-09-22; the Analytics criteria string is
+                     gone). -->
+                <div v-for="(row, idx) in criteriaRows" :key="idx" class="crit-row">
+                    <span v-if="idx === 0" class="crit-join crit-join-first">Where</span>
+                    <el-select v-else v-model="row.join" class="crit-join">
+                        <el-option label="AND" value="and" />
+                        <el-option label="OR" value="or" />
+                    </el-select>
+                    <el-select v-model="row.field" placeholder="Field" class="crit-field" filterable
+                        @change="onCritFieldChange(row)">
+                        <el-option v-for="f in filterMeta.fields" :key="f.key" :label="f.label" :value="f.key" />
+                    </el-select>
+                    <el-select v-model="row.op" placeholder="Condition" class="crit-op"
+                        @change="onCritOpChange(row)">
+                        <el-option v-for="o in opsFor(row)" :key="o.key" :label="o.label" :value="o.key" />
+                    </el-select>
+                    <!-- The value input follows the condition: none (is set /
+                         is yes), several (any of…), a pick from the register's
+                         values (typing a new one is allowed), or free text. -->
+                    <span v-if="valueKind(row) === 'none'" class="crit-value crit-value-none" />
+                    <el-select v-else-if="valueKind(row) === 'many'" v-model="row.value" multiple filterable
+                        allow-create default-first-option placeholder="Values…" class="crit-value" collapse-tags>
+                        <el-option v-for="v in optionsFor(row)" :key="v" :label="v" :value="v" />
+                    </el-select>
+                    <el-select v-else-if="valueKind(row) === 'pick'" v-model="row.value" filterable
+                        allow-create default-first-option placeholder="Value" class="crit-value" clearable>
+                        <el-option v-for="v in optionsFor(row)" :key="v" :label="v" :value="v" />
+                    </el-select>
+                    <el-input v-else v-model="row.value" placeholder="Value" class="crit-value" clearable />
+                    <el-button size="mini" type="text" icon="el-icon-delete" class="crit-remove"
+                        @click="criteriaRows.splice(idx, 1)" />
+                </div>
+                <div class="crit-bar">
+                    <el-button size="mini" plain icon="el-icon-plus" :loading="filterMetaLoading"
+                        @click="addCriteriaRow">Add criteria</el-button>
+                    <!-- What the rule catches, counted against the register
+                         as it is typed. Pinned products are not included. -->
+                    <span v-if="validCriteriaRows.length" class="crit-count">
+                        <i v-if="previewLoading" class="el-icon-loading" />
+                        <template v-else-if="preview.count != null">matches <b>{{ preview.count.toLocaleString() }}</b> items</template>
+                    </span>
+                </div>
+                <div v-if="validCriteriaRows.length && preview.sample.length" class="crit-preview">
+                    <span v-for="s in preview.sample" :key="s.sku" class="crit-sample" :title="s.name">{{ s.sku }} · {{ s.name }}</span>
+                </div>
                 <span class="criteria-help">
-                    Items matching the criteria are combined with the
-                    manually picked products above (duplicates removed).
-                    <el-link type="primary" class="crit-mode-link" :underline="false" @click="toggleCriteriaMode">
-                        {{ criteriaMode === 'builder' ? 'Advanced (write raw criteria)' : 'Use the criteria builder' }}
-                    </el-link>
+                    Matched against every active item in the stock register (this business only,
+                    Archive excluded) and combined with the products picked above, duplicates removed.
+                    Text matches ignore case.
                 </span>
             </el-form-item>
         </el-form>
@@ -189,19 +196,17 @@
 </template>
 
 <script>
-import { createCollection, updateCollection, getZohoCategories } from "@/api/zoho/products/collection";
+import { createCollection, updateCollection, getFilterOptions, previewFilter } from "@/api/zoho/products/collection";
 import { searchProducts, lookupProductBySku } from "@/api/zoho/products/product";
-// The builder's vocabulary, compile and strict parse live in one module:
-// the RAW criteria string is the only stored form, and the rows are
-// parsed back out of it on load (trusted only when re-compiling them
-// reproduces the string byte-for-byte). Category filters on "Category
-// ID" (Analytics carries no name column) via a name picker saving ids;
-// Classification IS the Zoho "Tags" custom field (api name cf_tags).
-import { CRITERIA_FIELDS, CRITERIA_OPS, compileCriteria, parseCriteria } from "@/utils/collectionCriteria";
 
-// "contains" makes no sense against an opaque id — Category gets the
-// equality pair only.
-const CATEGORY_OPS = CRITERIA_OPS.filter(o => o.key === "eq" || o.key === "ne");
+// A rule as stored on the collection: { rows: [{ field, op, value, join }] }
+// over the stock register. The vocabulary (fields, conditions per field
+// type, and the register's current values for the pick lists) is loaded
+// from the backend, which is the single owner of it — see the backend's
+// utils/collectionFilter. Conditions that take no value (is set, is yes…)
+// or several (is any of…) are told apart by the `value` kind on each op.
+const NO_VALUE = new Set(["set", "notset", "yes", "no"]);
+const MANY_VALUES = new Set(["in", "nin", "containsAny", "hasAny"]);
 
 export default {
     name: "CollectionFormDialog",
@@ -234,30 +239,24 @@ export default {
                 title: "",
                 note: "",
                 status: "Draft",
-                // Criteria + products are BOTH optional individually —
-                // submitForm enforces "at least one" since el-form's
-                // per-prop validators can't express the cross-field
-                // rule cleanly.
-                criteria: "",
                 // Each entry: { itemId, sku, name, imageUrl }. `itemId` is
                 // the Zoho Inventory product id (resolved via skuLookup).
                 products: []
             },
             productSearchKeyword: "",
             productLookupLoading: false,
-            // Criteria builder state. 'builder' compiles criteriaRows into
-            // the criteria string on submit; 'raw' uses form.criteria as
-            // typed. Legacy collections (criteria text but no saved rows)
-            // hydrate into raw mode so nothing is lost.
-            criteriaMode: "builder",
-            criteriaFields: CRITERIA_FIELDS,
-            // Rows carry their own joiner: { field, op, value, join } —
-            // join is 'and'/'or' against the PREVIOUS row (first row's is
-            // ignored). The Active clause always ANDs around everything.
+            // The rule's rows: { field, op, value, join } — join is
+            // 'and'/'or' against the PREVIOUS row (first row's ignored).
             criteriaRows: [],
-            criteriaActiveOnly: true,
-            categories: [],
-            categoriesLoading: false,
+            // Fields / conditions / pick-list values from the backend,
+            // loaded once per scope.
+            filterMeta: { fields: [], ops: {}, options: {} },
+            filterMetaLoading: false,
+            // "matches N items", refreshed as the rows change.
+            preview: { count: null, sample: [] },
+            previewLoading: false,
+            previewTimer: null,
+            previewSeq: 0,
             formRules: {
                 title: [
                     { required: true, message: "Title can not be empty", trigger: "blur" }
@@ -276,21 +275,24 @@ export default {
             if (this.productsOnly) return "Add Product";
             return this.isEdit ? "Edit Collection" : "Add Collection";
         },
-        // The criteria string the current builder rows compile to — shown
-        // as the preview and saved into rules on submit.
-        builtCriteria() {
-            return compileCriteria(this.validCriteriaRows, this.criteriaActiveOnly);
-        },
+        // Rows complete enough to send: a known field and condition, and a
+        // value when the condition takes one.
         validCriteriaRows() {
-            return this.criteriaRows.filter(r =>
-                r.field && r.op && String(r.value || "").trim() &&
-                CRITERIA_FIELDS.some(x => x.key === r.field) &&
-                CRITERIA_OPS.some(x => x.key === r.op));
+            return this.criteriaRows.filter(r => {
+                if (!r.field || !r.op) return false;
+                if (NO_VALUE.has(r.op)) return true;
+                if (MANY_VALUES.has(r.op)) return Array.isArray(r.value) && r.value.some(v => String(v || "").trim());
+                return !!String(r.value || "").trim();
+            }).map(r => ({ field: r.field, op: r.op, value: r.value, join: r.join || "and" }));
         }
     },
     watch: {
         visible(val) {
             if (val) this.hydrate();
+        },
+        validCriteriaRows: {
+            deep: true,
+            handler() { this.schedulePreview(); }
         }
     },
     methods: {
@@ -302,45 +304,28 @@ export default {
                     title: row.title || "",
                     note: row.note || "",
                     status: row.status || "Draft",
-                    // Hydrate criteria regardless of the stored type — a
-                    // legacy Selection collection just has no rules, so
-                    // this resolves to "". Combined collections get both
-                    // fields populated.
-                    criteria: (row.rules && row.rules[0] && row.rules[0].criteria
-                        && row.rules[0].criteria.equals) || "",
                     products: Array.isArray(row.products)
                         ? row.products.map(p => ({ ...p }))
                         : []
                 };
+                // The stored rule, copied so edits never touch the parent's
+                // object until Submit.
+                this.criteriaRows = ((row.filter && row.filter.rows) || []).map(r => ({
+                    field: r.field, op: r.op, join: r.join || "and",
+                    value: Array.isArray(r.value) ? [...r.value] : (r.value == null ? "" : r.value)
+                }));
             } else {
                 this.form = {
                     id: "",
                     title: "",
                     note: "",
                     status: "Draft",
-                    criteria: "",
                     products: []
                 };
-            }
-            // Builder vs raw: the stored criteria string is the ONLY
-            // source of truth — parse it back into rows, and trust the
-            // parse only when re-compiling the rows reproduces the string
-            // byte-for-byte (provably lossless). Anything else — a
-            // hand-written/legacy expression — opens in Advanced mode,
-            // untouched.
-            const parsed = parseCriteria(this.form.criteria);
-            if (parsed.ok &&
-                (!this.form.criteria ||
-                    compileCriteria(parsed.rows, parsed.activeOnly) === this.form.criteria)) {
-                this.criteriaMode = "builder";
-                this.criteriaRows = parsed.rows;
-                this.criteriaActiveOnly = parsed.activeOnly;
-            } else {
-                this.criteriaMode = "raw";
                 this.criteriaRows = [];
-                this.criteriaActiveOnly = true;
             }
-            if (!this.productsOnly) this.loadCategories();
+            this.preview = { count: null, sample: [] };
+            if (!this.productsOnly) this.loadFilterMeta().then(() => this.schedulePreview());
             this.productSearchKeyword = "";
             this.$nextTick(() => {
                 this.$refs.form && this.$refs.form.clearValidate();
@@ -348,43 +333,67 @@ export default {
         },
         // ── Criteria builder ────────────────────────────────────────
         fieldDef(row) {
-            return CRITERIA_FIELDS.find(f => f.key === row.field) || { input: "text" };
+            return this.filterMeta.fields.find(f => f.key === row.field) || { type: "text" };
         },
         opsFor(row) {
-            return this.fieldDef(row).input === "category" ? CATEGORY_OPS : CRITERIA_OPS;
+            return this.filterMeta.ops[this.fieldDef(row).type] || [];
+        },
+        // none | many | pick | text — which value input a row shows.
+        valueKind(row) {
+            if (NO_VALUE.has(row.op)) return "none";
+            if (MANY_VALUES.has(row.op)) return "many";
+            const t = this.fieldDef(row).type;
+            return t === "pick" || t === "list" ? "pick" : "text";
+        },
+        optionsFor(row) {
+            return this.filterMeta.options[row.field] || [];
         },
         addCriteriaRow() {
             this.criteriaRows.push({ field: "name", op: "contains", value: "", join: "and" });
         },
         onCritFieldChange(row) {
-            // Category only supports is / is not, and its value is an id
-            // from the picker — reset both when the field flips.
-            row.value = "";
-            if (this.fieldDef(row).input === "category" && !CATEGORY_OPS.some(o => o.key === row.op)) {
-                row.op = "eq";
-            }
+            // A new field brings its own conditions and value shape.
+            const ops = this.opsFor(row);
+            if (!ops.some(o => o.key === row.op)) row.op = ops.length ? ops[0].key : "";
+            this.onCritOpChange(row);
         },
-        toggleCriteriaMode() {
-            if (this.criteriaMode === "builder") {
-                // Hand the built expression over so Advanced starts from
-                // exactly what the builder would have saved.
-                if (this.builtCriteria) this.form.criteria = this.builtCriteria;
-                this.criteriaMode = "raw";
-            } else {
-                if (!this.criteriaRows.length) this.addCriteriaRow();
-                this.criteriaMode = "builder";
-            }
+        onCritOpChange(row) {
+            const kind = this.valueKind(row);
+            if (kind === "none") row.value = "";
+            else if (kind === "many") { if (!Array.isArray(row.value)) row.value = row.value ? [row.value] : []; }
+            else if (Array.isArray(row.value)) row.value = row.value[0] || "";
         },
-        async loadCategories() {
-            if (this.categories.length || this.categoriesLoading) return;
-            this.categoriesLoading = true;
+        async loadFilterMeta() {
+            if (this.filterMeta.fields.length || this.filterMetaLoading) return;
+            this.filterMetaLoading = true;
             try {
-                const res = await getZohoCategories();
-                this.categories = (res && res.data) || [];
+                const res = await getFilterOptions(this.scope);
+                if (res && res.data) this.filterMeta = res.data;
             } catch (e) {
-                console.error("Categories load failed:", e);
+                console.error("Filter options load failed:", e);
+                this.$message.error("Could not load the criteria fields");
             } finally {
-                this.categoriesLoading = false;
+                this.filterMetaLoading = false;
+            }
+        },
+        // Count what the rule catches, a moment after the last edit. A
+        // reply that lands after the rows changed again is dropped.
+        schedulePreview() {
+            clearTimeout(this.previewTimer);
+            if (!this.validCriteriaRows.length) { this.preview = { count: null, sample: [] }; return; }
+            this.previewTimer = setTimeout(() => this.runPreview(), 400);
+        },
+        async runPreview() {
+            const seq = ++this.previewSeq;
+            this.previewLoading = true;
+            try {
+                const res = await previewFilter(this.validCriteriaRows, this.scope);
+                if (seq !== this.previewSeq) return;
+                this.preview = (res && res.data) || { count: null, sample: [] };
+            } catch (e) {
+                if (seq === this.previewSeq) this.preview = { count: null, sample: [] };
+            } finally {
+                if (seq === this.previewSeq) this.previewLoading = false;
             }
         },
         onClose() {
@@ -398,15 +407,13 @@ export default {
                 if (!valid) return;
 
                 // Cross-field check el-form can't express per-prop:
-                // a collection needs SOMETHING to resolve — a criteria,
+                // a collection needs SOMETHING to resolve — a rule,
                 // at least one picked product, or both.
-                const criteriaText = this.criteriaMode === "builder"
-                    ? this.builtCriteria
-                    : String(this.form.criteria || "").trim();
+                const rows = this.validCriteriaRows;
                 const pickedProducts = Array.isArray(this.form.products)
                     ? this.form.products
                     : [];
-                if (!criteriaText && pickedProducts.length === 0) {
+                if (!rows.length && pickedProducts.length === 0) {
                     this.$message.warning(
                         "Add a criteria, pick at least one product, or both."
                     );
@@ -418,9 +425,9 @@ export default {
                     // Type label is derived from which sources are
                     // populated — keeps the list page's Type column
                     // meaningful without the user managing a radio.
-                    const derivedType = criteriaText && pickedProducts.length > 0
+                    const derivedType = rows.length && pickedProducts.length > 0
                         ? "Combined"
-                        : (criteriaText ? "Criteria" : "Selection");
+                        : (rows.length ? "Criteria" : "Selection");
 
                     const payload = {
                         title: this.form.title,
@@ -429,11 +436,9 @@ export default {
                         status: this.form.status,
                         // ALWAYS send both fields — update only writes
                         // provided keys, so omitting one would make it
-                        // impossible to clear a criteria (or empty the
+                        // impossible to clear a rule (or empty the
                         // product list) on an existing collection.
-                        rules: criteriaText
-                            ? [{ criteria: { equals: criteriaText } }]
-                            : [],
+                        filter: { rows },
                         products: pickedProducts.map(p => ({
                             itemId: p.itemId,
                             sku: p.sku || "",
@@ -457,7 +462,8 @@ export default {
                     this.$emit("update:visible", false);
                 } catch (error) {
                     console.error(error);
-                    this.$message.error("Failed to save collection");
+                    const msg = (error.response && error.response.data && error.response.data.message) || "Failed to save collection";
+                    this.$message.error(msg);
                 } finally {
                     this.submitLoading = false;
                 }
@@ -565,7 +571,7 @@ export default {
 </script>
 
 <style scoped>
-/* Help caption under the Criteria textarea explaining how the two
+/* Help caption under the criteria rows explaining how the two
    sources combine. */
 .criteria-help {
     display: block;
@@ -573,10 +579,6 @@ export default {
     color: #909399;
     font-size: 12px;
     line-height: 1.4;
-}
-.crit-mode-link {
-    margin-left: 8px;
-    font-size: 12px;
 }
 
 /* Criteria builder rows */
@@ -594,20 +596,25 @@ export default {
     color: #909399;
 }
 .crit-field { width: 170px; flex-shrink: 0; }
-.crit-op { width: 140px; flex-shrink: 0; }
+.crit-op { width: 150px; flex-shrink: 0; }
 .crit-value { flex: 1; min-width: 0; }
+.crit-value-none { display: inline-block; }
 .crit-remove { flex-shrink: 0; }
 .crit-bar {
     display: flex;
     align-items: center;
     gap: 14px;
 }
-.crit-active {
+.crit-count {
     margin-left: auto;
+    font-size: 12px;
+    color: #606266;
 }
 .crit-preview {
     margin-top: 6px;
-    font-family: monospace;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
     font-size: 12px;
     color: #606266;
     background: #f8f9fb;
@@ -615,7 +622,12 @@ export default {
     border-radius: 4px;
     padding: 5px 8px;
     line-height: 1.5;
-    word-break: break-all;
+}
+.crit-sample {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Selected products list inside the collection product picker */
