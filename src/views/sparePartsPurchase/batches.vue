@@ -246,18 +246,13 @@
             <div v-if="view">
                 <el-descriptions :column="3" border size="small" class="spb-desc">
                     <el-descriptions-item :label="$tp('Shipped')">{{ fmtDay(view.shippedAt) }}</el-descriptions-item>
-                    <el-descriptions-item :label="$tp('Tracking')">
-                        <a v-if="view.tracking" class="spb-link" :href="dhlLink(view.tracking)" target="_blank" rel="noopener">{{ view.tracking }}</a>
-                        <span v-else>—</span>
-                    </el-descriptions-item>
                     <el-descriptions-item :label="$tp('Zoho vendor')">{{ view.zohoVendorName || '—' }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Created by')">{{ view.createdBy || '—' }} · {{ fmtWhen(view.createdAt) }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Received')">
-                        <template v-if="view.receivedAt">{{ fmtDay(view.receivedAt) }}<span v-if="view.receivedBy"> · {{ view.receivedBy }}</span></template>
+                        <template v-if="view.receivedAt">{{ fmtDay(view.receivedAt) }}<span v-if="view.receivedBy"> · {{ view.receivedBy }}</span><span v-if="view.receiveNote"> · {{ $tp('on receipt') }}: {{ view.receiveNote }}</span></template>
                         <span v-else>—</span>
                     </el-descriptions-item>
-                    <el-descriptions-item :label="$tp('Note')" :span="2">{{ view.note || '—' }}<span v-if="view.receiveNote"> · {{ $tp('on receipt') }}: {{ view.receiveNote }}</span></el-descriptions-item>
-                    <el-descriptions-item :label="$tp('Zoho PO')" :span="3">
+                    <el-descriptions-item :label="$tp('Zoho PO')" :span="2">
                         <template v-if="view.zoho && view.zoho.pos && view.zoho.pos.length">
                             <span v-for="p in view.zoho.pos" :key="p.purchaseorderId" class="spb-zpo-inline">
                                 <a class="spb-link" :href="zohoPoLink(p.purchaseorderId)" target="_blank" rel="noopener">{{ p.number }}</a>
@@ -288,15 +283,41 @@
                     <el-table-column :label="$tp('Shipped Qty')" width="90" align="center">
                         <template slot-scope="s"><b :class="qtyTone(s.row)">{{ s.row.shippedQty }}</b></template>
                     </el-table-column>
+                    <!-- 50×40 part labels: one per shipped unit of the line. -->
+                    <el-table-column :label="$tp('Label')" width="60" align="center">
+                        <template slot-scope="s">
+                            <el-tooltip :content="$tp('Print {n} label(s)', { n: Math.max(1, Math.floor(Number(s.row.shippedQty)) || 0) })" placement="top">
+                                <el-button type="text" size="mini" icon="el-icon-printer" @click="printLineLabels(s.row)" />
+                            </el-tooltip>
+                        </template>
+                    </el-table-column>
                     <el-table-column v-if="view.status === 'received'" :label="$tp('Received Qty')" width="100" align="center">
                         <template slot-scope="s"><span :class="{ 'spb-warn': s.row.receivedQty !== s.row.shippedQty }">{{ s.row.receivedQty }}</span></template>
                     </el-table-column>
                 </el-table>
+                <!-- Tracking and note, edited right here (a tracking number
+                     usually turns up after the batch has shipped). -->
+                <div class="spb-inline">
+                    <el-input v-model="viewEdit.tracking" size="small" clearable :disabled="!canEditView()" class="spb-inline-tracking"
+                        :placeholder="$tp('Tracking number')">
+                        <template slot="prepend">{{ $tp('Tracking') }}</template>
+                        <template v-if="viewEdit.tracking" slot="append">
+                            <a class="spb-link" :href="dhlLink(viewEdit.tracking)" target="_blank" rel="noopener" :title="$tp('Track on DHL')"><i class="el-icon-position" /></a>
+                        </template>
+                    </el-input>
+                    <el-input v-model="viewEdit.note" type="textarea" :rows="2" resize="none" maxlength="500" show-word-limit
+                        :disabled="!canEditView()" :placeholder="$tp('Note')" />
+                    <div v-if="canEditView()" class="spb-inline-actions">
+                        <span v-if="viewDirty()" class="spb-dim">{{ $tp('Unsaved changes') }}</span>
+                        <el-button size="mini" :disabled="!viewDirty()" @click="resetViewEdit">{{ $tp('Reset') }}</el-button>
+                        <el-button type="primary" size="mini" :disabled="!viewDirty()" :loading="viewSaving" @click="saveViewEdit">{{ $tp('Save') }}</el-button>
+                    </div>
+                </div>
             </div>
             <span slot="footer">
-                <el-button v-if="view && can('spp:batch:manage') && view.status !== 'cancelled'" size="small" icon="el-icon-edit"
-                    @click="openEdit(view)">{{ $tp('Edit tracking / note') }}</el-button>
                 <el-button size="small" icon="el-icon-printer" @click="print(view)">{{ $tp('Print') }}</el-button>
+                <el-button size="small" icon="el-icon-collection-tag" :disabled="!labelCount(view)" @click="printAllLabels(view)">
+                    {{ $tp('Print labels ({n})', { n: labelCount(view) }) }}</el-button>
                 <el-button v-if="view && can('spp:order:receive') && view.status === 'shipped'" type="success" size="small"
                     icon="el-icon-circle-check" @click="openReceive(view)">{{ $tp('Receive') }}</el-button>
                 <el-button size="small" @click="viewVisible = false">{{ $tp('Close') }}</el-button>
@@ -310,6 +331,16 @@
             <span slot="footer">
                 <el-button size="small" @click="printVisible = false">{{ $tp('Close') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-printer" @click="doPrint">{{ $tp('Print') }}</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- ── Label preview: the PDF, printed or saved from here ───── -->
+        <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+            <iframe v-if="labelUrl" :src="labelUrl" class="spb-label-frame" title="labels" />
+            <span slot="footer">
+                <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
+                <el-button size="small" @click="labelVisible = false">{{ $tp('Close') }}</el-button>
+                <el-button type="primary" size="small" icon="el-icon-printer" @click="printLabels">{{ $tp('Print') }}</el-button>
             </span>
         </el-dialog>
 
@@ -377,6 +408,7 @@
 import { hasPermission } from '@/utils/permission'
 import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
 import { STATUS_META, BATCH_STATUS, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml } from './shared'
+import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName } from '@/utils/sppLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
 
@@ -397,6 +429,12 @@ export default {
             // print preview
             printVisible: false,
             printHtml: '',
+            // part labels (PDF preview)
+            labelVisible: false,
+            labelTitle: '',
+            labelUrl: '',
+            labelBuild: null,
+            labelFileName: '',
             // create / draft
             createVisible: false,
             createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', lines: [] },
@@ -414,6 +452,9 @@ export default {
             pickerLoading: false,
             // view / edit / receive
             viewVisible: false,
+            // tracking / note edited inline in the view dialog
+            viewEdit: { tracking: '', note: '' },
+            viewSaving: false,
             view: null,
             editVisible: false,
             editRow: null,
@@ -715,7 +756,36 @@ export default {
         // ── View / print ───────────────────────────────────────────
         openView(row) {
             this.view = row
+            this.viewEdit = { tracking: row.tracking || '', note: row.note || '' }
             this.viewVisible = true
+        },
+        // ── Tracking / note, inline in the view dialog ─────────────
+        canEditView() {
+            return !!this.view && this.can('spp:batch:manage') && this.view.status !== 'cancelled'
+        },
+        viewDirty() {
+            return !!this.view && (this.viewEdit.tracking.trim() !== (this.view.tracking || '') || this.viewEdit.note.trim() !== (this.view.note || ''))
+        },
+        resetViewEdit() {
+            this.viewEdit = { tracking: this.view.tracking || '', note: this.view.note || '' }
+        },
+        async saveViewEdit() {
+            if (!this.view) return
+            this.viewSaving = true
+            try {
+                const data = { tracking: this.viewEdit.tracking.trim(), note: this.viewEdit.note.trim() }
+                if (this.view.shippedAt) data.shippedAt = fmtDay(this.view.shippedAt)
+                const r = await updateBatch(this.view._id, data)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.view = { ...this.view, tracking: data.tracking, note: data.note }
+                this.viewEdit = { tracking: data.tracking, note: data.note }
+                this.$message.success(this.$tp('Saved'))
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to save')))
+            } finally {
+                this.viewSaving = false
+            }
         },
         async openByNo(no) {
             try {
@@ -740,6 +810,47 @@ export default {
             const f = this.$refs.printFrame
             try { f.contentWindow.focus(); f.contentWindow.print() } catch (e) { this.$message.error(this.$tp('Could not build the print list')) }
         },
+        // ── Part labels (50×40: product name + SKU barcode) ────────
+        labelCount(batch) {
+            return sppLabelCount(batch)
+        },
+        // Build once for the preview; Print / Download rebuild from `build`.
+        showLabels(build, fileName, title) {
+            this.cleanupLabels()
+            try {
+                const doc = build()
+                if (!doc) { this.$message.info(this.$tp('Nothing to print')); return }
+                this.labelBuild = build
+                this.labelFileName = fileName
+                this.labelUrl = doc.output('bloburl') + '#toolbar=0'
+                this.labelTitle = title
+                this.labelVisible = true
+            } catch (e) {
+                this.$message.error(this.$tp('Could not build the labels'))
+            }
+        },
+        printLineLabels(line) {
+            this.showLabels(() => buildSppLineLabelsPdf(line), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — ' + (line.sku || line.productName))
+        },
+        printAllLabels(batch) {
+            const n = sppLabelCount(batch)
+            if (!n) return
+            this.showLabels(() => buildSppBatchLabelsPdf(batch), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
+        },
+        printLabels() {
+            if (!this.labelBuild) return
+            const doc = this.labelBuild()
+            doc.autoPrint()
+            const w = window.open(doc.output('bloburl'))
+            if (!w) this.$message.warning(this.$tp('Pop-up blocked — use Download instead'))
+        },
+        downloadLabels() {
+            if (this.labelBuild) this.labelBuild().save(this.labelFileName)
+        },
+        cleanupLabels() {
+            if (this.labelUrl) { try { URL.revokeObjectURL(this.labelUrl.replace('#toolbar=0', '')) } catch (e) { /* ignore */ } }
+            this.labelUrl = ''
+        },
         // ── Edit ───────────────────────────────────────────────────
         openEdit(row) {
             this.editRow = row
@@ -754,7 +865,10 @@ export default {
                 this.$message.success(this.$tp('Saved'))
                 this.editVisible = false
                 this.load()
-                if (this.view && this.view._id === this.editRow._id) this.view = { ...this.view, ...this.editForm, shippedAt: this.editForm.shippedAt }
+                if (this.view && this.view._id === this.editRow._id) {
+                    this.view = { ...this.view, ...this.editForm, shippedAt: this.editForm.shippedAt }
+                    this.viewEdit = { tracking: this.editForm.tracking, note: this.editForm.note }
+                }
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to save')))
             } finally {
@@ -819,7 +933,11 @@ export default {
 .spb-field-date { min-width: 150px; }
 .spb-field-vendor { min-width: 170px; }
 .spb-below { margin-top: 10px; }
+.spb-inline { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.spb-inline-tracking { max-width: 440px; }
+.spb-inline-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .spb-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
+.spb-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spb-field-grow { flex: 1; }
 .spb-scan { display: flex; gap: 8px; margin-bottom: 10px; .el-input { flex: 1; } }
 /* Short while counting: yellow, like a short shipped figure — not an error. */

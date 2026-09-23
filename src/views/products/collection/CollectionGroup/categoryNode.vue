@@ -1,33 +1,36 @@
 <template>
     <div class="category-item">
-        <!-- Header -->
-        <div class="category-title" @click="toggleExpand">
+        <!-- Header — also the handle that drags the whole folder -->
+        <div class="category-title entry-handle" @click="toggleExpand">
             <div class="category-left">
                 <i class="el-icon-caret-right expand-icon" :class="{
                     expanded: category.expanded !== false
                 }" />
-
+                <i class="el-icon-folder folder-icon" />
                 <span>{{ category.title }}</span>
             </div>
         </div>
 
-        <!-- Expand -->
+        <!-- One list: the folder's collections and sub-folders in the order
+             the tree shows them, so a collection can sit between two
+             folders. Anything drags anywhere inside it or into another
+             folder (a collection never lands at the top level). -->
         <div v-show="category.expanded !== false">
-            <!-- Collections -->
-            <draggable v-model="category.collections" :group="{ name: 'collection', pull: true, put: true }"
-                class="children-list" handle=".child-item" :move="checkMove" @add="handleAdd">
-                <div v-for="child in category.collections" :key="child._id" class="child-item">
-               <div>     <span>{{ child.title }}</span>
-                    <br>
-                    <span style="color:#ccc">{{ child.note }}</span></div>
+            <draggable v-model="category.entries" :group="{ name: 'entries', pull: true, put: true }"
+                handle=".entry-handle" class="entry-list" :move="checkMove" @add="handleAdd">
+                <div v-for="entry in category.entries" :key="entry._id"
+                    :class="['entry', isFolder(entry) ? 'folder-entry' : 'collection-entry']">
+                    <CategoryNode v-if="isFolder(entry)" :category="entry" @duplicate="$emit('duplicate')" />
+                    <div v-else class="child-item entry-handle">
+                        <div>
+                            <span>{{ entry.title }}</span>
+                            <template v-if="entry.note">
+                                <br>
+                                <span class="child-note">{{ entry.note }}</span>
+                            </template>
+                        </div>
+                    </div>
                 </div>
-            </draggable>
-
-            <!-- Sub Categories -->
-            <draggable v-model="category.children" group="category-sort" handle=".category-title"
-                class="sub-category-list">
-                <CategoryNode v-for="sub in category.children" :key="sub._id" :category="sub"
-                    @duplicate="$emit('duplicate')" />
             </draggable>
         </div>
     </div>
@@ -35,6 +38,7 @@
 
 <script>
 import draggable from 'vuedraggable'
+import { isFolderEntry } from '@/utils/collectionGroupOrder'
 
 export default {
     name: 'CategoryNode',
@@ -44,6 +48,7 @@ export default {
     },
 
     props: {
+        // The dialog's working shape: { _id, title, expanded, entries: [...] }
         category: {
             type: Object,
             required: true
@@ -51,6 +56,8 @@ export default {
     },
 
     methods: {
+        isFolder: isFolderEntry,
+
         toggleExpand() {
             this.$set(
                 this.category,
@@ -59,35 +66,22 @@ export default {
             )
         },
 
+        // Reorder freely; into another folder only if that folder doesn't
+        // already hold the same collection.
         checkMove(evt) {
-            // Allow reorder inside the same list
-            if (evt.from === evt.to) {
-                return true
-            }
-
-            const draggedItem = evt.draggedContext.element
-            const targetList = evt.relatedContext.list || []
-
-            return !targetList.some(item => item._id === draggedItem._id)
+            if (evt.from === evt.to) return true
+            const dragged = evt.draggedContext.element
+            if (isFolderEntry(dragged)) return true
+            const target = evt.relatedContext.list || []
+            return !target.some(item => !isFolderEntry(item) && String(item._id) === String(dragged._id))
         },
 
         handleAdd(evt) {
-            const addedItem =
-                this.category.collections[
-                evt.newIndex
-                ]
-
-            const count =
-                this.category.collections.filter(
-                    item => item._id === addedItem._id
-                ).length
-
+            const added = this.category.entries[evt.newIndex]
+            if (!added || isFolderEntry(added)) return
+            const count = this.category.entries.filter(item => String(item._id) === String(added._id)).length
             if (count > 1) {
-                this.category.collections.splice(
-                    evt.newIndex,
-                    1
-                )
-
+                this.category.entries.splice(evt.newIndex, 1)
                 this.$emit('duplicate')
             }
         }
@@ -97,7 +91,7 @@ export default {
 
 <style scoped>
 .category-item {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .category-title {
@@ -105,7 +99,6 @@ export default {
     align-items: center;
     justify-content: space-between;
     padding: 9px 12px;
-    margin-bottom: 8px;
     border: 1px solid #dcdfe6;
     border-radius: 6px;
     background: #fff;
@@ -124,6 +117,10 @@ export default {
     font-weight: 600;
 }
 
+.folder-icon {
+    color: #e6a23c;
+}
+
 .expand-icon {
     transition: 0.2s;
 }
@@ -132,16 +129,20 @@ export default {
     transform: rotate(90deg);
 }
 
-.category-actions {
-    display: flex;
-    gap: 8px;
+/* the folder's contents; kept tall enough when empty to drop into */
+.entry-list {
+    min-height: 36px;
+    margin: 8px 0 0 24px;
+    padding: 0 0 0 12px;
+    border-left: 1px dashed #dcdfe6;
 }
 
-.children-list {
-    min-height: 42px;
-    margin-left: 24px;
-    padding: 10px 10px 2px;
-    border-left: 1px dashed #dcdfe6;
+.entry {
+    margin-bottom: 8px;
+}
+
+.entry.folder-entry > .category-item {
+    margin-bottom: 0;
 }
 
 .child-item {
@@ -150,7 +151,6 @@ export default {
     gap: 10px;
     justify-content: space-between;
     padding: 9px 12px;
-    margin-bottom: 8px;
     border: 1px solid #dcdfe6;
     border-radius: 6px;
     background: #f8fafc;
@@ -162,13 +162,8 @@ export default {
     border-color: #409eff;
 }
 
-.sub-category-list {
-    margin-left: 24px;
-    padding-left: 12px;
-    border-left: 1px dashed #dcdfe6;
-}
-
-.remove-btn {
-    color: #f56c6c;
+.child-note {
+    color: #c0c4cc;
+    font-size: 12px;
 }
 </style>

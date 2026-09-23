@@ -395,6 +395,7 @@ import { getCurrentStock, getSalesTotal, updateItemReorderLevel, hideStockItems,
 import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
 import { getCollectionGroups, getCollectionDetail, updateCollectionGroups, deleteCollection } from "../../api/zoho/products/collection";
 import CollectionGroupDialog from "@/views/products/collection/CollectionGroup/collectionGroup.vue"
+import { orderedEntries, isFolderEntry } from "@/utils/collectionGroupOrder"
 import { getProductDetail } from "../../api/zoho/products/product";
 // Spare parts read the stock register (2026-09-22) — one call for a
 // collection's rows and their sales windows — and overlay live stock on the
@@ -825,7 +826,12 @@ export default {
                     return categories.map(category => {
                         const path = [...ancestors, category.title]
 
-                        const collectionChildren = (category.collections || []).map(item => {
+                        // Collections and sub-folders in one list, in the order
+                        // Manage Category set (`order`); a folder that an old
+                        // drag left among the collections still shows as a folder.
+                        const entries = orderedEntries(category)
+                        const children = entries.map(item => {
+                            if (isFolderEntry(item)) return buildTree([item], path)[0]
                             const label = stripLabel(item.title, path)
                             return {
                                 label,
@@ -835,14 +841,11 @@ export default {
                             }
                         })
 
-                        const subCategoryChildren = buildTree(category.children || [], path)
-
                         // A category whose only content is one fully-stripped
                         // collection ("iPad Screen" under iPad → Screen)
                         // becomes the clickable leaf itself — no "All" level.
-                        if (collectionChildren.length === 1 && !subCategoryChildren.length
-                            && collectionChildren[0].label === 'All') {
-                            return { label: category.title, path, value: collectionChildren[0].value }
+                        if (entries.length === 1 && !isFolderEntry(entries[0]) && children[0].label === 'All') {
+                            return { label: category.title, path, value: children[0].value }
                         }
 
                         return {
@@ -851,7 +854,7 @@ export default {
                             // The folder's id in the raw group docs — the
                             // tree menu's folder operations key off it.
                             fid: category._id,
-                            children: [...collectionChildren, ...subCategoryChildren]
+                            children
                         }
                     })
                 }
@@ -1000,8 +1003,10 @@ export default {
             this.viewMode = 'list'
             this.currentTab = data.label
             this.currentPath = data.path || [data.label]
-            this.subOptions = data.children.map(c => ({ label: c.label, value: c.value }))
-            this.currentCollection = data.children.map(c => c.value).join(',')
+            // Only real collection ids go to the API (a folder has none).
+            const leaves = data.children.filter(c => /^[0-9a-f]{24}$/i.test(String(c.value || '')))
+            this.subOptions = leaves.map(c => ({ label: c.label, value: c.value }))
+            this.currentCollection = leaves.map(c => c.value).join(',')
             this.queryParams = {
                 pageNum: 1, pageSize: 20, sku: undefined, productName: undefined,
                 search: '', category: '', quick: '', subCol: ''

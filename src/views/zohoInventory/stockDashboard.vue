@@ -180,6 +180,8 @@
                                         :title="canEditPending(s.row) ? 'Click to change the pending quantity — 0 cancels it' : '待处理 — asked for, not yet placed'"
                                         @click.stop="canEditPending(s.row) ? startQty(s.row, 'pending') : null">
                                         <span>Pending</span><b>{{ s.row.__spp.pending }}</b></div>
+                                    <div v-if="s.row.__spp.toConfirm" class="sd-oo sd-oo-confirm" title="待确认 — waiting for a decision before it is placed or shipped">
+                                        <span>To confirm</span><b>{{ s.row.__spp.toConfirm }}</b></div>
                                     <div v-if="s.row.__spp.ordered" class="sd-oo sd-oo-ordered" title="已下单 — placed with the supplier">
                                         <span>Ordered</span><b>{{ s.row.__spp.ordered }}</b></div>
                                     <div v-if="s.row.__spp.shipped" class="sd-oo sd-oo-shipped" title="已发货 — on its way in a batch">
@@ -1134,6 +1136,7 @@ export default {
 .sd-oo span { color: #909399; }
 .sd-oo b { font-variant-numeric: tabular-nums; min-width: 14px; text-align: right; }
 .sd-oo-pending b { color: #e6a23c; }
+.sd-oo-confirm b { color: #0ea5a5; }
 .sd-oo-ordered b { color: #409eff; }
 .sd-oo-shipped b { color: #8b5cf6; }
 .sd-oo-shortage b { color: #f56c6c; }

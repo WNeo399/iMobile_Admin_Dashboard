@@ -6,6 +6,8 @@
 
 export const STATUS_LIST = [
     { value: 'pending', label: 'Pending', icon: 'el-icon-time', color: '#E6A23C', bg: '#FDF6EC' },
+    // 待确认: parked for a decision before it is placed or shipped
+    { value: 'toConfirm', label: 'To Confirm', icon: 'el-icon-question', color: '#0EA5A5', bg: '#E6F7F7' },
     { value: 'ordered', label: 'Ordered', icon: 'el-icon-document-checked', color: '#409EFF', bg: '#ECF5FF' },
     { value: 'shipped', label: 'Shipped', icon: 'el-icon-truck', color: '#8B5CF6', bg: '#F3EFFF' },
     { value: 'received', label: 'Received', icon: 'el-icon-circle-check', color: '#67C23A', bg: '#F0F9EB' },
@@ -68,11 +70,13 @@ export function packingListHtml(batch, tp) {
     const rowsHtml = lines.map((l, i) => `<tr>
         <td class="n">${i + 1}</td>
         <td>${esc(l.productName)}${l.sku ? `<div class="sub">SKU: ${esc(l.sku)}</div>` : ''}</td>
-        <td class="r">${esc(yuan(l.unitPrice))}</td>
         <td class="c">${l.orderQty == null ? '—' : l.orderQty}</td>
         <td class="c"><b>${l.shippedQty}</b></td>
+        <td class="r">${esc(yuan(l.unitPrice))}</td>
+        <td class="r">${l.unitPrice == null ? '' : esc(yuan(Math.round((Number(l.shippedQty) || 0) * Number(l.unitPrice) * 100) / 100))}</td>
     </tr>`).join('')
     const totalQty = lines.reduce((t, l) => t + (Number(l.shippedQty) || 0), 0)
+    const priced = lines.some(l => l.unitPrice != null)
     const totalAmount = lines.reduce((t, l) => t + (Number(l.shippedQty) || 0) * (Number(l.unitPrice) || 0), 0)
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
         <title>${esc(batch.batchNo)} ${esc(tp('Packing List'))}</title>
@@ -99,9 +103,60 @@ export function packingListHtml(batch, tp) {
             ${batch.note ? '<div>' + esc(batch.note) + '</div>' : ''}
         </div>
         <table><thead><tr>
-            <th class="n">#</th><th>${esc(tp('Product'))}</th><th class="r">${esc(tp('Unit Price'))}</th>
+            <th class="n">#</th><th>${esc(tp('Product'))}</th>
             <th class="c">${esc(tp('Ordered Qty'))}</th><th class="c">${esc(tp('Shipped Qty'))}</th>
+            <th class="r">${esc(tp('Unit Price'))}</th><th class="r">${esc(tp('Line total'))}</th>
         </tr></thead><tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td></td><td>${esc(tp('Total'))}</td><td class="r">${esc(yuan(totalAmount))}</td><td></td><td class="c">${totalQty}</td></tr></tfoot></table>
+        <tfoot><tr><td></td><td>${esc(tp('Total'))}</td><td></td><td class="c">${totalQty}</td><td></td>
+            <td class="r">${priced ? esc(yuan(totalAmount)) : ''}</td></tr></tfoot></table>
+        </body></html>`
+}
+
+// The order list for a supplier (下单批次), previewed and printed / saved as
+// PDF from the browser: SKU, product, quantity, the unit price once quoted.
+export function orderListHtml(batch, tp) {
+    const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const lines = batch.lines || []
+    const price = l => (l.unitPrice != null ? l.unitPrice : l.currentPrice)
+    const rowsHtml = lines.map((l, i) => `<tr>
+        <td class="n">${i + 1}</td>
+        <td class="c">${esc(l.sku || '—')}</td>
+        <td>${esc(l.productName)}${l.note ? `<div class="sub">${esc(l.note)}</div>` : ''}</td>
+        <td class="c"><b>${l.orderQty == null ? '—' : l.orderQty}</b></td>
+        <td class="r">${price(l) == null ? '' : esc(yuan(price(l)))}</td>
+        <td class="r">${price(l) == null ? '' : esc(yuan(Math.round(price(l) * (l.orderQty || 0) * 100) / 100))}</td>
+    </tr>`).join('')
+    const totalQty = lines.reduce((t, l) => t + (Number(l.orderQty) || 0), 0)
+    const priced = lines.filter(l => price(l) != null)
+    const totalAmount = priced.reduce((t, l) => t + (Number(l.orderQty) || 0) * (Number(price(l)) || 0), 0)
+    return `<!DOCTYPE html><html><head><meta charset="utf-8">
+        <title>${esc(tp('Order list'))} ${esc(batch.batchNo)}</title>
+        <style>
+            body { font: 12px/1.5 Arial, "Microsoft YaHei", sans-serif; color: #111; margin: 28px; }
+            h1 { font-size: 18px; margin: 0 0 2px; }
+            .meta { color: #555; margin-bottom: 14px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #999; padding: 5px 8px; text-align: left; vertical-align: top; }
+            th { background: #f0f0f0; }
+            .n { width: 30px; text-align: right; color: #555; }
+            .c { text-align: center; white-space: nowrap; }
+            .r { text-align: right; white-space: nowrap; }
+            .sub { color: #777; font-size: 11px; }
+            tfoot td { font-weight: bold; }
+            @page { margin: 0; }
+            @media print { body { margin: 14mm 12mm; } }
+        </style></head><body>
+        <h1>${esc(tp('Order list'))} — ${esc(batch.batchNo)}</h1>
+        <div class="meta">
+            ${esc(tp('Supplier'))} ${esc(batch.supplier || '—')} · ${esc(tp('Date'))} ${esc(fmtDay(batch.createdAt))}
+            · ${esc(tp('{n} line(s)', { n: lines.length }))} · ${esc(tp('{n} pcs', { n: totalQty }))}${batch.createdBy ? ' · ' + esc(batch.createdBy) : ''}
+            ${batch.note ? '<div>' + esc(batch.note) + '</div>' : ''}
+        </div>
+        <table><thead><tr>
+            <th class="n">#</th><th class="c">SKU</th><th>${esc(tp('Product'))}</th>
+            <th class="c">${esc(tp('Qty'))}</th><th class="r">${esc(tp('Unit Price'))}</th><th class="r">${esc(tp('Line total'))}</th>
+        </tr></thead><tbody>${rowsHtml}</tbody>
+        <tfoot><tr><td></td><td></td><td>${esc(tp('Total'))}</td><td class="c">${totalQty}</td><td></td>
+            <td class="r">${priced.length ? esc(yuan(totalAmount)) : ''}</td></tr></tfoot></table>
         </body></html>`
 }

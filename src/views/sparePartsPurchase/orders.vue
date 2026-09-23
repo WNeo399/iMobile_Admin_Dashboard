@@ -3,7 +3,7 @@
         <!-- Category tree: every line files under one purchase category; the
              count is the lines still to arrive. -->
         <tree-panel ref="treeRef" :tree-data="treeData" :title="$tp('Purchase Orders')" title-icon-class="el-icon-box"
-            node-key="id" :default-expand-all="true" :show-search="false" @node-click="onNodeClick">
+            node-key="id" :default-expand-all="true" :show-search="false" @node-click="onNodeClick" @collapsed-change="onTreeToggle">
             <template #node="{ data }">
                 <span class="spp-node">
                     <i :class="data.id === 'root' ? 'el-icon-notebook-2' : 'el-icon-document'" class="spp-node-icon" />
@@ -15,15 +15,15 @@
 
         <div class="spp-main">
             <div class="spp-topbar">
-                <el-checkbox v-model="openOnly" class="spp-toggle" @change="onOpenOnly">{{ $tp('Open orders only') }}</el-checkbox>
+                <!-- Open lines by default (Received / Cancelled cards show the rest);
+                     new lines are raised from the Stock Monitoring dashboard. -->
                 <!-- Several pending lines with one supplier happen on the Order
                      Batches page (the list to send them comes from there). -->
                 <el-button v-if="can('spp:order:supply')" size="small" icon="el-icon-document-checked"
                     @click="$router.push({ path: '/sparePartsPurchase/order-batches', query: { create: '1' } })">{{ $tp('Create Order Batch') }}</el-button>
-                <el-button size="small" icon="el-icon-download" :loading="exporting" @click="exportList">{{ $tp('Export') }}</el-button>
-                <el-button v-if="can('spp:order:create')" type="success" size="small" icon="el-icon-plus" @click="openCreate">{{ $tp('Create PO') }}</el-button>
+                <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
                 <el-button v-if="can('spp:batch:create')" type="warning" plain size="small" icon="el-icon-truck" @click="goCreateBatch">{{ $tp('Create Batch') }}</el-button>
-                <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
+                <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
             </div>
 
             <div class="spp-header">
@@ -66,12 +66,15 @@
                 </div>
             </div>
 
-            <el-table ref="table" v-loading="loading" :data="rows" size="mini" height="calc(100vh - 432px)" class="spp-table">
+            <!-- Height is measured (whatever the header rows take on this screen);
+                 `compact` drops the wide columns and folds their facts into the
+                 product cell. -->
+            <el-table ref="table" v-loading="loading" :data="rows" size="mini" :height="tableHeight" class="spp-table">
                 <!-- The day the line was raised; the SP- number stays internal. -->
-                <el-table-column :label="$tp('Date')" width="100" align="center" fixed>
+                <el-table-column :label="$tp('Date')" :width="compact ? 92 : 100" align="center" :fixed="!compact">
                     <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
                 </el-table-column>
-                <el-table-column :label="$tp('Product')" min-width="300" fixed>
+                <el-table-column :label="$tp('Product')" :min-width="compact ? 220 : 300" :fixed="!compact">
                     <template slot-scope="s">
                         <div class="spp-prod-name">
                             {{ s.row.productName }}<a v-if="s.row.itemId" class="spp-prod-zoho" :href="zohoLink(s.row.itemId)"
@@ -80,29 +83,36 @@
                         <div class="spp-sub">
                             <span v-if="s.row.sku">SKU: {{ s.row.sku }}</span>
                             <span v-if="s.row.category" class="spp-cat">{{ catLabel(s.row.category) }}</span>
+                            <!-- Small screens: the supplier and order date live here instead of their own columns. -->
+                            <span v-if="compact && s.row.supplier" class="spp-fold">· {{ s.row.supplier }}</span>
+                            <span v-if="compact && s.row.orderedAt" class="spp-fold">· {{ $tp('Ordered') }} {{ fmtDay(s.row.orderedAt) }}</span>
+                            <!-- Went through To Confirm and was confirmed — the mark stays. -->
+                            <span v-if="s.row.confirmed" class="spp-tag-ok" :title="confirmedTitle(s.row.confirmed)">
+                                <i class="el-icon-circle-check" /> {{ $tp('Confirmed') }}</span>
                         </div>
                         <div v-if="s.row.note" class="spp-note">{{ $tp('Note') }}: {{ s.row.note }}</div>
                         <div v-if="s.row.splitFrom" class="spp-sub"><i class="el-icon-share" /> {{ $tp('Remainder of a short shipment') }}</div>
                         <div v-if="s.row.status === 'shortage' && s.row.shortageNote" class="spp-note spp-warn">{{ s.row.shortageNote }}</div>
+                        <div v-if="s.row.status === 'toConfirm' && s.row.confirmNote" class="spp-note spp-confirm"><i class="el-icon-question" /> {{ s.row.confirmNote }}</div>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Qty')" width="66" align="center">
+                <el-table-column :label="$tp('Qty')" :width="compact ? 56 : 66" align="center">
                     <template slot-scope="s">{{ s.row.orderQty }}</template>
                 </el-table-column>
-                <el-table-column :label="$tp('Unit Price')" width="104" align="center">
+                <el-table-column :label="$tp('Unit Price')" :width="compact ? 90 : 104" align="center">
                     <template slot-scope="s">
                         <span v-if="s.row.unitPrice != null">{{ yuan(s.row.unitPrice) }}</span>
                         <span v-else-if="s.row.quotedPrice != null">{{ yuan(s.row.quotedPrice) }} <span class="spp-quote-tag">{{ $tp('quote') }}</span></span>
                         <span v-else>—</span>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Supplier')" width="104" align="center" show-overflow-tooltip>
+                <el-table-column v-if="!compact" :label="$tp('Supplier')" width="104" align="center" show-overflow-tooltip>
                     <template slot-scope="s">{{ s.row.supplier || '—' }}</template>
                 </el-table-column>
-                <el-table-column :label="$tp('Ordered')" width="122" align="center">
+                <el-table-column v-if="!compact" :label="$tp('Ordered')" width="122" align="center">
                     <template slot-scope="s">{{ fmtWhen(s.row.orderedAt) }}</template>
                 </el-table-column>
-                <el-table-column :label="$tp('Shipped')" width="160" align="center">
+                <el-table-column :label="$tp('Shipped')" :width="compact ? 118 : 160" align="center">
                     <template slot-scope="s">
                         <template v-if="s.row.shippedQty != null">
                             <div><b :class="s.row.shippedQty < s.row.orderQty ? 'spp-qty-short' : 'spp-qty-full'">{{ s.row.shippedQty }}</b><span class="spp-sub"> · {{ fmtDay(s.row.shippedAt) }}</span></div>
@@ -116,7 +126,7 @@
                         <span v-else>—</span>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Received')" width="104" align="center">
+                <el-table-column v-if="!compact" :label="$tp('Received')" width="104" align="center">
                     <template slot-scope="s">
                         <template v-if="s.row.receivedAt">
                             <div>{{ fmtDay(s.row.receivedAt) }}</div>
@@ -126,25 +136,38 @@
                         <span v-else>—</span>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Status')" width="92" align="center">
+                <el-table-column :label="$tp('Status')" :width="compact ? 84 : 92" align="center">
                     <template slot-scope="s">
                         <span class="spp-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Actions')" align="center" width="136" fixed="right">
+                <el-table-column :label="$tp('Actions')" align="center" :width="compact ? 108 : 150" fixed="right">
                     <template slot-scope="s">
-                        <el-button v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
-                            size="mini" type="text" icon="el-icon-document-checked" @click="openPlace(s.row)">{{ $tp('Place order') }}</el-button>
-                        <el-dropdown trigger="click" @command="(cmd) => cmd()">
+                        <!-- Details is always one click away; the rest sits under "…".
+                             Small screens: icons only, the words in tooltips. -->
+                        <el-tooltip :content="$tp('Details')" placement="top">
+                            <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)" />
+                        </el-tooltip>
+                        <el-tooltip v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
+                            :content="$tp('Place order')" placement="top" :disabled="!compact">
+                            <el-button size="mini" type="text" icon="el-icon-document-checked" @click="openPlace(s.row)">{{ compact ? '' : $tp('Place order') }}</el-button>
+                        </el-tooltip>
+                        <!-- A parked line: the decision is the main action. -->
+                        <el-tooltip v-if="canEither && s.row.status === 'toConfirm'" :content="$tp('Confirm')" placement="top" :disabled="!compact">
+                            <el-button size="mini" type="text" icon="el-icon-check" class="spp-act-confirm" @click="confirm(s.row)">{{ compact ? '' : $tp('Confirm') }}</el-button>
+                        </el-tooltip>
+                        <el-dropdown v-if="['pending', 'toConfirm', 'ordered', 'shortage', 'cancelled'].includes(s.row.status)"
+                            trigger="click" @command="(cmd) => cmd()">
                             <el-button size="mini" type="text" icon="el-icon-more" class="spp-more" />
                             <el-dropdown-menu slot="dropdown">
-                                <el-dropdown-item :command="() => openDetail(s.row)" icon="el-icon-document">{{ $tp('Details') }}</el-dropdown-item>
-                                <el-dropdown-item v-if="can('spp:order:supply') && ['pending', 'shortage', 'ordered'].includes(s.row.status)"
-                                    :command="() => openQuote(s.row)" icon="el-icon-price-tag" divided>{{ $tp('Quote') }}</el-dropdown-item>
+                                <el-dropdown-item v-if="can('spp:order:supply') && ['pending', 'shortage', 'ordered', 'toConfirm'].includes(s.row.status)"
+                                    :command="() => openQuote(s.row)" icon="el-icon-price-tag">{{ $tp('Quote') }}</el-dropdown-item>
+                                <el-dropdown-item v-if="canEither && ['pending', 'ordered', 'shortage'].includes(s.row.status)"
+                                    :command="() => toConfirm(s.row)" icon="el-icon-question">{{ $tp('To Confirm') }}</el-dropdown-item>
                                 <el-dropdown-item v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'ordered')"
                                     :command="() => markShortage(s.row)" icon="el-icon-remove-outline">{{ $tp('Shortage') }}</el-dropdown-item>
-                                <el-dropdown-item v-if="canEither && (s.row.status === 'pending' || s.row.status === 'shortage')"
-                                    :command="() => cancel(s.row)" icon="el-icon-circle-close">{{ $tp('Cancel order') }}</el-dropdown-item>
+                                <el-dropdown-item v-if="canEither && ['pending', 'shortage', 'toConfirm'].includes(s.row.status)"
+                                    :command="() => cancel(s.row)" icon="el-icon-circle-close" divided>{{ $tp('Cancel order') }}</el-dropdown-item>
                                 <el-dropdown-item v-if="canEither && (s.row.status === 'shortage' || s.row.status === 'cancelled')"
                                     :command="() => reopen(s.row)" icon="el-icon-refresh-left">{{ $tp('Reopen') }}</el-dropdown-item>
                             </el-dropdown-menu>
@@ -162,71 +185,6 @@
                     @current-change="onPage" @size-change="onSize" />
             </div>
         </div>
-
-        <!-- ── Create PO ────────────────────────────────────────────── -->
-        <el-dialog :visible.sync="createVisible" width="880px" append-to-body>
-            <div slot="title" class="spp-dlg-head"><i class="el-icon-shopping-cart-2" /> {{ $tp('Create Purchase Order') }}</div>
-            <el-form label-position="top" size="small" class="spp-create-form" @submit.native.prevent>
-                <el-form-item :label="$tp('Add product')">
-                    <el-autocomplete v-model="createSearch" :fetch-suggestions="fetchProducts" :debounce="300"
-                        :placeholder="$tp('Type a product name or SKU…')" style="width:100%" value-key="name"
-                        :trigger-on-focus="false" clearable prefix-icon="el-icon-search" popper-class="spp-suggestions"
-                        @select="onProductPicked">
-                        <template slot-scope="{ item }">
-                            <div class="spp-suggestion">
-                                <img v-if="item.imageUrl" :src="item.imageUrl" class="spp-suggestion-img" @error="hideImg($event)" />
-                                <div v-else class="spp-suggestion-img spp-suggestion-ph"><i class="el-icon-picture-outline" /></div>
-                                <div class="spp-suggestion-info">
-                                    <div class="spp-suggestion-name">{{ item.name }}</div>
-                                    <div class="spp-suggestion-meta">
-                                        <span v-if="item.sku">SKU: {{ item.sku }}</span>
-                                        <span v-if="item.classification"> · {{ item.classification }}</span>
-                                        <span v-if="item.available != null"> · {{ $tp('stock {n}', { n: item.available }) }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </el-autocomplete>
-                </el-form-item>
-            </el-form>
-            <el-table :data="createLines" size="mini" border max-height="360" class="spp-lines"
-                :empty-text="$tp('Search above to add one or more products')">
-                <el-table-column :label="$tp('Product')" min-width="240">
-                    <template slot-scope="{ row }">
-                        <div class="spp-line-name" :title="row.productName">{{ row.productName }}</div>
-                        <div class="spp-sub">SKU: {{ row.sku || '—' }}</div>
-                    </template>
-                </el-table-column>
-                <el-table-column :label="$tp('Category')" width="170">
-                    <template slot-scope="{ row }">
-                        <el-select v-model="row.category" :placeholder="$tp('Select')" size="mini" style="width:100%">
-                            <el-option v-for="c in categoryOptions" :key="c" :label="catLabel(c)" :value="c" />
-                        </el-select>
-                    </template>
-                </el-table-column>
-                <el-table-column :label="$tp('Qty')" width="120" align="center">
-                    <template slot-scope="{ row }">
-                        <el-input-number v-model="row.orderQty" :min="1" :precision="0" :step="1" size="mini"
-                            controls-position="right" style="width:100%" />
-                    </template>
-                </el-table-column>
-                <el-table-column :label="$tp('Note')" min-width="150">
-                    <template slot-scope="{ row }">
-                        <el-input v-model="row.note" size="mini" maxlength="200" :placeholder="$tp('Optional')" />
-                    </template>
-                </el-table-column>
-                <el-table-column width="44" align="center">
-                    <template slot-scope="{ $index }">
-                        <el-button type="text" icon="el-icon-delete" class="spp-del" @click="createLines.splice($index, 1)" />
-                    </template>
-                </el-table-column>
-            </el-table>
-            <span slot="footer">
-                <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
-                <el-button type="primary" size="small" icon="el-icon-check" :loading="creating" :disabled="!createLines.length"
-                    @click="submitCreate">{{ $tp('Create {n} line(s)', { n: createLines.length }) }}</el-button>
-            </span>
-        </el-dialog>
 
         <!-- ── Place order (one line) ───────────────────────────────── -->
         <el-dialog :visible.sync="placeVisible" width="480px" append-to-body>
@@ -272,7 +230,17 @@
                         <template slot="prepend">¥</template>
                     </el-input>
                 </el-form-item>
-                <div class="spp-hint"><i class="el-icon-info" /> {{ $tp('A quote is a reference price only; the status does not change.') }}</div>
+                <!-- "Quote, then confirm": the line parks in To Confirm with the price. -->
+                <el-form-item v-if="quoteRow && quoteRow.status !== 'toConfirm'">
+                    <el-checkbox v-model="quoteForm.toConfirm">{{ $tp('Move to To Confirm') }}</el-checkbox>
+                </el-form-item>
+                <el-form-item v-if="quoteForm.toConfirm && quoteRow && quoteRow.status !== 'toConfirm'" :label="$tp('Needs confirming')">
+                    <el-input v-model="quoteForm.note" type="textarea" :rows="2" resize="none" maxlength="200" show-word-limit
+                        :placeholder="$tp('What needs confirming?')" />
+                </el-form-item>
+                <div v-if="quoteForm.toConfirm && quoteRow && quoteRow.status !== 'toConfirm'" class="spp-hint"><i class="el-icon-question" />
+                    {{ $tp('The line parks in To Confirm with this quote; confirm it to carry on.') }}</div>
+                <div v-else class="spp-hint"><i class="el-icon-info" /> {{ $tp('A quote is a reference price only; the status does not change.') }}</div>
             </el-form>
             <span slot="footer">
                 <el-button size="small" @click="quoteVisible = false">{{ $tp('Cancel') }}</el-button>
@@ -298,6 +266,15 @@
                     </el-descriptions-item>
                     <el-descriptions-item :label="$tp('Status')">
                         <span class="spp-status" :style="statusStyle(detail.status)">{{ statusLabel(detail.status) }}</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item v-if="detail.status === 'toConfirm'" :label="$tp('Needs confirming')" :span="2">
+                        <span class="spp-confirm">{{ detail.confirmNote || '—' }}</span>
+                        <span class="spp-sub"> · {{ $tp('back to Pending once confirmed') }}</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item v-if="detail.confirmed" :label="$tp('Confirmed')" :span="2">
+                        <span class="spp-tag-ok"><i class="el-icon-circle-check" /> {{ fmtWhen(detail.confirmed.at) }}<span v-if="detail.confirmed.by"> · {{ detail.confirmed.by }}</span></span>
+                        <span v-if="detail.confirmed.question" class="spp-sub"> · {{ detail.confirmed.question }}</span>
+                        <span v-if="detail.confirmed.answer" class="spp-sub"> → {{ detail.confirmed.answer }}</span>
                     </el-descriptions-item>
                     <el-descriptions-item :label="$tp('Supplier')">{{ detail.supplier || '—' }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Qty')">
@@ -358,15 +335,16 @@ import TreePanel from '@/components/TreePanel'
 import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
-    listOrders, getOrder, createOrders, updateOrder, quoteOrder, placeOrder, shortageOrder,
-    cancelOrder, reopenOrder, searchProducts
+    listOrders, getOrder, updateOrder, quoteOrder, placeOrder, shortageOrder,
+    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder
 } from '@/api/sparePartsPurchase'
-import { STATUS_LIST, STATUS_META, CATEGORIES, isChannel, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
+import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
 
 // What each audit entry did — English source, translated through $tp.
 const ACTION_LABELS = {
     created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
-    cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled'
+    cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
+    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed'
 }
 
 export default {
@@ -390,11 +368,6 @@ export default {
             search: '',
             openOnly: true,
             treeInit: false,
-            // Create PO — one line per product
-            createVisible: false,
-            createSearch: '',
-            createLines: [],
-            creating: false,
             // Place order — one row
             placeVisible: false,
             placeRow: null,
@@ -404,15 +377,23 @@ export default {
             // Quote
             quoteVisible: false,
             quoteRow: null,
-            quoteForm: { unitPrice: undefined },
+            quoteForm: { unitPrice: undefined, toConfirm: false, note: '' },
             quoting: false,
             // Details (note / qty / category editable while pending)
             detailVisible: false,
             detail: null,
             detailLoading: false,
             detailForm: { note: '', orderQty: null, category: '' },
-            detailSaving: false
+            detailSaving: false,
+            // Smaller screens (< 1440px): fewer columns, icon-only actions.
+            compact: false,
+            // The table fills what is left under the header rows.
+            tableHeight: 400
         }
+    },
+    watch: {
+        // The header rows may have re-flowed once the counts are in.
+        loading(v) { if (!v) this.$nextTick(this.fitTable) }
     },
     computed: {
         treeData() {
@@ -439,11 +420,40 @@ export default {
     },
     // Coming back to the tab (kept alive by the tags bar) — e.g. from Order
     // Batches after placing lines — must show fresh data.
+    mounted() {
+        this.onResize()
+        window.addEventListener('resize', this.onResize)
+        // A narrow window starts with the category tree folded away.
+        if (window.innerWidth < 1200) {
+            const t = this.$refs.treeRef
+            if (t && !t.collapsed && typeof t.toggleCollapsed === 'function') t.toggleCollapsed()
+        }
+    },
+    beforeDestroy() {
+        window.removeEventListener('resize', this.onResize)
+    },
     activated() {
         this.load()
+        this.$nextTick(this.fitTable)
     },
     methods: {
         fmtDay, fmtWhen, yuan, dhlLink, zohoLink,
+        // ── Fit the screen ─────────────────────────────────────────
+        onResize() {
+            this.compact = window.innerWidth < 1440
+            this.$nextTick(this.fitTable)
+        },
+        // The table takes the room under the header rows down to the pager.
+        fitTable() {
+            const el = this.$refs.table && this.$refs.table.$el
+            if (!el) return
+            const top = el.getBoundingClientRect().top
+            this.tableHeight = Math.max(200, Math.floor(window.innerHeight - top - 60))
+        },
+        // The tree panel animates its width; the table re-measures after it.
+        onTreeToggle() {
+            setTimeout(() => { this.fitTable(); this.$refs.table && this.$refs.table.doLayout() }, 350)
+        },
         can(p) {
             return hasPermission(this.$store.getters.permissions, p)
         },
@@ -507,10 +517,6 @@ export default {
             }
         },
         reload() { this.page = 1; this.load() },
-        onOpenOnly() {
-            if (this.openOnly) this.activeStatus = ''
-            this.reload()
-        },
         onStatusChange() {
             if (this.activeStatus === 'received' || this.activeStatus === 'cancelled') this.openOnly = false
             this.reload()
@@ -534,60 +540,6 @@ export default {
         onSize(s) { this.pageSize = s; this.reload() },
         goCreateBatch() {
             this.$router.push({ path: '/sparePartsPurchase/batches', query: { create: '1' } })
-        },
-        // ── Create PO ──────────────────────────────────────────────
-        openCreate() {
-            this.createLines = []
-            this.createSearch = ''
-            this.createVisible = true
-        },
-        async fetchProducts(query, cb) {
-            const q = (query || '').trim()
-            if (!q) { cb([]); return }
-            try {
-                const r = await searchProducts(q)
-                cb((r && r.products) || [])
-            } catch (e) {
-                cb([])
-            }
-        },
-        onProductPicked(p) {
-            this.createSearch = ''
-            const dup = this.createLines.find(l => l.itemId && l.itemId === p.itemId)
-            if (dup) { dup.orderQty += 1; return }
-            // Files under the item's classification; under 海运 / Special
-            // Order when that tab is open (the picker can still change it).
-            this.createLines.push({
-                itemId: p.itemId || null,
-                sku: p.sku || '',
-                productName: p.name || '',
-                imageId: p.imageId || null,
-                category: isChannel(this.activeCategory) ? this.activeCategory : (p.suggestedCategory || 'Other'),
-                orderQty: 1,
-                note: ''
-            })
-        },
-        hideImg(e) {
-            if (e && e.target) e.target.style.display = 'none'
-        },
-        async submitCreate() {
-            for (let i = 0; i < this.createLines.length; i++) {
-                const l = this.createLines[i]
-                if (!l.category) { this.$message.warning(this.$tp('Line {n}: pick a category', { n: i + 1 })); return }
-                if (!l.orderQty || l.orderQty < 1) { this.$message.warning(this.$tp('Line {n}: quantity must be at least 1', { n: i + 1 })); return }
-            }
-            this.creating = true
-            try {
-                const r = await createOrders(this.createLines)
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('{n} purchase order(s) created', { n: r.created }))
-                this.createVisible = false
-                this.reload()
-            } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Failed to create the purchase orders')))
-            } finally {
-                this.creating = false
-            }
         },
         // ── Place / quote / shortage / cancel / reopen ─────────────
         openPlace(row) {
@@ -664,7 +616,7 @@ export default {
         },
         openQuote(row) {
             this.quoteRow = row
-            this.quoteForm = { unitPrice: row.quotedPrice != null ? row.quotedPrice : undefined }
+            this.quoteForm = { unitPrice: row.quotedPrice != null ? row.quotedPrice : undefined, toConfirm: false, note: '' }
             this.quoteVisible = true
         },
         async submitQuote() {
@@ -674,15 +626,57 @@ export default {
             }
             this.quoting = true
             try {
-                const r = await quoteOrder(this.quoteRow._id, v)
+                const park = this.quoteForm.toConfirm && this.quoteRow.status !== 'toConfirm'
+                const r = await quoteOrder(this.quoteRow._id, { unitPrice: v, toConfirm: park, note: park ? this.quoteForm.note : '' })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('Quote saved'))
+                this.$message.success(park ? this.$tp('{no} quoted and parked in To Confirm', { no: this.quoteRow.orderNo }) : this.$tp('Quote saved'))
                 this.quoteVisible = false
                 this.load()
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to save the quote')))
             } finally {
                 this.quoting = false
+            }
+        },
+        // 待确认: parked for a decision — the note says what needs confirming.
+        async toConfirm(row) {
+            let note = ''
+            try {
+                const r = await this.$prompt(this.$tp('Move {no} to To Confirm? Say what needs confirming.', { no: row.orderNo }),
+                    this.$tp('To Confirm'), {
+                        confirmButtonText: this.$tp('Move to To Confirm'), cancelButtonText: this.$tp('Cancel'), inputType: 'textarea',
+                        inputPlaceholder: this.$tp('What needs confirming?'),
+                        inputValidator: v => (v && v.trim() ? true : this.$tp('A note is required'))
+                    })
+                note = (r && r.value) || ''
+            } catch (e) { return }
+            try {
+                const r = await toConfirmOrder(row._id, note.trim())
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('{no} is now To Confirm', { no: row.orderNo }))
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
+            }
+        },
+        confirmedTitle(c) {
+            return [c.question ? 'Q: ' + c.question : '', c.answer ? 'A: ' + c.answer : '', fmtWhen(c.at) + (c.by ? ' · ' + c.by : '')].filter(Boolean).join('\n')
+        },
+        // Decision made: back to Pending, marked Confirmed (the user's rule).
+        async confirm(row) {
+            let note = ''
+            try {
+                const r = await this.$prompt(this.$tp('Confirm {no}? It goes back to Pending, marked Confirmed.', { no: row.orderNo }),
+                    this.$tp('Confirm'), { confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel'), inputPlaceholder: this.$tp('Optional') })
+                note = (r && r.value) || ''
+            } catch (e) { return }
+            try {
+                const r = await confirmOrder(row._id, note)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('{no} confirmed — back to Pending', { no: row.orderNo }))
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
             }
         },
         async markShortage(row) {
@@ -769,16 +763,15 @@ export default {
 .spp-node-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spp-node-count { flex-shrink: 0; margin-left: 8px; font-size: 11px; font-weight: 600; color: #f56c6c; font-variant-numeric: tabular-nums; }
 .spp-node-count.is-zero { color: #c0c4cc; font-weight: 400; }
-.spp-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.spp-toggle { margin-right: auto; }
+.spp-topbar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 10px; }
 .spp-header { margin-bottom: 8px; }
 .spp-h-title { font-size: 18px; font-weight: 600; color: #303133; }
 .spp-h-sub { font-size: 12px; color: #909399; margin-top: 2px; }
-.spp-filters { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
+.spp-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
 .spp-f-item { display: flex; flex-direction: column; gap: 3px; }
 .spp-f-item label { font-size: 12px; color: #909399; }
-.spp-f-grow { flex: 1; min-width: 200px; }
-.spp-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.spp-f-grow { flex: 1; min-width: 160px; }
+.spp-kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 .spp-kpi { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #ebeef5; border-radius: 6px; cursor: pointer; transition: box-shadow .15s;
     &:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
     &.active { border-color: #409eff; box-shadow: 0 0 0 1px #409eff inset; }
@@ -786,6 +779,22 @@ export default {
 .spp-kpi-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
 .spp-kpi-label { font-size: 12px; color: #909399; }
 .spp-kpi-count { font-size: 18px; font-weight: 600; color: #303133; line-height: 1.1; }
+/* Smaller screens: the header rows shrink and the status cards become one
+   row of chips (the columns are handled by `compact` in the script). */
+@media (max-width: 1440px) {
+    .spp-main { padding: 8px 10px 6px; }
+    .spp-topbar { margin-bottom: 6px; }
+    .spp-header { margin-bottom: 2px; }
+    .spp-h-title { font-size: 16px; }
+    .spp-filters { gap: 8px; margin-bottom: 8px; }
+    .spp-kpis { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .spp-kpi { gap: 6px; padding: 3px 10px 3px 4px; border-radius: 16px; }
+    .spp-kpi-icon { width: 22px; height: 22px; border-radius: 50%; font-size: 12px; }
+    .spp-kpi-body { display: flex; align-items: baseline; gap: 5px; }
+    .spp-kpi-label { font-size: 12px; white-space: nowrap; }
+    .spp-kpi-count { font-size: 13px; }
+}
+.spp-fold { color: #909399; }
 .spp-table { flex: 1; }
 .spp-no { font-weight: 600; color: #303133; font-variant-numeric: tabular-nums; }
 .spp-sub { font-size: 11px; color: #909399; }
@@ -800,19 +809,14 @@ export default {
 .spp-quote-tag { font-size: 10px; color: #e6a23c; border: 1px solid #f5dab1; border-radius: 3px; padding: 0 3px; }
 .spp-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
 .spp-more { margin-left: 4px; color: #909399; }
+.spp-confirm { color: #0ea5a5; }
+.spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
+.spp-act-confirm { color: #0ea5a5; font-weight: 600; }
 .spp-empty { color: #909399; }
 .spp-pager { padding-top: 8px; text-align: right; }
 .spp-dlg-head { font-size: 15px; font-weight: 600; color: #303133; i { color: #409eff; margin-right: 4px; } }
 .spp-dlg-no { margin-left: 8px; font-weight: 400; color: #909399; font-size: 13px; }
-.spp-create-form { margin-bottom: 6px; }
-.spp-suggestion { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
-.spp-suggestion-img { width: 36px; height: 36px; object-fit: contain; border-radius: 4px; border: 1px solid #ebeef5; background: #fff; }
-.spp-suggestion-ph { display: flex; align-items: center; justify-content: center; color: #c0c4cc; }
-.spp-suggestion-info { min-width: 0; line-height: 1.3; }
-.spp-suggestion-name { white-space: normal; color: #303133; }
-.spp-suggestion-meta { font-size: 11px; color: #909399; }
 .spp-line-name { color: #303133; line-height: 1.3; }
-.spp-del { color: #f56c6c; }
 .spp-card { padding: 10px 12px; border: 1px solid #ebeef5; border-radius: 6px; background: #fafafa; margin-bottom: 12px; }
 .spp-row { display: flex; gap: 12px; }
 .spp-col { flex: 1; }

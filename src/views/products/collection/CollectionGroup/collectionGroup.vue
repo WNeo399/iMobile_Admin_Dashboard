@@ -10,7 +10,8 @@
           <div class="panel-title">Category</div>
         </div>
 
-        <draggable v-model="categories" group="category-sort" handle=".category-title" class="category-list">
+        <!-- Top level: folders only (a collection dragged here is refused). -->
+        <draggable v-model="categories" :group="{ name: 'entries', pull: true, put: acceptsAtRoot }" handle=".entry-handle" class="category-list">
           <CategoryNode
             v-for="category in categories"
             :key="category._id"
@@ -33,6 +34,7 @@
 import draggable from 'vuedraggable'
 import CategoryNode from './categoryNode.vue'
 import { getCollectionGroups, updateCollectionGroups } from '../../../../api/zoho/products/collection'
+import { toEditable, fromEditable } from '@/utils/collectionGroupOrder'
 
 export default {
   name: 'CollectionCategoryDialog',
@@ -74,11 +76,17 @@ export default {
     async fetchData() {
       try {
         const gruop = await getCollectionGroups(this.scope)
-        this.categories = gruop.data
+        // one mixed list per folder, in the order the tree shows it
+        this.categories = (gruop.data || []).map(toEditable)
       } catch (err) {
         console.error(err)
         this.$message.error('Failed to fetch categories')
       }
+    },
+
+    // Only a folder may be dropped at the top level.
+    acceptsAtRoot(to, from, dragEl) {
+      return !!dragEl && (dragEl.classList.contains('folder-entry') || dragEl.classList.contains('category-item'))
     },
 
     showDuplicateMessage() {
@@ -93,13 +101,14 @@ export default {
 
 async handleSave() {
   try {
-    await updateCollectionGroups(this.categories, this.scope)
+    const groups = this.categories.map(fromEditable)
+    await updateCollectionGroups(groups, this.scope)
 
     this.$message.success(
       'Groups updated successfully'
     )
 
-    this.$emit('save', this.categories)
+    this.$emit('save', groups)
 
     this.handleClose()
   } catch (err) {

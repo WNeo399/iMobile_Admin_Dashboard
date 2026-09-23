@@ -25,8 +25,17 @@ export function createOrders(lines) {
 export function updateOrder(id, data) {
   return request({ url: `${BASE}/orders/${id}`, method: 'put', data })
 }
-export function quoteOrder(id, unitPrice) {
-  return request({ url: `${BASE}/orders/${id}/quote`, method: 'post', data: { unitPrice } })
+// { unitPrice, toConfirm?, note? } — with toConfirm the line parks in To Confirm
+export function quoteOrder(id, data) {
+  return request({ url: `${BASE}/orders/${id}/quote`, method: 'post', data })
+}
+// 待确认: parked for a decision, the note says what needs confirming
+export function toConfirmOrder(id, note) {
+  return request({ url: `${BASE}/orders/${id}/to-confirm`, method: 'post', data: { note } })
+}
+// decision made: back to where the line came from
+export function confirmOrder(id, note) {
+  return request({ url: `${BASE}/orders/${id}/confirm`, method: 'post', data: { note } })
 }
 export function placeOrder(id, data) {
   return request({ url: `${BASE}/orders/${id}/place`, method: 'post', data })
