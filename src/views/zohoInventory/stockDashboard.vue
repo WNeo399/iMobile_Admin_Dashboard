@@ -158,8 +158,9 @@
                 </el-table-column>
 
                 <!-- Open purchases in Spare Parts Purchase by stage — pending
-                     (待处理), ordered (已下单), shipped (已发货) — with the Tencent
-                     sheet figure underneath while it still exists. -->
+                     (待处理), ordered (已下单), shipped (已发货) — read live; the
+                     register's figure (the same lines, as of the last sync)
+                     stands in only when the live read is unavailable. -->
                 <!-- Inline too: with no pending line (nothing on order, or only
                      ordered / shipped quantity) a click on the cell takes a
                      quantity and raises a PO; a lone pending line's quantity
@@ -194,11 +195,11 @@
                                     <div v-if="s.row.__spp.shortage" class="sd-oo sd-oo-shortage" title="缺货 — the supplier cannot get it">
                                         <span>Shortage</span><b>{{ s.row.__spp.shortage }}</b></div>
                                 </template>
-                                <div v-if="s.row.openPoQty > 0" :class="sppOpen(s.row) > 0 ? 'sd-dim' : 'sd-num sd-good'"
-                                    title="On the Tencent sheet">{{ s.row.openPoQty }}<span v-if="sppOpen(s.row) > 0"> sheet</span></div>
+                                <div v-if="registerOnOrder(s.row) > 0" class="sd-num sd-good"
+                                    title="Open purchase lines, as of the last stock sync">{{ registerOnOrder(s.row) }}</div>
                                 <div v-if="!(sppOpen(s.row) > 0)" :class="['sd-dim', { 'sd-oo-add': canCreatePo }]"
                                     :title="canCreatePo ? 'Click, type a quantity and press Enter to create a PO' : ''">
-                                    {{ s.row.openPoQty > 0 ? '' : '—' }}<span v-if="canCreatePo" class="sd-oo-plus">+ PO</span></div>
+                                    {{ registerOnOrder(s.row) > 0 ? '' : '—' }}<span v-if="canCreatePo" class="sd-oo-plus">+ PO</span></div>
                             </template>
                         </div>
                     </template>
@@ -355,10 +356,9 @@
                         </div>
                     </div>
 
-                    <!-- Straight from Zoho Inventory, where POs are raised.
-                         The supplier sheet synced out of Tencent Docs covers
-                         one buying channel and disagrees with Zoho often
-                         enough to be misleading here. -->
+                    <!-- Straight from Zoho Inventory, where POs are raised
+                         (one per shipped batch). What is still with the
+                         supplier is the Spare Parts Purchase line below. -->
                     <div class="sd-section">
                         <div class="sd-section-head">
                             <span>Purchase orders</span>
@@ -465,8 +465,8 @@ import {
 import liveStockMixin from './liveStockMixin'
 import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
 import ProductThumb from '@/components/ProductThumb'
-// Create PO from a row goes to the Spare Parts Purchase module (the in-app
-// process), not the Tencent sheet — the user tests the new process here.
+// Create PO from a row goes to the Spare Parts Purchase module (the Tencent
+// sheet was retired 2026-09-23).
 import { createOrders, updateOrder, cancelOrder, purchasesByItemIds } from '@/api/sparePartsPurchase'
 import { CATEGORIES as PO_CATEGORIES } from '../sparePartsPurchase/shared'
 import { hasPermission } from '@/utils/permission'
@@ -753,8 +753,9 @@ export default {
             this.loadItems()
         },
         // ── Spare Parts Purchase ───────────────────────────────────
-        // Open purchase lines per row from the new module, painted on
-        // after the page loads (the register's openPoQty is the sheet's).
+        // Open purchase lines per row, read live from the module and painted
+        // on after the page loads (the register's openPoQty holds the same
+        // lines as of the last stock sync).
         async overlaySpp(rows) {
             const ids = (rows || []).map(r => r.itemId).filter(Boolean)
             if (!ids.length || !hasPermission(this.$store.getters.permissions, 'spp:order:view')) return
@@ -763,7 +764,12 @@ export default {
                 const r = await purchasesByItemIds(ids)
                 if (seq !== this.sppSeq || !r || !r.data) return
                 for (const row of rows) this.$set(row, '__spp', r.data[row.itemId] || null)
-            } catch (e) { /* the column just shows the sheet figure */ }
+            } catch (e) { /* the column shows the register's figure */ }
+        },
+        // The register's on-order figure, shown only while the live read
+        // has not come in (no __spp key yet) — once it has, the stages rule.
+        registerOnOrder(row) {
+            return row && row.__spp === undefined ? Number(row.openPoQty) || 0 : 0
         },
         // ── Inline quantity in the On order cell ───────────────────
         canEditPending(row) {

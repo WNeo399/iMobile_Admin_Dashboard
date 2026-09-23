@@ -6,7 +6,7 @@
                 Track purchase orders through ordering, shipping and receiving — and triage
                 incoming special-order requests from customers.
             </div>
-            <el-button type="primary" icon="el-icon-notebook-2" @click="$router.push('/imobile/purchaseOrder')">Purchase Order</el-button>
+            <el-button type="primary" icon="el-icon-notebook-2" @click="$router.push('/sparePartsPurchase/orders')">Purchase Order</el-button>
             <el-button icon="el-icon-shopping-cart-2" @click="$router.push('/imobile/specialOrder')">Special Order</el-button>
         </el-card>
     </div>

@@ -19,8 +19,8 @@ export const STATUS_META = STATUS_LIST.reduce((m, s) => ((m[s.value] = s), m), {
 // Where a line files: its item's register classification (set by the
 // server on create) or one of two channels kept apart — sea-freight orders
 // and customer special orders. The tree shows every one, even when empty.
-export const CLASSIFICATIONS = ['Screen', 'Housing', 'BackCover', 'Battery', 'Small Parts', 'Tools', 'Other']
-export const CHANNELS = ['海运', 'Special Order']
+export const CLASSIFICATIONS = ['Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'Tools', 'Other']
+export const CHANNELS = ['海运', 'Special Order', 'New Product']
 export const CATEGORIES = [...CLASSIFICATIONS, ...CHANNELS]
 export const isChannel = c => CHANNELS.includes(c)
 

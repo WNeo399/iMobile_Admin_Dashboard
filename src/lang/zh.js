@@ -949,12 +949,14 @@ export default {
     'Remainder of a short shipment': '少发订单的剩余部分',
     // purchase categories = the register classifications + two channels
     'Screen': '屏幕',
-    'Housing': '中框',
+    'Housing': '总成',
+    'Middle Frame': '中框',
     'BackCover': '后盖',
     'Small Parts': '小配件',
     'Tools': '工具',
     'Other': '其他',
     'Special Order': '特殊订单',
+    'New Product': '新品',
     'See what iMobile has asked for, place it with your suppliers, and record each shipment as a batch': '查看 iMobile 的采购需求，向供应商下单，并按批次记录每次发货。'
   }
 }

@@ -286,13 +286,13 @@
                         </template>
                     </el-table-column>
 
-                    <!-- Purchase (Tencent PO) integration is Spare Parts only -->
+                    <!-- Open Spare Parts Purchase lines — Spare Parts only -->
                     <el-table-column v-if="!isAccessories" label="Purchase" align="center" key="purchase" width="180">
                         <template slot-scope="scope">
                             <i v-if="purchaseLoading" class="el-icon-loading"></i>
-                            <div v-else-if="scope.row.purchase && scope.row.purchase.count" class="purchase-cell">
-                                <div class="purchase-line"><span class="purchase-label">Order Qty:</span> <b>{{ scope.row.purchase.orderQty }}</b></div>
-                                <div v-if="scope.row.purchase.shippedQty" class="purchase-line"><span class="purchase-label">Shipped Qty:</span> <b>{{ scope.row.purchase.shippedQty }}</b></div>
+                            <div v-else-if="onOrderQty(scope.row) > 0" class="purchase-cell">
+                                <div class="purchase-line"><span class="purchase-label">On order:</span> <b>{{ onOrderQty(scope.row) }}</b></div>
+                                <div v-if="scope.row.purchase.shipped" class="purchase-line"><span class="purchase-label">Shipped:</span> <b>{{ scope.row.purchase.shipped }}</b></div>
                                 <div v-for="t in scope.row.purchase.trackings" :key="t" class="purchase-line">
                                     <span class="purchase-label">DHL:</span> <a :href="dhlUrl(t)" target="_blank" rel="noopener">{{ t }}</a>
                                 </div>
@@ -344,8 +344,8 @@
                     <span v-if="poProduct.location" class="po-create-chip"><i class="el-icon-location-outline" /> {{ poProduct.location }}</span>
                     <span class="po-create-chip">Stock <b :class="{ 'po-create-low': Number(poProduct.stock) <= 0 }">{{ poProduct.stock != null ? poProduct.stock : '—' }}</b></span>
                 </div>
-                <div v-if="poProduct.purchase && poProduct.purchase.count" class="po-create-onorder">
-                    <i class="el-icon-warning-outline" /> Already on order: <b>{{ poProduct.purchase.orderQty }}</b><span v-if="poProduct.purchase.shippedQty"> · {{ poProduct.purchase.shippedQty }} shipped</span>
+                <div v-if="onOrderQty(poProduct) > 0" class="po-create-onorder">
+                    <i class="el-icon-warning-outline" /> Already on order: <b>{{ onOrderQty(poProduct) }}</b><span v-if="poProduct.purchase.shipped"> · {{ poProduct.purchase.shipped }} shipped</span>
                 </div>
             </div>
 
@@ -392,7 +392,10 @@
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
 import { getCurrentStock, getSalesTotal, updateItemReorderLevel, hideStockItems, unhideStockItem, getSeaFreight, addSeaFreightItems, removeSeaFreightItem } from "../../api/zoho/stockMonitoring";
-import { getPoByZohoIds, getPoCategories, createPo } from "@/api/purchaseOrder";
+// Purchases run in Spare Parts Purchase (the Tencent sheet was retired
+// 2026-09-23): the Purchase column reads its open lines, Create PO adds one.
+import { createOrders, purchasesByItemIds } from "@/api/sparePartsPurchase";
+import { CATEGORIES as PO_CATEGORIES } from "../sparePartsPurchase/shared";
 import { getCollectionGroups, getCollectionDetail, updateCollectionGroups, deleteCollection } from "../../api/zoho/products/collection";
 import CollectionGroupDialog from "@/views/products/collection/CollectionGroup/collectionGroup.vue"
 import { orderedEntries, isFolderEntry } from "@/utils/collectionGroupOrder"
@@ -420,7 +423,7 @@ export default {
             loading: false,
             salesLoading: false,
             purchaseLoading: false,
-            poCategories: [],
+            poCategories: PO_CATEGORIES,
             poDialogVisible: false,
             poProduct: null,
             poForm: { category: '', orderQty: null, note: '' },
@@ -507,7 +510,7 @@ export default {
         scope() {
             return (this.$route.meta && this.$route.meta.scope) || ''
         },
-        // Accessories has no Tencent-Doc purchase-order integration: the
+        // Accessories are not bought through Spare Parts Purchase: the
         // Purchase column and the Create PO action are hidden entirely.
         isAccessories() {
             return this.scope === 'accessories'
@@ -549,18 +552,18 @@ export default {
                     { key: '', label: 'All Items', value: t.all || 0, tone: 'ok', note: 'in this category' },
                     { key: 'zero', label: 'Out of Stock', value: t.zero || 0, tone: 'bad', note: 'stock at 0' },
                     { key: 'noOnOrder', label: 'No on Order', value: t.noOnOrder || 0, tone: 'bad', note: 'out of stock, nothing ordered' },
-                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'on the supplier order sheet' },
+                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'open in Spare Parts Purchase' },
                     { key: 'underMonth', label: "Under a Month's Cover", value: t.underMonth || 0, tone: 'warn', note: `stock below ${this.duration}-day sales` }
                 ]
             }
-            // Spare Parts: purchasing-led buckets. "On order" reads the
-            // Tencent order sheet via the Purchase column's data.
+            // Spare Parts: purchasing-led buckets. "On order" reads the open
+            // Spare Parts Purchase lines via the Purchase column's data.
             const oos = base.filter(i => Number(i.stock) <= 0)
             return [
                 { key: '', label: 'All Items', value: base.length, tone: 'ok', note: 'matching the filters' },
                 { key: 'zero', label: 'Out of Stock', value: oos.length, tone: 'bad', note: 'stock at 0' },
                 { key: 'noOnOrder', label: 'No on Order', value: oos.filter(i => !this.onOrderQty(i)).length, tone: 'bad', note: 'out of stock, nothing ordered' },
-                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'on the supplier order sheet' },
+                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'open in Spare Parts Purchase' },
                 { key: 'underMonth', label: "Under a Month's Cover", value: base.filter(i => this.underMonthCover(i)).length, tone: 'warn', note: 'stock below 30-day sales' }
             ]
         },
@@ -1080,17 +1083,17 @@ export default {
                 that.salesLoading = false
             })
         },
-        // Not-yet-received purchases per Zoho item_id, merged onto the rows for
-        // the "Purchase" column. Mirrors handleGetSalesTotal's id set.
+        // Open Spare Parts Purchase lines per Zoho item_id, merged onto the
+        // rows for the "Purchase" column. Mirrors handleGetSalesTotal's id set.
         // No-op for Accessories — the column doesn't exist there.
         handleGetPurchase() {
             if (this.isAccessories) return
             const that = this
             that.purchaseLoading = true
-            // Whole list, always — a Mongo $in on the order sheet, and the
-            // On Order tiles need every row's purchase state.
+            // Whole list, always — one Mongo read, and the On Order tiles
+            // need every row's purchase state.
             const itemIds = that.productList.map(product => product.id).filter(Boolean)
-            getPoByZohoIds(itemIds).then(resp => {
+            purchasesByItemIds(itemIds).then(resp => {
                 const map = (resp && resp.data) || {}
                 const merge = list => list.map(item => ({ ...item, purchase: map[item.id] || null }))
                 that.showProductList = merge(that.showProductList)
@@ -1105,13 +1108,12 @@ export default {
         },
         openCreatePo(row) {
             this.poProduct = row
-            // A PO raised from the 海运 list goes on the sea-freight sheet
-            // tab by default (still changeable in the picker).
-            this.poForm = { category: this.isSeaView ? '海运平板' : '', orderQty: null, note: '' }
+            // The item's classification, or the 海运 channel for a part on the
+            // 海运 list (still changeable in the picker).
+            const category = this.isSeaView || row.seaFreight ? '海运'
+                : PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other'
+            this.poForm = { category, orderQty: null, note: '' }
             this.poDialogVisible = true
-            if (!this.poCategories.length) {
-                getPoCategories().then(r => { if (r && r.success) this.poCategories = r.categories || [] }).catch(() => {})
-            }
         },
         async submitCreatePo() {
             if (!this.poForm.category) { this.$message.warning('Please select a category.'); return }
@@ -1119,20 +1121,16 @@ export default {
             if (!Number.isFinite(qty) || qty <= 0) { this.$message.warning('Please enter a quantity.'); return }
             this.poSaving = true
             try {
-                const r = await createPo({
-                    category: this.poForm.category,
-                    orderQty: qty,
-                    note: this.poForm.note,
+                const r = await createOrders([{
+                    itemId: this.poProduct.id,
                     sku: this.poProduct.sku,
                     productName: this.poProduct.productName,
-                    zoho_id: this.poProduct.id
-                })
+                    category: this.poForm.category,
+                    orderQty: qty,
+                    note: this.poForm.note
+                }])
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                if (r.tencentWritten) {
-                    this.$message.success('Purchase order created and added to the Tencent sheet')
-                } else {
-                    this.$message.warning('Purchase order saved — but it could not be written to the Tencent sheet yet.')
-                }
+                this.$message.success(`${(r.orderNos || [])[0] || 'Purchase order'} created for ${this.poProduct.sku || this.poProduct.productName}`)
                 this.poDialogVisible = false
                 this.handleGetPurchase()
             } catch (e) {
@@ -1479,10 +1477,12 @@ export default {
             }
         },
         // ── tile helpers ──────────────────────────────────────────────
-        // Not-yet-received quantity on the supplier order sheet (attached to
-        // rows by handleGetPurchase; parts only).
+        // Quantity on open Spare Parts Purchase lines (attached to rows by
+        // handleGetPurchase; parts only) — a shipped line counts what was
+        // shipped, the same figure as the Stock Monitoring On order column.
         onOrderQty(item) {
-            return (item.purchase && Number(item.purchase.orderQty)) || 0
+            const p = item && item.purchase
+            return p ? (p.pending || 0) + (p.toConfirm || 0) + (p.ordered || 0) + (p.shipped || 0) + (p.shortage || 0) : 0
         },
         // Stock below one month of sales, normalised from the selected
         // sales window. Items with no sales in the window don't count.

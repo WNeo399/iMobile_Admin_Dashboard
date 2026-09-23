@@ -101,21 +101,9 @@ export const moduleRoutes = [
     alwaysShow: true,
     meta: { title: "iMobile", icon: "el-icon-goods" },
     children: [
-      {
-        // Flattened Purchase Order entry for the iMobile Purchase role ONLY —
-        // they get iMobile → Purchase Order instead of the entry nested under
-        // iMobile Spare Parts (which excludeRoles-hides itself from this
-        // role). exclusiveRoles = strict match, so this stays off the admin
-        // sidebar.
-        path: "/imobile/purchaseOrder",
-        component: (resolve) => require(["@/views/imobile/purchaseOrder/index"], resolve),
-        name: "ImobilePurchaseOrderDirect",
-        meta: {
-          title: "Purchase Order",
-          icon: "el-icon-shopping-bag-1",
-          exclusiveRoles: ["imobile-purchase"]
-        }
-      },
+      // (The Tencent-sheet Purchase Order page — this role's flattened
+      // entry here and the one under iMobile Spare Parts — was retired on
+      // 2026-09-23: purchasing runs in Spare Parts Purchase.)
       {
         // iMobile Repair — sibling of Inventory under the iMobile group.
         // Visible to iMobile Admin (zoho:*:* gets repair:*:* alongside) and
@@ -275,23 +263,6 @@ export const moduleRoutes = [
         meta: {
           title: "Collections",
           permissions: ["zoho:collection:view"]
-        }
-      },
-      {
-        // Purchase Order — read-only view over the supplier's Tencent Docs
-        // sheet ("澳洲"). Tree lists the sheet's tabs; the table shows a
-        // tab's rows.
-        path: "/imobile/inventory/purchaseOrder",
-        component: (resolve) => require(["@/views/imobile/purchaseOrder/index"], resolve),
-        name: "ImobilePurchaseOrder",
-        meta: {
-          title: "Purchase Order",
-          icon: "el-icon-shopping-bag-1",
-          permissions: ["po:order:view"],
-          // iMobile Purchase gets its own flattened entry directly under
-          // iMobile (see /imobile/purchaseOrder above) — hide this one
-          // from them so the page doesn't appear twice.
-          excludeRoles: ["imobile-purchase"]
         }
       },
       {
