@@ -160,13 +160,14 @@
                 <!-- Open purchases in Spare Parts Purchase by stage — pending
                      (待处理), ordered (已下单), shipped (已发货) — with the Tencent
                      sheet figure underneath while it still exists. -->
-                <!-- Inline too: with nothing on order, a click on the cell
-                     takes a quantity and raises a PO; a lone pending line's
-                     quantity can be changed in place (0 cancels it). -->
+                <!-- Inline too: with no pending line (nothing on order, or only
+                     ordered / shipped quantity) a click on the cell takes a
+                     quantity and raises a PO; a lone pending line's quantity
+                     can be changed in place (0 cancels it). -->
                 <el-table-column v-if="scope === 'parts'" prop="openPoQty" label="On order" width="150"
                     align="right" sortable="custom">
                     <template slot-scope="s">
-                        <div class="sd-oo-cell" @click.stop="onOoCellClick(s.row)">
+                        <div :class="['sd-oo-cell', { 'can-add': canAddPo(s.row) && !s.row.__edit }]" @click.stop="onOoCellClick(s.row)">
                             <div v-if="s.row.__edit" class="sd-oo sd-oo-editing">
                                 <span>{{ s.row.__edit.kind === 'new' ? 'PO' : 'Pending' }}</span>
                                 <input v-focus v-model.number="s.row.__edit.value" type="number" min="0" class="sd-oo-input"
@@ -176,6 +177,10 @@
                             </div>
                             <template v-else>
                                 <template v-if="sppOpen(s.row) > 0">
+                                    <!-- Already on order but nothing pending: another PO
+                                         can be raised; the tag shows on hover. -->
+                                    <span v-if="canAddPo(s.row)" class="sd-oo-newtag"
+                                        title="Click, type a quantity and press Enter to create another PO">+ PO</span>
                                     <div v-if="s.row.__spp.pending" :class="['sd-oo', 'sd-oo-pending', { editable: canEditPending(s.row) }]"
                                         :title="canEditPending(s.row) ? 'Click to change the pending quantity — 0 cancels it' : '待处理 — asked for, not yet placed'"
                                         @click.stop="canEditPending(s.row) ? startQty(s.row, 'pending') : null">
@@ -768,9 +773,16 @@ export default {
         poCategoryFor(row) {
             return row.seaFreight ? '海运' : (PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other')
         },
+        // A new PO from the cell whenever the item has no pending line — with
+        // nothing on order, or with only ordered / shipped / … quantity. A
+        // pending line is edited instead (one) or left to the Purchase Order
+        // page (several).
+        canAddPo(row) {
+            return this.canCreatePo && !(row && row.__spp && row.__spp.pending > 0)
+        },
         onOoCellClick(row) {
-            if (row.__edit || !this.canCreatePo) return
-            if (this.sppOpen(row) === 0) this.startQty(row, 'new')
+            if (row.__edit) return
+            if (this.canAddPo(row)) this.startQty(row, 'new')
         },
         startQty(row, kind) {
             this.$set(row, '__edit', { kind, value: kind === 'pending' ? row.__spp.pending : '', busy: false })
@@ -827,7 +839,7 @@ export default {
         // Everything still to arrive: waiting, placed, in transit, short.
         sppOpen(row) {
             const s = row && row.__spp
-            return s ? (s.pending || 0) + (s.ordered || 0) + (s.shipped || 0) + (s.shortage || 0) : 0
+            return s ? (s.pending || 0) + (s.toConfirm || 0) + (s.ordered || 0) + (s.shipped || 0) + (s.shortage || 0) : 0
         },
         openCreatePo(row) {
             this.poRow = row
@@ -1140,7 +1152,12 @@ export default {
 .sd-oo-ordered b { color: #409eff; }
 .sd-oo-shipped b { color: #8b5cf6; }
 .sd-oo-shortage b { color: #f56c6c; }
-.sd-oo-cell { min-height: 18px; }
+.sd-oo-cell { min-height: 18px; position: relative; }
+.sd-oo-cell.can-add { cursor: pointer; }
+/* "+ PO" on a cell that already shows stages: top-left, on hover, so the
+   row keeps its height. */
+.sd-oo-newtag { position: absolute; left: 0; top: 0; display: none; font-size: 11px; line-height: 1.35; color: #409eff; }
+.sd-oo-cell.can-add:hover .sd-oo-newtag { display: inline; }
 .sd-oo.editable { cursor: pointer; }
 .sd-oo.editable:hover b { text-decoration: underline; }
 .sd-oo-add { cursor: pointer; }

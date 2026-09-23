@@ -144,7 +144,7 @@
                     </el-select>
                     <el-select v-model="row.field" placeholder="Field" class="crit-field" filterable
                         @change="onCritFieldChange(row)">
-                        <el-option v-for="f in filterMeta.fields" :key="f.key" :label="f.label" :value="f.key" />
+                        <el-option v-for="f in fieldsFor(row)" :key="f.key" :label="f.label" :value="f.key" />
                     </el-select>
                     <el-select v-model="row.op" placeholder="Condition" class="crit-op"
                         @change="onCritOpChange(row)">
@@ -169,20 +169,15 @@
                 <div class="crit-bar">
                     <el-button size="mini" plain icon="el-icon-plus" :loading="filterMetaLoading"
                         @click="addCriteriaRow">Add criteria</el-button>
-                    <!-- What the rule catches, counted against the register
-                         as it is typed. Pinned products are not included. -->
-                    <span v-if="validCriteriaRows.length" class="crit-count">
-                        <i v-if="previewLoading" class="el-icon-loading" />
-                        <template v-else-if="preview.count != null">matches <b>{{ preview.count.toLocaleString() }}</b> items</template>
-                    </span>
-                </div>
-                <div v-if="validCriteriaRows.length && preview.sample.length" class="crit-preview">
-                    <span v-for="s in preview.sample" :key="s.sku" class="crit-sample" :title="s.name">{{ s.sku }} · {{ s.name }}</span>
+                    <!-- Archived items are hidden by default; ticked, the criteria
+                         reach them too (stored as the archived/include row). -->
+                    <el-checkbox v-model="includeArchived" :disabled="!validCriteriaRows.length" class="crit-archived">
+                        Include archived items</el-checkbox>
                 </div>
                 <span class="criteria-help">
-                    Matched against every active item in the stock register (this business only,
-                    Archive excluded) and combined with the products picked above, duplicates removed.
-                    Text matches ignore case.
+                    Matched against every active item in the stock register (this business only;
+                    archived items are hidden unless "Include archived items" is ticked) and combined
+                    with the products picked above, duplicates removed. Text matches ignore case.
                 </span>
             </el-form-item>
         </el-form>
@@ -196,7 +191,7 @@
 </template>
 
 <script>
-import { createCollection, updateCollection, getFilterOptions, previewFilter } from "@/api/zoho/products/collection";
+import { createCollection, updateCollection, getFilterOptions } from "@/api/zoho/products/collection";
 import { searchProducts, lookupProductBySku } from "@/api/zoho/products/product";
 
 // A rule as stored on the collection: { rows: [{ field, op, value, join }] }
@@ -205,7 +200,7 @@ import { searchProducts, lookupProductBySku } from "@/api/zoho/products/product"
 // from the backend, which is the single owner of it — see the backend's
 // utils/collectionFilter. Conditions that take no value (is set, is yes…)
 // or several (is any of…) are told apart by the `value` kind on each op.
-const NO_VALUE = new Set(["set", "notset", "yes", "no"]);
+const NO_VALUE = new Set(["set", "notset", "yes", "no", "include", "only"]);
 const MANY_VALUES = new Set(["in", "nin", "containsAny", "hasAny"]);
 
 export default {
@@ -248,15 +243,12 @@ export default {
             // The rule's rows: { field, op, value, join } — join is
             // 'and'/'or' against the PREVIOUS row (first row's ignored).
             criteriaRows: [],
+            // Archived items are hidden unless this is ticked.
+            includeArchived: false,
             // Fields / conditions / pick-list values from the backend,
             // loaded once per scope.
             filterMeta: { fields: [], ops: {}, options: {} },
             filterMetaLoading: false,
-            // "matches N items", refreshed as the rows change.
-            preview: { count: null, sample: [] },
-            previewLoading: false,
-            previewTimer: null,
-            previewSeq: 0,
             formRules: {
                 title: [
                     { required: true, message: "Title can not be empty", trigger: "blur" }
@@ -289,10 +281,6 @@ export default {
     watch: {
         visible(val) {
             if (val) this.hydrate();
-        },
-        validCriteriaRows: {
-            deep: true,
-            handler() { this.schedulePreview(); }
         }
     },
     methods: {
@@ -310,7 +298,10 @@ export default {
                 };
                 // The stored rule, copied so edits never touch the parent's
                 // object until Submit.
-                this.criteriaRows = ((row.filter && row.filter.rows) || []).map(r => ({
+                const stored = (row.filter && row.filter.rows) || [];
+                // The archived row is the checkbox, not a criteria row.
+                this.includeArchived = stored.some(r => r.field === "archived" && r.op === "include");
+                this.criteriaRows = stored.filter(r => r.field !== "archived").map(r => ({
                     field: r.field, op: r.op, join: r.join || "and",
                     value: Array.isArray(r.value) ? [...r.value] : (r.value == null ? "" : r.value)
                 }));
@@ -323,9 +314,9 @@ export default {
                     products: []
                 };
                 this.criteriaRows = [];
+                this.includeArchived = false;
             }
-            this.preview = { count: null, sample: [] };
-            if (!this.productsOnly) this.loadFilterMeta().then(() => this.schedulePreview());
+            if (!this.productsOnly) this.loadFilterMeta();
             this.productSearchKeyword = "";
             this.$nextTick(() => {
                 this.$refs.form && this.$refs.form.clearValidate();
@@ -337,6 +328,11 @@ export default {
         },
         opsFor(row) {
             return this.filterMeta.ops[this.fieldDef(row).type] || [];
+        },
+        // The fields a row may pick: hidden ones (Brand / Category (Zoho),
+        // Archived — the checkbox) only for a row that already uses one.
+        fieldsFor(row) {
+            return (this.filterMeta.fields || []).filter(f => f.key === row.field || !f.hidden);
         },
         // none | many | pick | text — which value input a row shows.
         valueKind(row) {
@@ -376,26 +372,6 @@ export default {
                 this.filterMetaLoading = false;
             }
         },
-        // Count what the rule catches, a moment after the last edit. A
-        // reply that lands after the rows changed again is dropped.
-        schedulePreview() {
-            clearTimeout(this.previewTimer);
-            if (!this.validCriteriaRows.length) { this.preview = { count: null, sample: [] }; return; }
-            this.previewTimer = setTimeout(() => this.runPreview(), 400);
-        },
-        async runPreview() {
-            const seq = ++this.previewSeq;
-            this.previewLoading = true;
-            try {
-                const res = await previewFilter(this.validCriteriaRows, this.scope);
-                if (seq !== this.previewSeq) return;
-                this.preview = (res && res.data) || { count: null, sample: [] };
-            } catch (e) {
-                if (seq === this.previewSeq) this.preview = { count: null, sample: [] };
-            } finally {
-                if (seq === this.previewSeq) this.previewLoading = false;
-            }
-        },
         onClose() {
             // el-dialog fires close on every dismissal path (X button,
             // ESC, modal click) — make sure the parent's .sync flag
@@ -409,7 +385,11 @@ export default {
                 // Cross-field check el-form can't express per-prop:
                 // a collection needs SOMETHING to resolve — a rule,
                 // at least one picked product, or both.
-                const rows = this.validCriteriaRows;
+                // The criteria, plus the archived row when ticked (it only
+                // means something alongside a criteria).
+                const rows = this.validCriteriaRows.length && this.includeArchived
+                    ? [...this.validCriteriaRows, { field: "archived", op: "include", join: "and" }]
+                    : this.validCriteriaRows;
                 const pickedProducts = Array.isArray(this.form.products)
                     ? this.form.products
                     : [];
@@ -600,36 +580,14 @@ export default {
 .crit-value { flex: 1; min-width: 0; }
 .crit-value-none { display: inline-block; }
 .crit-remove { flex-shrink: 0; }
+.crit-archived {
+    margin-left: 6px;
+}
 .crit-bar {
     display: flex;
     align-items: center;
     gap: 14px;
 }
-.crit-count {
-    margin-left: auto;
-    font-size: 12px;
-    color: #606266;
-}
-.crit-preview {
-    margin-top: 6px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    font-size: 12px;
-    color: #606266;
-    background: #f8f9fb;
-    border: 1px solid #ebeef5;
-    border-radius: 4px;
-    padding: 5px 8px;
-    line-height: 1.5;
-}
-.crit-sample {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 /* Selected products list inside the collection product picker */
 .selected-products-wrap {
     margin-top: 10px;
