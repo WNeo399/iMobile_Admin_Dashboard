@@ -151,7 +151,7 @@
                 </div>
 
                 <!-- The counts, each one a filter (click again to clear) -->
-                <div :class="['sd-tiles', { 'sd-tiles-5': !isAccessories }]">
+                <div :class="['sd-tiles', { 'sd-tiles-4': !isAccessories }]">
                     <div v-for="t in tiles" :key="t.key"
                         :class="['sd-tile', 'tone-' + t.tone, { on: (queryParams.quick || '') === t.key }]"
                         @click="pickTile(t.key)">
@@ -166,6 +166,7 @@
                 <div class="sd-card-head">
                     <span class="sd-card-title">{{ activeTileLabel }}</span>
                     <el-tag size="mini" effect="plain">{{ total.toLocaleString() }} items</el-tag>
+                    <span v-if="!isAccessories && partsSortLabel" class="sd-dim">sorted by {{ partsSortLabel }}</span>
                     <div class="sd-spacer" />
                     <el-button v-if="!isAccessories && multipleSelection.length" type="text" size="mini"
                         @click="() => { $refs.table.clearSelection() }">Clear Selection ({{ multipleSelection.length }})</el-button>
@@ -173,9 +174,22 @@
                         @click="toggleShowHidden">{{ showHidden ? 'Back to list' : `${hiddenCount} hidden — view` }}</el-button>
                     <el-button v-if="queryParams.quick && !showHidden" type="text" size="mini" @click="pickTile('')">Clear filter</el-button>
                 </div>
-                <el-table v-loading="loading" :data="showProductList" @selection-change="handleSelectionChange"
+                <!-- Spare parts: the Dashboard's table (shared component) —
+                     Sold by window, open purchase lines by stage with the
+                     inline PO, last sold, the item drawer. The list's own
+                     extras ride on it: the tick box (Export → Selection) and
+                     the Hide / Unhide action. -->
+                <stock-items-table v-if="!isAccessories" ref="table" :rows="showProductList" :loading="loading"
+                    :sort="partsSort" :sales-days.sync="duration" selectable :auto-spp="false" :sea-view="isSeaView"
+                    :hide-mode="showHidden ? 'unhide' : 'hide'"
+                    :empty-text="showHidden ? 'Nothing hidden on this list.' : 'Nothing matches these filters.'"
+                    @sort-change="onPartsSort" @selection-change="handleSelectionChange"
+                    @po-changed="handleGetPurchase" @sea-changed="onSeaChanged" @archived="onArchived"
+                    @hide="hideItem" @unhide="unhideItem" />
+                <!-- Accessories: their own columns (both stock figures, the
+                     reorder point written back to Zoho, Zoho / other sales). -->
+                <el-table v-else v-loading="loading" :data="showProductList"
                     @sort-change="handleSorting" ref="table" empty-text="No Data" stripe border row-key="id">
-                    <el-table-column v-if="!isAccessories" type="selection" width="50" align="center" :reserve-selection="true" />
                     <el-table-column label="Product" align="left" header-align="center" key="product"
                         min-width="300" sortable="custom" prop="productName">
                         <template slot-scope="scope">
@@ -192,29 +206,17 @@
                                             @click.stop="copySku(scope.row.sku)">SKU: {{ scope.row.sku }}</span>
                                         <span v-else class="p-sku">SKU: —</span>
                                         <span v-if="scope.row.location" class="p-loc"><i class="el-icon-location-outline" /> {{ scope.row.location }}</span>
-                                        <!-- Same signal as the dashboard's ship button: green = in
-                                             海运, grey = not; click toggles membership. -->
-                                        <el-tooltip v-if="!isAccessories" placement="top"
-                                            :content="scope.row.seaFreight ? 'Remove from 海运' : 'Add to 海运'">
-                                            <span :class="['p-sea-btn', { on: scope.row.seaFreight }]"
-                                                @click.stop="toggleSeaItem(scope.row)"><i class="el-icon-ship" /> 海运</span>
-                                        </el-tooltip>
                                         <span v-if="scope.row.category" class="p-cat"><i class="el-icon-collection-tag" /> {{ scope.row.category }}</span>
                                     </div>
                                 </div>
                             </div>
                         </template>
                     </el-table-column>
-                    <!-- Spare parts: the register's figure, replaced by Zoho's
-                         current one for the rows on this page. -->
-                    <el-table-column v-if="!isAccessories" label="Current Stock" align="center" key="stock" prop="stock" width="140"
-                        sortable="custom" :show-overflow-tooltip="true" />
-
-                    <!-- Accessories show Zoho's two stock figures stacked in one
-                         column: Accounting (invoice-driven) over Physical
-                         (shipment-driven, the shelf reality — sorting uses it).
+                    <!-- Zoho's two stock figures stacked in one column:
+                         Accounting (invoice-driven) over Physical (shipment-
+                         driven, the shelf reality — sorting uses it).
                          Accounting turns amber when the two disagree. -->
-                    <el-table-column v-if="isAccessories" label="Stock" align="center" key="accStock"
+                    <el-table-column label="Stock" align="center" key="accStock"
                         prop="stock" width="140" sortable="custom">
                         <template slot-scope="scope">
                             <div class="stock-line">
@@ -228,7 +230,7 @@
                     <!-- Zoho's reorder level — maintained for accessories only;
                          red when stock has fallen to or below it. Click to
                          edit; saving writes the new point back to Zoho. -->
-                    <el-table-column v-if="isAccessories" label="Reorder Point" align="center" key="reorderLevel"
+                    <el-table-column label="Reorder Point" align="center" key="reorderLevel"
                         prop="reorderLevel" width="150" sortable="custom">
                         <template slot-scope="scope">
                             <div v-if="rpEdit.id === scope.row.id" class="rp-edit" @click.stop>
@@ -286,35 +288,13 @@
                         </template>
                     </el-table-column>
 
-                    <!-- Open Spare Parts Purchase lines — Spare Parts only -->
-                    <el-table-column v-if="!isAccessories" label="Purchase" align="center" key="purchase" width="180">
-                        <template slot-scope="scope">
-                            <i v-if="purchaseLoading" class="el-icon-loading"></i>
-                            <div v-else-if="onOrderQty(scope.row) > 0" class="purchase-cell">
-                                <div class="purchase-line"><span class="purchase-label">On order:</span> <b>{{ onOrderQty(scope.row) }}</b></div>
-                                <div v-if="scope.row.purchase.shipped" class="purchase-line"><span class="purchase-label">Shipped:</span> <b>{{ scope.row.purchase.shipped }}</b></div>
-                                <div v-for="t in scope.row.purchase.trackings" :key="t" class="purchase-line">
-                                    <span class="purchase-label">DHL:</span> <a :href="dhlUrl(t)" target="_blank" rel="noopener">{{ t }}</a>
-                                </div>
-                            </div>
-                            <span v-else class="purchase-none">-</span>
-                        </template>
-                    </el-table-column>
-
                     <el-table-column label="Operation" align="center" width="240"
                         class-name="small-padding fixed-width">
                         <template slot-scope="scope" v-if="scope.row.userId !== 1">
                             <el-button size="mini" type="text" icon="el-icon-edit"
                                 @click="handleGetProductDetail(scope.row.id)">View Detail</el-button>
-                            <el-button v-if="!isAccessories && !showHidden" size="mini" type="text" icon="el-icon-shopping-cart-2"
-                                @click="openCreatePo(scope.row)">Create PO</el-button>
                             <el-button v-if="showHidden" size="mini" type="text" icon="el-icon-view"
                                 @click="unhideItem(scope.row)">Unhide</el-button>
-                            <!-- The row leaves the list (and its tile counts);
-                                 restore via "N hidden — view". -->
-                            <el-button v-if="!isAccessories && !showHidden" size="mini" type="text"
-                                icon="el-icon-remove-outline" class="sm-hide-op"
-                                @click="hideItem(scope.row)">Hide</el-button>
                             <!-- <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)" v-hasPermi="['system:user:remove']">删除</el-button>
               <el-dropdown size="mini" @command="(command) => handleCommand(command, scope.row)" v-hasPermi="['system:user:resetPwd', 'system:user:edit']">
                 <el-button size="mini" type="text" icon="el-icon-d-arrow-right">更多</el-button>
@@ -326,7 +306,12 @@
                         </template>
                     </el-table-column>
                 </el-table>
-                <pagination v-show="total > 0" :total="total" :page.sync="queryParams.pageNum"
+                <div v-if="!isAccessories" class="sd-pager">
+                    <el-pagination background layout="total, sizes, prev, pager, next"
+                        :current-page="queryParams.pageNum" :page-size="queryParams.pageSize" :page-sizes="[20, 50, 100, 200]"
+                        :total="total" @current-change="onPartsPage" @size-change="onPartsSize" />
+                </div>
+                <pagination v-else v-show="total > 0" :total="total" :page.sync="queryParams.pageNum"
                     :limit.sync="queryParams.pageSize" @pagination="handlePagination" prev-text="Prev"
                     next-text="Next" />
                 </div>
@@ -334,41 +319,6 @@
         </div>
         <ProductDetailDialog :open.sync="open" :product="product"></ProductDetailDialog>
 
-        <!-- Create Purchase Order -->
-        <el-dialog :visible.sync="poDialogVisible" width="520px" append-to-body :close-on-click-modal="false">
-            <div slot="title" class="po-create-head"><i class="el-icon-shopping-cart-2" /> Create Purchase Order</div>
-            <div v-if="poProduct" class="po-create-card">
-                <div class="po-create-name" :title="poProduct.productName">{{ poProduct.productName }}</div>
-                <div class="po-create-meta">
-                    <el-tag size="mini" effect="plain">SKU {{ poProduct.sku || '—' }}</el-tag>
-                    <span v-if="poProduct.location" class="po-create-chip"><i class="el-icon-location-outline" /> {{ poProduct.location }}</span>
-                    <span class="po-create-chip">Stock <b :class="{ 'po-create-low': Number(poProduct.stock) <= 0 }">{{ poProduct.stock != null ? poProduct.stock : '—' }}</b></span>
-                </div>
-                <div v-if="onOrderQty(poProduct) > 0" class="po-create-onorder">
-                    <i class="el-icon-warning-outline" /> Already on order: <b>{{ onOrderQty(poProduct) }}</b><span v-if="poProduct.purchase.shipped"> · {{ poProduct.purchase.shipped }} shipped</span>
-                </div>
-            </div>
-
-            <el-form label-position="top" size="small" class="po-create-form" @submit.native.prevent>
-                <div class="po-create-row">
-                    <el-form-item label="Category" class="po-create-col">
-                        <el-select v-model="poForm.category" placeholder="Select category" filterable style="width:100%">
-                            <el-option v-for="c in poCategories" :key="c" :label="c" :value="c" />
-                        </el-select>
-                    </el-form-item>
-                    <el-form-item label="Order Quantity" class="po-create-col-qty">
-                        <el-input-number v-model="poForm.orderQty" :min="1" :precision="0" :step="1" controls-position="right" style="width:100%" placeholder="Qty" />
-                    </el-form-item>
-                </div>
-                <el-form-item label="Note">
-                    <el-input v-model="poForm.note" type="textarea" :rows="2" resize="none" maxlength="200" show-word-limit placeholder="Optional — e.g. urgent / specific colour" />
-                </el-form-item>
-            </el-form>
-            <span slot="footer">
-                <el-button size="small" @click="poDialogVisible = false">Cancel</el-button>
-                <el-button type="primary" size="small" icon="el-icon-check" :loading="poSaving" @click="submitCreatePo">Create PO</el-button>
-            </span>
-        </el-dialog>
         <!--
             Shared collection create/edit dialog (same component the
             Collections page uses). Only ever opened in Edit mode here —
@@ -391,11 +341,12 @@
 <script>
 import * as XLSX from 'xlsx-js-style'
 import TreePanel from "@/components/TreePanel"
-import { getCurrentStock, getSalesTotal, updateItemReorderLevel, hideStockItems, unhideStockItem, getSeaFreight, addSeaFreightItems, removeSeaFreightItem } from "../../api/zoho/stockMonitoring";
+import { getCurrentStock, getSalesTotal, updateItemReorderLevel, hideStockItems, unhideStockItem, getSeaFreight } from "../../api/zoho/stockMonitoring";
 // Purchases run in Spare Parts Purchase (the Tencent sheet was retired
-// 2026-09-23): the Purchase column reads its open lines, Create PO adds one.
-import { createOrders, purchasesByItemIds } from "@/api/sparePartsPurchase";
-import { CATEGORIES as PO_CATEGORIES } from "../sparePartsPurchase/shared";
+// 2026-09-23): the whole list's open lines feed the On order tiles and column.
+import { purchasesByItemIds } from "@/api/sparePartsPurchase";
+// The Dashboard's table (with its inline PO cell and item drawer).
+import StockItemsTable from "./components/StockItemsTable";
 import { getCollectionGroups, getCollectionDetail, updateCollectionGroups, deleteCollection } from "../../api/zoho/products/collection";
 import CollectionGroupDialog from "@/views/products/collection/CollectionGroup/collectionGroup.vue"
 import { orderedEntries, isFolderEntry } from "@/utils/collectionGroupOrder"
@@ -408,9 +359,14 @@ import ProductDetailDialog from "@/components/ProductDetailDialog"
 import ProductThumb from "@/components/ProductThumb"
 import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
 import StockDashboard from "./stockDashboard.vue"
+// The parts table's sort → the Browse endpoint's sort keys, and how the
+// card head says it.
+const BROWSE_SORT = { sku: 'sku', location: 'location', available: 'stock', openPoQty: 'onOrder', daysSinceSale: 'lastSold' }
+const PARTS_SORT_LABELS = { sku: 'SKU', location: 'shelf', available: 'stock', openPoQty: 'quantity on order', daysSinceSale: 'days since last sale' }
+
 export default {
     name: "StockMonitoring",
-    components: { TreePanel, ProductDetailDialog, CollectionFormDialog, StockDashboard, CollectionGroupDialog, ProductThumb },
+    components: { TreePanel, ProductDetailDialog, CollectionFormDialog, StockDashboard, CollectionGroupDialog, ProductThumb, StockItemsTable },
     data() {
         return {
             // 'dashboard' shows the embedded snapshot dashboard in the
@@ -423,11 +379,10 @@ export default {
             loading: false,
             salesLoading: false,
             purchaseLoading: false,
-            poCategories: PO_CATEGORIES,
-            poDialogVisible: false,
-            poProduct: null,
-            poForm: { category: '', orderQty: null, note: '' },
-            poSaving: false,
+            // The parts table's sort, in its words (sku, location, available,
+            // units7…units90, openPoQty, daysSinceSale); '' = the list's own
+            // order (by name).
+            partsSort: { prop: '', order: '' },
             total: 0,
             showSearch: true,
             applyPurchaseFilter: false,
@@ -511,7 +466,7 @@ export default {
             return (this.$route.meta && this.$route.meta.scope) || ''
         },
         // Accessories are not bought through Spare Parts Purchase: the
-        // Purchase column and the Create PO action are hidden entirely.
+        // On order column and its inline PO are not shown.
         isAccessories() {
             return this.scope === 'accessories'
         },
@@ -552,19 +507,18 @@ export default {
                     { key: '', label: 'All Items', value: t.all || 0, tone: 'ok', note: 'in this category' },
                     { key: 'zero', label: 'Out of Stock', value: t.zero || 0, tone: 'bad', note: 'stock at 0' },
                     { key: 'noOnOrder', label: 'No on Order', value: t.noOnOrder || 0, tone: 'bad', note: 'out of stock, nothing ordered' },
-                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'open in Spare Parts Purchase' },
-                    { key: 'underMonth', label: "Under a Month's Cover", value: t.underMonth || 0, tone: 'warn', note: `stock below ${this.duration}-day sales` }
+                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'open in Spare Parts Purchase' }
                 ]
             }
             // Spare Parts: purchasing-led buckets. "On order" reads the open
-            // Spare Parts Purchase lines via the Purchase column's data.
+            // Spare Parts Purchase lines via the Purchase column's data. (The
+            // Under a Month's Cover tile went at the user's ask, 2026-09-24.)
             const oos = base.filter(i => Number(i.stock) <= 0)
             return [
                 { key: '', label: 'All Items', value: base.length, tone: 'ok', note: 'matching the filters' },
                 { key: 'zero', label: 'Out of Stock', value: oos.length, tone: 'bad', note: 'stock at 0' },
                 { key: 'noOnOrder', label: 'No on Order', value: oos.filter(i => !this.onOrderQty(i)).length, tone: 'bad', note: 'out of stock, nothing ordered' },
-                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'open in Spare Parts Purchase' },
-                { key: 'underMonth', label: "Under a Month's Cover", value: base.filter(i => this.underMonthCover(i)).length, tone: 'warn', note: 'stock below 30-day sales' }
+                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'open in Spare Parts Purchase' }
             ]
         },
         activeTileLabel() {
@@ -583,6 +537,12 @@ export default {
         // parts; the live read's five for accessories.
         durationOptions() {
             return this.isAccessories ? [15, 30, 45, 60, 90] : [7, 14, 30, 90]
+        },
+        partsSortLabel() {
+            const p = this.partsSort.prop
+            if (!p) return ''
+            const d = /^units(\d+)$/.exec(p)
+            return d ? `${d[1]}-day units` : PARTS_SORT_LABELS[p] || p
         },
         asOfText() {
             const n = `${(this.browse ? this.total : this.productList.length).toLocaleString()} items`
@@ -611,9 +571,14 @@ export default {
     },
     watch: {
         duration() {
+            // A list sorted by units sorts by the new window.
+            const bySales = /^units\d+$/.test(this.partsSort.prop)
+            if (bySales) this.partsSort = { ...this.partsSort, prop: 'units' + this.duration }
             if (this.isAccessories) this.handleGetSalesTotal()
-            // Browse: the Under-a-Month tile follows the window — re-ask.
-            else if (this.browse) this.loadBrowse()
+            // Browse: the rows carry every window (the table reads the one
+            // picked); only a page sorted by sales has to come back in the
+            // new order.
+            else if (this.browse) { if (bySales) this.loadBrowse() }
             else this.applyStoredSales()
         },
         // The group manager saves inside its own dialog — re-read the tree
@@ -984,7 +949,7 @@ export default {
                 this.$nextTick(() => {
                     // Coming from the Dashboard tab the table mounts on this
                     // same tick — it may not be in refs yet.
-                    this.$refs.table && this.$refs.table.clearSort()
+                    this.resetTableSort()
                     this.clearSelection()
                     this.getList()
                 })
@@ -1016,7 +981,7 @@ export default {
             }
             this.$router.replace({ query: { collection: this.currentCollection } }).catch(() => {})
             this.$nextTick(() => {
-                this.$refs.table && this.$refs.table.clearSort()
+                this.resetTableSort()
                 this.clearSelection()
                 this.getList()
             })
@@ -1028,8 +993,13 @@ export default {
             this.multipleSelection = []
 
             this.$nextTick(() => {
-                this.$refs.productTable && this.$refs.productTable.clearSelection()
+                this.$refs.table && this.$refs.table.clearSelection()
             })
+        },
+        // A new list starts in its own order, with no sort arrow showing.
+        resetTableSort() {
+            this.partsSort = { prop: '', order: '' }
+            if (this.$refs.table) this.$refs.table.clearSort()
         },
         handleGetSalesTotal() {
             const that = this
@@ -1095,49 +1065,17 @@ export default {
             const itemIds = that.productList.map(product => product.id).filter(Boolean)
             purchasesByItemIds(itemIds).then(resp => {
                 const map = (resp && resp.data) || {}
-                const merge = list => list.map(item => ({ ...item, purchase: map[item.id] || null }))
-                that.showProductList = merge(that.showProductList)
-                that.productList = merge(that.productList)
+                // In place: the page's rows are the same objects, so the
+                // table follows. A row's own read (after an inline PO) gives
+                // way to this fresher whole-list one.
+                for (const item of that.productList) {
+                    that.$set(item, 'purchase', map[item.id] || null)
+                    if (item.__spp !== undefined) that.$delete(item, '__spp')
+                }
                 that.purchaseLoading = false
             }).catch(() => {
                 that.purchaseLoading = false
             })
-        },
-        dhlUrl(t) {
-            return `https://www.dhl.com/au-en/home/tracking.html?tracking-id=${encodeURIComponent(t)}&submit=1`
-        },
-        openCreatePo(row) {
-            this.poProduct = row
-            // The item's classification, or the 海运 channel for a part on the
-            // 海运 list (still changeable in the picker).
-            const category = this.isSeaView || row.seaFreight ? '海运'
-                : PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other'
-            this.poForm = { category, orderQty: null, note: '' }
-            this.poDialogVisible = true
-        },
-        async submitCreatePo() {
-            if (!this.poForm.category) { this.$message.warning('Please select a category.'); return }
-            const qty = Number(this.poForm.orderQty)
-            if (!Number.isFinite(qty) || qty <= 0) { this.$message.warning('Please enter a quantity.'); return }
-            this.poSaving = true
-            try {
-                const r = await createOrders([{
-                    itemId: this.poProduct.id,
-                    sku: this.poProduct.sku,
-                    productName: this.poProduct.productName,
-                    category: this.poForm.category,
-                    orderQty: qty,
-                    note: this.poForm.note
-                }])
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(`${(r.orderNos || [])[0] || 'Purchase order'} created for ${this.poProduct.sku || this.poProduct.productName}`)
-                this.poDialogVisible = false
-                this.handleGetPurchase()
-            } catch (e) {
-                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || 'Failed to create purchase order')
-            } finally {
-                this.poSaving = false
-            }
         },
         getList() {
             const that = this
@@ -1350,7 +1288,66 @@ export default {
         applyStoredSales() {
             if (this.isAccessories) return
             this.productList = this.productList.map(item => this.withStoredSales(item))
+            this.sortPartsList()
             this.handlePagination()
+        },
+        // ── the parts table: sort, pages, row events ──────────────────
+        // Browse sorts on the server; a collection's whole list is here, so
+        // it sorts in place and the page is cut from it.
+        onPartsSort({ prop, order }) {
+            this.partsSort = { prop, order }
+            this.queryParams.pageNum = 1
+            if (this.browse) {
+                this.browseQuery.sort = /^units\d+$/.test(prop) ? 'sales' : BROWSE_SORT[prop] || ''
+                this.browseQuery.order = order
+                this.loadBrowse()
+                return
+            }
+            this.sortPartsList()
+            this.handlePagination()
+        },
+        sortPartsList() {
+            const { prop, order } = this.partsSort
+            if (!prop || this.browse || this.isAccessories) return
+            const dir = order === 'desc' ? -1 : 1
+            const d = /^units(\d+)$/.exec(prop)
+            const val = item => d ? ((item.sales && item.sales[d[1]] && item.sales[d[1]].total) || 0)
+                : prop === 'available' ? Number(item.stock) || 0
+                    // the live figure once the list's purchase read is in
+                    : prop === 'openPoQty' ? (item.purchase !== undefined ? this.onOrderQty(item) : Number(item.openPoQty) || 0)
+                        // never sold sorts first going up, as on the Dashboard
+                        : prop === 'daysSinceSale' ? (item.daysSinceSale == null ? -1 : item.daysSinceSale)
+                            : String(item[prop] || '').toLowerCase()
+            this.productList.sort((a, b) => {
+                const x = val(a)
+                const y = val(b)
+                return x > y ? dir : x < y ? -dir : 0
+            })
+        },
+        onPartsPage(page) {
+            this.queryParams.pageNum = page
+            this.handlePagination()
+        },
+        onPartsSize(size) {
+            this.queryParams.pageSize = size
+            this.queryParams.pageNum = 1
+            this.handlePagination()
+        },
+        // Taken off 海运 while looking at the 海运 list: the row goes.
+        onSeaChanged(row) {
+            if (this.isSeaView && !row.seaFreight) {
+                this.productList = this.productList.filter(p => String(p.id) !== String(row.id))
+                this.handlePagination()
+            }
+        },
+        // Moved to the Archive: out of the list (lists leave archived items
+        // out unless the collection takes them in).
+        onArchived(row, archived) {
+            if (this.browse) { this.loadBrowse(); return }
+            if (archived) {
+                this.productList = this.productList.filter(p => String(p.id) !== String(row.id))
+                this.handlePagination()
+            }
         },
         // ── Browse mode ──────────────────────────────────────────────
         switchSideMode(mode) {
@@ -1403,7 +1400,7 @@ export default {
             this.browseQuery = { quality: '', models: [], sort: '', order: '' }
             this.$router.replace({ query: { browse: data.key } }).catch(() => {})
             this.$nextTick(() => {
-                this.$refs.table && this.$refs.table.clearSort()
+                this.resetTableSort()
                 this.clearSelection()
                 this.loadBrowse()
             })
@@ -1471,6 +1468,9 @@ export default {
                     if (!s) continue
                     this.$set(row, 'stock', s.available)
                     this.$set(row, 'accountingStock', s.accountingStock)
+                    if (s.stockOnHand !== undefined) this.$set(row, 'stockOnHand', s.stockOnHand)
+                    if (s.committed !== undefined) this.$set(row, 'committed', s.committed)
+                    this.$set(row, '__stockLive', true)
                 }
             } catch (e) {
                 // The stored figure stands.
@@ -1483,13 +1483,6 @@ export default {
         onOrderQty(item) {
             const p = item && item.purchase
             return p ? (p.pending || 0) + (p.toConfirm || 0) + (p.ordered || 0) + (p.shipped || 0) + (p.shortage || 0) : 0
-        },
-        // Stock below one month of sales, normalised from the selected
-        // sales window. Items with no sales in the window don't count.
-        underMonthCover(item) {
-            const days = Number(this.duration) || 30
-            const pace = ((Number(item.zohoSales) || 0) + (Number(item.offlineSales) || 0)) * (30 / days)
-            return pace > 0 && Number(item.stock) < pace
         },
         // Search / category / legacy sku+name filters — everything EXCEPT
         // the tile quick-filter. The tiles count over this set, so their
@@ -1534,7 +1527,6 @@ export default {
                     : quick === 'belowReorder' ? Number(item.reorderLevel) > 0 && Number(item.stock) <= Number(item.reorderLevel)
                         : quick === 'noOnOrder' ? Number(item.stock) <= 0 && !this.onOrderQty(item)
                             : quick === 'onOrder' ? this.onOrderQty(item) > 0
-                                : quick === 'underMonth' ? this.underMonthCover(item)
                                     : true)
 
             return this.matchesBaseFilters(item) && matchQuick
@@ -1574,41 +1566,10 @@ export default {
             if (this.$refs.deptTreeRef) this.$refs.deptTreeRef.setCurrentKey(null)
             this.$router.replace({ query: { collection: this.seaFreightId } })
             this.$nextTick(() => {
-                this.$refs.table && this.$refs.table.clearSort()
+                this.resetTableSort()
                 this.clearSelection()
                 this.getList()
             })
-        },
-        // The per-row ship icon in the product meta — one click adds or
-        // removes, mirroring the dashboard's button.
-        async toggleSeaItem(row) {
-            if (row.__seaBusy) return
-            this.$set(row, '__seaBusy', true)
-            try {
-                if (row.seaFreight) {
-                    const r = await removeSeaFreightItem(row.id)
-                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                    if (this.isSeaView) {
-                        // The current view IS the 海运 list — drop the row.
-                        this.productList = this.productList.filter(p => String(p.id) !== String(row.id))
-                    } else {
-                        const master = this.productList.find(p => String(p.id) === String(row.id))
-                        if (master) this.$set(master, 'seaFreight', false)
-                    }
-                    this.$message.success(`${row.productName || row.sku || 'Item'} removed from 海运`)
-                } else {
-                    const r = await addSeaFreightItems([{ id: row.id, name: row.productName, sku: row.sku }])
-                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                    const master = this.productList.find(p => String(p.id) === String(row.id))
-                    if (master) this.$set(master, 'seaFreight', true)
-                    this.$message.success(`${row.productName || row.sku || 'Item'} added to 海运`)
-                }
-                this.handlePagination()
-            } catch (e) {
-                this.$message.error((e && e.message) || 'Failed to update 海运')
-            } finally {
-                this.$set(row, '__seaBusy', false)
-            }
         },
         // ── manual hide list ─────────────────────────────────────────
         // Page-level only: a hidden item leaves this list (and its tile
@@ -1863,9 +1824,9 @@ export default {
     margin-bottom: 14px;
 }
 
-/* Spare Parts carries five tiles */
-.sd-tiles-5 {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+/* Spare Parts carries four tiles */
+.sd-tiles-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .sd-tile {
