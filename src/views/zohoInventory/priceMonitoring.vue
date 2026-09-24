@@ -115,12 +115,11 @@
                     </template>
                 </el-table-column>
 
-                <el-table-column prop="purchasePrice" label="Purchase" width="125" align="center" sortable="custom">
-                    <template slot-scope="s"><span class="sd-mono">{{ money(s.row.purchasePrice) }}</span></template>
-                </el-table-column>
-
-                <el-table-column v-for="c in PRICE_COLS" :key="c.prop" :prop="c.prop" :label="c.label"
-                    width="140" align="center" sortable="custom">
+                <!-- Purchase + the four price lists, all editable the same way
+                     (the purchase price writes to the Zoho item's purchase
+                     rate; the lists to their pricebooks). -->
+                <el-table-column v-for="c in EDIT_COLS" :key="c.prop" :prop="c.prop" :label="c.label"
+                    :width="c.list === 'purchase' ? 125 : 140" align="center" sortable="custom">
                     <template slot-scope="s">
                         <!-- Row edit: all four prices of this product at once
                              (✓ in the action column pushes the changed ones). -->
@@ -216,7 +215,7 @@
                              the last typed value); cancel is a mousedown. -->
                         <template v-if="rowEdit.itemId === s.row.itemId">
                             <el-tooltip placement="top"
-                                :content="rowChanges.length ? `Push ${rowChanges.length} ${rowChanges.length === 1 ? 'price' : 'prices'} to Zoho` : 'No changes yet'">
+                                :content="rowSubmitLabel">
                                 <el-button type="text" size="mini" icon="el-icon-check" class="pm-save"
                                     :disabled="!rowChanges.length" @click="submitRowEdit">{{ rowChanges.length || '' }}</el-button>
                             </el-tooltip>
@@ -357,6 +356,11 @@ const PRICE_COLS = [
     { prop: 'priceSvip', label: 'SVIP', list: 'svip' },
     { prop: 'priceWholesale', label: 'WholeSale', list: 'wholesale' }
 ]
+// The purchase price (the Zoho item's purchase rate) is edited like the four
+// price lists but saved straight away — one quick item call — instead of
+// waiting in the loading zone with them (user asks 2026-09-24).
+const PURCHASE_COL = { prop: 'purchasePrice', label: 'Purchase', list: 'purchase' }
+const EDIT_COLS = [PURCHASE_COL, ...PRICE_COLS]
 const PLACEHOLDERS = new Set([9999.99, 9000, 8888, 7777, 7000, 6000])
 // Changes per request when pushing: the server makes at most one Zoho call
 // per price list for each, so the progress moves every few seconds.
@@ -370,6 +374,7 @@ export default {
         return {
             TILES,
             PRICE_COLS,
+            EDIT_COLS,
             loading: false,
             summaryLoading: false,
             exporting: false,
@@ -409,7 +414,7 @@ export default {
         },
         // The zone's list: one row per product, its changes in tier order.
         queueGroups() {
-            const order = PRICE_COLS.map(c => c.list)
+            const order = EDIT_COLS.map(c => c.list)
             const groups = new Map()
             for (const q of Object.values(this.queue)) {
                 let g = groups.get(q.itemId)
@@ -429,7 +434,7 @@ export default {
         rowChanges() {
             const row = this.rowEdit.row
             if (!row) return []
-            return PRICE_COLS
+            return EDIT_COLS
                 .filter(c => this.rowChanged(c) && !this.pushing[this.pushKey(row, c)])
                 .map(c => ({ col: c, rate: Math.round(Number(this.rowEdit.values[c.list]) * 100) / 100 }))
         },
@@ -451,7 +456,9 @@ export default {
                 const a = real(next[lo]), b = real(next[hi])
                 if (a != null && b != null && a > b + 1e-9) out.push(`${label[lo]} ${this.money(a)} is above ${label[hi]} ${this.money(b)}`)
             }
-            const cost = Number(row.purchasePrice)
+            // the purchase price as typed, when it is being edited too
+            const typedCost = this.rowEdit.values.purchase
+            const cost = typedCost != null && Number.isFinite(Number(typedCost)) ? Number(typedCost) : Number(row.purchasePrice)
             if (cost > 0) {
                 for (const c of PRICE_COLS) {
                     const v = real(next[c.list])
@@ -459,6 +466,18 @@ export default {
                 }
             }
             return out
+        },
+        // What the row edit's ✓ will do: the purchase price is saved now,
+        // the price lists join the loading zone.
+        rowSubmitLabel() {
+            const ch = this.rowChanges
+            if (!ch.length) return 'No changes yet'
+            const cost = ch.some(c => c.col.list === 'purchase')
+            const lists = ch.length - (cost ? 1 : 0)
+            return [
+                cost ? 'Save the purchase price to Zoho now' : '',
+                lists ? `queue ${lists} ${lists === 1 ? 'price' : 'prices'} for Zoho` : ''
+            ].filter(Boolean).join(', ')
         },
         activeTile() {
             if (this.query.filter === 'archived') {
@@ -635,11 +654,41 @@ export default {
                 this.$message.error('Enter a valid price')
                 return
             }
-            // Nothing goes to Zoho yet: the change joins the loading zone and
-            // leaves with the next "Push all".
             this.cancelPriceEdit()
-            const col = PRICE_COLS.find(c => c.list === list)
+            // The purchase price goes to Zoho now; a price list joins the
+            // loading zone and leaves with the next "Push all".
+            if (list === 'purchase') { this.savePurchase(row, rate); return }
+            const col = EDIT_COLS.find(c => c.list === list)
             this.enqueue(row, col, rate)
+        },
+        // One purchase price straight to Zoho (the item's purchase rate — a
+        // single quick call, so no queue). The cell locks while it is on its
+        // way; the row then takes the new cost and everything computed from
+        // it (below-cost flag, formula rule and reference prices).
+        async savePurchase(row, rate) {
+            const key = this.pushKey(row, PURCHASE_COL)
+            if (this.pushing[key]) return
+            const from = row.purchasePrice == null ? null : Number(row.purchasePrice)
+            if (from != null && Math.round(from * 100) === Math.round(rate * 100)) return
+            // A purchase change left queued by an earlier version goes now.
+            if (this.queue[key]) this.dequeue(key)
+            this.$set(this.pushing, key, { rate })
+            try {
+                const r = await pushStockItemPrices([{ itemId: row.itemId, list: 'purchase', rate }])
+                const res = r && Array.isArray(r.results) ? r.results[0] : null
+                if (!r || r.success === false || !res) throw new Error((r && r.message) || 'No answer from the server')
+                if (!res.ok) throw new Error(res.message || 'Zoho refused the purchase price')
+                this.$set(row, 'purchasePrice', res.rate)
+                if (res.flags && !(res.flagsSeq < (row.__flagsSeq || 0))) {
+                    for (const k of Object.keys(res.flags)) this.$set(row, k, res.flags[k])
+                    row.__flagsSeq = res.flagsSeq || 0
+                }
+                this.$message.success(`${row.sku || row.name}: purchase price ${this.money(res.rate)} saved to Zoho`)
+            } catch (e) {
+                this.$message.error(`${row.sku || row.name}: ${this.msg(e, 'could not save the purchase price')}`)
+            } finally {
+                this.$delete(this.pushing, key)
+            }
         },
         // ── The loading zone ──
         // Same product + price list replaces the earlier entry. A change back
@@ -664,7 +713,7 @@ export default {
         // A chip opens the cell's editor when the row is on this page.
         editQueued(q) {
             const row = this.rows.find(r => r.itemId === q.itemId)
-            const col = PRICE_COLS.find(c => c.list === q.list)
+            const col = EDIT_COLS.find(c => c.list === q.list)
             if (!row || !col) { this.$message.info('That product is not on this page — search for it to change the price'); return }
             this.reviewVisible = false
             this.startPriceEdit(row, col, q.rate)
@@ -734,7 +783,7 @@ export default {
                         if (res.ok) {
                             const target = this.rows.find(x => x.itemId === res.itemId)
                             if (target) {
-                                const col = PRICE_COLS.find(c => c.list === res.list)
+                                const col = EDIT_COLS.find(c => c.list === res.list)
                                 if (col) this.$set(target, col.prop, res.rate)
                                 if (res.flags && !(res.flagsSeq < (target.__flagsSeq || 0))) {
                                     for (const k of Object.keys(res.flags)) this.$set(target, k, res.flags[k])
@@ -759,7 +808,7 @@ export default {
             } catch (e) {
                 interrupted = this.msg(e, 'Push interrupted')
             } finally {
-                this.pushing = {}
+                for (const q of items) this.$delete(this.pushing, q.key)
                 this.pushingAll = false
             }
             if (interrupted) {
@@ -775,7 +824,7 @@ export default {
         openRowEdit(row) {
             if (this.pEdit.itemId === row.itemId) this.cancelPriceEdit()
             const values = {}
-            for (const c of PRICE_COLS) values[c.list] = row[c.prop] == null ? undefined : Number(row[c.prop])
+            for (const c of EDIT_COLS) values[c.list] = row[c.prop] == null ? undefined : Number(row[c.prop])
             this.rowEdit = { itemId: row.itemId, row, values }
         },
         cancelRowEdit() {
@@ -806,10 +855,15 @@ export default {
             if (!row || !changes.length) return
             this.cancelRowEdit()
             if (this.pEdit.itemId === row.itemId) this.cancelPriceEdit()
-            // Into the loading zone; they leave with the next "Push all".
-            for (const { col, rate } of changes) this.enqueue(row, col, rate)
-            const label = row.sku || row.name
-            this.$message.success(`${label}: ${changes.length} ${changes.length === 1 ? 'price' : 'prices'} queued in the loading zone`)
+            // The purchase price is saved now; the price lists go into the
+            // loading zone and leave with the next "Push all".
+            const cost = changes.find(c => c.col.list === 'purchase')
+            const lists = changes.filter(c => c.col.list !== 'purchase')
+            for (const { col, rate } of lists) this.enqueue(row, col, rate)
+            if (lists.length) {
+                this.$message.success(`${row.sku || row.name}: ${lists.length} ${lists.length === 1 ? 'price' : 'prices'} queued in the loading zone`)
+            }
+            if (cost) this.savePurchase(row, cost.rate)
         },
         // The formula's reference rate for a cell (null when the item has
         // no cost price).
@@ -844,7 +898,7 @@ export default {
             if (row.priceExpected && row.priceExpected[col.list] != null) {
                 parts.push(`Formula (${row.priceRule}): $${Number(row.priceExpected[col.list]).toFixed(2)} ±5%`)
             }
-            if (this.canEditPrices) parts.push('Click to edit — pushes to Zoho')
+            if (this.canEditPrices) parts.push(col.list === 'purchase' ? 'Click to edit the purchase price — saved to Zoho straight away' : 'Click to edit — queued for Zoho')
             return parts.join(' · ')
         },
         priceClass(row, v) {
