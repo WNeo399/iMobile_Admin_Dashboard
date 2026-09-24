@@ -103,7 +103,7 @@
                     <div class="sd-spacer" />
                     <!-- Editing targets ONE collection — hidden on a branch
                          view, where several are merged. -->
-                    <el-button v-if="!subOptions.length && !browse" v-hasPermi="['zoho:collection:view']" size="small"
+                    <el-button v-if="!subOptions.length && !browseList" v-hasPermi="['zoho:collection:view']" size="small"
                         plain type="primary" icon="el-icon-plus" :loading="collectionDetailLoading"
                         :disabled="!currentCollection" @click="handleEditCollection">Add Product</el-button>
                     <el-dropdown trigger="click" @command="handleExportCommand">
@@ -127,12 +127,12 @@
                          compatible model — one cascader, Series › Model, multi-
                          pick; a series on its own means the whole series. The
                          counts are this node's. -->
-                    <el-select v-if="browse" v-model="browseQuery.quality" size="small" clearable filterable
+                    <el-select v-if="browseList" v-model="browseQuery.quality" size="small" clearable filterable
                         placeholder="Quality" class="sd-sel" @change="handleQuery">
                         <el-option v-for="q in browseState.qualities" :key="q.value || '__none__'"
                             :label="`${q.value || '(no quality)'} (${q.count.toLocaleString()})`" :value="q.value || '__none__'" />
                     </el-select>
-                    <el-cascader v-if="browse" v-model="browseQuery.models" size="small" clearable filterable collapse-tags
+                    <el-cascader v-if="browseList" v-model="browseQuery.models" size="small" clearable filterable collapse-tags
                         class="sd-casc" placeholder="Series / compatible model" :options="browseState.seriesModels"
                         :props="{ multiple: true, checkStrictly: true, emitPath: true }" @change="handleQuery" />
                     <el-select v-if="isAccessories" v-model="queryParams.category" size="small" clearable filterable
@@ -473,6 +473,12 @@ export default {
         browse() {
             return this.sideMode === 'browse' && !this.isAccessories
         },
+        // The OPEN LIST is a Browse node (server-paged). The 海运 list is a
+        // collection, so it loads and pages the collection way whichever
+        // tree the sidebar shows (it spun forever in Browse mode before).
+        browseList() {
+            return this.browse && !this.isSeaView
+        },
         // Distinct categories present in the loaded collection.
         categoryOptions() {
             return [...new Set(this.productList.map(p => p.category).filter(Boolean))]
@@ -501,7 +507,7 @@ export default {
                 ]
             }
             // Browse mode: the counts came with the page, over the whole node.
-            if (this.browse) {
+            if (this.browseList) {
                 const t = this.browseState.tiles || {}
                 return [
                     { key: '', label: 'All Items', value: t.all || 0, tone: 'ok', note: 'in this category' },
@@ -527,7 +533,7 @@ export default {
             return t ? t.label : 'All Items'
         },
         hiddenCount() {
-            if (this.browse) return this.browseState.hiddenCount || 0
+            if (this.browseList) return this.browseState.hiddenCount || 0
             return this.productList.filter(i => i.hidden).length
         },
         isSeaView() {
@@ -545,7 +551,7 @@ export default {
             return d ? `${d[1]}-day units` : PARTS_SORT_LABELS[p] || p
         },
         asOfText() {
-            const n = `${(this.browse ? this.total : this.productList.length).toLocaleString()} items`
+            const n = `${(this.browseList ? this.total : this.productList.length).toLocaleString()} items`
             if (this.isAccessories) return `live from Zoho · ${n}`
             if (!this.asOf.metricsAt) return n
             const mins = Math.max(0, Math.round((Date.now() - new Date(this.asOf.metricsAt).getTime()) / 60000))
@@ -578,7 +584,7 @@ export default {
             // Browse: the rows carry every window (the table reads the one
             // picked); only a page sorted by sales has to come back in the
             // new order.
-            else if (this.browse) { if (bySales) this.loadBrowse() }
+            else if (this.browseList) { if (bySales) this.loadBrowse() }
             else this.applyStoredSales()
         },
         // The group manager saves inside its own dialog — re-read the tree
@@ -1083,7 +1089,7 @@ export default {
             // A fresh collection starts on the normal view, not the
             // hidden-items review of the previous one.
             this.showHidden = false
-            if (this.browse) { this.loadBrowse(); return }
+            if (this.browseList) { this.loadBrowse(); return }
             if (!this.isAccessories) {
                 // The register: rows with their sales windows in one call.
                 // Purchase data is a Mongo read as before; stock on the
@@ -1123,7 +1129,7 @@ export default {
         handlePagination() {
             // Browse mode is server-paged: every path that re-renders rows
             // (search, tile, page, hidden review) asks for the page again.
-            if (this.browse) { this.loadBrowse(); return }
+            if (this.browseList) { this.loadBrowse(); return }
             const filtered = this.productList.filter(item => this.matchesFilters(item))
             this.total = filtered.length
             const page = this.queryParams.pageNum
@@ -1135,7 +1141,7 @@ export default {
             if (!this.isAccessories) this.overlayLiveStock()
         },
         handleSorting({ prop, order }) {
-            if (this.browse) {
+            if (this.browseList) {
                 const map = { productName: 'name', stock: 'stock' }
                 this.browseQuery.sort = order ? (map[prop] || '') : ''
                 this.browseQuery.order = order === 'descending' ? 'desc' : 'asc'
@@ -1174,7 +1180,7 @@ export default {
         // Export dropdown: the filtered view, the whole collection, or (parts
         // only, when rows are ticked) the selection.
         async handleExportCommand(command) {
-            if (this.browse && command !== 'selection') {
+            if (this.browseList && command !== 'selection') {
                 // Server-paged, so the rows are fetched for the export: the
                 // current filters for the view, none of them for the full list.
                 try {
@@ -1297,7 +1303,7 @@ export default {
         onPartsSort({ prop, order }) {
             this.partsSort = { prop, order }
             this.queryParams.pageNum = 1
-            if (this.browse) {
+            if (this.browseList) {
                 this.browseQuery.sort = /^units\d+$/.test(prop) ? 'sales' : BROWSE_SORT[prop] || ''
                 this.browseQuery.order = order
                 this.loadBrowse()
@@ -1308,7 +1314,7 @@ export default {
         },
         sortPartsList() {
             const { prop, order } = this.partsSort
-            if (!prop || this.browse || this.isAccessories) return
+            if (!prop || this.browseList || this.isAccessories) return
             const dir = order === 'desc' ? -1 : 1
             const d = /^units(\d+)$/.exec(prop)
             const val = item => d ? ((item.sales && item.sales[d[1]] && item.sales[d[1]].total) || 0)
@@ -1343,7 +1349,7 @@ export default {
         // Moved to the Archive: out of the list (lists leave archived items
         // out unless the collection takes them in).
         onArchived(row, archived) {
-            if (this.browse) { this.loadBrowse(); return }
+            if (this.browseList) { this.loadBrowse(); return }
             if (archived) {
                 this.productList = this.productList.filter(p => String(p.id) !== String(row.id))
                 this.handlePagination()

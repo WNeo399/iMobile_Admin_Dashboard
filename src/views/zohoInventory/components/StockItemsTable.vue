@@ -33,10 +33,8 @@
                         <!-- Clicking the image opens the viewer, not the detail drawer. -->
                         <product-thumb :src="s.row.imageUrl" :item-id="idOf(s.row)" />
                         <div class="sd-prod-text">
-                            <div class="sd-prod-name" :title="nameOf(s.row)">
-                                {{ nameOf(s.row) }}
-                                <el-tag v-if="s.row.stale && availOf(s.row) > 0" size="mini" effect="plain">sitting still</el-tag>
-                            </div>
+                            <!-- (No "sitting still" tag — user ask 2026-09-24.) -->
+                            <div class="sd-prod-name" :title="nameOf(s.row)">{{ nameOf(s.row) }}</div>
                             <div class="sd-prod-meta">
                                 <span class="sd-sku" :title="s.row.sku ? 'Click to copy the SKU' : ''"
                                     @click.stop="copySku(s.row.sku)">{{ s.row.sku || '—' }}</span>
