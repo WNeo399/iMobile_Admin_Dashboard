@@ -68,7 +68,7 @@ export default {
         WelcomeBanner, AdminHome, TechEliteAdminHome,
         IMobileAdminHome, IMobileRepairAdminHome,
         ShopOwnerHome, RepairShopHome, InflowCustomerHome,
-        PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome
+        PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome, PartsSupplierHome
     },
     data() {
         // Hydrate from localStorage so a reload keeps the chosen view.

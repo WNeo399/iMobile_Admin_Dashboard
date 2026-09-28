@@ -4,7 +4,7 @@
         <!-- ── header ───────────────────────────────────────────────── -->
         <div class="sd-head">
             <div class="sd-title">
-                <h2>Missing Images</h2>
+                <h2>{{ $tp('Missing Images') }}</h2>
                 <div v-if="snapshotDate" :class="['sd-asof', staleness.tone]">
                     <i :class="staleness.icon" />
                     {{ staleness.text }}
@@ -12,7 +12,7 @@
             </div>
             <div class="sd-spacer" />
             <el-button size="small" plain type="success" icon="el-icon-download"
-                :loading="exporting" @click="exportCsv">Export</el-button>
+                :loading="exporting" @click="exportCsv">{{ $tp('Export') }}</el-button>
         </div>
 
         <el-alert v-if="runProblem" :title="runProblem" type="warning" show-icon :closable="false"
@@ -21,36 +21,38 @@
         <!-- ── filters ──────────────────────────────────────────────── -->
         <div class="sd-filters">
             <el-input v-model="query.search" size="small" clearable class="sd-search"
-                placeholder="SKU or product name" prefix-icon="el-icon-search"
+                :placeholder="$tp('SKU or product name')" prefix-icon="el-icon-search"
                 @keyup.enter.native="reload" @clear="reload" />
 
-            <el-select v-model="query.category" size="small" clearable filterable placeholder="Category"
+            <el-select v-model="query.category" size="small" clearable filterable :placeholder="$tp('Category')"
                 class="sd-sel" @change="reload">
                 <el-option v-for="o in options.categories" :key="o.value"
                     :label="`${o.value} (${o.count})`" :value="o.value" />
             </el-select>
 
-            <el-select v-model="query.collection" size="small" clearable filterable placeholder="Collection"
+            <el-select v-model="query.collection" size="small" clearable filterable :placeholder="$tp('Collection')"
                 class="sd-sel" @change="reload">
                 <el-option v-for="o in options.collections" :key="o.value"
                     :label="`${o.value} (${o.count})`" :value="o.value" />
             </el-select>
 
-            <el-select v-model="query.vendor" size="small" clearable filterable placeholder="Vendor"
+            <!-- Our purchasing vendors — iMobile staff only. -->
+            <el-select v-if="isStaff" v-model="query.vendor" size="small" clearable filterable :placeholder="$tp('Vendor')"
                 class="sd-sel" @change="reload">
                 <el-option v-for="o in options.vendors" :key="o.value"
                     :label="`${o.value} (${o.count})`" :value="o.value" />
             </el-select>
 
-            <el-button size="mini" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
-            <el-button size="mini" icon="el-icon-refresh" @click="resetFilters">Reset</el-button>
+            <el-button size="mini" type="primary" icon="el-icon-search" @click="reload">{{ $tp('Search') }}</el-button>
+            <el-button size="mini" icon="el-icon-refresh" @click="resetFilters">{{ $tp('Reset') }}</el-button>
 
             <div class="sd-spacer" />
-            <!-- Archived products without an image — viewable to restore. -->
-            <el-button v-if="counts.noImageArchived || query.filter === ARCHIVED" type="text" size="mini"
+            <!-- Archived products without an image — viewable to restore
+                 (staff: archiving is a stock-edit action). -->
+            <el-button v-if="isStaff && (counts.noImageArchived || query.filter === ARCHIVED)" type="text" size="mini"
                 class="sd-archived-link" @click="pickTile(ARCHIVED)">
-                {{ (counts.noImageArchived || 0).toLocaleString() }} archived
-                {{ query.filter === ARCHIVED ? '— hide' : '— view' }}
+                {{ (counts.noImageArchived || 0).toLocaleString() }} {{ $tp('archived') }}
+                {{ query.filter === ARCHIVED ? $tp('— hide') : $tp('— view') }}
             </el-button>
         </div>
 
@@ -59,84 +61,86 @@
             <div v-for="t in TILES" :key="t.key"
                 :class="['sd-tile', 'tone-' + t.tone, { on: query.filter === t.key }]"
                 @click="pickTile(t.key)">
-                <div class="sd-tile-label">{{ t.label }}</div>
+                <div class="sd-tile-label">{{ $tp(t.label) }}</div>
                 <div class="sd-tile-value">{{ (counts[t.key] || 0).toLocaleString() }}</div>
-                <div class="sd-tile-note">{{ t.note }}</div>
+                <div class="sd-tile-note">{{ $tp(t.note) }}</div>
             </div>
         </div>
 
         <!-- ── the working list ─────────────────────────────────────── -->
         <div class="sd-card">
             <div class="sd-card-head">
-                <span class="sd-card-title">{{ activeTile.title }}</span>
+                <span class="sd-card-title">{{ $tp(activeTile.title) }}</span>
                 <el-tag size="mini" :type="activeTile.tag" effect="plain">
-                    {{ total.toLocaleString() }} items
+                    {{ $tp('{n} items', { n: total.toLocaleString() }) }}
                 </el-tag>
-                <span class="sd-dim">Upload from the row, or add in Zoho Inventory (shows after the nightly update).</span>
+                <span class="sd-dim">{{ $tp('Upload from the row, or add in Zoho Inventory (shows after the nightly update).') }}</span>
                 <div class="sd-spacer" />
                 <el-button type="text" size="mini" icon="el-icon-refresh"
-                    @click="refreshData">Refresh</el-button>
+                    @click="refreshData">{{ $tp('Refresh') }}</el-button>
             </div>
 
             <el-table :data="rows" v-loading="loading" size="mini" border
                 :default-sort="{ prop: query.sort, order: query.order === 'asc' ? 'ascending' : 'descending' }"
-                @sort-change="onSort" empty-text="Every product here has an image.">
-                <el-table-column prop="name" label="Item" min-width="340" sortable="custom">
+                @sort-change="onSort" :empty-text="$tp('Every product here has an image.')">
+                <el-table-column prop="name" :label="$tp('Item')" min-width="340" sortable="custom">
                     <template slot-scope="s">
                         <div class="mi-item">
                             <!-- Placeholder until an upload adds the image. -->
                             <product-thumb :src="s.row.imageUrl" :item-id="s.row.itemId" />
                             <div class="mi-text">
-                                <!-- Straight into the item in Zoho Inventory. -->
-                                <a class="mi-item-link"
+                                <!-- Staff: straight into the item in Zoho Inventory. -->
+                                <a v-if="isStaff" class="mi-item-link"
                                     :href="`https://inventory.zoho.com/app/746138234#/inventory/items/${s.row.itemId}`"
                                     target="_blank" rel="noopener" :title="s.row.name">{{ s.row.name }}</a>
+                                <span v-else class="mi-item-link" :title="s.row.name">{{ s.row.name }}</span>
                                 <div class="mi-item-meta">
                                     <span class="sd-sku">{{ s.row.sku || '—' }}</span>
-                                    <el-tag v-if="s.row.imageUrl" size="mini" type="success" effect="plain">image added</el-tag>
+                                    <el-tag v-if="s.row.imageUrl" size="mini" type="success" effect="plain">{{ $tp('image added') }}</el-tag>
                                 </div>
                             </div>
                         </div>
                     </template>
                 </el-table-column>
 
-                <el-table-column prop="category" label="Category" min-width="150" show-overflow-tooltip>
+                <el-table-column prop="category" :label="$tp('Category')" min-width="150" show-overflow-tooltip>
                     <template slot-scope="s">{{ s.row.category || '—' }}</template>
                 </el-table-column>
 
-                <el-table-column prop="location" label="Shelf" width="110" sortable="custom" show-overflow-tooltip>
+                <el-table-column prop="location" :label="$tp('Shelf')" width="110" sortable="custom" show-overflow-tooltip>
                     <template slot-scope="s">{{ s.row.location || '—' }}</template>
                 </el-table-column>
 
-                <el-table-column prop="available" label="Stock" width="86" align="center" sortable="custom">
+                <el-table-column prop="available" :label="$tp('Stock')" width="86" align="center" sortable="custom">
                     <template slot-scope="s">
                         <span :class="['sd-num', s.row.available <= 0 ? 'sd-bad' : '']">{{ s.row.available }}</span>
                     </template>
                 </el-table-column>
 
-                <el-table-column prop="units90" label="Sold 90d" width="96" align="center" sortable="custom">
+                <el-table-column prop="units90" :label="$tp('Sold 90d')" width="96" align="center" sortable="custom">
                     <template slot-scope="s">
                         <span :class="u(s.row.units90) ? 'sd-num' : 'sd-dim'">{{ u(s.row.units90) }}</span>
                     </template>
                 </el-table-column>
 
-                <el-table-column prop="daysSinceSale" label="Last sale" width="100" align="center" sortable="custom">
+                <el-table-column prop="daysSinceSale" :label="$tp('Last sale')" width="100" align="center" sortable="custom">
                     <template slot-scope="s">
-                        <span v-if="s.row.daysSinceSale == null" class="sd-dim">never</span>
-                        <span v-else class="sd-num">{{ s.row.daysSinceSale }}d ago</span>
+                        <span v-if="s.row.daysSinceSale == null" class="sd-dim">{{ $tp('never') }}</span>
+                        <span v-else class="sd-num">{{ $tp('{n}d ago', { n: s.row.daysSinceSale }) }}</span>
                     </template>
                 </el-table-column>
 
                 <el-table-column label="" width="80" align="center">
                     <template slot-scope="s">
-                        <!-- Upload one or more images straight to the item in Zoho. -->
-                        <el-tooltip v-if="canEdit" content="Upload images to Zoho" placement="top">
+                        <!-- Upload one or more images straight to the item in Zoho
+                             (staff, and the parts supplier). -->
+                        <el-tooltip v-if="canUpload" :content="$tp('Upload images to Zoho')" placement="top">
                             <el-button type="text" size="mini" icon="el-icon-upload2" @click="openUpload(s.row)" />
                         </el-tooltip>
                         <!-- Move to / restore from the Archive bucket (shared with
-                             Stock and Price Monitoring). -->
-                        <el-tooltip v-if="canEdit" placement="top"
-                            :content="query.filter === ARCHIVED ? 'Restore from Archive' : 'Move to Archive'">
+                             Stock and Price Monitoring) — stock editors only. -->
+                        <el-tooltip v-if="canArchive" placement="top"
+                            :content="query.filter === ARCHIVED ? $tp('Restore from Archive') : $tp('Move to Archive')">
                             <el-button type="text" size="mini" :loading="s.row.__archivedBusy"
                                 :icon="query.filter === ARCHIVED ? 'el-icon-refresh-left' : 'el-icon-box'"
                                 @click="toggleArchive(s.row)" />
@@ -152,7 +156,7 @@
             </div>
         </div>
         <!-- ── upload images to Zoho ───────────────────────────────── -->
-        <el-dialog :visible.sync="upload.visible" title="Upload images to Zoho" width="640px"
+        <el-dialog :visible.sync="upload.visible" :title="$tp('Upload images to Zoho')" width="640px"
             :close-on-click-modal="false" append-to-body @closed="clearUpload">
             <div v-if="upload.row" class="mi-up-head">
                 <span class="sd-sku">{{ upload.row.sku || '—' }}</span>
@@ -163,32 +167,32 @@
                 @dragover.prevent="upload.over = true" @dragleave.prevent="upload.over = false"
                 @drop.prevent="onDrop">
                 <i class="el-icon-upload" />
-                <div>Drop images here or <em>choose files</em></div>
-                <div class="sd-dim">gif, png, jpeg, bmp or webp · up to 7 MB each · {{ MAX_UPLOAD }} at most</div>
+                <div>{{ $tp('Drop images here or') }} <em>{{ $tp('choose files') }}</em></div>
+                <div class="sd-dim">{{ $tp('gif, png, jpeg, bmp or webp · up to 7 MB each · {n} at most', { n: MAX_UPLOAD }) }}</div>
             </div>
             <input ref="imageInput" type="file" multiple accept="image/gif,image/png,image/jpeg,image/bmp,image/webp"
                 class="mi-hidden-input" @change="onPick">
 
             <div v-if="upload.files.length" class="mi-up-grid">
                 <div v-for="(f, i) in upload.files" :key="f.key" :class="['mi-up-card', { main: i === 0 && !upload.hasImage }]">
-                    <i class="el-icon-close mi-up-remove" title="Remove" @click="removeUpload(i)" />
+                    <i class="el-icon-close mi-up-remove" :title="$tp('Remove')" @click="removeUpload(i)" />
                     <img :src="f.url" alt="">
                     <div class="mi-up-name" :title="f.file.name">{{ f.file.name }}</div>
                     <div class="mi-up-foot">
                         <span class="sd-dim">{{ sizeText(f.file.size) }}</span>
-                        <span v-if="i === 0 && !upload.hasImage" class="mi-up-main">Main image</span>
-                        <el-button v-else-if="!upload.hasImage" type="text" size="mini" @click="makeMain(i)">Set as main</el-button>
+                        <span v-if="i === 0 && !upload.hasImage" class="mi-up-main">{{ $tp('Main image') }}</span>
+                        <el-button v-else-if="!upload.hasImage" type="text" size="mini" @click="makeMain(i)">{{ $tp('Set as main') }}</el-button>
                     </div>
                 </div>
             </div>
             <div v-if="upload.hasImage" class="mi-up-note">
-                <i class="el-icon-info" /> This product already has a main image — these are added after it.
+                <i class="el-icon-info" /> {{ $tp('This product already has a main image — these are added after it.') }}
             </div>
 
             <span slot="footer">
-                <el-button size="small" :disabled="upload.busy" @click="upload.visible = false">Cancel</el-button>
+                <el-button size="small" :disabled="upload.busy" @click="upload.visible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button size="small" type="primary" :loading="upload.busy" :disabled="!upload.files.length"
-                    @click="submitUpload">Upload {{ upload.files.length || '' }} to Zoho</el-button>
+                    @click="submitUpload">{{ $tp('Upload {n} to Zoho', { n: upload.files.length || '' }) }}</el-button>
             </span>
         </el-dialog>
     </div>
@@ -196,9 +200,16 @@
 
 <script>
 import auth from '@/plugins/auth'
-import { getStockSummary, getStockItems, setStockItemArchived, uploadStockItemImages } from '@/api/stockMonitor'
+// The page's own endpoints (no-image parts only, just the columns shown —
+// the parts supplier has this page too), plus the upload and archive.
+import { getImageSummary, getImageItems, setStockItemArchived, uploadStockItemImages } from '@/api/stockMonitor'
 import ProductThumb from '@/components/ProductThumb'
 import liveStockMixin from './liveStockMixin'
+
+// Spare Parts Purchase → Missing Images (moved from iMobile Spare Parts on
+// 2026-09-28): iMobile staff (zoho:stock:view) and the parts supplier
+// (spp:image:view / spp:image:upload). Text through $tp — the supplier
+// reads Chinese.
 
 // Tile keys are also the backend filter names (FILTERS in stockMonitorRoutes).
 const TILES = [
@@ -247,8 +258,16 @@ export default {
         }
     },
     computed: {
-        canEdit() {
+        // iMobile staff (Stock Monitoring access) — the vendor filter, the
+        // archived bucket and the Zoho links are theirs.
+        isStaff() {
+            return auth.hasPermi('zoho:stock:view')
+        },
+        canArchive() {
             return auth.hasPermi('zoho:stock:edit')
+        },
+        canUpload() {
+            return auth.hasPermiOr(['zoho:stock:edit', 'spp:image:upload'])
         },
         activeTile() {
             if (this.query.filter === ARCHIVED) {
@@ -257,20 +276,20 @@ export default {
             return TILES.find(t => t.key === this.query.filter) || TILES[0]
         },
         staleness() {
-            if (!this.snapshotDate) return { tone: 'bad', icon: 'el-icon-warning-outline', text: 'No snapshot yet' }
+            if (!this.snapshotDate) return { tone: 'bad', icon: 'el-icon-warning-outline', text: this.$tp('No snapshot yet') }
             const days = Math.floor((Date.now() - new Date(this.snapshotDate + 'T00:00:00').getTime()) / 86400000)
-            if (days <= 0) return { tone: 'ok', icon: 'el-icon-time', text: 'Images as checked today' }
-            if (days === 1) return { tone: 'ok', icon: 'el-icon-time', text: 'Images as checked yesterday' }
-            return { tone: 'warn', icon: 'el-icon-warning-outline', text: `Checked ${days} days ago` }
+            if (days <= 0) return { tone: 'ok', icon: 'el-icon-time', text: this.$tp('Images as checked today') }
+            if (days === 1) return { tone: 'ok', icon: 'el-icon-time', text: this.$tp('Images as checked yesterday') }
+            return { tone: 'warn', icon: 'el-icon-warning-outline', text: this.$tp('Checked {n} days ago', { n: days }) }
         },
         runProblem() {
             if (!this.loaded) return ''
-            if (!this.snapshotDate) return 'No stock snapshot has been taken yet — run the daily job to populate this page.'
+            if (!this.snapshotDate) return this.$tp('No stock snapshot has been taken yet — run the daily job to populate this page.')
             if (this.run && this.run.ok === false) {
-                return `The last stock refresh failed${this.run.error ? ': ' + this.run.error : ''}. The list below is from the last good run.`
+                return `${this.$tp('The last stock refresh failed')}${this.run.error ? ': ' + this.run.error : ''}. ${this.$tp('The list below is from the last good run.')}`
             }
             if (this.staleness.tone === 'warn') {
-                return 'The numbers are more than a day old — the daily refresh may not be running.'
+                return this.$tp('The numbers are more than a day old — the daily refresh may not be running.')
             }
             return ''
         }
@@ -290,8 +309,7 @@ export default {
             this.summaryLoading = true
             try {
                 // Filters ride along so the tiles count what the table shows.
-                const r = await getStockSummary({
-                    scope: 'parts',
+                const r = await getImageSummary({
                     search: this.query.search,
                     category: this.query.category,
                     collection: this.query.collection,
@@ -302,7 +320,7 @@ export default {
                 this.counts = r.counts || {}
                 if (r.options) this.options = r.options
             } catch (e) {
-                this.$message.error(this.msg(e, 'Could not load the image summary'))
+                this.$message.error(this.msg(e, this.$tp('Could not load the image summary')))
             } finally {
                 this.summaryLoading = false
                 this.loaded = true
@@ -311,13 +329,13 @@ export default {
         async loadItems() {
             this.loading = true
             try {
-                const r = await getStockItems({ scope: 'parts', ...this.query })
+                const r = await getImageItems({ ...this.query })
                 this.rows = r.rows || []
                 this.total = r.total || 0
                 this.snapshotDate = r.snapshotDate || this.snapshotDate
                 this.overlayLiveStock(this.rows)
             } catch (e) {
-                this.$message.error(this.msg(e, 'Could not load the list'))
+                this.$message.error(this.msg(e, this.$tp('Could not load the list')))
             } finally {
                 this.loading = false
             }
@@ -339,11 +357,12 @@ export default {
             try {
                 const r = await setStockItemArchived(row.itemId, restoring)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(`${row.sku || row.name} ${restoring ? 'restored' : 'moved to Archive'}`)
+                const name = row.sku || row.name
+                this.$message.success(restoring ? this.$tp('{name} restored', { name }) : this.$tp('{name} moved to Archive', { name }))
                 this.loadItems()
                 this.loadSummary()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Update failed'))
+                this.$message.error(this.msg(e, this.$tp('Update failed')))
             } finally {
                 this.$set(row, '__archivedBusy', false)
             }
@@ -389,12 +408,12 @@ export default {
         addUploads(fileList) {
             const skipped = []
             for (const file of Array.from(fileList || [])) {
-                if (!UPLOAD_TYPES.test(file.type)) { skipped.push(`${file.name} (not an image type Zoho takes)`); continue }
-                if (file.size > MAX_UPLOAD_BYTES) { skipped.push(`${file.name} (over 7 MB)`); continue }
-                if (this.upload.files.length >= MAX_UPLOAD) { skipped.push(`${file.name} (${MAX_UPLOAD} at most)`); continue }
+                if (!UPLOAD_TYPES.test(file.type)) { skipped.push(this.$tp('{name} (not an image type Zoho takes)', { name: file.name })); continue }
+                if (file.size > MAX_UPLOAD_BYTES) { skipped.push(this.$tp('{name} (over 7 MB)', { name: file.name })); continue }
+                if (this.upload.files.length >= MAX_UPLOAD) { skipped.push(this.$tp('{name} ({n} at most)', { name: file.name, n: MAX_UPLOAD })); continue }
                 this.upload.files.push({ key: `${Date.now()}-${Math.random()}`, file, url: URL.createObjectURL(file) })
             }
-            if (skipped.length) this.$message.warning(`Skipped: ${skipped.join(', ')}`)
+            if (skipped.length) this.$message.warning(this.$tp('Skipped: {list}', { list: skipped.join(', ') }))
         },
         removeUpload(i) {
             const [f] = this.upload.files.splice(i, 1)
@@ -416,13 +435,13 @@ export default {
             try {
                 const files = this.upload.files.map(f => f.file)
                 const r = await uploadStockItemImages(row.itemId, files)
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Upload failed')
+                if (!r || r.success === false) throw new Error((r && r.message) || this.$tp('Upload failed'))
                 if (r.imageUrl) this.$set(row, 'imageUrl', r.imageUrl)
-                this.$message.success(`${row.sku || row.name}: ${r.uploaded} ${r.uploaded === 1 ? 'image' : 'images'} uploaded to Zoho`)
+                this.$message.success(this.$tp('{name}: {n} image(s) uploaded to Zoho', { name: row.sku || row.name, n: r.uploaded }))
                 this.upload.visible = false
                 this.loadSummary()
             } catch (e) {
-                this.$message.error(this.msg(e, 'Upload failed'))
+                this.$message.error(this.msg(e, this.$tp('Upload failed')))
             } finally {
                 this.upload.busy = false
             }
@@ -441,7 +460,7 @@ export default {
             try {
                 const all = []
                 for (let page = 1; ; page++) {
-                    const r = await getStockItems({ scope: 'parts', ...this.query, page, pageSize: 200 })
+                    const r = await getImageItems({ ...this.query, page, pageSize: 200 })
                     all.push(...(r.rows || []))
                     if (!(r.rows || []).length || all.length >= (r.total || 0)) break
                 }
@@ -459,7 +478,7 @@ export default {
                 a.click()
                 URL.revokeObjectURL(a.href)
             } catch (e) {
-                this.$message.error(this.msg(e, 'Export failed'))
+                this.$message.error(this.msg(e, this.$tp('Export failed')))
             } finally {
                 this.exporting = false
             }
@@ -522,6 +541,8 @@ export default {
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     &:hover { color: #1890ff; text-decoration: underline; }
 }
+/* The parts supplier sees the name without the Zoho link. */
+span.mi-item-link:hover { color: #303133; text-decoration: none; }
 .mi-item-meta { display: flex; align-items: center; gap: 6px; margin-top: 1px; font-size: 12px; }
 
 /* Upload dialog */

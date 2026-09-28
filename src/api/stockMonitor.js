@@ -73,6 +73,15 @@ export function pushStockItemPrices(changes) {
 // File[] in order — the first becomes the main image when the item has
 // none. Explicit multipart header: the default JSON one leaves multer with
 // no files.
+// The Missing Images page (iMobile staff and the parts supplier): the
+// no-image parts only, with just the columns that page shows.
+export function getImageSummary(params) {
+  return request({ url: '/stock-monitor/images/summary', method: 'get', params })
+}
+export function getImageItems(params) {
+  return request({ url: '/stock-monitor/images/items', method: 'get', params })
+}
+
 export function uploadStockItemImages(itemId, files) {
   const data = new FormData()
   files.forEach(f => data.append('images', f, f.name))

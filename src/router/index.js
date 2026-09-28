@@ -241,16 +241,14 @@ export const moduleRoutes = [
         }
       },
       {
-        // Spare parts with no product image in Zoho, from the daily
-        // snapshot's imageId (null = no image). Per-row upload to Zoho.
+        // Missing Images moved to Spare Parts Purchase (2026-09-28); the old
+        // address still lands there. Staff only: any permitted child — even a
+        // hidden one — keeps this group on the sidebar, and the parts
+        // supplier never had this address.
         path: "/zohoInventory/missingImages",
-        component: (resolve) => require(["@/views/zohoInventory/missingImages"], resolve),
-        name: "MissingImages",
-        meta: {
-          title: "Missing Images",
-          icon: "el-icon-picture-outline",
-          permissions: ["zoho:stock:view"]
-        }
+        redirect: "/sparePartsPurchase/missing-images",
+        hidden: true,
+        meta: { permissions: ["zoho:stock:view"] }
       },
       {
         // Retired from the sidebar (2026-09) — collections are managed on
@@ -347,6 +345,20 @@ export const moduleRoutes = [
           title: "Batches",
           icon: "el-icon-truck",
           permissions: ["spp:batch:view"]
+        }
+      },
+      {
+        // Spare parts with no product image in Zoho, from the register's
+        // imageId (null = no image); per-row upload to Zoho. iMobile staff
+        // and the parts supplier (spp:image:view) — moved here from iMobile
+        // Spare Parts on 2026-09-28.
+        path: "missing-images",
+        component: (resolve) => require(["@/views/zohoInventory/missingImages"], resolve),
+        name: "MissingImages",
+        meta: {
+          title: "Missing Images",
+          icon: "el-icon-picture-outline",
+          permissions: ["spp:image:view", "zoho:stock:view"]
         }
       }
     ]

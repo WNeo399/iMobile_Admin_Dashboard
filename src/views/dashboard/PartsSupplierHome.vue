@@ -8,6 +8,7 @@
             <el-button type="primary" icon="el-icon-notebook-2" @click="$router.push('/sparePartsPurchase/orders')">{{ $tp('Purchase Order') }}</el-button>
             <el-button icon="el-icon-document-checked" @click="$router.push('/sparePartsPurchase/order-batches')">{{ $tp('Order Batches') }}</el-button>
             <el-button icon="el-icon-truck" @click="$router.push('/sparePartsPurchase/batches')">{{ $tp('Batches') }}</el-button>
+            <el-button icon="el-icon-picture-outline" @click="$router.push('/sparePartsPurchase/missing-images')">{{ $tp('Missing Images') }}</el-button>
         </el-card>
     </div>
 </template>
