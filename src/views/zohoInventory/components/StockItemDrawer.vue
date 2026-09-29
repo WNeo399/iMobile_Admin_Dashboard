@@ -1,6 +1,6 @@
 <template>
-    <!-- One item from the stock register: its numbers, who bought it, its
-         Zoho purchase orders and weekly sales. Opened with open(row) from
+    <!-- One item from the stock register: its numbers, its Spare Parts
+         Purchase lines and weekly sales. Opened with open(row) from
          the dashboard-style stock table (Stock Monitoring's Dashboard,
          海运, Browse and Collections lists). -->
     <el-drawer :visible.sync="visible" size="560px" :with-header="false" append-to-body @closed="detail = null">
@@ -45,111 +45,61 @@
                     <div><label>Preferred vendor</label><b>{{ detail.item.preferVendor || '—' }}</b></div>
                 </div>
 
-                <!-- Who bought it. Read live from Zoho, because invoice
-                     numbers and customer names are not in the register,
-                     so it arrives after the rest of the drawer. -->
-                <div class="sd-section">
-                    <div class="sd-section-head">
-                        <span>Sales history</span>
-                        <span v-if="salesTruncated" class="sd-dim">most recent {{ sales.length }}</span>
-                        <div class="sd-spacer" />
-                        <span v-if="sales.length" class="sd-dim">
-                            {{ salesUnits }} units to {{ salesCustomers }} customers
-                        </span>
-                    </div>
-
-                    <el-table v-if="sales.length || salesLoading" :data="sales" v-loading="salesLoading"
-                        size="mini" border max-height="300" empty-text="Loading…">
-                        <el-table-column prop="date" label="Date" width="96" />
-                        <el-table-column prop="invoiceNumber" label="Invoice" width="112">
-                            <template slot-scope="s"><span class="sd-mono">{{ s.row.invoiceNumber || '—' }}</span></template>
-                        </el-table-column>
-                        <el-table-column prop="customerName" label="Customer" min-width="150" show-overflow-tooltip />
-                        <el-table-column prop="quantity" label="Qty" width="62" align="right">
-                            <template slot-scope="s"><span class="sd-num">{{ s.row.quantity == null ? '—' : s.row.quantity }}</span></template>
-                        </el-table-column>
-                        <el-table-column prop="price" label="Price" width="96" align="right">
-                            <template slot-scope="s"><span class="sd-mono">{{ s.row.price || '—' }}</span></template>
-                        </el-table-column>
-                    </el-table>
-
-                    <div v-else-if="salesError" class="sd-empty">
-                        {{ salesError }}
-                        <br><el-button type="text" size="mini" @click="loadSales(detail.item.itemId)">Try again</el-button>
-                    </div>
-                    <div v-else class="sd-empty">
-                        No invoice has carried this item.
-                        <span v-if="offline(detail.item.units90) > 0" class="sd-dim">
-                            <br>{{ offline(detail.item.units90) }} units left through the counter, workshop, Neto or dispatch, which carry no invoice.
-                        </span>
-                    </div>
-                </div>
-
-                <!-- Straight from Zoho Inventory, where POs are raised
-                     (one per shipped batch). What is still with the
-                     supplier is the Spare Parts Purchase line below. -->
+                <!-- Purchase orders = what we have raised for this item in
+                     Spare Parts Purchase (our own records, newest first) —
+                     not Zoho's POs (user ask 2026-09-29). The header adds up
+                     what is still to arrive, 海运 / 空运 apart. -->
                 <div class="sd-section">
                     <div class="sd-section-head">
                         <span>Purchase orders</span>
-                        <span class="sd-dim">Zoho Inventory</span>
+                        <span class="sd-dim">Spare Parts Purchase</span>
+                        <span v-if="linesTotal > lines.length" class="sd-dim">· latest {{ lines.length }} of {{ linesTotal }}</span>
                         <div class="sd-spacer" />
-                        <span v-if="poOnOrder > 0" class="sd-good sd-num">{{ poOnOrder }} still to arrive</span>
-                    </div>
-
-                    <!-- Ordering runs ahead of Zoho: the warehouse books
-                         an order against the supplier first, and a Zoho
-                         PO only exists once that supplier ships. Without
-                         this line an item counted On order can show an
-                         empty PO table and look like a mistake. -->
-                    <div v-if="detail.item.openPoQty > 0" class="sd-ordered">
-                        <i class="el-icon-shopping-cart-2" />
-                        <span>
-                            <b>{{ detail.item.openPoQty }}</b> on order with the supplier
-                            <span class="sd-dim">
-                                · {{ detail.item.openPoLines }}
-                                {{ detail.item.openPoLines === 1 ? 'line' : 'lines' }}<template
-                                    v-if="detail.item.earliestPoDate">, oldest {{ shortDate(detail.item.earliestPoDate) }}</template>.
-                                A Zoho PO appears once they ship.
-                            </span>
+                        <span v-if="toArrive.total > 0" class="sd-good sd-num sd-arrive">
+                            {{ toArrive.total }} still to arrive
+                            <template v-if="toArrive.sea && toArrive.air">
+                                (<i class="el-icon-ship" />{{ toArrive.sea }} · <svg-icon icon-class="airplane" />{{ toArrive.air }})</template>
                         </span>
                     </div>
 
-                    <el-table v-if="purchaseOrders.length || poLoading" :data="purchaseOrders"
-                        v-loading="poLoading" size="mini" border max-height="260" empty-text="Loading…"
-                        :row-class-name="({ row }) => (row.open ? 'sd-row-open' : '')">
-                        <el-table-column prop="date" label="Ordered" width="96" />
-                        <el-table-column prop="number" label="PO" width="104">
-                            <template slot-scope="s"><span class="sd-mono">{{ s.row.number || '—' }}</span></template>
+                    <el-table v-if="lines.length || linesLoading" :data="lines" v-loading="linesLoading"
+                        size="mini" border max-height="300" empty-text="Loading…"
+                        :row-class-name="({ row }) => (isOpen(row) ? 'sd-row-open' : '')">
+                        <el-table-column label="Raised" width="88">
+                            <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
                         </el-table-column>
-                        <el-table-column prop="vendor" label="Vendor" min-width="130" show-overflow-tooltip />
-                        <el-table-column prop="quantity" label="Qty" width="60" align="right">
-                            <template slot-scope="s"><span class="sd-num">{{ s.row.quantity == null ? '—' : s.row.quantity }}</span></template>
+                        <el-table-column label="Qty" width="64" align="right">
+                            <template slot-scope="s">
+                                <i v-if="s.row.category === '海运'" class="el-icon-ship sd-sea" title="海运 — sea freight" />
+                                <span class="sd-num">{{ s.row.orderQty }}</span>
+                            </template>
                         </el-table-column>
                         <el-table-column label="Status" width="118">
                             <template slot-scope="s">
-                                <el-tag v-if="s.row.open" size="mini" type="warning" effect="plain">
-                                    {{ s.row.outstanding != null ? s.row.outstanding + ' to come' : 'open' }}
-                                </el-tag>
-                                <span v-else class="sd-dim">{{ s.row.receivedStatus || s.row.status }}</span>
+                                <span class="sd-status" :style="statusStyle(s.row.status)">{{ statusText(s.row) }}</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="Supplier" min-width="80" show-overflow-tooltip>
+                            <template slot-scope="s">{{ s.row.supplier || '—' }}</template>
+                        </el-table-column>
+                        <el-table-column label="Batch" width="86">
+                            <template slot-scope="s">
+                                <a v-if="s.row.batchNo && canBatches" class="sd-mono sd-link" title="Open the batch"
+                                    @click="openBatch(s.row.batchNo)">{{ s.row.batchNo }}</a>
+                                <span v-else class="sd-mono">{{ s.row.batchNo || '—' }}</span>
                             </template>
                         </el-table-column>
                     </el-table>
 
-                    <div v-else-if="poError" class="sd-empty">
-                        {{ poError }}
-                        <br><el-button type="text" size="mini"
-                            @click="loadPurchaseOrders(detail.item.itemId)">Try again</el-button>
+                    <div v-else-if="linesError" class="sd-empty">
+                        {{ linesError }}
+                        <br><el-button type="text" size="mini" @click="loadLines(detail.item.itemId)">Try again</el-button>
                     </div>
                     <div v-else class="sd-empty">
-                        <template v-if="detail.item.openPoQty > 0">
-                            Nothing shipped yet — the supplier has the order but has not sent a batch.
-                        </template>
-                        <template v-else>
-                            No purchase order has ever been raised for this item in Zoho.
-                            <span v-if="u(detail.item.units90) > 0" class="sd-dim">
-                                <br>{{ u(detail.item.units90) }} units sold in 90 days.
-                            </span>
-                        </template>
+                        No purchase line has been raised for this item yet.
+                        <span v-if="u(detail.item.units90) > 0" class="sd-dim">
+                            <br>{{ u(detail.item.units90) }} units sold in 90 days.
+                        </span>
                     </div>
                 </div>
 
@@ -185,9 +135,13 @@
 </template>
 
 <script>
-import {
-    getStockItem, getStockItemSales, getStockItemPurchaseOrders, getStockItemSalesTrend
-} from '@/api/stockMonitor'
+import { getStockItem, getStockItemSalesTrend } from '@/api/stockMonitor'
+// The item's purchase lines (our records) and their open totals.
+import { listOrders, purchasesByItemIds } from '@/api/sparePartsPurchase'
+import { STATUS_META, fmtDay } from '@/views/sparePartsPurchase/shared'
+import { hasPermission } from '@/utils/permission'
+
+const OPEN_STATUSES = ['pending', 'toConfirm', 'ordered', 'shipped', 'shortage']
 
 const ZOHO_ORG = '746138234'
 
@@ -199,36 +153,28 @@ export default {
             detailLoading: false,
             detail: null,
 
-            // Sales history arrives separately — it is a live Zoho read, so
-            // the drawer must render without it.
-            sales: [],
-            salesLoading: false,
-            salesTruncated: false,
-            salesError: '',
-
             // Sales by week, live from Zoho Analytics.
             trend: [],
             trendLoading: false,
             trendError: '',
             trendWeeks: 12,
 
-            // Purchase orders come from Zoho too, and load alongside the
-            // sales history rather than blocking the drawer.
-            purchaseOrders: [],
-            poOnOrder: 0,
-            poLoading: false,
-            poError: ''
+            // The item's Spare Parts Purchase lines (newest first) and what is
+            // still to arrive, 海运 / 空运 apart; they load behind the drawer.
+            lines: [],
+            linesTotal: 0,
+            linesLoading: false,
+            linesError: '',
+            toArrive: { total: 0, sea: 0, air: 0 }
         }
     },
     computed: {
+        // The batch number opens the batch on the Batches page.
+        canBatches() {
+            return hasPermission(this.$store.getters.permissions, 'spp:batch:view')
+        },
         trendTotal() {
             return Math.round(this.trend.reduce((s, w) => s + (w.units || 0), 0) * 100) / 100
-        },
-        salesUnits() {
-            return this.sales.reduce((t, s) => t + (Number(s.quantity) || 0), 0)
-        },
-        salesCustomers() {
-            return new Set(this.sales.map(s => s.customerName).filter(Boolean)).size
         },
         coverageGaps() {
             if (!this.detail) return []
@@ -243,16 +189,16 @@ export default {
         // A table row → the drawer. Rows from the dashboard carry itemId and
         // available; Stock Monitoring's lists carry id and stock.
         async open(row) {
+            // A click on a row the list is just replacing arrives without one.
+            if (!row) return
             const itemId = String(row.itemId || row.id)
             this.visible = true
             this.detailLoading = true
             this.detail = null
-            this.sales = []
-            this.salesTruncated = false
-            this.salesError = ''
-            this.purchaseOrders = []
-            this.poOnOrder = 0
-            this.poError = ''
+            this.lines = []
+            this.linesTotal = 0
+            this.linesError = ''
+            this.toArrive = { total: 0, sea: 0, air: 0 }
             try {
                 this.detail = await getStockItem(itemId)
                 // The row already carries live stock once the page overlay
@@ -269,8 +215,7 @@ export default {
                 // once and the Zoho half fills in behind it.
                 this.trend = []
                 this.loadTrend(itemId)
-                this.loadSales(itemId)
-                this.loadPurchaseOrders(itemId)
+                this.loadLines(itemId)
             } catch (e) {
                 this.visible = false
                 this.$message.error(this.msg(e, 'Could not load that item'))
@@ -278,40 +223,54 @@ export default {
                 this.detailLoading = false
             }
         },
-        async loadPurchaseOrders(itemId) {
-            this.poLoading = true
-            this.poError = ''
+        // The item's purchase lines (latest 15) and the open totals by
+        // channel — the same figures as the Stock Monitoring On order column.
+        async loadLines(itemId) {
+            if (!hasPermission(this.$store.getters.permissions, 'spp:order:view')) {
+                this.linesError = 'Your account cannot see Spare Parts Purchase.'
+                return
+            }
+            this.linesLoading = true
+            this.linesError = ''
             try {
-                const r = await getStockItemPurchaseOrders(itemId, { limit: 8 })
+                const [r, open] = await Promise.all([
+                    listOrders({ itemId, page: 1, pageSize: 15 }),
+                    purchasesByItemIds([itemId]).catch(() => null)
+                ])
                 if (!this.detail || this.detail.item.itemId !== itemId) return
-                this.purchaseOrders = r.purchaseOrders || []
-                this.poOnOrder = r.onOrder || 0
+                this.lines = r.rows || []
+                this.linesTotal = r.total || 0
+                const d = open && open.data ? open.data[itemId] : null
+                const sum = o => (o ? OPEN_STATUSES.reduce((t, k) => t + (o[k] || 0), 0) : 0)
+                this.toArrive = d ? { total: sum(d), sea: sum(d.sea), air: sum(d.air) } : { total: 0, sea: 0, air: 0 }
             } catch (e) {
                 if (!this.detail || this.detail.item.itemId !== itemId) return
-                this.purchaseOrders = []
-                this.poError = this.msg(e, 'Could not read purchase orders from Zoho.')
+                this.lines = []
+                this.linesError = this.msg(e, 'Could not read the purchase lines.')
             } finally {
-                this.poLoading = false
+                this.linesLoading = false
             }
         },
-        async loadSales(itemId) {
-            this.salesLoading = true
-            this.salesError = ''
-            try {
-                const r = await getStockItemSales(itemId, { limit: 25 })
-                // A slow Zoho read can land after the drawer has moved on
-                // to another item; drop it rather than showing one item's
-                // sales under another's name.
-                if (!this.detail || this.detail.item.itemId !== itemId) return
-                this.sales = r.sales || []
-                this.salesTruncated = !!r.truncated
-            } catch (e) {
-                if (!this.detail || this.detail.item.itemId !== itemId) return
-                this.sales = []
-                this.salesError = this.msg(e, 'Could not read the sales history from Zoho.')
-            } finally {
-                this.salesLoading = false
-            }
+        isOpen(row) {
+            return OPEN_STATUSES.includes(row.status)
+        },
+        statusStyle(status) {
+            const m = STATUS_META[status]
+            return m ? { color: m.color, background: m.bg } : {}
+        },
+        // "Shipped 5" / "Received 5" when that differs from what was ordered.
+        statusText(row) {
+            const m = STATUS_META[row.status]
+            const label = m ? m.label : row.status
+            const n = row.status === 'shipped' ? row.shippedQty : row.status === 'received' ? row.receivedQty : null
+            return n != null && n !== row.orderQty ? `${label} ${n}` : label
+        },
+        fmtDay,
+        // Close first: the drawer hangs off <body>, so it would stay over
+        // the Batches page.
+        openBatch(batchNo) {
+            this.visible = false
+            this.$router.push({ path: '/sparePartsPurchase/batches', query: { batch: batchNo } }).catch(() => {})
         },
         async loadTrend(itemId) {
             this.trendLoading = true
@@ -339,9 +298,6 @@ export default {
         },
         scopeUnits(w, key) {
             return w && typeof w === 'object' ? (w[key] || 0) : 0
-        },
-        offline(w) {
-            return w && typeof w === 'object' ? Math.round(((w.total || 0) - (w.online || 0)) * 100) / 100 : 0
         },
         trendHeight(w) {
             const max = Math.max(0, ...this.trend.map(x => x.units || 0))
@@ -444,13 +400,11 @@ export default {
     font-size: 12px; color: #606266; line-height: 1.6;
 }
 ::v-deep .el-table .sd-row-open > td { background: #fdf6ec; }
-.sd-ordered {
-    display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px;
-    background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 4px;
-    font-size: 12px; color: #606266; line-height: 1.5;
-    i { color: #67c23a; margin-top: 2px; }
-    b { color: #67c23a; font-variant-numeric: tabular-nums; }
-}
+.sd-status { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px; white-space: nowrap; }
+.sd-sea { color: #909399; margin-right: 3px; }
+.sd-link { color: #409eff; cursor: pointer; }
+.sd-link:hover { text-decoration: underline; }
+.sd-arrive i, .sd-arrive .svg-icon { color: #909399; font-size: 11px; width: 10px; height: 10px; margin: 0 1px; }
 .sd-gaps {
     display: flex; flex-direction: column; gap: 1px; background: #ebeef5;
     border: 1px solid #ebeef5; border-radius: 4px; overflow: hidden;

@@ -119,11 +119,13 @@ import liveStockMixin from './liveStockMixin'
 import StockItemsTable from './components/StockItemsTable'
 
 // Tiles in the order a buyer reads them: how bad, what needs ordering, what
-// is covered. (The cover and sitting-still tiles went at the user's ask.)
+// is covered, what runs out soon. (The sitting-still tile went at the user's
+// ask; the cover tile went too and came back on 2026-09-29.)
 const TILES = [
     { key: 'outOfStock', label: 'Out of stock', tone: 'plain', tag: 'danger', note: 'nothing on the shelf' },
     { key: 'uncovered', label: 'Nothing on order', tone: 'bad', tag: 'danger', note: 'the buy list' },
-    { key: 'onOrder', label: 'On order', tone: 'good', tag: 'success', note: 'covered by a PO', partsOnly: true }
+    { key: 'onOrder', label: 'On order', tone: 'good', tag: 'success', note: 'covered by a PO', partsOnly: true },
+    { key: 'belowCover', label: "Under a month's cover", tone: 'warn', tag: 'warning', note: 'stock < 30-day sales' }
 ]
 const SORT_LABELS = {
     units90: '90-day units', units30: '30-day units', units14: '14-day units', units7: '7-day units', available: 'stock',

@@ -476,15 +476,14 @@ export default {
         }
     },
     created() {
-        this.load().then(() => {
-            const q = this.$route.query || {}
-            if (q.batch) this.openByNo(String(q.batch))
-            else if (q.create) this.openCreate()
-        })
+        this.load().then(() => this.fromQuery())
     },
-    // Coming back to the tab (kept alive by the tags bar): fresh data.
+    // Coming back to the tab (kept alive by the tags bar): fresh data, and
+    // a ?batch= / ?create= link opens even when the tab was already open.
+    // The first activation follows created(), which has done both.
     activated() {
-        this.load()
+        if (!this.activatedOnce) { this.activatedOnce = true; return }
+        this.load().then(() => this.fromQuery())
     },
     methods: {
         fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink,
@@ -563,6 +562,12 @@ export default {
         reload() { this.page = 1; this.load() },
         onPage(p) { this.page = p; this.load() },
         onSize(s) { this.pageSize = s; this.reload() },
+        fromQuery() {
+            const q = this.$route.query || {}
+            if (q.batch) this.openByNo(String(q.batch))
+            // (never over a form still open from before — that would wipe it)
+            else if (q.create && !this.createVisible) this.openCreate()
+        },
         clearQuery() {
             if (Object.keys(this.$route.query || {}).length) this.$router.replace({ query: {} }).catch(() => {})
         },

@@ -151,7 +151,7 @@
                 </div>
 
                 <!-- The counts, each one a filter (click again to clear) -->
-                <div :class="['sd-tiles', { 'sd-tiles-4': !isAccessories }]">
+                <div :class="['sd-tiles', { 'sd-tiles-5': !isAccessories }]">
                     <div v-for="t in tiles" :key="t.key"
                         :class="['sd-tile', 'tone-' + t.tone, { on: (queryParams.quick || '') === t.key }]"
                         @click="pickTile(t.key)">
@@ -513,18 +513,21 @@ export default {
                     { key: '', label: 'All Items', value: t.all || 0, tone: 'ok', note: 'in this category' },
                     { key: 'zero', label: 'Out of Stock', value: t.zero || 0, tone: 'bad', note: 'stock at 0' },
                     { key: 'noOnOrder', label: 'No on Order', value: t.noOnOrder || 0, tone: 'bad', note: 'out of stock, nothing ordered' },
-                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'open in Spare Parts Purchase' }
+                    { key: 'onOrder', label: 'On Order', value: t.onOrder || 0, tone: 'ok', note: 'open in Spare Parts Purchase' },
+                    { key: 'underMonth', label: "Under a Month's Cover", value: t.underMonth || 0, tone: 'warn', note: `stock below ${this.duration}-day sales` }
                 ]
             }
             // Spare Parts: purchasing-led buckets. "On order" reads the open
             // Spare Parts Purchase lines via the Purchase column's data. (The
-            // Under a Month's Cover tile went at the user's ask, 2026-09-24.)
+            // Under a Month's Cover tile went on 2026-09-24 and came back on
+            // 2026-09-29, both at the user's ask.)
             const oos = base.filter(i => Number(i.stock) <= 0)
             return [
                 { key: '', label: 'All Items', value: base.length, tone: 'ok', note: 'matching the filters' },
                 { key: 'zero', label: 'Out of Stock', value: oos.length, tone: 'bad', note: 'stock at 0' },
                 { key: 'noOnOrder', label: 'No on Order', value: oos.filter(i => !this.onOrderQty(i)).length, tone: 'bad', note: 'out of stock, nothing ordered' },
-                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'open in Spare Parts Purchase' }
+                { key: 'onOrder', label: 'On Order', value: base.filter(i => this.onOrderQty(i) > 0).length, tone: 'ok', note: 'open in Spare Parts Purchase' },
+                { key: 'underMonth', label: "Under a Month's Cover", value: base.filter(i => this.underMonthCover(i)).length, tone: 'warn', note: `stock below ${this.duration}-day sales` }
             ]
         },
         activeTileLabel() {
@@ -581,10 +584,8 @@ export default {
             const bySales = /^units\d+$/.test(this.partsSort.prop)
             if (bySales) this.partsSort = { ...this.partsSort, prop: 'units' + this.duration }
             if (this.isAccessories) this.handleGetSalesTotal()
-            // Browse: the rows carry every window (the table reads the one
-            // picked); only a page sorted by sales has to come back in the
-            // new order.
-            else if (this.browseList) { if (bySales) this.loadBrowse() }
+            // Browse: the Under-a-Month tile follows the window — re-ask.
+            else if (this.browseList) this.loadBrowse()
             else this.applyStoredSales()
         },
         // The group manager saves inside its own dialog — re-read the tree
@@ -1490,6 +1491,13 @@ export default {
             const p = item && item.purchase
             return p ? (p.pending || 0) + (p.toConfirm || 0) + (p.ordered || 0) + (p.shipped || 0) + (p.shortage || 0) : 0
         },
+        // Stock below one month of sales, normalised from the selected
+        // sales window. Items with no sales in the window don't count.
+        underMonthCover(item) {
+            const days = Number(this.duration) || 30
+            const pace = ((Number(item.zohoSales) || 0) + (Number(item.offlineSales) || 0)) * (30 / days)
+            return pace > 0 && Number(item.stock) < pace
+        },
         // Search / category / legacy sku+name filters — everything EXCEPT
         // the tile quick-filter. The tiles count over this set, so their
         // numbers follow the filters while each tile's own count ignores
@@ -1533,6 +1541,7 @@ export default {
                     : quick === 'belowReorder' ? Number(item.reorderLevel) > 0 && Number(item.stock) <= Number(item.reorderLevel)
                         : quick === 'noOnOrder' ? Number(item.stock) <= 0 && !this.onOrderQty(item)
                             : quick === 'onOrder' ? this.onOrderQty(item) > 0
+                                : quick === 'underMonth' ? this.underMonthCover(item)
                                     : true)
 
             return this.matchesBaseFilters(item) && matchQuick
@@ -1830,9 +1839,9 @@ export default {
     margin-bottom: 14px;
 }
 
-/* Spare Parts carries four tiles */
-.sd-tiles-4 {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+/* Spare Parts carries five tiles */
+.sd-tiles-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .sd-tile {

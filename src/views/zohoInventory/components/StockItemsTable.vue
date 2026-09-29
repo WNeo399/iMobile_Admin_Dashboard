@@ -600,7 +600,11 @@ export default {
 /* Merged Product column: thumbnail, name, then SKU + shelf */
 .sd-prod { display: flex; align-items: center; gap: 8px; line-height: 1.35; }
 .sd-prod-text { min-width: 0; }
-.sd-prod-name { color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name wraps onto a second line, then ends in … (user ask 2026-09-29). */
+.sd-prod-name {
+    color: #303133; white-space: normal; word-break: break-word; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
 .sd-prod-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #909399; margin-top: 1px; }
 .sd-prod-head { display: inline-flex; align-items: center; gap: 12px; }
 .sd-hsort {
