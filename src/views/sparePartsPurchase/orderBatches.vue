@@ -10,14 +10,19 @@
         </div>
 
         <el-table v-loading="loading" :data="rows" size="mini" border :empty-text="$tp('No order batches yet')">
-            <el-table-column :label="$tp('Batch')" width="110">
-                <template slot-scope="s"><el-button type="text" class="spo-no" @click="openView(s.row)">{{ s.row.batchNo }}</el-button></template>
+            <!-- A new draft has no number until it is confirmed; a batch put
+                 back to draft keeps its number beside the tag. -->
+            <el-table-column :label="$tp('Batch')" width="130">
+                <template slot-scope="s">
+                    <el-button v-if="s.row.batchNo" type="text" class="spo-no" @click="openView(s.row)">{{ s.row.batchNo }}</el-button>
+                    <el-tag v-if="isDraft(s.row)" size="mini" type="warning" class="spo-draft-tag" @click="openView(s.row)">{{ $tp('Draft') }}</el-tag>
+                </template>
             </el-table-column>
             <el-table-column :label="$tp('Date')" width="104" align="center">
-                <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
+                <template slot-scope="s">{{ fmtDay(s.row.confirmedAt || s.row.createdAt) }}</template>
             </el-table-column>
             <el-table-column :label="$tp('Supplier')" width="140" show-overflow-tooltip>
-                <template slot-scope="s">{{ s.row.supplier }}</template>
+                <template slot-scope="s">{{ s.row.supplier || '—' }}</template>
             </el-table-column>
             <el-table-column :label="$tp('Lines')" width="70" align="center">
                 <template slot-scope="s">{{ s.row.lineCount }}</template>
@@ -27,7 +32,8 @@
             </el-table-column>
             <el-table-column :label="$tp('Priced')" width="96" align="center">
                 <template slot-scope="s">
-                    <span :class="(s.row.pricedCount || 0) >= s.row.lineCount ? 'spo-ok' : 'spo-warn'">{{ s.row.pricedCount || 0 }} / {{ s.row.lineCount }}</span>
+                    <span v-if="isDraft(s.row)" class="spo-dim">—</span>
+                    <span v-else :class="(s.row.pricedCount || 0) >= s.row.lineCount ? 'spo-ok' : 'spo-warn'">{{ s.row.pricedCount || 0 }} / {{ s.row.lineCount }}</span>
                 </template>
             </el-table-column>
             <el-table-column :label="$tp('Created by')" width="150">
@@ -40,8 +46,9 @@
                 <template slot-scope="s">{{ s.row.note || '—' }}</template>
             </el-table-column>
             <!-- Preview / download of the order list live in the view dialog. -->
-            <el-table-column :label="$tp('Actions')" width="100" align="center">
+            <el-table-column :label="$tp('Actions')" width="140" align="center">
                 <template slot-scope="s">
+                    <el-button v-if="isDraft(s.row) && can('spp:order:supply')" type="text" size="mini" icon="el-icon-edit" @click="openEdit(s.row)">{{ $tp('Edit') }}</el-button>
                     <el-button type="text" size="mini" icon="el-icon-view" @click="openView(s.row)">{{ $tp('View') }}</el-button>
                 </template>
             </el-table-column>
@@ -52,14 +59,16 @@
                 :page-sizes="[10, 20, 50]" :current-page="page" @current-change="onPage" @size-change="onSize" />
         </div>
 
-        <!-- ── Create: a category on the left, its pending lines on the
-             right, a click picks a line; the picks add up across
-             categories and go to one supplier. ──────────────────────── -->
+        <!-- ── Create / edit a draft: a category on the left, its pending
+             lines on the right, a click picks a line; the picks add up
+             across categories and go to one supplier. Saved as a draft
+             (the lines stay pending); Confirm order places them. ─────── -->
         <el-dialog :visible.sync="createVisible" width="960px" append-to-body top="4vh" @closed="clearQuery">
-            <div slot="title" class="spo-dlg-head"><i class="el-icon-document-checked" /> {{ $tp('Create Order Batch') }}</div>
+            <div slot="title" class="spo-dlg-head"><i class="el-icon-document-checked" /> {{ draftId ? $tp('Order batch draft') : $tp('Create Order Batch') }}
+                <span class="spo-dim spo-dlg-sub">{{ $tp('saved as a draft — the lines stay pending until you confirm') }}</span></div>
             <div class="spo-head-fields">
                 <div class="spo-field spo-field-supplier">
-                    <label>{{ $tp('Supplier') }} *</label>
+                    <label>{{ $tp('Supplier') }}</label>
                     <el-select v-model="createForm.supplier" size="small" :placeholder="$tp('Select or type')" filterable allow-create
                         default-first-option clearable style="width:100%">
                         <el-option v-for="s in suppliers" :key="s" :label="s" :value="s" />
@@ -86,12 +95,14 @@
                         <i class="el-icon-folder-opened" />
                         <div>{{ $tp('No pending lines in this category') }}</div>
                     </div>
-                    <div v-for="r in catLines" :key="r._id" :class="['spo-line', { on: selected[r._id] }]" @click="toggleLine(r)">
-                        <i :class="selected[r._id] ? 'el-icon-success spo-line-check' : 'el-icon-circle-plus-outline spo-line-plus'" />
+                    <!-- a line in someone else's draft can't be picked twice -->
+                    <div v-for="r in catLines" :key="r._id" :class="['spo-line', { on: selected[r._id], taken: takenBy(r) }]" @click="toggleLine(r)">
+                        <i :class="selected[r._id] ? 'el-icon-success spo-line-check' : takenBy(r) ? 'el-icon-lock spo-line-lock' : 'el-icon-circle-plus-outline spo-line-plus'" />
                         <div class="spo-line-main">
                             <div class="spo-line-name">{{ r.productName }}</div>
                             <div class="spo-dim">SKU: {{ r.sku || '—' }} · {{ fmtDay(r.createdAt) }}<span v-if="r.status === 'shortage'"
-                                    class="spo-line-short"> · {{ statusLabel(r.status) }}</span><span v-if="r.note"> · {{ r.note }}</span></div>
+                                    class="spo-line-short"> · {{ statusLabel(r.status) }}</span><span v-if="r.note"> · {{ r.note }}</span><span v-if="takenBy(r)"
+                                    class="spo-line-taken"> · {{ $tp('In another draft ({by})', { by: takenBy(r) }) }}</span></div>
                         </div>
                         <div class="spo-line-qty">× {{ r.orderQty }}</div>
                     </div>
@@ -99,16 +110,23 @@
             </div>
             <span slot="footer">
                 <span class="spo-foot-sum">{{ $tp('{n} line(s) selected', { n: selectedCount }) }}<span v-if="selectedCount"> · {{ selectedQty }} {{ $tp('Pcs') }}</span></span>
+                <el-button v-if="draftId" type="text" size="small" icon="el-icon-delete" class="spo-del" :loading="discarding"
+                    @click="discard(draftId)">{{ $tp('Discard draft') }}</el-button>
                 <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
-                <el-button type="primary" size="small" icon="el-icon-check" :loading="creating" :disabled="!selectedCount"
-                    @click="submitCreate">{{ $tp('Place {n} line(s)', { n: selectedCount }) }}</el-button>
+                <el-button :type="draftId ? 'default' : 'primary'" size="small" icon="el-icon-document" :loading="creating" :disabled="!selectedCount"
+                    @click="saveDraft">{{ $tp('Save draft') }}</el-button>
+                <el-button v-if="draftId" type="primary" size="small" icon="el-icon-check" :loading="confirming" :disabled="!selectedCount"
+                    @click="confirmForm">{{ $tp('Confirm order') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── View, and key the supplier's prices back in ──────────── -->
         <el-dialog :visible.sync="viewVisible" width="900px" append-to-body top="4vh" @closed="cancelPriceEdit">
-            <div slot="title" class="spo-dlg-head"><i class="el-icon-tickets" /> {{ view ? view.batchNo : '' }}
-                <span v-if="view" class="spo-dim spo-dlg-sub">{{ view.supplier }} · {{ fmtDay(view.createdAt) }}</span></div>
+            <div slot="title" class="spo-dlg-head"><i class="el-icon-tickets" />
+                <template v-if="view && isDraft(view)">{{ view.batchNo }} <el-tag size="mini" type="warning">{{ $tp('Draft') }}</el-tag>
+                    <span class="spo-dim spo-dlg-sub">{{ view.supplier || $tp('no supplier yet') }} · {{ $tp('not placed yet') }}</span></template>
+                <template v-else-if="view">{{ view.batchNo }}
+                    <span class="spo-dim spo-dlg-sub">{{ view.supplier }} · {{ fmtDay(view.confirmedAt || view.createdAt) }}</span></template></div>
             <div v-if="view" v-loading="viewLoading">
                 <el-table :data="view.lines" size="mini" border max-height="440">
                     <el-table-column label="#" type="index" width="40" align="center" />
@@ -157,6 +175,13 @@
                 <div v-if="view.note" class="spo-dim spo-note">{{ $tp('Note') }}: {{ view.note }}</div>
             </div>
             <span slot="footer">
+                <!-- a draft: change it, drop it, or confirm it -->
+                <template v-if="view && isDraft(view) && can('spp:order:supply')">
+                    <el-button type="text" size="small" icon="el-icon-delete" class="spo-del spo-foot-left" :loading="discarding"
+                        @click="discard(view._id)">{{ $tp('Discard draft') }}</el-button>
+                    <el-button size="small" icon="el-icon-edit" @click="openEdit(view)">{{ $tp('Edit') }}</el-button>
+                    <el-button type="primary" size="small" icon="el-icon-check" :loading="confirming" @click="confirmView">{{ $tp('Confirm order') }}</el-button>
+                </template>
                 <el-button size="small" icon="el-icon-printer" @click="preview(view)">{{ $tp('Preview') }}</el-button>
                 <el-button size="small" icon="el-icon-collection-tag" :disabled="!labelCount(view)" @click="printAllLabels(view)">
                     {{ $tp('Print labels ({n})', { n: labelCount(view) }) }}</el-button>
@@ -190,7 +215,10 @@
 <script>
 import * as XLSX from 'xlsx-js-style'
 import { hasPermission } from '@/utils/permission'
-import { listOrderBatches, getOrderBatch, createOrderBatch, priceOrderBatch, listOrders, getMeta } from '@/api/sparePartsPurchase'
+import {
+    listOrderBatches, getOrderBatch, createOrderBatch, updateOrderBatch, confirmOrderBatch, discardOrderBatch,
+    priceOrderBatch, listOrders, getMeta
+} from '@/api/sparePartsPurchase'
 import { STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName } from '@/utils/sppLabelPdf'
 
@@ -206,8 +234,13 @@ export default {
             loading: false,
             search: '',
             suppliers: [],
-            // create
+            // create / edit a draft (draftId set when editing)
             createVisible: false,
+            draftId: null,
+            // order line id → who drafted it, for lines in OTHER drafts
+            taken: {},
+            confirming: false,
+            discarding: false,
             createForm: { supplier: '', note: '' },
             pick: { category: '' },
             // every pending / shortage line, and the ones picked (by id)
@@ -296,23 +329,52 @@ export default {
         onPage(p) { this.page = p; this.load() },
         onSize(s) { this.pageSize = s; this.reload() },
         // ── Create ─────────────────────────────────────────────────
+        // Saved before drafts existed = no status = confirmed.
+        isDraft(b) {
+            return !!b && (b.status === 'draft' || b.status === 'confirming')
+        },
         async openCreate() {
+            this.draftId = null
             this.createForm = { supplier: '', note: '' }
             this.pick = { category: '' }
             this.selected = {}
             this.createVisible = true
             this.loadPending()
-            if (!this.suppliers.length) {
-                try {
-                    const r = await getMeta()
-                    this.suppliers = (r && r.suppliers) || []
-                } catch (e) { /* the select still allows typing */ }
+            this.loadSuppliers()
+        },
+        // A draft back into the picker: its lines come preselected.
+        async openEdit(batch) {
+            this.draftId = batch._id
+            this.createForm = { supplier: batch.supplier || '', note: batch.note || '' }
+            this.pick = { category: '' }
+            this.selected = {}
+            this.viewVisible = false
+            this.createVisible = true
+            this.loadSuppliers()
+            await this.loadPending()
+            const byId = new Map(this.pending.map(r => [String(r._id), r]))
+            let gone = 0
+            for (const l of batch.lines || []) {
+                const r = byId.get(String(l.orderId))
+                if (r) this.$set(this.selected, r._id, r)
+                else gone++
             }
+            if (gone) this.$message.info(this.$tp('{n} line(s) in this draft are no longer pending and were left out', { n: gone }))
+            const firstPicked = Object.values(this.selected)[0]
+            if (firstPicked) this.pick.category = this.catOf(firstPicked)
+        },
+        async loadSuppliers() {
+            if (this.suppliers.length) return
+            try {
+                const r = await getMeta()
+                this.suppliers = (r && r.suppliers) || []
+            } catch (e) { /* the select still allows typing */ }
         },
         // Every line still waiting to be placed (pending or shortage), oldest
         // first, all pages — the side menu counts them per category.
         async loadPending() {
             this.pendingLoading = true
+            this.loadTaken()
             try {
                 const rows = []
                 for (let page = 1; page <= 10; page++) {
@@ -331,6 +393,21 @@ export default {
                 this.pendingLoading = false
             }
         },
+        // Lines already in another draft (not the one being edited).
+        async loadTaken() {
+            const taken = {}
+            try {
+                const r = await listOrderBatches({ status: 'draft', pageSize: 100 })
+                for (const d of (r && r.rows) || []) {
+                    if (d._id === this.draftId) continue
+                    for (const l of d.lines || []) taken[String(l.orderId)] = d.createdBy || '—'
+                }
+            } catch (e) { /* the save still refuses a clash */ }
+            this.taken = taken
+        },
+        takenBy(r) {
+            return this.taken[String(r._id)] || ''
+        },
         // A line's category in the side menu (an unknown value files under Other).
         catOf(r) {
             return CATEGORIES.includes(r.category) ? r.category : 'Other'
@@ -345,24 +422,94 @@ export default {
         },
         toggleLine(r) {
             if (this.selected[r._id]) this.$delete(this.selected, r._id)
-            else this.$set(this.selected, r._id, r)
+            else if (!this.takenBy(r)) this.$set(this.selected, r._id, r)
         },
-        async submitCreate() {
-            if (!this.createForm.supplier) { this.$message.warning(this.$tp('Supplier is required')); return }
-            const rows = Object.values(this.selected)
-            if (!rows.length) return
+        formPayload() {
+            return { supplier: this.createForm.supplier || '', note: this.createForm.note || '', orderIds: Object.values(this.selected).map(x => x._id) }
+        },
+        // New or edited, it stays a draft: nothing is placed yet.
+        async saveDraft() {
+            const data = this.formPayload()
+            if (!data.orderIds.length) return
             this.creating = true
             try {
-                const r = await createOrderBatch({ supplier: this.createForm.supplier, note: this.createForm.note, orderIds: rows.map(x => x._id) })
+                const r = this.draftId ? await updateOrderBatch(this.draftId, data) : await createOrderBatch(data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('{no} created — {n} line(s) placed with {supplier}', { no: r.batch.batchNo, n: r.batch.lineCount, supplier: r.batch.supplier }))
+                this.$message.success(this.$tp('Draft saved'))
                 if (r.skipped && r.skipped.length) this.$message.info(this.$tp('{n} skipped (no longer pending)', { n: r.skipped.length }))
                 this.createVisible = false
                 this.reload()
             } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Failed to create the order batch')))
+                this.$message.error(this.msg(e, this.$tp('Failed to save the draft')))
             } finally {
                 this.creating = false
+            }
+        },
+        // Confirm: the lines become Ordered with the supplier and the batch
+        // gets its number. From the edit form the latest picks go along.
+        async askConfirm(n, supplier) {
+            if (!supplier) { this.$message.warning(this.$tp('Pick a supplier before confirming')); return false }
+            try {
+                await this.$confirm(this.$tp('Place {n} line(s) with {supplier}? They become Ordered and the batch gets its number', { n, supplier }),
+                    this.$tp('Confirm order'), { type: 'warning', confirmButtonText: this.$tp('Confirm order'), cancelButtonText: this.$tp('Cancel') })
+                return true
+            } catch (e) {
+                return false
+            }
+        },
+        confirmed(r) {
+            this.$message.success(this.$tp('{no} confirmed — {n} line(s) placed with {supplier}', { no: r.batch.batchNo, n: r.batch.lineCount, supplier: r.batch.supplier }))
+            if (r.skipped && r.skipped.length) this.$message.info(this.$tp('{n} line(s) left out — no longer pending', { n: r.skipped.length }))
+        },
+        async confirmForm() {
+            const data = this.formPayload()
+            if (!data.orderIds.length || !(await this.askConfirm(data.orderIds.length, data.supplier))) return
+            this.confirming = true
+            try {
+                const r = await confirmOrderBatch(this.draftId, data)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.confirmed(r)
+                this.createVisible = false
+                this.reload()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to confirm the order batch')))
+            } finally {
+                this.confirming = false
+            }
+        },
+        async confirmView() {
+            const v = this.view
+            if (!v || !(await this.askConfirm(v.lineCount || (v.lines || []).length, v.supplier))) return
+            this.confirming = true
+            try {
+                const r = await confirmOrderBatch(v._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.confirmed(r)
+                this.reload()
+                this.openView(r.batch) // now with its number, open for the prices
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to confirm the order batch')))
+            } finally {
+                this.confirming = false
+            }
+        },
+        async discard(id) {
+            try {
+                await this.$confirm(this.$tp('Discard this draft? Nothing has been ordered'), this.$tp('Discard draft'),
+                    { type: 'warning', confirmButtonText: this.$tp('Discard draft'), cancelButtonText: this.$tp('Keep') })
+            } catch (e) { return }
+            this.discarding = true
+            try {
+                const r = await discardOrderBatch(id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('Draft discarded'))
+                this.createVisible = false
+                this.viewVisible = false
+                this.reload()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to discard the draft')))
+            } finally {
+                this.discarding = false
             }
         },
         // ── View / prices ──────────────────────────────────────────
@@ -379,9 +526,10 @@ export default {
                 this.viewLoading = false
             }
         },
-        // Lines already shipped keep the price they shipped with.
+        // Lines already shipped keep the price they shipped with; a draft
+        // hasn't gone to the supplier yet, so no prices on it.
         canPrice(l) {
-            return this.can('spp:order:supply') && ['pending', 'shortage', 'ordered'].includes(l.status)
+            return this.can('spp:order:supply') && !this.isDraft(this.view) && ['pending', 'shortage', 'ordered'].includes(l.status)
         },
         shownPrice(l) {
             return l.currentPrice != null ? l.currentPrice : l.unitPrice
@@ -575,4 +723,10 @@ export default {
 .spo-line-short { color: #e6a23c; }
 .spo-line-qty { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spo-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }
+.spo-draft-tag { cursor: pointer; }
+.spo-del { color: #f56c6c; margin-right: 8px; }
+.spo-foot-left { float: left; }
+.spo-line.taken { cursor: not-allowed; opacity: .55; &:hover { background: transparent; } }
+.spo-line-lock { color: #c0c4cc; font-size: 16px; }
+.spo-line-taken { color: #e6a23c; }
 </style>

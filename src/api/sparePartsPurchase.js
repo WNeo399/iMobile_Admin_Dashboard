@@ -47,9 +47,22 @@ export function listOrderBatches(params) {
 export function getOrderBatch(id) {
   return request({ url: `${BASE}/order-batches/${id}`, method: 'get' })
 }
-// { supplier, note, orderIds } — the selected pending lines placed as one batch
+// { supplier, note, orderIds } — saved as a DRAFT: the lines stay pending
+// until the batch is confirmed.
 export function createOrderBatch(data) {
   return request({ url: `${BASE}/order-batches`, method: 'post', data })
+}
+// Edit a draft: { supplier?, note?, orderIds? }
+export function updateOrderBatch(id, data) {
+  return request({ url: `${BASE}/order-batches/${id}`, method: 'put', data })
+}
+// Confirm a draft (optionally with the form's latest supplier / note /
+// orderIds): the lines are placed with the supplier, the OB number issued.
+export function confirmOrderBatch(id, data) {
+  return request({ url: `${BASE}/order-batches/${id}/confirm`, method: 'post', data: data || {} })
+}
+export function discardOrderBatch(id) {
+  return request({ url: `${BASE}/order-batches/${id}`, method: 'delete' })
 }
 // { lines: [{ orderId, unitPrice }] } — the supplier's prices onto the lines
 export function priceOrderBatch(id, data) {
