@@ -15,6 +15,7 @@
                 </div>
             </div>
             <div class="wb-spacer" />
+            <el-button size="small" icon="el-icon-set-up" @click="openDisplay">Display</el-button>
             <el-button size="small" icon="el-icon-view" :disabled="!activeRows.length" @click="openPreview">Preview</el-button>
             <el-button size="small" icon="el-icon-document-copy" @click="openEmbed">Embed code</el-button>
             <el-button v-if="canManage" type="primary" size="small" icon="el-icon-plus" @click="openCreate">Add Banner</el-button>
@@ -130,11 +131,11 @@
         <el-dialog title="Preview" :visible.sync="previewVisible" width="92%" top="4vh" @opened="fitPreview" @closed="previewSrc = ''">
             <div class="wb-pv-bar">
                 <el-radio-group v-model="previewDevice" size="small" @change="fitPreview">
-                    <el-radio-button v-for="d in DEVICES" :key="d.key" :label="d.key">
-                        <i :class="d.icon" /> {{ d.label }}
+                    <el-radio-button v-for="f in PREVIEW_FRAMES" :key="f.key" :label="f.key">
+                        <i :class="f.icon" /> {{ f.label }}
                     </el-radio-button>
                 </el-radio-group>
-                <span class="wb-dim">{{ frame.width }} px wide · active banners only, as the website shows them</span>
+                <span class="wb-dim">{{ frame.width }} px wide screen · active banners only, as the website shows them</span>
                 <div class="wb-spacer" />
                 <el-button size="mini" icon="el-icon-refresh" @click="reloadPreview">Reload</el-button>
             </div>
@@ -143,6 +144,37 @@
                     <iframe v-if="previewSrc" :key="previewSrc" :src="previewSrc" title="Banner carousel preview"
                         :style="{ width: frame.width + 'px', height: frame.height + 'px', transform: 'scale(' + pvScale + ')' }" />
                 </div>
+            </div>
+        </el-dialog>
+
+        <!-- ── Display: size limits for big screens ───────────────────── -->
+        <el-dialog title="Display" :visible.sync="displayVisible" width="560px" :close-on-click-modal="false">
+            <div class="wb-hint wb-embed-intro">
+                The carousel is as wide as its spot on the page and its height follows the image's shape, so on
+                a wide monitor it gets tall. Limit it here — the website picks this up by itself within a minute.
+            </div>
+            <el-form label-width="100px" size="small" @submit.native.prevent>
+                <el-form-item label="Max height">
+                    <el-input-number v-model="displayForm.maxHeight" :min="200" :max="4000" :step="10"
+                        controls-position="right" placeholder="No limit" :disabled="!canManage" /> px
+                    <div class="wb-hint">
+                        Past this height the carousel stops growing; on wider screens the image is trimmed equally at
+                        the top and bottom, so keep text and buttons away from those edges. Empty = no limit.
+                    </div>
+                </el-form-item>
+                <el-form-item label="Max width">
+                    <el-input-number v-model="displayForm.maxWidth" :min="200" :max="4000" :step="10"
+                        controls-position="right" placeholder="Full width" :disabled="!canManage" /> px
+                    <div class="wb-hint">
+                        Past this width the carousel stops growing wider and sits centred, with the page background
+                        either side. Nothing is trimmed. Empty = the full width.
+                    </div>
+                </el-form-item>
+            </el-form>
+            <div v-if="displayExample" class="wb-hint wb-example"><i class="el-icon-info" /> {{ displayExample }}</div>
+            <div slot="footer">
+                <el-button size="small" @click="displayVisible = false">Cancel</el-button>
+                <el-button v-if="canManage" size="small" type="primary" :loading="displaySaving" @click="saveDisplay">Save</el-button>
             </div>
         </el-dialog>
 
@@ -192,7 +224,7 @@
 
 <script>
 import draggable from 'vuedraggable'
-import { listBanners, createBanner, updateBanner, saveBannerOrder, deleteBanner } from '@/api/website'
+import { listBanners, createBanner, updateBanner, saveBannerOrder, deleteBanner, saveBannerSettings } from '@/api/website'
 import { listWidgetOrigins } from '@/api/system/widgetOrigin'
 import { hasPermission } from '@/utils/permission'
 
@@ -201,6 +233,18 @@ const DEVICES = [
     { key: 'tablet', label: 'Tablet', icon: 'el-icon-mobile', frame: 820, suggest: 'e.g. 1536 × 768' },
     { key: 'mobile', label: 'Mobile', icon: 'el-icon-mobile-phone', frame: 390, suggest: 'e.g. 1080 × 1080' }
 ]
+// Preview screens. "Large screen" is a wide monitor — where the max
+// height / width settings show.
+const PREVIEW_FRAMES = [
+    { key: 'large', label: 'Large screen', icon: 'el-icon-data-board', width: 1920 },
+    { key: 'desktop', label: 'Desktop', icon: 'el-icon-monitor', width: 1280 },
+    { key: 'tablet', label: 'Tablet', icon: 'el-icon-mobile', width: 820 },
+    { key: 'mobile', label: 'Mobile', icon: 'el-icon-mobile-phone', width: 390 }
+]
+// The widget's default breakpoints (container width).
+function deviceForWidth(w) {
+    return w >= 1024 ? 'desktop' : w >= 768 ? 'tablet' : 'mobile'
+}
 // Shapes further apart than this get the "cropped to fit" warning.
 const SHAPE_TOLERANCE = 0.03
 
@@ -239,14 +283,20 @@ export default {
     data() {
         return {
             DEVICES,
+            PREVIEW_FRAMES,
             loading: false,
             rows: [],
+            // Display settings as saved (the widget gets the same) + the form.
+            settings: { maxHeight: null, maxWidth: null },
+            displayVisible: false,
+            displayForm: { maxHeight: undefined, maxWidth: undefined },
+            displaySaving: false,
             editVisible: false,
             form: emptyForm(),
             saving: false,
             dragOver: '',
             previewVisible: false,
-            previewDevice: 'desktop',
+            previewDevice: 'large',
             previewSrc: '',
             pvScale: 1,
             embedVisible: false,
@@ -273,10 +323,26 @@ export default {
             })
             return out
         },
+        // The preview frame is sized like the widget sizes itself: capped
+        // width, the image picked for it, height up to the max height.
         frame() {
-            const d = DEVICES.find(x => x.key === this.previewDevice)
-            const r = ratioOf(this.reference[d.key]) || 0.4
-            return { width: d.frame, height: Math.round(d.frame * r) }
+            const f = PREVIEW_FRAMES.find(x => x.key === this.previewDevice)
+            return { width: f.width, height: this.carouselHeight(f.width, this.settings) }
+        },
+        // What the form's numbers do to the first banner on a 1920 px screen.
+        displayExample() {
+            const first = this.reference.desktop
+            if (!first) return ''
+            const f = this.displayForm
+            const lim = { maxHeight: f.maxHeight || null, maxWidth: f.maxWidth || null }
+            const w = lim.maxWidth ? Math.min(1920, lim.maxWidth) : 1920
+            const natural = Math.round(w * ratioOf(first))
+            const h = this.carouselHeight(1920, lim)
+            const side = lim.maxWidth && lim.maxWidth < 1920 ? `, ${Math.round((1920 - lim.maxWidth) / 2)} px margin each side` : ''
+            if (h < natural) {
+                return `Your first banner on a 1920 px screen: ${h} px tall instead of ${natural} px — ${Math.round((natural - h) / 2)} px trimmed at the top and at the bottom${side}.`
+            }
+            return `Your first banner on a 1920 px screen: ${h} px tall${side}.`
         },
         snippet() {
             const base = backendOrigin()
@@ -301,6 +367,7 @@ export default {
             try {
                 const r = await listBanners()
                 this.rows = (r.rows || []).map(b => ({ ...b, __busy: false }))
+                if (r.settings) this.settings = { maxHeight: r.settings.maxHeight || null, maxWidth: r.settings.maxWidth || null }
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to load the banners'))
             } finally {
@@ -502,6 +569,40 @@ export default {
             }
         },
 
+        // Height of the carousel on a screen this wide, as the widget works
+        // it out (first active banner's image for the device it picks).
+        carouselHeight(screenW, lim) {
+            const w = lim.maxWidth ? Math.min(screenW, lim.maxWidth) : screenW
+            const r = ratioOf(this.reference[deviceForWidth(w)]) || 0.4
+            const h = w * r
+            return Math.round(lim.maxHeight ? Math.min(h, lim.maxHeight) : h)
+        },
+
+        // ── display ────────────────────────────────────────────────
+        openDisplay() {
+            this.displayForm = {
+                maxHeight: this.settings.maxHeight || undefined,
+                maxWidth: this.settings.maxWidth || undefined
+            }
+            this.displayVisible = true
+        },
+        async saveDisplay() {
+            this.displaySaving = true
+            try {
+                const r = await saveBannerSettings({
+                    maxHeight: this.displayForm.maxHeight || null,
+                    maxWidth: this.displayForm.maxWidth || null
+                })
+                this.settings = r.settings || this.settings
+                this.displayVisible = false
+                this.$message.success('Saved — the website shows it within a minute')
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Could not save the settings'))
+            } finally {
+                this.displaySaving = false
+            }
+        },
+
         // ── preview ────────────────────────────────────────────────
         openPreview() {
             this.previewVisible = true
@@ -565,7 +666,7 @@ export default {
 .wb-sub { font-size: 12px; color: #909399; margin-top: 2px; }
 .wb-spacer { flex: 1; }
 .wb-dim { color: #909399; }
-.wb-hint { font-size: 12px; color: #909399; line-height: 1.5; margin-top: 4px; }
+.wb-hint { font-size: 12px; color: #909399; line-height: 1.5; margin-top: 4px; word-break: normal; overflow-wrap: break-word; }
 .wb-inline { margin: 0 0 0 10px; }
 
 .wb-list { min-height: 120px; }
@@ -642,6 +743,7 @@ export default {
 
 /* ── embed ── */
 .wb-embed-intro { margin: 0 0 10px; }
+.wb-example { background: #f4f9ff; border-radius: 4px; padding: 8px 10px; color: #606266; }
 .wb-snippet {
     background: #1f2430; color: #e6edf3; padding: 12px 14px; border-radius: 6px; font-size: 12px;
     line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin: 0 0 8px;

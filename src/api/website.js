@@ -37,3 +37,7 @@ export function saveBannerOrder(ids) {
 export function deleteBanner(id) {
   return request({ url: `/website/banners/${id}`, method: 'delete' })
 }
+// The carousel's Display settings: { maxHeight, maxWidth } in px, null = no limit.
+export function saveBannerSettings(data) {
+  return request({ url: '/website/banner-settings', method: 'put', data })
+}
