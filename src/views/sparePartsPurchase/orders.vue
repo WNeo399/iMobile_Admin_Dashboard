@@ -344,7 +344,7 @@ import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, z
 const ACTION_LABELS = {
     created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
     cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
-    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed'
+    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft'
 }
 
 export default {

@@ -46,9 +46,13 @@
                 <template slot-scope="s">{{ s.row.note || '—' }}</template>
             </el-table-column>
             <!-- Preview / download of the order list live in the view dialog. -->
-            <el-table-column :label="$tp('Actions')" width="140" align="center">
+            <!-- a draft: edit or delete it right from the row -->
+            <el-table-column :label="$tp('Actions')" width="190" align="center">
                 <template slot-scope="s">
-                    <el-button v-if="isDraft(s.row) && can('spp:order:supply')" type="text" size="mini" icon="el-icon-edit" @click="openEdit(s.row)">{{ $tp('Edit') }}</el-button>
+                    <template v-if="isDraft(s.row) && can('spp:order:supply')">
+                        <el-button type="text" size="mini" icon="el-icon-edit" @click="openEdit(s.row)">{{ $tp('Edit') }}</el-button>
+                        <el-button type="text" size="mini" icon="el-icon-delete" class="spo-del-row" @click="discard(s.row._id)">{{ $tp('Delete') }}</el-button>
+                    </template>
                     <el-button type="text" size="mini" icon="el-icon-view" @click="openView(s.row)">{{ $tp('View') }}</el-button>
                 </template>
             </el-table-column>
@@ -111,7 +115,7 @@
             <span slot="footer">
                 <span class="spo-foot-sum">{{ $tp('{n} line(s) selected', { n: selectedCount }) }}<span v-if="selectedCount"> · {{ selectedQty }} {{ $tp('Pcs') }}</span></span>
                 <el-button v-if="draftId" type="text" size="small" icon="el-icon-delete" class="spo-del" :loading="discarding"
-                    @click="discard(draftId)">{{ $tp('Discard draft') }}</el-button>
+                    @click="discard(draftId)">{{ $tp('Delete draft') }}</el-button>
                 <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button :type="draftId ? 'default' : 'primary'" size="small" icon="el-icon-document" :loading="creating" :disabled="!selectedCount"
                     @click="saveDraft">{{ $tp('Save draft') }}</el-button>
@@ -178,7 +182,7 @@
                 <!-- a draft: change it, drop it, or confirm it -->
                 <template v-if="view && isDraft(view) && can('spp:order:supply')">
                     <el-button type="text" size="small" icon="el-icon-delete" class="spo-del spo-foot-left" :loading="discarding"
-                        @click="discard(view._id)">{{ $tp('Discard draft') }}</el-button>
+                        @click="discard(view._id)">{{ $tp('Delete draft') }}</el-button>
                     <el-button size="small" icon="el-icon-edit" @click="openEdit(view)">{{ $tp('Edit') }}</el-button>
                     <el-button type="primary" size="small" icon="el-icon-check" :loading="confirming" @click="confirmView">{{ $tp('Confirm order') }}</el-button>
                 </template>
@@ -495,19 +499,19 @@ export default {
         },
         async discard(id) {
             try {
-                await this.$confirm(this.$tp('Discard this draft? Nothing has been ordered'), this.$tp('Discard draft'),
-                    { type: 'warning', confirmButtonText: this.$tp('Discard draft'), cancelButtonText: this.$tp('Keep') })
+                await this.$confirm(this.$tp('Delete this draft? Nothing has been ordered'), this.$tp('Delete draft'),
+                    { type: 'warning', confirmButtonText: this.$tp('Delete'), cancelButtonText: this.$tp('Keep') })
             } catch (e) { return }
             this.discarding = true
             try {
                 const r = await discardOrderBatch(id)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('Draft discarded'))
+                this.$message.success(this.$tp('Draft deleted'))
                 this.createVisible = false
                 this.viewVisible = false
                 this.reload()
             } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Failed to discard the draft')))
+                this.$message.error(this.msg(e, this.$tp('Failed to delete the draft')))
             } finally {
                 this.discarding = false
             }
@@ -725,6 +729,7 @@ export default {
 .spo-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }
 .spo-draft-tag { cursor: pointer; }
 .spo-del { color: #f56c6c; margin-right: 8px; }
+.spo-del-row { color: #f56c6c; }
 .spo-foot-left { float: left; }
 .spo-line.taken { cursor: not-allowed; opacity: .55; &:hover { background: transparent; } }
 .spo-line-lock { color: #c0c4cc; font-size: 16px; }
