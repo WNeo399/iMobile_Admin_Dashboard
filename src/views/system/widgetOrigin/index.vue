@@ -253,6 +253,12 @@ const KNOWN_WIDGETS = [
         label: 'Exploded Diagram',
         description:
             "Embeddable parts-diagram viewer: shoppers pick a Brand and Model and get the interactive exploded diagram with clickable part areas. Diagrams are managed under iMobile → Exploded Diagrams; the allowlist controls which sites' browsers may load the data."
+    },
+    {
+        value: 'banner-carousel',
+        label: 'Banner Carousel',
+        description:
+            "The banner carousel on the iMobile website: the active banners (desktop, tablet and mobile images, optional link) in their saved order. Banners are managed under iMobile Website → Banner; the allowlist controls which sites' browsers may load them."
     }
 ]
 

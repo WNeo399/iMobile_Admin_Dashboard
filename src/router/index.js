@@ -868,6 +868,30 @@ export const moduleRoutes = [
     ]
   },
   {
+    // iMobile Website — content for the iMobile storefront, published through
+    // embeddable widgets. First page: the banner carousel. Backend
+    // routes/websiteRoutes, web:* permissions (admin + iMobile Admin).
+    path: "/website",
+    component: Layout,
+    redirect: "noRedirect",
+    alwaysShow: true,
+    meta: { title: "iMobile Website", icon: "el-icon-monitor" },
+    children: [
+      {
+        // Banners for the carousel widget: a desktop, tablet and mobile
+        // image each, an optional link, drag to order.
+        path: "banner",
+        component: (resolve) => require(["@/views/website/banner"], resolve),
+        name: "WebsiteBanner",
+        meta: {
+          title: "Banner",
+          icon: "el-icon-picture",
+          permissions: ["web:banner:view"]
+        }
+      }
+    ]
+  },
+  {
     // ExEngine group — Devices + Accessories sub-sections. Structure scaffold;
     // pages are placeholders for now. NOTE: no permissions/roles set yet, so it
     // group renders for anyone whose permissions keep at least one child:

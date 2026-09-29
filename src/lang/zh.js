@@ -78,6 +78,8 @@ export default {
     'Location Monitoring': '位置监控',
     'Embed Ordering': '嵌入订购',
     'Distributors': '分销商',
+    'iMobile Website': 'iMobile 官网',
+    'Banner': '横幅广告',
 
     'System': '系统',
     'Users': '用户',
