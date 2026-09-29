@@ -109,7 +109,8 @@
                             <div class="wb-drop-foot">
                                 <span v-if="dimsOf(d.key)">{{ dimsOf(d.key) }}</span>
                                 <span v-if="formShapeWarning(d.key)" class="wb-warn-text"><i class="el-icon-warning" /> {{ formShapeWarning(d.key) }}</span>
-                                <span v-else class="wb-dim">{{ suggestion(d.key) }}</span>
+                                <span v-if="lowResWarning(d.key)" class="wb-warn-text"><i class="el-icon-warning" /> {{ lowResWarning(d.key) }}</span>
+                                <span class="wb-dim">{{ suggestion(d.key) }}</span>
                             </div>
                             <input :ref="'file-' + d.key" type="file" accept="image/png,image/jpeg,image/webp" class="wb-file"
                                 @click.stop @change="onFile(d.key, $event)">
@@ -228,10 +229,16 @@ import { listBanners, createBanner, updateBanner, saveBannerOrder, deleteBanner,
 import { listWidgetOrigins } from '@/api/system/widgetOrigin'
 import { hasPermission } from '@/utils/permission'
 
+// suggest = the team's design templates (网页海报 电脑 / 平板 / 手机, user
+// ask 2026-09-29). Tablet and mobile are exported at 2× / 3× — at 1× they
+// are too few pixels for those screens; minWidth flags an upload below that.
 const DEVICES = [
-    { key: 'desktop', label: 'Desktop', icon: 'el-icon-monitor', frame: 1280, suggest: 'e.g. 1920 × 600' },
-    { key: 'tablet', label: 'Tablet', icon: 'el-icon-mobile', frame: 820, suggest: 'e.g. 1536 × 768' },
-    { key: 'mobile', label: 'Mobile', icon: 'el-icon-mobile-phone', frame: 390, suggest: 'e.g. 1080 × 1080' }
+    { key: 'desktop', label: 'Desktop', icon: 'el-icon-monitor', frame: 1280, minWidth: 1600,
+        suggest: 'Template 1920 × 720 — keep text off the top and bottom 60 px' },
+    { key: 'tablet', label: 'Tablet', icon: 'el-icon-mobile', frame: 820, minWidth: 1200,
+        suggest: 'Template 850 × 450, exported at 2× (1700 × 900)' },
+    { key: 'mobile', label: 'Mobile', icon: 'el-icon-mobile-phone', frame: 390, minWidth: 800,
+        suggest: 'Template 420 × 380, exported at 3× (1260 × 1140)' }
 ]
 // Preview screens. "Large screen" is a wide monitor — where the max
 // height / width settings show.
@@ -517,16 +524,20 @@ export default {
         dimsOf(device) {
             return this.dims(this.imageOf(device))
         },
-        // What to aim for: the shape of the other banners when there are
-        // some, else a suggested size.
+        // The other banners' image for the device — a new one should match its shape.
         refFor(device) {
             const ref = this.activeRows.find(b => b._id !== this.form.id)
             return ref && ref.images ? ref.images[device] : null
         },
         suggestion(device) {
-            const ref = this.refFor(device)
-            if (ref) return `Other banners: ${this.dims(ref)}`
             return DEVICES.find(d => d.key === device).suggest
+        },
+        // Picked at 1× (e.g. the 420 × 380 template as is): soft on the screen.
+        lowResWarning(device) {
+            const img = this.imageOf(device)
+            const d = DEVICES.find(x => x.key === device)
+            if (!img || !img.width || img.width >= d.minWidth) return ''
+            return `Only ${img.width} px wide — looks soft on ${d.label.toLowerCase()} screens; export the template at ${device === 'mobile' ? '3×' : '2×'}`
         },
         formShapeWarning(device) {
             const ref = this.refFor(device)
