@@ -17,6 +17,7 @@ import { download } from '@/utils/request'
 
 import './assets/icons' // icon
 import './permission' // permission control
+import { syncWebMcpTools } from '@/utils/webmcp'
 import { parseTime, resetForm, addDateRange, selectDictLabel, selectDictLabels, handleTree } from "@/utils/ruoyi"
 // 分页组件
 import Pagination from "@/components/Pagination"
@@ -102,6 +103,11 @@ if (Element.Dialog && Element.Dialog.props && Element.Dialog.props.closeOnClickM
 }
 
 Vue.config.productionTip = false
+
+// WebMCP pilot: offer the logged-in user's tools to an AI agent in this tab
+// (ChatGPT's desktop-app browser, Chrome's WebMCP preview) — registered when
+// the permissions arrive, removed on logout. No-op without WebMCP.
+store.watch(state => state.user.permissions, perms => syncWebMcpTools(perms), { immediate: true })
 
 new Vue({
   el: '#app',
