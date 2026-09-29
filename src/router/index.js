@@ -187,9 +187,34 @@ export const moduleRoutes = [
     ]
   },
   {
+    // iMobile Website — content for the iMobile storefront, published through
+    // embeddable widgets. First page: the banner carousel. Backend
+    // routes/websiteRoutes, web:* permissions (admin + iMobile Admin).
+    // Sits right below iMobile, above iMobile Spare Parts (user ask 2026-09-29).
+    path: "/website",
+    component: Layout,
+    redirect: "noRedirect",
+    alwaysShow: true,
+    meta: { title: "iMobile Website", icon: "el-icon-monitor" },
+    children: [
+      {
+        // Banners for the carousel widget: a desktop, tablet and mobile
+        // image each, an optional link, drag to order.
+        path: "banner",
+        component: (resolve) => require(["@/views/website/banner"], resolve),
+        name: "WebsiteBanner",
+        meta: {
+          title: "Banner",
+          icon: "el-icon-picture",
+          permissions: ["web:banner:view"]
+        }
+      }
+    ]
+  },
+  {
     // iMobile Spare Parts — the former iMobile → Spare Parts submenu,
     // promoted out of the iMobile group to its own top-level menu (2026-09),
-    // sitting between iMobile and iMobile Accessories.
+    // sitting after iMobile Website and before Spare Parts Purchase.
     //
     // Page paths stay `/zohoInventory/...` and `/imobile/...` so existing
     // deep links and the home-page quick-action links (which reference
@@ -863,30 +888,6 @@ export const moduleRoutes = [
           title: "Exploded Diagrams",
           icon: "el-icon-picture-outline",
           permissions: ["exploded:diagram:manage"]
-        }
-      }
-    ]
-  },
-  {
-    // iMobile Website — content for the iMobile storefront, published through
-    // embeddable widgets. First page: the banner carousel. Backend
-    // routes/websiteRoutes, web:* permissions (admin + iMobile Admin).
-    path: "/website",
-    component: Layout,
-    redirect: "noRedirect",
-    alwaysShow: true,
-    meta: { title: "iMobile Website", icon: "el-icon-monitor" },
-    children: [
-      {
-        // Banners for the carousel widget: a desktop, tablet and mobile
-        // image each, an optional link, drag to order.
-        path: "banner",
-        component: (resolve) => require(["@/views/website/banner"], resolve),
-        name: "WebsiteBanner",
-        meta: {
-          title: "Banner",
-          icon: "el-icon-picture",
-          permissions: ["web:banner:view"]
         }
       }
     ]
