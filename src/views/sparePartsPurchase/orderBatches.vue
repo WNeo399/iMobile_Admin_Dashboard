@@ -206,6 +206,15 @@
 
         <!-- ── Label preview: the PDF, printed or saved from here ───── -->
         <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+            <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
+                 printer whose label stock runs the other way; remembered. -->
+            <div class="label-orient">
+                <span>{{ $tp('Orientation') }}</span>
+                <el-radio-group v-model="labelOrientation" size="mini" @change="onLabelOrientation">
+                    <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
+                    <el-radio-button label="landscape">{{ $tp('Landscape') }}</el-radio-button>
+                </el-radio-group>
+            </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spo-label-frame" title="labels" />
             <span slot="footer">
                 <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
@@ -224,7 +233,7 @@ import {
     priceOrderBatch, listOrders, getMeta
 } from '@/api/sparePartsPurchase'
 import { STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
-import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation } from '@/utils/sppLabelPdf'
 
 export default {
     name: 'SppOrderBatches',
@@ -265,6 +274,7 @@ export default {
             labelUrl: '',
             labelBuild: null,
             labelFileName: '',
+            labelOrientation: getLabelOrientation(),
             // order list preview
             printVisible: false,
             printHtml: ''
@@ -603,13 +613,29 @@ export default {
                 this.$message.error(this.$tp('Could not build the labels'))
             }
         },
-        printLineLabels(line) {
-            this.showLabels(() => buildSppLineLabelsPdf(line), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — ' + (line.sku || line.productName))
+        // Label names without Device Brand / Series, looked up first.
+        async printLineLabels(line) {
+            const [named] = await withLabelNames([line])
+            this.showLabels(() => buildSppLineLabelsPdf(named), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — ' + (line.sku || line.productName))
         },
-        printAllLabels(batch) {
+        async printAllLabels(batch) {
             const n = sppLabelCount(batch)
             if (!n) return
-            this.showLabels(() => buildSppBatchLabelsPdf(batch), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
+            const named = { ...batch, lines: await withLabelNames(batch.lines) }
+            this.showLabels(() => buildSppBatchLabelsPdf(named), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + (batch.batchNo || this.$tp('Draft')) + ' (' + n + ')')
+        },
+        // Portrait / landscape: remembered for next time, preview redrawn.
+        onLabelOrientation(v) {
+            setLabelOrientation(v)
+            if (!this.labelBuild) return
+            try {
+                const doc = this.labelBuild()
+                if (!doc) return
+                this.cleanupLabels()
+                this.labelUrl = doc.output('bloburl') + '#toolbar=0'
+            } catch (e) {
+                this.$message.error(this.$tp('Could not build the labels'))
+            }
         },
         printLabels() {
             if (!this.labelBuild) return
@@ -692,6 +718,7 @@ export default {
 .spo-psave { color: #67c23a; padding: 2px; }
 .spo-pcancel { color: #909399; padding: 2px; }
 .spo-note { margin-top: 8px; font-size: 12px; }
+.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; }
 .spo-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spo-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
 /* Create: category side menu + the category's lines */

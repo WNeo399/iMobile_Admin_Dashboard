@@ -40,6 +40,10 @@ export function confirmOrder(id, note) {
 export function placeOrder(id, data) {
   return request({ url: `${BASE}/orders/${id}/place`, method: 'post', data })
 }
+// Device Brand / Series per item id, for the part labels' short names.
+export function deviceTerms(itemIds) {
+  return request({ url: `${BASE}/device-terms`, method: 'post', data: { itemIds } })
+}
 // An ordered line's unit price, changed inline on the Purchase Order page.
 export function priceOrder(id, unitPrice) {
   return request({ url: `${BASE}/orders/${id}/price`, method: 'post', data: { unitPrice } })

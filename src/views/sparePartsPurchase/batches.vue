@@ -353,6 +353,15 @@
 
         <!-- ── Label preview: the PDF, printed or saved from here ───── -->
         <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+            <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
+                 printer whose label stock runs the other way; remembered. -->
+            <div class="label-orient">
+                <span>{{ $tp('Orientation') }}</span>
+                <el-radio-group v-model="labelOrientation" size="mini" @change="onLabelOrientation">
+                    <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
+                    <el-radio-button label="landscape">{{ $tp('Landscape') }}</el-radio-button>
+                </el-radio-group>
+            </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spb-label-frame" title="labels" />
             <span slot="footer">
                 <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
@@ -425,7 +434,7 @@
 import { hasPermission } from '@/utils/permission'
 import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml } from './shared'
-import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation } from '@/utils/sppLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
 
@@ -455,6 +464,7 @@ export default {
             labelUrl: '',
             labelBuild: null,
             labelFileName: '',
+            labelOrientation: getLabelOrientation(),
             // create / draft
             createVisible: false,
             createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', lines: [] },
@@ -920,13 +930,29 @@ export default {
                 this.$message.error(this.$tp('Could not build the labels'))
             }
         },
-        printLineLabels(line) {
-            this.showLabels(() => buildSppLineLabelsPdf(line), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — ' + (line.sku || line.productName))
+        // Label names without Device Brand / Series, looked up first.
+        async printLineLabels(line) {
+            const [named] = await withLabelNames([line])
+            this.showLabels(() => buildSppLineLabelsPdf(named), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — ' + (line.sku || line.productName))
         },
-        printAllLabels(batch) {
+        async printAllLabels(batch) {
             const n = sppLabelCount(batch)
             if (!n) return
-            this.showLabels(() => buildSppBatchLabelsPdf(batch), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
+            const named = { ...batch, lines: await withLabelNames(batch.lines) }
+            this.showLabels(() => buildSppBatchLabelsPdf(named), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
+        },
+        // Portrait / landscape: remembered for next time, preview redrawn.
+        onLabelOrientation(v) {
+            setLabelOrientation(v)
+            if (!this.labelBuild) return
+            try {
+                const doc = this.labelBuild()
+                if (!doc) return
+                this.cleanupLabels()
+                this.labelUrl = doc.output('bloburl') + '#toolbar=0'
+            } catch (e) {
+                this.$message.error(this.$tp('Could not build the labels'))
+            }
         },
         printLabels() {
             if (!this.labelBuild) return
@@ -1028,6 +1054,7 @@ export default {
 .spb-inline-tracking { max-width: 440px; }
 .spb-inline-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .spb-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
+.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; }
 .spb-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spb-field-grow { flex: 1; }
 .spb-scan { display: flex; gap: 8px; margin-bottom: 10px; .el-input { flex: 1; } }

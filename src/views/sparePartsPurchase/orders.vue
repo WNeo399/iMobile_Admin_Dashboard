@@ -350,6 +350,15 @@
         <!-- ── Part labels (50×40: product name + SKU barcode), the PDF
              previewed, then printed or saved ─────────────────────────── -->
         <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+            <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
+                 printer whose label stock runs the other way; remembered. -->
+            <div class="label-orient">
+                <span>{{ $tp('Orientation') }}</span>
+                <el-radio-group v-model="labelOrientation" size="mini" @change="onLabelOrientation">
+                    <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
+                    <el-radio-button label="landscape">{{ $tp('Landscape') }}</el-radio-button>
+                </el-radio-group>
+            </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
             <span slot="footer">
                 <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
@@ -369,7 +378,7 @@ import {
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder
 } from '@/api/sparePartsPurchase'
 import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
-import { buildSppLineLabelsPdf, sppLabelFileName } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation } from '@/utils/sppLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
 const ACTION_LABELS = {
@@ -426,6 +435,7 @@ export default {
             labelUrl: '',
             labelBuild: null,
             labelFileName: '',
+            labelOrientation: getLabelOrientation(),
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
             compact: false,
             // The table fills what is left under the header rows.
@@ -801,15 +811,29 @@ export default {
         // ── Part labels ────────────────────────────────────────────
         // ONE label (user ask 2026-09-30): the copies are set in the
         // printer dialog.
-        printLineLabels(row) {
+        async printLineLabels(row) {
             this.cleanupLabels()
             try {
-                const build = () => buildSppLineLabelsPdf(row, 1)
+                const [line] = await withLabelNames([row])
+                const build = () => buildSppLineLabelsPdf(line, 1)
                 this.labelBuild = build
                 this.labelFileName = sppLabelFileName({ batchNo: row.orderNo }, row)
                 this.labelUrl = build().output('bloburl') + '#toolbar=0'
                 this.labelTitle = this.$tp('Label') + ' — ' + (row.sku || row.productName)
                 this.labelVisible = true
+            } catch (e) {
+                this.$message.error(this.$tp('Could not build the labels'))
+            }
+        },
+        // Portrait / landscape: remembered for next time, preview redrawn.
+        onLabelOrientation(v) {
+            setLabelOrientation(v)
+            if (!this.labelBuild) return
+            try {
+                const doc = this.labelBuild()
+                if (!doc) return
+                this.cleanupLabels()
+                this.labelUrl = doc.output('bloburl') + '#toolbar=0'
             } catch (e) {
                 this.$message.error(this.$tp('Could not build the labels'))
             }
@@ -926,6 +950,7 @@ export default {
 .spp-pinput { width: 66px; ::v-deep .el-input__inner { padding: 0 6px; text-align: right; } }
 .spp-psave { color: #67c23a; padding: 2px; }
 .spp-pcancel { color: #909399; padding: 2px; }
+.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; }
 .spp-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spp-confirm { color: #0ea5a5; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
