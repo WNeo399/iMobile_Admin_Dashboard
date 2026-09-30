@@ -206,35 +206,52 @@
             </div>
         </el-dialog>
 
-        <!-- ── Pick open orders ─────────────────────────────────────── -->
-        <el-dialog :title="$tp('Open orders')" :visible.sync="pickerVisible" width="820px" append-to-body top="6vh">
-            <el-input v-model="pickerSearch" size="small" clearable prefix-icon="el-icon-search" class="spb-picker-search"
-                :placeholder="$tp('Product, SKU, order no, supplier, category…')" @keyup.enter.native="loadPicker" @clear="loadPicker" />
-            <el-table ref="pickerTable" v-loading="pickerLoading" :data="pickerRows" size="mini" border max-height="420"
-                :empty-text="$tp('No waiting orders')" @selection-change="v => pickerSelection = v">
-                <el-table-column type="selection" width="40" />
-                <el-table-column :label="$tp('Product')" min-width="240" show-overflow-tooltip>
-                    <template slot-scope="s">
-                        <div>{{ s.row.productName }}</div>
-                        <div class="spb-dim">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
-                    </template>
-                </el-table-column>
-                <el-table-column :label="$tp('Status')" width="90" align="center">
-                    <template slot-scope="s"><span class="spb-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span></template>
-                </el-table-column>
-                <el-table-column :label="$tp('Supplier')" width="110" align="center" show-overflow-tooltip>
-                    <template slot-scope="s">{{ s.row.supplier || '—' }}</template>
-                </el-table-column>
-                <el-table-column :label="$tp('Ordered')" width="110" align="center">
-                    <template slot-scope="s">{{ fmtDay(s.row.orderedAt || s.row.createdAt) }}</template>
-                </el-table-column>
-                <el-table-column :label="$tp('Qty')" width="66" align="center">
-                    <template slot-scope="s">{{ s.row.orderQty }}</template>
-                </el-table-column>
-            </el-table>
+        <!-- ── Pick open orders: the Order Batch picker — a category on the
+             left (open lines in red, picks in green), its lines on the
+             right (ordered first, oldest first); a click picks a line and
+             the picks add up across categories. ─────────────────────── -->
+        <el-dialog :visible.sync="pickerVisible" width="960px" append-to-body top="4vh">
+            <div slot="title" class="spb-dlg-head"><i class="el-icon-tickets" /> {{ $tp('Open orders') }}</div>
+            <!-- One supplier's lines only (counts and list follow); picks
+                 made under another supplier stay picked. -->
+            <div class="spb-picker-bar">
+                <label>{{ $tp('Supplier') }}</label>
+                <el-select v-model="pickerSupplier" size="small" filterable clearable :placeholder="$tp('All suppliers')"
+                    class="spb-picker-supplier" @change="onPickerSupplier">
+                    <el-option v-for="o in pickerSuppliers" :key="o.value" :label="o.label + ' (' + o.n + ')'" :value="o.value" />
+                </el-select>
+            </div>
+            <div v-loading="pickerLoading" class="spb-picker">
+                <div class="spb-cats">
+                    <div v-for="c in CATEGORIES" :key="c" :class="['spb-cat', { on: pickerCat === c, empty: !pickerCatCount(c) }]"
+                        @click="pickerCat = c">
+                        <span class="spb-cat-name">{{ $tp(c) }}</span>
+                        <span v-if="pickedInCat(c)" class="spb-cat-sel"><i class="el-icon-check" />{{ pickedInCat(c) }}</span>
+                        <span :class="['spb-cat-n', { 'is-zero': !pickerCatCount(c) }]">{{ pickerCatCount(c) }}</span>
+                    </div>
+                </div>
+                <div class="spb-lines">
+                    <div v-if="!pickerCatLines.length" class="spb-lines-empty">
+                        <i class="el-icon-folder-opened" />
+                        <div>{{ $tp('No waiting orders in this category') }}</div>
+                    </div>
+                    <div v-for="r in pickerCatLines" :key="r._id" :class="['spb-line', { on: pickerPicked[r._id] }]" @click="togglePick(r)">
+                        <i :class="pickerPicked[r._id] ? 'el-icon-success spb-line-check' : 'el-icon-circle-plus-outline spb-line-plus'" />
+                        <div class="spb-line-main">
+                            <div class="spb-line-name">{{ r.productName }}</div>
+                            <div class="spb-dim">SKU: {{ r.sku || '—' }} ·
+                                <span class="spb-status spb-line-status" :style="statusStyle(r.status)">{{ statusLabel(r.status) }}</span>
+                                <span v-if="r.supplier"> · {{ r.supplier }}</span> · {{ fmtDay(r.orderedAt || r.createdAt) }}<span
+                                    v-if="r.note"> · {{ r.note }}</span></div>
+                        </div>
+                        <div class="spb-line-qty">× {{ r.orderQty }}</div>
+                    </div>
+                </div>
+            </div>
             <span slot="footer">
+                <span class="spb-foot-sum">{{ $tp('{n} line(s) selected', { n: pickerCount }) }}<span v-if="pickerCount"> · {{ pickerQty }} {{ $tp('Pcs') }}</span></span>
                 <el-button size="small" @click="pickerVisible = false">{{ $tp('Cancel') }}</el-button>
-                <el-button type="primary" size="small" :disabled="!pickerSelection.length" @click="addPicked">{{ $tp('Add {n} line(s)', { n: pickerSelection.length }) }}</el-button>
+                <el-button type="primary" size="small" :disabled="!pickerCount" @click="addPicked">{{ $tp('Add {n} line(s)', { n: pickerCount }) }}</el-button>
             </span>
         </el-dialog>
 
@@ -407,10 +424,13 @@
 <script>
 import { hasPermission } from '@/utils/permission'
 import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
-import { STATUS_META, BATCH_STATUS, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml } from './shared'
+import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName } from '@/utils/sppLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
+
+// Supplier filter value for lines that have no supplier yet.
+const NO_SUPPLIER = '__none__'
 
 export default {
     name: 'SppBatches',
@@ -445,10 +465,14 @@ export default {
             scan: '',
             scanning: false,
             // picker
+            // open-orders picker: every waiting line, the category shown,
+            // and the picks (by id)
+            CATEGORIES,
             pickerVisible: false,
-            pickerSearch: '',
             pickerRows: [],
-            pickerSelection: [],
+            pickerCat: '',
+            pickerPicked: {},
+            pickerSupplier: '', // '' = all, NO_SUPPLIER = lines without one
             pickerLoading: false,
             // view / edit / receive
             viewVisible: false,
@@ -468,6 +492,40 @@ export default {
         }
     },
     computed: {
+        // The supplier filter's options: every supplier on a waiting line,
+        // busiest first, plus the lines with none (usually still pending).
+        pickerSuppliers() {
+            const n = {}
+            let none = 0
+            for (const r of this.pickerRows) {
+                const k = (r.supplier || '').trim()
+                if (k) n[k] = (n[k] || 0) + 1
+                else none++
+            }
+            const out = Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b)).map(k => ({ value: k, label: k, n: n[k] }))
+            if (none) out.push({ value: NO_SUPPLIER, label: this.$tp('No supplier'), n: none })
+            return out
+        },
+        pickerFiltered() {
+            const f = this.pickerSupplier
+            if (!f) return this.pickerRows
+            return this.pickerRows.filter(r => (f === NO_SUPPLIER ? !(r.supplier || '').trim() : (r.supplier || '').trim() === f))
+        },
+        // Waiting lines per side-menu category, and the shown one's lines.
+        pickerByCat() {
+            const by = {}
+            for (const r of this.pickerFiltered) (by[this.pickerCatOf(r)] = by[this.pickerCatOf(r)] || []).push(r)
+            return by
+        },
+        pickerCatLines() {
+            return this.pickerByCat[this.pickerCat] || []
+        },
+        pickerCount() {
+            return Object.keys(this.pickerPicked).length
+        },
+        pickerQty() {
+            return Object.values(this.pickerPicked).reduce((t, r) => t + (r.orderQty || 0), 0)
+        },
         totalAll() {
             return Object.keys(this.byStatus).reduce((t, k) => t + (this.byStatus[k] || 0), 0)
         },
@@ -708,26 +766,54 @@ export default {
             }
         },
         openPicker() {
-            this.pickerSearch = ''
-            this.pickerSelection = []
+            this.pickerPicked = {}
+            this.pickerSupplier = ''
             this.pickerVisible = true
             this.loadPicker()
         },
+        // Every waiting line not on this batch yet, grouped client-side.
         async loadPicker() {
             this.pickerLoading = true
             try {
-                const r = await openLines(this.pickerSearch || undefined)
+                const r = await openLines()
                 const on = new Set(this.createForm.lines.map(l => l.orderId))
                 this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id))
+                // land on the first category that has something to pick
+                if (!this.pickerCat || !this.pickerCatCount(this.pickerCat)) {
+                    this.pickerCat = CATEGORIES.find(c => this.pickerCatCount(c)) || CATEGORIES[0]
+                }
             } catch (e) {
                 this.pickerRows = []
             } finally {
                 this.pickerLoading = false
             }
         },
+        // A line's category in the side menu (an unknown value files under Other).
+        pickerCatOf(r) {
+            return CATEGORIES.includes(r.category) ? r.category : 'Other'
+        },
+        pickerCatCount(c) {
+            return (this.pickerByCat[c] || []).length
+        },
+        pickedInCat(c) {
+            let n = 0
+            for (const r of Object.values(this.pickerPicked)) if (this.pickerCatOf(r) === c) n++
+            return n
+        },
+        // A supplier picked: stay on the category if it has their lines,
+        // else move to the first one that does.
+        onPickerSupplier() {
+            if (!this.pickerCatCount(this.pickerCat)) {
+                this.pickerCat = CATEGORIES.find(c => this.pickerCatCount(c)) || this.pickerCat
+            }
+        },
+        togglePick(r) {
+            if (this.pickerPicked[r._id]) this.$delete(this.pickerPicked, r._id)
+            else this.$set(this.pickerPicked, r._id, r)
+        },
         addPicked() {
             let n = 0
-            for (const o of this.pickerSelection) if (this.addLine(o)) n++
+            for (const o of Object.values(this.pickerPicked)) if (this.addLine(o)) n++
             this.pickerVisible = false
             if (n) this.$message.success(this.$tp('{n} line(s) added', { n }))
         },
@@ -956,7 +1042,41 @@ export default {
 .spb-qty-short { color: #e6a23c; }
 .spb-footer { display: flex; align-items: center; justify-content: space-between; }
 .spb-sum { font-size: 12px; color: #909399; }
-.spb-picker-search { margin-bottom: 8px; }
+/* open-orders picker — same look as the Order Batch picker */
+.spb-picker-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; label { font-size: 12px; color: #909399; } }
+.spb-picker-supplier { width: 260px; }
+.spb-picker { display: flex; height: 440px; border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden; }
+.spb-cats { flex: 0 0 200px; border-right: 1px solid #ebeef5; background: #fafafa; overflow: auto; }
+.spb-cat {
+    display: flex; align-items: center; gap: 6px; padding: 10px 12px; cursor: pointer; font-size: 13px; color: #303133;
+    border-left: 3px solid transparent; user-select: none;
+    &:hover { background: #f0f2f5; }
+    &.on { background: #fff; border-left-color: #409eff; font-weight: 600; }
+    &.empty { color: #909399; }
+}
+.spb-cat-name { flex: 1; }
+.spb-cat-sel { font-size: 11px; color: #67c23a; font-weight: 600; i { margin-right: 1px; } }
+.spb-cat-n {
+    min-width: 22px; text-align: center; font-size: 11px; font-weight: 600; color: #f56c6c; background: #fef0f0;
+    border-radius: 10px; padding: 1px 6px;
+    &.is-zero { color: #c0c4cc; background: #f4f4f5; font-weight: 400; }
+}
+.spb-lines { flex: 1; overflow: auto; }
+.spb-lines-empty { padding: 60px 20px; text-align: center; color: #909399; font-size: 13px; i { font-size: 28px; color: #dcdfe6; display: block; margin-bottom: 8px; } }
+.spb-line {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #f2f6fc; cursor: pointer; user-select: none;
+    &:hover { background: #f5f7fa; }
+    &.on { background: #ecf5ff; }
+    &:last-child { border-bottom: 0; }
+}
+.spb-line-plus { color: #c0c4cc; font-size: 18px; }
+.spb-line:hover .spb-line-plus { color: #409eff; }
+.spb-line-check { color: #409eff; font-size: 18px; }
+.spb-line-main { flex: 1; min-width: 0; line-height: 1.35; }
+.spb-line-name { font-size: 13px; color: #303133; }
+.spb-line-status { padding: 0 6px; font-size: 10px; }
+.spb-line-qty { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.spb-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }
 .spb-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
 .spb-desc { margin-bottom: 10px; }
 .spb-hint { font-size: 12px; color: #909399; margin-top: 8px; i { margin-right: 3px; } }

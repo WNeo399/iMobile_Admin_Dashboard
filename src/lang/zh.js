@@ -846,6 +846,7 @@ export default {
     'Open orders': '待发货订单',
     'Product, SKU, order no, supplier, category…': '搜索产品、SKU、单号、供应商、分类…',
     'No waiting orders': '暂无待发货订单',
+    'No waiting orders in this category': '该分类下没有待发货的订单',
     'Add {n} line(s)': '添加 {n} 项',
     'on receipt': '签收时',
     'Received Qty': '实收数量',
