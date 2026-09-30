@@ -87,6 +87,10 @@
                     {{ total.toLocaleString() }} {{ scope === 'parts' ? 'parts' : 'accessories' }}
                 </el-tag>
                 <span class="sd-dim">sorted by {{ sortLabel }}</span>
+                <!-- the Archive list opens newest-archived first; back to it
+                     after sorting by a column -->
+                <el-button v-if="query.filter === 'archived' && query.sort !== 'archivedAt'" type="text" size="mini"
+                    @click="onSort({ prop: 'archivedAt', order: 'desc' })">Newest archived first</el-button>
                 <div class="sd-spacer" />
                 <el-button v-if="query.filter !== 'all'" type="text" size="mini"
                     @click="pickTile('all')">Clear filter</el-button>
@@ -130,7 +134,8 @@ const TILES = [
 const SORT_LABELS = {
     units90: '90-day units', units30: '30-day units', units14: '14-day units', units7: '7-day units', available: 'stock',
     daysOfCover: 'days of cover', daysSinceSale: 'days since last sale',
-    sku: 'SKU', name: 'product', location: 'shelf', openPoQty: 'quantity on order'
+    sku: 'SKU', name: 'product', location: 'shelf', openPoQty: 'quantity on order',
+    archivedAt: 'date archived, newest first'
 }
 
 export default {
@@ -173,7 +178,10 @@ export default {
             },
 
             // The sales window the Sold column shows (and sorts on).
-            salesDays: 30
+            salesDays: 30,
+            // The list's sort before the Archive view took over, restored
+            // when leaving it.
+            sortBeforeArchive: null
         }
     },
     computed: {
@@ -347,7 +355,22 @@ export default {
             }
         },
         pickTile(key) {
-            this.query.filter = this.query.filter === key ? 'all' : key
+            const next = this.query.filter === key ? 'all' : key
+            // The Archive opens with the newest archived items first; leaving
+            // it puts the list's own sort back.
+            if (next === 'archived' && this.query.filter !== 'archived') {
+                this.sortBeforeArchive = { sort: this.query.sort, order: this.query.order }
+                this.query.sort = 'archivedAt'
+                this.query.order = 'desc'
+            } else if (next !== 'archived' && this.query.filter === 'archived') {
+                if (this.query.sort === 'archivedAt') {
+                    const b = this.sortBeforeArchive || { sort: 'units30', order: 'desc' }
+                    this.query.sort = b.sort
+                    this.query.order = b.order
+                }
+                this.sortBeforeArchive = null
+            }
+            this.query.filter = next
             this.query.page = 1
             this.loadItems()
         },

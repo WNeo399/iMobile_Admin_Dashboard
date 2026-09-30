@@ -46,6 +46,11 @@
                                             :class="s.row.__seaBusy ? 'el-icon-loading' : 'el-icon-ship'" /> 海运</span>
                                 </el-tooltip>
                             </div>
+                            <!-- The Archive list: when and why it went there. -->
+                            <div v-if="archivedView" class="sd-archived-when">
+                                <i class="el-icon-box" /> {{ archivedWhen(s.row) }}<span v-if="s.row.archivedReason"
+                                    class="sd-dim"> · {{ s.row.archivedReason === 'manual' ? 'by hand' : 'name rule' }}</span>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -308,6 +313,13 @@ export default {
             return row.__spp !== undefined ? row.__spp : row.purchase
         },
         isArchived(row) { return this.archivedView || row.archived === true },
+        // "Archived 30 Sep 2026" — items archived before this was recorded
+        // (2026-09-30) have no date.
+        archivedWhen(row) {
+            if (!row.archivedAt) return 'Archived — date not recorded'
+            const d = new Date(row.archivedAt)
+            return 'Archived ' + d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+        },
 
         // ── parent-facing ─────────────────────────────────────────
         clearSort() { if (this.$refs.table) this.$refs.table.clearSort() },
@@ -553,6 +565,7 @@ export default {
 .sd-num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .sd-mono, .sd-sku { font-variant-numeric: tabular-nums; }
 .sd-sku { font-weight: 600; color: #1890ff; cursor: pointer; }
+.sd-archived-when { font-size: 11px; color: #909399; margin-top: 2px; }
 /* Sold: the total, then one small line per reason (label + units). */
 .sd-sold { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.35; }
 .sd-sold-r { display: flex; justify-content: flex-end; gap: 6px; font-size: 11px; white-space: nowrap; }
