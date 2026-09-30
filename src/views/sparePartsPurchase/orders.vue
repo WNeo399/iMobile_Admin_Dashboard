@@ -148,6 +148,10 @@
                         <el-tooltip :content="$tp('Details')" placement="top">
                             <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)" />
                         </el-tooltip>
+                        <!-- Ordered: its part labels, one per ordered unit. -->
+                        <el-tooltip v-if="s.row.status === 'ordered'" :content="$tp('Print {n} label(s)', { n: labelUnits(s.row) })" placement="top">
+                            <el-button size="mini" type="text" icon="el-icon-printer" class="spp-act-label" @click="printLineLabels(s.row)" />
+                        </el-tooltip>
                         <el-tooltip v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
                             :content="$tp('Place order')" placement="top" :disabled="!compact">
                             <el-button size="mini" type="text" icon="el-icon-document-checked" @click="openPlace(s.row)">{{ compact ? '' : $tp('Place order') }}</el-button>
@@ -327,6 +331,17 @@
                     @click="saveDetail">{{ $tp('Save') }}</el-button>
             </span>
         </el-dialog>
+
+        <!-- ── Part labels (50×40: product name + SKU barcode), the PDF
+             previewed, then printed or saved ─────────────────────────── -->
+        <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+            <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
+            <span slot="footer">
+                <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
+                <el-button size="small" @click="labelVisible = false">{{ $tp('Close') }}</el-button>
+                <el-button type="primary" size="small" icon="el-icon-printer" @click="printLabels">{{ $tp('Print') }}</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
@@ -339,6 +354,7 @@ import {
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder
 } from '@/api/sparePartsPurchase'
 import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
+import { buildSppLineLabelsPdf, sppLabelFileName } from '@/utils/sppLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
 const ACTION_LABELS = {
@@ -385,6 +401,12 @@ export default {
             detailLoading: false,
             detailForm: { note: '', orderQty: null, category: '' },
             detailSaving: false,
+            // Part labels (PDF preview)
+            labelVisible: false,
+            labelTitle: '',
+            labelUrl: '',
+            labelBuild: null,
+            labelFileName: '',
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
             compact: false,
             // The table fills what is left under the header rows.
@@ -719,6 +741,38 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
             }
         },
+        // ── Part labels ────────────────────────────────────────────
+        // One label per ordered unit (at least one), as on Order Batches.
+        labelUnits(row) {
+            return Math.max(1, Math.floor(Number(row && row.orderQty)) || 0)
+        },
+        printLineLabels(row) {
+            this.cleanupLabels()
+            try {
+                const build = () => buildSppLineLabelsPdf(row, this.labelUnits(row))
+                this.labelBuild = build
+                this.labelFileName = sppLabelFileName({ batchNo: row.orderNo }, row)
+                this.labelUrl = build().output('bloburl') + '#toolbar=0'
+                this.labelTitle = this.$tp('Labels') + ' — ' + (row.sku || row.productName) + ' (' + this.labelUnits(row) + ')'
+                this.labelVisible = true
+            } catch (e) {
+                this.$message.error(this.$tp('Could not build the labels'))
+            }
+        },
+        printLabels() {
+            if (!this.labelBuild) return
+            const doc = this.labelBuild()
+            doc.autoPrint()
+            const w = window.open(doc.output('bloburl'))
+            if (!w) this.$message.warning(this.$tp('Pop-up blocked — use Download instead'))
+        },
+        downloadLabels() {
+            if (this.labelBuild) this.labelBuild().save(this.labelFileName)
+        },
+        cleanupLabels() {
+            if (this.labelUrl) { try { URL.revokeObjectURL(this.labelUrl.replace('#toolbar=0', '')) } catch (e) { /* ignore */ } }
+            this.labelUrl = ''
+        },
         // ── Details ────────────────────────────────────────────────
         async openDetail(row) {
             this.detail = row
@@ -809,6 +863,8 @@ export default {
 .spp-quote-tag { font-size: 10px; color: #e6a23c; border: 1px solid #f5dab1; border-radius: 3px; padding: 0 3px; }
 .spp-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
 .spp-more { margin-left: 4px; color: #909399; }
+.spp-act-label { margin-left: 4px; }
+.spp-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spp-confirm { color: #0ea5a5; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 .spp-act-confirm { color: #0ea5a5; font-weight: 600; }
