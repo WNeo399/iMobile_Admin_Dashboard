@@ -259,6 +259,12 @@ const KNOWN_WIDGETS = [
         label: 'Banner Carousel',
         description:
             "The banner carousel on the iMobile website: the active banners (desktop, tablet and mobile images, optional link) in their saved order. Banners are managed under iMobile Website → Banner; the allowlist controls which sites' browsers may load them."
+    },
+    {
+        value: 'spare-parts',
+        label: 'Spare Parts',
+        description:
+            "The spare parts browser on the iMobile website: shoppers pick a brand, series and model (or search) and see the parts, each linking to its store page — no prices. The parts come from the stock register (see iMobile Website → Spare Parts Widget); the allowlist controls which sites' browsers may load them."
     }
 ]
 

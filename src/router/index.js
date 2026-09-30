@@ -208,6 +208,18 @@ export const moduleRoutes = [
           icon: "el-icon-picture",
           permissions: ["web:banner:view"]
         }
+      },
+      {
+        // The spare parts browser widget: what it holds, its embed code and
+        // a preview. The data is the stock register — nothing to manage.
+        path: "spareParts",
+        component: (resolve) => require(["@/views/website/spareParts"], resolve),
+        name: "WebsiteSpareParts",
+        meta: {
+          title: "Spare Parts Widget",
+          icon: "el-icon-mobile-phone",
+          permissions: ["web:parts:view"]
+        }
       }
     ]
   },

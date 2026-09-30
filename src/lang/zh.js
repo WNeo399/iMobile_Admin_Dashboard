@@ -80,6 +80,7 @@ export default {
     'Distributors': '分销商',
     'iMobile Website': 'iMobile 官网',
     'Banner': '横幅广告',
+    'Spare Parts Widget': '配件浏览组件',
 
     'System': '系统',
     'Users': '用户',
@@ -1011,6 +1012,10 @@ export default {
     'Main image': '主图',
     'Set as main': '设为主图',
     'This product already has a main image — these are added after it': '该产品已有主图 — 这些图片将排在其后。',
+    'Drag to change the order — the first becomes the main image': '拖动可调整顺序 — 第一张将作为主图',
+    'Drag to change the order — they are added after the current main image in this order': '拖动可调整顺序 — 将按此顺序排在现有主图之后',
+    'Click to enlarge': '点击放大',
+    'Current main image': '当前主图',
     'Upload {n} to Zoho': '上传 {n} 张到 Zoho',
     'No snapshot yet': '尚无快照',
     'Images as checked today': '图片状态：今日检查',

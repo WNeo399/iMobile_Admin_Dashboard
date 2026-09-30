@@ -173,20 +173,38 @@
             <input ref="imageInput" type="file" multiple accept="image/gif,image/png,image/jpeg,image/bmp,image/webp"
                 class="mi-hidden-input" @change="onPick">
 
-            <div v-if="upload.files.length" class="mi-up-grid">
-                <div v-for="(f, i) in upload.files" :key="f.key" :class="['mi-up-card', { main: i === 0 && !upload.hasImage }]">
-                    <i class="el-icon-close mi-up-remove" :title="$tp('Remove')" @click="removeUpload(i)" />
-                    <img :src="f.url" alt="">
-                    <div class="mi-up-name" :title="f.file.name">{{ f.file.name }}</div>
-                    <div class="mi-up-foot">
-                        <span class="sd-dim">{{ sizeText(f.file.size) }}</span>
-                        <span v-if="i === 0 && !upload.hasImage" class="mi-up-main">{{ $tp('Main image') }}</span>
-                        <el-button v-else-if="!upload.hasImage" type="text" size="mini" @click="makeMain(i)">{{ $tp('Set as main') }}</el-button>
-                    </div>
+            <!-- The picked images in upload order (Zoho keeps it; with no
+                 image yet the first becomes the main one): drag a thumbnail to
+                 reorder, click it to see it full size. -->
+            <template v-if="upload.files.length">
+                <div class="mi-up-hint">
+                    <i class="el-icon-rank" />
+                    {{ upload.hasImage
+                        ? $tp('Drag to change the order — they are added after the current main image in this order')
+                        : $tp('Drag to change the order — the first becomes the main image') }}
                 </div>
-            </div>
+                <draggable v-model="upload.files" class="mi-up-grid" :animation="180" :disabled="upload.busy"
+                    ghost-class="mi-up-ghost" chosen-class="mi-up-chosen" filter=".mi-up-remove,.mi-up-act" :prevent-on-filter="false">
+                    <div v-for="(f, i) in upload.files" :key="f.key" :class="['mi-up-card', { main: i === 0 && !upload.hasImage }]">
+                        <span class="mi-up-pos">{{ i + 1 }}</span>
+                        <i class="el-icon-close mi-up-remove" :title="$tp('Remove')" @click="removeUpload(i)" />
+                        <div class="mi-up-thumb" :title="$tp('Click to enlarge')" @click="viewUpload(i)">
+                            <img :src="f.url" alt="" draggable="false">
+                        </div>
+                        <div class="mi-up-name" :title="f.file.name">{{ f.file.name }}</div>
+                        <div class="mi-up-foot">
+                            <span class="sd-dim">{{ sizeText(f.file.size) }}</span>
+                            <span v-if="i === 0 && !upload.hasImage" class="mi-up-main">{{ $tp('Main image') }}</span>
+                            <el-button v-else-if="!upload.hasImage" type="text" size="mini" class="mi-up-act" @click="makeMain(i)">{{ $tp('Set as main') }}</el-button>
+                        </div>
+                    </div>
+                </draggable>
+            </template>
             <div v-if="upload.hasImage" class="mi-up-note">
-                <i class="el-icon-info" /> {{ $tp('This product already has a main image — these are added after it.') }}
+                <img v-if="upload.row && upload.row.imageUrl" :src="upload.row.imageUrl" :title="$tp('Current main image')"
+                    class="mi-up-current" alt="" @click="viewCurrent">
+                <i v-else class="el-icon-info" />
+                <span>{{ $tp('This product already has a main image — these are added after it.') }}</span>
             </div>
 
             <span slot="footer">
@@ -195,6 +213,8 @@
                     @click="submitUpload">{{ $tp('Upload {n} to Zoho', { n: upload.files.length || '' }) }}</el-button>
             </span>
         </el-dialog>
+        <image-viewer v-if="viewer.urls.length" :url-list="viewer.urls" :initial-index="viewer.index"
+            :z-index="viewer.zIndex" :on-close="closeViewer" />
     </div>
 </template>
 
@@ -204,6 +224,9 @@ import auth from '@/plugins/auth'
 // the parts supplier has this page too), plus the upload and archive.
 import { getImageSummary, getImageItems, setStockItemArchived, uploadStockItemImages } from '@/api/stockMonitor'
 import ProductThumb from '@/components/ProductThumb'
+import draggable from 'vuedraggable'
+import ImageViewer from 'element-ui/packages/image/src/image-viewer'
+import { PopupManager } from 'element-ui/lib/utils/popup' // the dialogs' own counter
 import liveStockMixin from './liveStockMixin'
 
 // Spare Parts Purchase → Missing Images (moved from iMobile Spare Parts on
@@ -226,7 +249,7 @@ const MAX_UPLOAD = 10
 
 export default {
     name: 'MissingImages',
-    components: { ProductThumb },
+    components: { ProductThumb, draggable, ImageViewer },
     mixins: [liveStockMixin],
     data() {
         return {
@@ -236,6 +259,8 @@ export default {
             // Upload dialog: the row, and the picked files in upload order
             // ({ key, file, url } — url is a local preview).
             upload: { visible: false, row: null, files: [], busy: false, over: false, hasImage: false },
+            // Full-size view of a picked image (or the current main image).
+            viewer: { urls: [], index: 0, zIndex: 2000 },
             loading: false,
             summaryLoading: false,
             exporting: false,
@@ -419,6 +444,18 @@ export default {
             const [f] = this.upload.files.splice(i, 1)
             if (f) URL.revokeObjectURL(f.url)
         },
+        viewUpload(i) {
+            this.openViewer(this.upload.files.map(f => f.url), i)
+        },
+        viewCurrent() {
+            if (this.upload.row && this.upload.row.imageUrl) this.openViewer([this.upload.row.imageUrl], 0)
+        },
+        openViewer(urls, index) {
+            this.viewer = { urls, index, zIndex: PopupManager.nextZIndex() } // above the dialog
+        },
+        closeViewer() {
+            this.viewer = { urls: [], index: 0, zIndex: 2000 }
+        },
         // The first image is the one Zoho makes the main image.
         makeMain(i) {
             const [f] = this.upload.files.splice(i, 1)
@@ -556,12 +593,25 @@ span.mi-item-link:hover { color: #303133; text-decoration: none; }
     em { color: #409eff; font-style: normal; }
     &:hover, &.over { border-color: #409eff; background: #f5faff; }
 }
-.mi-up-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 14px; }
+.mi-up-hint { margin-top: 14px; font-size: 12px; color: #909399; i { margin-right: 4px; } }
+.mi-up-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 8px; }
 .mi-up-card {
     position: relative; border: 1px solid #ebeef5; border-radius: 4px; padding: 6px; background: #fff;
-    img { display: block; width: 100%; height: 110px; object-fit: contain; }
+    cursor: grab; user-select: none; transition: border-color .15s, box-shadow .15s;
+    &:hover { border-color: #c0c4cc; }
     &.main { border-color: #409eff; box-shadow: 0 0 0 1px #409eff inset; }
 }
+.mi-up-thumb {
+    height: 110px; border-radius: 3px; background: #f5f7fa; cursor: zoom-in;
+    img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+}
+.mi-up-pos {
+    position: absolute; top: 4px; left: 4px; z-index: 1; min-width: 20px; height: 20px; padding: 0 5px;
+    border-radius: 10px; background: rgba(48, 49, 51, .75); color: #fff; font-size: 12px; line-height: 20px; text-align: center;
+}
+.mi-up-card.main .mi-up-pos { background: #409eff; }
+.mi-up-ghost { opacity: .35; border-style: dashed; }
+.mi-up-chosen { cursor: grabbing; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
 .mi-up-remove {
     position: absolute; top: 4px; right: 4px; z-index: 1; padding: 2px; border-radius: 50%;
     background: rgba(255, 255, 255, .9); color: #909399; cursor: pointer;
@@ -570,7 +620,8 @@ span.mi-item-link:hover { color: #303133; text-decoration: none; }
 .mi-up-name { font-size: 12px; color: #606266; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mi-up-foot { display: flex; align-items: center; justify-content: space-between; min-height: 22px; font-size: 12px; }
 .mi-up-main { color: #409eff; font-weight: 600; }
-.mi-up-note { margin-top: 10px; font-size: 12px; color: #909399; }
+.mi-up-note { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: #909399; }
+.mi-up-current { width: 44px; height: 44px; object-fit: contain; border: 1px solid #ebeef5; border-radius: 3px; background: #fff; cursor: zoom-in; flex: none; }
 
 /* Stock read live from Zoho for the rows on screen */
 .sd-card { background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; overflow: hidden; }

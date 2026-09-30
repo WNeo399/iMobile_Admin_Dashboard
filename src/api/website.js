@@ -41,3 +41,9 @@ export function deleteBanner(id) {
 export function saveBannerSettings(data) {
   return request({ url: '/website/banner-settings', method: 'put', data })
 }
+
+// What the Spare Parts widget holds (counts, brands → series); the widget
+// itself reads the public feed routes/widgetRoutes/spareParts.
+export function sparePartsSummary() {
+  return request({ url: '/website/spare-parts', method: 'get', timeout: 60000 })
+}
