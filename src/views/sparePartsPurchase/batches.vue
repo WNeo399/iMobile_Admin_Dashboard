@@ -361,6 +361,10 @@
                     <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
                     <el-radio-button label="landscape">{{ $tp('Landscape') }}</el-radio-button>
                 </el-radio-group>
+                <span class="label-orient-gap">{{ $tp('Size') }}</span>
+                <el-radio-group v-model="labelSize" size="mini" @change="onLabelSize">
+                    <el-radio-button v-for="z in LABEL_SIZES" :key="z.key" :label="z.key">{{ z.label }}</el-radio-button>
+                </el-radio-group>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spb-label-frame" title="labels" />
             <span slot="footer">
@@ -434,7 +438,7 @@
 import { hasPermission } from '@/utils/permission'
 import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml } from './shared'
-import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
 
@@ -465,6 +469,8 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
+            labelSize: getLabelSize(),
+            LABEL_SIZES,
             // create / draft
             createVisible: false,
             createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', lines: [] },
@@ -941,9 +947,17 @@ export default {
             const named = { ...batch, lines: await withLabelNames(batch.lines) }
             this.showLabels(() => buildSppBatchLabelsPdf(named), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
         },
-        // Portrait / landscape: remembered for next time, preview redrawn.
+        // Portrait / landscape and 60 × 40 / 50 × 40: remembered for next
+        // time, preview redrawn.
         onLabelOrientation(v) {
             setLabelOrientation(v)
+            this.redrawLabels()
+        },
+        onLabelSize(v) {
+            setLabelSize(v)
+            this.redrawLabels()
+        },
+        redrawLabels() {
             if (!this.labelBuild) return
             try {
                 const doc = this.labelBuild()
@@ -1054,7 +1068,8 @@ export default {
 .spb-inline-tracking { max-width: 440px; }
 .spb-inline-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .spb-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
-.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; }
+.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; flex-wrap: wrap; }
+.label-orient-gap { margin-left: 12px; }
 .spb-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spb-field-grow { flex: 1; }
 .spb-scan { display: flex; gap: 8px; margin-bottom: 10px; .el-input { flex: 1; } }

@@ -214,6 +214,10 @@
                     <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
                     <el-radio-button label="landscape">{{ $tp('Landscape') }}</el-radio-button>
                 </el-radio-group>
+                <span class="label-orient-gap">{{ $tp('Size') }}</span>
+                <el-radio-group v-model="labelSize" size="mini" @change="onLabelSize">
+                    <el-radio-button v-for="z in LABEL_SIZES" :key="z.key" :label="z.key">{{ z.label }}</el-radio-button>
+                </el-radio-group>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spo-label-frame" title="labels" />
             <span slot="footer">
@@ -233,7 +237,7 @@ import {
     priceOrderBatch, listOrders, getMeta
 } from '@/api/sparePartsPurchase'
 import { STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
-import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 
 export default {
     name: 'SppOrderBatches',
@@ -275,6 +279,8 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
+            labelSize: getLabelSize(),
+            LABEL_SIZES,
             // order list preview
             printVisible: false,
             printHtml: ''
@@ -624,9 +630,17 @@ export default {
             const named = { ...batch, lines: await withLabelNames(batch.lines) }
             this.showLabels(() => buildSppBatchLabelsPdf(named), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + (batch.batchNo || this.$tp('Draft')) + ' (' + n + ')')
         },
-        // Portrait / landscape: remembered for next time, preview redrawn.
+        // Portrait / landscape and 60 × 40 / 50 × 40: remembered for next
+        // time, preview redrawn.
         onLabelOrientation(v) {
             setLabelOrientation(v)
+            this.redrawLabels()
+        },
+        onLabelSize(v) {
+            setLabelSize(v)
+            this.redrawLabels()
+        },
+        redrawLabels() {
             if (!this.labelBuild) return
             try {
                 const doc = this.labelBuild()
@@ -718,7 +732,8 @@ export default {
 .spo-psave { color: #67c23a; padding: 2px; }
 .spo-pcancel { color: #909399; padding: 2px; }
 .spo-note { margin-top: 8px; font-size: 12px; }
-.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; }
+.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; flex-wrap: wrap; }
+.label-orient-gap { margin-left: 12px; }
 .spo-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spo-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
 /* Create: category side menu + the category's lines */

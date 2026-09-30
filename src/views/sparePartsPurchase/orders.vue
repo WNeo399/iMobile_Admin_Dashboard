@@ -358,6 +358,10 @@
                     <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
                     <el-radio-button label="landscape">{{ $tp('Landscape') }}</el-radio-button>
                 </el-radio-group>
+                <span class="label-orient-gap">{{ $tp('Size') }}</span>
+                <el-radio-group v-model="labelSize" size="mini" @change="onLabelSize">
+                    <el-radio-button v-for="z in LABEL_SIZES" :key="z.key" :label="z.key">{{ z.label }}</el-radio-button>
+                </el-radio-group>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
             <span slot="footer">
@@ -378,7 +382,7 @@ import {
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder
 } from '@/api/sparePartsPurchase'
 import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
-import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
 const ACTION_LABELS = {
@@ -436,6 +440,8 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
+            labelSize: getLabelSize(),
+            LABEL_SIZES,
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
             compact: false,
             // The table fills what is left under the header rows.
@@ -825,9 +831,17 @@ export default {
                 this.$message.error(this.$tp('Could not build the labels'))
             }
         },
-        // Portrait / landscape: remembered for next time, preview redrawn.
+        // Portrait / landscape and 60 × 40 / 50 × 40: remembered for next
+        // time, preview redrawn.
         onLabelOrientation(v) {
             setLabelOrientation(v)
+            this.redrawLabels()
+        },
+        onLabelSize(v) {
+            setLabelSize(v)
+            this.redrawLabels()
+        },
+        redrawLabels() {
             if (!this.labelBuild) return
             try {
                 const doc = this.labelBuild()
@@ -950,7 +964,8 @@ export default {
 .spp-pinput { width: 66px; ::v-deep .el-input__inner { padding: 0 6px; text-align: right; } }
 .spp-psave { color: #67c23a; padding: 2px; }
 .spp-pcancel { color: #909399; padding: 2px; }
-.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; }
+.label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; flex-wrap: wrap; }
+.label-orient-gap { margin-left: 12px; }
 .spp-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spp-confirm { color: #0ea5a5; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }

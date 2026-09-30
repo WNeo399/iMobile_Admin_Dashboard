@@ -1,11 +1,11 @@
-// 50mm × 40mm part label for Spare Parts Purchase shipment lines (Batches
+// 60mm × 40mm (or 50mm × 40mm) part label for Spare Parts Purchase lines (Batches
 // page, batch view). Same stock and layout family as the Order Dispatch item
 // label (utils/dispatchItemLabelPdf.js), pared down to what the parts team
 // asked for: the product name and the SKU (as a Code 128 barcode with the
 // digits under it). No date, no batch number.
 //
-// buildSppLineLabelsPdf(line, copies, orientation)  — one line, `copies` identical labels
-// buildSppBatchLabelsPdf(batch, orientation)        — every line, one label per unit
+// buildSppLineLabelsPdf(line, copies, orientation, size)  — one line, `copies` identical labels
+// buildSppBatchLabelsPdf(batch, orientation, size)        — every line, one label per unit
 //                                                     (shipped, or ordered on an order batch)
 // sppLabelCount(batch)                               — how many labels that is
 // `line` is a batch line ({ sku, productName, shippedQty }).
@@ -14,13 +14,15 @@
 // the 50 × 40 page; "portrait" a 40 × 50 page carrying the SAME label turned
 // 90° clockwise — for a printer whose label stock is set up the other way.
 // The choice is remembered per browser; portrait by default.
+//
+// Size (user ask 2026-09-30): 60 × 40 (default) or 50 × 40 — the width
+// changes, the layout follows it (text and barcode use the full width).
 
 import { jsPDF } from 'jspdf'
 import { deviceTerms } from '@/api/sparePartsPurchase'
 import JsBarcode from 'jsbarcode'
 
-const LABEL_W = 50
-const LABEL_H = 40
+const LABEL_H = 40 // every size is 40mm high; the width is chosen
 const MARGIN = 3
 
 // ── Orientation ─────────────────────────────────────────────────────
@@ -37,6 +39,22 @@ export function setLabelOrientation(v) {
     if (!LABEL_ORIENTATIONS.includes(v)) return
     try { localStorage.setItem(ORIENT_KEY, v) } catch (e) { /* not remembered */ }
 }
+
+// ── Size ────────────────────────────────────────────────────────────
+const SIZE_KEY = 'spp-label-size'
+export const LABEL_SIZES = [{ key: '60x40', w: 60, label: '60 × 40' }, { key: '50x40', w: 50, label: '50 × 40' }]
+export function getLabelSize() {
+    try {
+        const v = localStorage.getItem(SIZE_KEY)
+        if (LABEL_SIZES.some(s => s.key === v)) return v
+    } catch (e) { /* private mode: the default */ }
+    return '60x40'
+}
+export function setLabelSize(v) {
+    if (!LABEL_SIZES.some(s => s.key === v)) return
+    try { localStorage.setItem(SIZE_KEY, v) } catch (e) { /* not remembered */ }
+}
+const widthOf = (size) => (LABEL_SIZES.find(s => s.key === size) || LABEL_SIZES[0]).w
 
 // Render the barcode onto an off-screen canvas at a generous pixel size so it
 // stays crisp when scaled down to label millimetres; `rotated` turns it 90°
@@ -55,7 +73,7 @@ function barcodePng(value, rotated) {
     return turned.toDataURL('image/png')
 }
 
-// Draws in the label's own 50 × 40 coordinates. On the portrait page a
+// Draws in the label's own W × 40 coordinates. On the portrait page a
 // point (x, y) of the label lands at (40 − y, x): the label turned 90°
 // clockwise, text running top to bottom.
 function painter(doc, orientation) {
@@ -112,7 +130,7 @@ export async function withLabelNames(lines) {
 
 // Draw one label onto the doc's CURRENT page. `pngCache` avoids re-rendering
 // the same barcode for every copy of a multi-unit line.
-function drawLabel(doc, line, pngCache, orientation) {
+function drawLabel(doc, line, pngCache, orientation, W) {
     const p = painter(doc, orientation)
     doc.setTextColor(0)
     const sku = String((line && line.sku) || '').trim()
@@ -134,7 +152,7 @@ function drawLabel(doc, line, pngCache, orientation) {
     let lines
     for (;;) {
         doc.setFontSize(fontSize)
-        lines = doc.splitTextToSize(name, LABEL_W - MARGIN * 2)
+        lines = doc.splitTextToSize(name, W - MARGIN * 2)
         const descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
         const room = BARCODE_BOTTOM - (descBottom + DESC_GAP)
         if ((sku ? room >= BARCODE_MIN_H : room >= 0) || fontSize <= 7) break
@@ -147,28 +165,28 @@ function drawLabel(doc, line, pngCache, orientation) {
     }
     let y = DESC_TOP
     for (const l of lines) {
-        p.text(l, LABEL_W / 2, y)
+        p.text(l, W / 2, y)
         y += lineH(fontSize)
     }
 
     if (sku) {
         const key = sku + (p.rotated ? '|r' : '')
         const png = pngCache ? pngCache[key] || (pngCache[key] = barcodePng(sku, p.rotated)) : barcodePng(sku, p.rotated)
-        const bw = LABEL_W - MARGIN * 2 - 2
+        const bw = W - MARGIN * 2 - 2
         const barcodeTop = Math.max(descBottom + DESC_GAP, BARCODE_BOTTOM - BARCODE_MAX_H)
-        p.image(png, (LABEL_W - bw) / 2, barcodeTop, bw, BARCODE_BOTTOM - barcodeTop)
+        p.image(png, (W - bw) / 2, barcodeTop, bw, BARCODE_BOTTOM - barcodeTop)
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
-        p.text(sku, LABEL_W / 2, LABEL_H - 3.2)
+        p.text(sku, W / 2, LABEL_H - 3.2)
     }
 }
 
 // format sorts [min, max]; the orientation decides which side is the width.
-function newLabelDoc(orientation) {
-    return new jsPDF({ unit: 'mm', format: [LABEL_W, LABEL_H], orientation: orientation === 'portrait' ? 'portrait' : 'landscape' })
+function newLabelDoc(orientation, W) {
+    return new jsPDF({ unit: 'mm', format: [W, LABEL_H], orientation: orientation === 'portrait' ? 'portrait' : 'landscape' })
 }
-function addLabelPage(doc, orientation) {
-    doc.addPage([LABEL_W, LABEL_H], orientation === 'portrait' ? 'portrait' : 'landscape')
+function addLabelPage(doc, orientation, W) {
+    doc.addPage([W, LABEL_H], orientation === 'portrait' ? 'portrait' : 'landscape')
 }
 
 // Shipped units on a shipment line; ordered units on an order-batch line.
@@ -178,28 +196,30 @@ const unitCount = (line) => {
 }
 
 // One line, `copies` identical labels (defaults to the shipped units, at least one).
-export function buildSppLineLabelsPdf(line, copies, orientation = getLabelOrientation()) {
+export function buildSppLineLabelsPdf(line, copies, orientation = getLabelOrientation(), size = getLabelSize()) {
+    const W = widthOf(size)
     const n = Math.max(1, Math.floor(Number(copies)) || unitCount(line) || 1)
-    const doc = newLabelDoc(orientation)
+    const doc = newLabelDoc(orientation, W)
     const pngCache = {}
     for (let i = 0; i < n; i++) {
-        if (i > 0) addLabelPage(doc, orientation)
-        drawLabel(doc, line, pngCache, orientation)
+        if (i > 0) addLabelPage(doc, orientation, W)
+        drawLabel(doc, line, pngCache, orientation, W)
     }
     return doc
 }
 
 // Every line of the batch, one label per shipped unit. Null when there is
 // nothing to print.
-export function buildSppBatchLabelsPdf(batch, orientation = getLabelOrientation()) {
-    const doc = newLabelDoc(orientation)
+export function buildSppBatchLabelsPdf(batch, orientation = getLabelOrientation(), size = getLabelSize()) {
+    const W = widthOf(size)
+    const doc = newLabelDoc(orientation, W)
     const pngCache = {}
     let pages = 0
     for (const line of (batch && batch.lines) || []) {
         for (let i = 0; i < unitCount(line); i++) {
-            if (pages > 0) addLabelPage(doc, orientation)
+            if (pages > 0) addLabelPage(doc, orientation, W)
             pages++
-            drawLabel(doc, line, pngCache, orientation)
+            drawLabel(doc, line, pngCache, orientation, W)
         }
     }
     return pages ? doc : null

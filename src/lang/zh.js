@@ -959,6 +959,7 @@ export default {
     'Orientation': '方向',
     'Portrait': '纵向',
     'Landscape': '横向',
+    'Size': '尺寸',
     'Unit price set': '已设置采购单价',
     'Delete this draft? Nothing has been ordered': '删除该草稿？尚未下单任何内容。',
     'Draft deleted': '草稿已删除',
