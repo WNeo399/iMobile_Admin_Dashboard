@@ -40,6 +40,10 @@ export function confirmOrder(id, note) {
 export function placeOrder(id, data) {
   return request({ url: `${BASE}/orders/${id}/place`, method: 'post', data })
 }
+// An ordered line's unit price, changed inline on the Purchase Order page.
+export function priceOrder(id, unitPrice) {
+  return request({ url: `${BASE}/orders/${id}/price`, method: 'post', data: { unitPrice } })
+}
 // ── Order batches (下单批次) ─────────────────────────────────────────
 export function listOrderBatches(params) {
   return request({ url: `${BASE}/order-batches`, method: 'get', params })

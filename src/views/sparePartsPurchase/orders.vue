@@ -99,11 +99,26 @@
                 <el-table-column :label="$tp('Qty')" :width="compact ? 56 : 66" align="center">
                     <template slot-scope="s">{{ s.row.orderQty }}</template>
                 </el-table-column>
-                <el-table-column :label="$tp('Unit Price')" :width="compact ? 90 : 104" align="center">
+                <!-- An ordered line's price is changed inline (click the price →
+                     number + ✓ / ✗, Enter saves, Esc cancels). Save runs on
+                     click (after the input's blur commits), cancel on
+                     mousedown (before a re-render swallows it) — as on Order
+                     Batches. -->
+                <el-table-column :label="$tp('Unit Price')" :width="compact ? 128 : 136" align="center">
                     <template slot-scope="s">
-                        <span v-if="s.row.unitPrice != null">{{ yuan(s.row.unitPrice) }}</span>
-                        <span v-else-if="s.row.quotedPrice != null">{{ yuan(s.row.quotedPrice) }} <span class="spp-quote-tag">{{ $tp('quote') }}</span></span>
-                        <span v-else>—</span>
+                        <div v-if="priceEdit.id === s.row._id" class="spp-pedit" @click.stop>
+                            <el-input-number v-model="priceEdit.value" size="mini" :min="0" :precision="2" :controls="false"
+                                class="spp-pinput" placeholder="¥" @keyup.enter.native="priceEnter($event, s.row)" @keyup.esc.native="cancelPriceEdit" />
+                            <el-button type="text" size="mini" icon="el-icon-check" class="spp-psave" :loading="priceSaving" @click="savePrice(s.row)" />
+                            <el-button type="text" size="mini" icon="el-icon-close" class="spp-pcancel" @mousedown.native.prevent="cancelPriceEdit" />
+                        </div>
+                        <div v-else :class="{ 'spp-pview': canPrice(s.row) }" :title="canPrice(s.row) ? $tp('Click to change the unit price') : ''"
+                            @click="canPrice(s.row) && startPriceEdit(s.row)">
+                            <span v-if="s.row.unitPrice != null">{{ yuan(s.row.unitPrice) }}</span>
+                            <span v-else-if="s.row.quotedPrice != null">{{ yuan(s.row.quotedPrice) }} <span class="spp-quote-tag">{{ $tp('quote') }}</span></span>
+                            <span v-else>—</span>
+                            <i v-if="canPrice(s.row)" class="el-icon-edit spp-pencil" />
+                        </div>
                     </template>
                 </el-table-column>
                 <el-table-column v-if="!compact" :label="$tp('Supplier')" width="104" align="center" show-overflow-tooltip>
@@ -148,8 +163,8 @@
                         <el-tooltip :content="$tp('Details')" placement="top">
                             <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)" />
                         </el-tooltip>
-                        <!-- Ordered: its part labels, one per ordered unit. -->
-                        <el-tooltip v-if="s.row.status === 'ordered'" :content="$tp('Print {n} label(s)', { n: labelUnits(s.row) })" placement="top">
+                        <!-- Ordered: its part label — one; copies are set when printing. -->
+                        <el-tooltip v-if="s.row.status === 'ordered'" :content="$tp('Print label')" placement="top">
                             <el-button size="mini" type="text" icon="el-icon-printer" class="spp-act-label" @click="printLineLabels(s.row)" />
                         </el-tooltip>
                         <el-tooltip v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
@@ -350,7 +365,7 @@ import TreePanel from '@/components/TreePanel'
 import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
-    listOrders, getOrder, updateOrder, quoteOrder, placeOrder, shortageOrder,
+    listOrders, getOrder, updateOrder, quoteOrder, placeOrder, priceOrder, shortageOrder,
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder
 } from '@/api/sparePartsPurchase'
 import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
@@ -360,7 +375,8 @@ import { buildSppLineLabelsPdf, sppLabelFileName } from '@/utils/sppLabelPdf'
 const ACTION_LABELS = {
     created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
     cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
-    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft'
+    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft',
+    priced: 'Unit price set'
 }
 
 export default {
@@ -401,6 +417,9 @@ export default {
             detailLoading: false,
             detailForm: { note: '', orderQty: null, category: '' },
             detailSaving: false,
+            // The ordered line whose price is being typed: { id, value }
+            priceEdit: { id: null, value: undefined },
+            priceSaving: false,
             // Part labels (PDF preview)
             labelVisible: false,
             labelTitle: '',
@@ -741,19 +760,55 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
             }
         },
-        // ── Part labels ────────────────────────────────────────────
-        // One label per ordered unit (at least one), as on Order Batches.
-        labelUnits(row) {
-            return Math.max(1, Math.floor(Number(row && row.orderQty)) || 0)
+        // ── Inline unit price (ordered lines) ─────────────────────
+        canPrice(row) {
+            return this.can('spp:order:supply') && row.status === 'ordered'
         },
+        startPriceEdit(row) {
+            const p = row.unitPrice != null ? row.unitPrice : row.quotedPrice
+            this.priceEdit = { id: row._id, value: p == null ? undefined : p }
+        },
+        cancelPriceEdit() {
+            this.priceEdit = { id: null, value: undefined }
+        },
+        // Enter: blur first so el-input-number commits, then save.
+        priceEnter(evt, row) {
+            if (evt && evt.target) evt.target.blur()
+            this.$nextTick(() => this.savePrice(row))
+        },
+        async savePrice(row) {
+            if (this.priceEdit.id !== row._id) return
+            const v = Number(this.priceEdit.value)
+            if (this.priceEdit.value == null || this.priceEdit.value === '' || isNaN(v) || v < 0) {
+                this.$message.warning(this.$tp('Enter a unit price of 0 or more')); return
+            }
+            const price = Math.round(v * 100) / 100
+            if (price === row.unitPrice) { this.cancelPriceEdit(); return }
+            this.priceSaving = true
+            try {
+                const r = await priceOrder(row._id, price)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(row, 'unitPrice', r.unitPrice)
+                this.$set(row, 'lineTotal', r.lineTotal)
+                this.$message.success(this.$tp('Price saved'))
+                this.cancelPriceEdit()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to save the prices')))
+            } finally {
+                this.priceSaving = false
+            }
+        },
+        // ── Part labels ────────────────────────────────────────────
+        // ONE label (user ask 2026-09-30): the copies are set in the
+        // printer dialog.
         printLineLabels(row) {
             this.cleanupLabels()
             try {
-                const build = () => buildSppLineLabelsPdf(row, this.labelUnits(row))
+                const build = () => buildSppLineLabelsPdf(row, 1)
                 this.labelBuild = build
                 this.labelFileName = sppLabelFileName({ batchNo: row.orderNo }, row)
                 this.labelUrl = build().output('bloburl') + '#toolbar=0'
-                this.labelTitle = this.$tp('Labels') + ' — ' + (row.sku || row.productName) + ' (' + this.labelUnits(row) + ')'
+                this.labelTitle = this.$tp('Label') + ' — ' + (row.sku || row.productName)
                 this.labelVisible = true
             } catch (e) {
                 this.$message.error(this.$tp('Could not build the labels'))
@@ -864,6 +919,13 @@ export default {
 .spp-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
 .spp-more { margin-left: 4px; color: #909399; }
 .spp-act-label { margin-left: 4px; }
+/* inline unit price (ordered lines) */
+.spp-pview { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; padding: 2px 4px; border-radius: 4px; &:hover { background: #f5f7fa; .spp-pencil { opacity: 1; } } }
+.spp-pencil { font-size: 11px; color: #409eff; opacity: 0; transition: opacity .15s; }
+.spp-pedit { display: inline-flex; align-items: center; gap: 2px; }
+.spp-pinput { width: 66px; ::v-deep .el-input__inner { padding: 0 6px; text-align: right; } }
+.spp-psave { color: #67c23a; padding: 2px; }
+.spp-pcancel { color: #909399; padding: 2px; }
 .spp-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spp-confirm { color: #0ea5a5; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
