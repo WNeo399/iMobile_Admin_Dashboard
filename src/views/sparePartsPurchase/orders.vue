@@ -156,15 +156,16 @@
                         <span class="spp-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span>
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Actions')" align="center" :width="compact ? 108 : 150" fixed="right">
+                <el-table-column :label="$tp('Actions')" align="center" :width="compact ? 124 : 176" fixed="right">
                     <template slot-scope="s">
                         <!-- Details is always one click away; the rest sits under "…".
                              Small screens: icons only, the words in tooltips. -->
                         <el-tooltip :content="$tp('Details')" placement="top">
                             <el-button size="mini" type="text" icon="el-icon-view" @click="openDetail(s.row)" />
                         </el-tooltip>
-                        <!-- Ordered: its part label — one; copies are set when printing. -->
-                        <el-tooltip v-if="s.row.status === 'ordered'" :content="$tp('Print label')" placement="top">
+                        <!-- The part label, on any line (was ordered-only until 2026-09-30) —
+                             one; copies are set when printing. -->
+                        <el-tooltip :content="$tp('Print label')" placement="top">
                             <el-button size="mini" type="text" icon="el-icon-printer" class="spp-act-label" @click="printLineLabels(s.row)" />
                         </el-tooltip>
                         <el-tooltip v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
