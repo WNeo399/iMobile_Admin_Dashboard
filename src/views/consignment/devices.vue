@@ -20,6 +20,14 @@
                 <span class="cd-chip-dot" :style="{ background: s.color }" />
                 {{ $tp(s.label) }} <b>{{ counts[s.value] || 0 }}</b>
             </div>
+            <!-- Received and unsold past the consignment window (the old
+                 sheets' "Expired On" = received + 90 days): due back. -->
+            <div class="cd-chip" :class="{ active: statusFilter === 'overdue' }"
+                :style="statusFilter === 'overdue' ? { borderColor: '#F56C6C' } : {}"
+                @click="toggleStatus('overdue')">
+                <span class="cd-chip-dot" style="background: #F56C6C" />
+                {{ $tp('Over {n} days', { n: consignDays }) }} <b>{{ counts.overdue || 0 }}</b>
+            </div>
         </div>
 
         <div class="cd-toolbar">
@@ -42,7 +50,7 @@
                 {{ $tp('Mark Received') }} ({{ eligible('in-transit').length }})
             </el-button>
             <el-button v-hasPermi="['consign:device:sell']" size="small" type="success" plain
-                :disabled="!eligible('received').length" @click="doAction('sell', 'received', $tp('Mark the selected devices as sold?'))">
+                :disabled="!eligible('received').length" @click="openSell">
                 {{ $tp('Mark Sold') }} ({{ eligible('received').length }})
             </el-button>
             <el-button v-hasPermi="['consign:device:return']" size="small" type="warning" plain
@@ -92,6 +100,14 @@
             <el-table-column :label="$tp('Shop Price')" width="100" align="right">
                 <template slot-scope="s"><b>{{ money(s.row.shopPrice) }}</b></template>
             </el-table-column>
+            <!-- What the shop sold it for (or is asking while it's on the
+                 shelf) — the old sheets' "Sales Price". Never what we bill. -->
+            <el-table-column :label="$tp('Retail Price')" width="110" align="right">
+                <template slot-scope="s">
+                    <span :class="{ 'cd-dash': s.row.retailPrice == null }">{{ money(s.row.retailPrice) }}</span>
+                    <i v-if="canSetRetail(s.row)" class="el-icon-edit cd-edit" :title="$tp('Set the retail price')" @click="editRetail(s.row)" />
+                </template>
+            </el-table-column>
             <el-table-column v-if="isAdmin" :label="$tp('Shop')" prop="shopName" width="140" show-overflow-tooltip />
             <!-- The assignment batch the device went out on — click for the
                  batch detail (and its printable delivery list). -->
@@ -102,15 +118,22 @@
                     <span v-else class="cd-dash">—</span>
                 </template>
             </el-table-column>
-            <el-table-column :label="$tp('Received')" width="95" align="center">
-                <template slot-scope="s">{{ dateStr(s.row.receivedAt) }}</template>
+            <el-table-column :label="$tp('Received')" width="105" align="center">
+                <template slot-scope="s">
+                    {{ dateStr(s.row.receivedAt) }}
+                    <div v-if="s.row.status === 'received' && s.row.receivedAt" :class="['cd-due', dueTone(s.row)]">{{ dueText(s.row) }}</div>
+                </template>
             </el-table-column>
             <el-table-column :label="$tp('Sold')" width="95" align="center">
                 <template slot-scope="s">{{ dateStr(s.row.soldAt) }}</template>
             </el-table-column>
-            <el-table-column :label="$tp('Invoiced')" width="80" align="center">
+            <el-table-column :label="$tp('Invoice')" width="120" align="center">
                 <template slot-scope="s">
-                    <i v-if="s.row.invoiceId" class="el-icon-check cd-invoiced" />
+                    <template v-if="s.row.invoiceNo">
+                        <div class="cd-mono">{{ s.row.invoiceNo }}</div>
+                        <span :class="['cd-pay', s.row.paymentStatus === 'paid' ? 'paid' : 'unpaid']">{{ s.row.paymentStatus === 'paid' ? $tp('Paid') : $tp('Unpaid') }}</span>
+                    </template>
+                    <span v-else-if="s.row.status === 'sold'" class="cd-pay todo">{{ $tp('To invoice') }}</span>
                     <span v-else class="cd-dash">—</span>
                 </template>
             </el-table-column>
@@ -123,6 +146,35 @@
                 @current-change="p => { page = p; load() }"
                 @size-change="s => { pageSize = s; page = 1; load() }" />
         </div>
+
+        <!-- Mark Sold: what each one went for (optional) — the retail
+             price, kept for the record; the invoice bills the Shop Price. -->
+        <el-dialog :visible.sync="sellVisible" width="620px" append-to-body>
+            <div slot="title" class="cd-dialog-title"><i class="el-icon-sell" /> {{ $tp('Mark as sold') }}</div>
+            <div class="cd-batch-meta">{{ $tp('Enter what each device sold for, if you know it — it can be added later too.') }}</div>
+            <el-table :data="sellRows" size="mini" border max-height="360">
+                <el-table-column :label="$tp('Product')" min-width="220">
+                    <template slot-scope="s">
+                        <div class="cd-prod">{{ s.row.productName }}</div>
+                        <div class="cd-sub cd-mono">{{ s.row.imei || s.row.stockId }}</div>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$tp('Shop Price')" width="95" align="right">
+                    <template slot-scope="s">{{ money(s.row.shopPrice) }}</template>
+                </el-table-column>
+                <el-table-column :label="$tp('Sold for')" width="130">
+                    <template slot-scope="s">
+                        <el-input v-model="s.row.soldFor" size="mini" type="number" min="0" placeholder="0.00">
+                            <template slot="prefix">$</template>
+                        </el-input>
+                    </template>
+                </el-table-column>
+            </el-table>
+            <span slot="footer">
+                <el-button size="small" @click="sellVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button size="small" type="success" :loading="selling" @click="submitSell">{{ $tp('Mark {n} sold', { n: sellRows.length }) }}</el-button>
+            </span>
+        </el-dialog>
 
         <!-- Batch detail — opened from a batch number; Print lives here. -->
         <el-dialog :visible.sync="batchDlgVisible" width="720px" top="8vh" append-to-body>
@@ -226,7 +278,7 @@
 
 <script>
 import auth from '@/plugins/auth'
-import { getConsignDevices, getConsignShops, getConsignBatches, assignConsignDevices, updateConsignDeviceStatus, lookupConsignDevices } from '@/api/consignment'
+import { getConsignDevices, getConsignShops, getConsignBatches, assignConsignDevices, updateConsignDeviceStatus, lookupConsignDevices, setConsignRetailPrice } from '@/api/consignment'
 
 const STATUS_LIST = [
     { value: 'in-transit', label: 'In Transit', color: '#E6A23C', bg: '#FDF6EC' },
@@ -262,7 +314,11 @@ export default {
             assignCode: '',
             assigning: false,
             resolving: false,
-            resolved: []
+            resolved: [],
+            consignDays: 90,
+            sellVisible: false,
+            sellRows: [],
+            selling: false
         }
     },
     computed: {
@@ -310,6 +366,7 @@ export default {
                 this.rows = r.rows || []
                 this.total = r.total || 0
                 this.counts = r.counts || {}
+                if (r.consignDays) this.consignDays = r.consignDays
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to load devices')))
             } finally {
@@ -443,6 +500,73 @@ export default {
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Update failed')))
             }
+        },
+        // ── Mark Sold, with what each went for ──
+        openSell() {
+            this.sellRows = this.eligible('received').map(r => ({ ...r, soldFor: r.retailPrice == null ? '' : r.retailPrice }))
+            if (this.sellRows.length) this.sellVisible = true
+        },
+        async submitSell() {
+            const bad = this.sellRows.find(r => r.soldFor !== '' && r.soldFor != null && !this.validPrice(r.soldFor))
+            if (bad) { this.$message.warning(this.$tp('Check the price for {code}', { code: bad.imei || bad.stockId })); return }
+            const prices = {}
+            for (const r of this.sellRows) if (r.soldFor !== '' && r.soldFor != null) prices[r._id] = Number(r.soldFor)
+            this.selling = true
+            try {
+                const r = await updateConsignDeviceStatus('sell', this.sellRows.map(x => x._id), prices)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                let text = this.$tp('{n} device(s) updated', { n: r.updated })
+                if (r.skipped) text += ' · ' + this.$tp('{n} skipped (status changed elsewhere)', { n: r.skipped })
+                this.$message.success(text)
+                this.sellVisible = false
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Update failed')))
+            } finally {
+                this.selling = false
+            }
+        },
+        canSetRetail(row) {
+            return row.status !== 'returned' && (this.isAdmin || auth.hasPermi('consign:device:sell'))
+        },
+        async editRetail(row) {
+            let value
+            try {
+                const r = await this.$prompt(
+                    row.status === 'sold' ? this.$tp('What did it sell for?') : this.$tp('What is the shop asking for it?'),
+                    row.productName,
+                    {
+                        inputValue: row.retailPrice == null ? '' : String(row.retailPrice),
+                        inputPlaceholder: '0.00',
+                        inputValidator: v => v === '' || v == null || this.validPrice(v) || this.$tp('Enter a valid price'),
+                        confirmButtonText: this.$tp('Save'),
+                        cancelButtonText: this.$tp('Cancel')
+                    })
+                value = r.value
+            } catch (e) { return }
+            try {
+                const r = await setConsignRetailPrice(row._id, value === '' || value == null ? null : Number(value))
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                row.retailPrice = r.retailPrice
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to save the price')))
+            }
+        },
+        // Days left in the consignment window (negative once it's overdue).
+        daysLeft(row) {
+            const start = new Date(row.receivedAt)
+            const day = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+            return this.consignDays - Math.round((day(new Date()) - day(start)) / 86400000)
+        },
+        dueText(row) {
+            const d = this.daysLeft(row)
+            if (d < 0) return this.$tp('{n} days over', { n: -d })
+            if (d === 0) return this.$tp('due back today')
+            return this.$tp('{n} days left', { n: d })
+        },
+        dueTone(row) {
+            const d = this.daysLeft(row)
+            return d < 0 ? 'over' : d <= 14 ? 'soon' : ''
         },
         // ── Assign batch (look up one Stock ID / IMEI at a time) ──
         openAssign() {
@@ -590,7 +714,15 @@ export default {
 /* A selection cell can never usefully truncate — never show "…" in it. */
 .cd-table ::v-deep .el-table-column--selection .cell { text-overflow: clip; padding-left: 0; padding-right: 0; }
 .cd-grade { margin-left: 6px; vertical-align: 1px; }
-.cd-invoiced { color: #67C23A; font-weight: 700; }
+.cd-edit { margin-left: 4px; color: #c0c4cc; cursor: pointer; }
+.cd-edit:hover { color: #409EFF; }
+.cd-due { font-size: 11px; color: #909399; margin-top: 1px; white-space: nowrap; }
+.cd-due.soon { color: #E6A23C; }
+.cd-due.over { color: #F56C6C; font-weight: 600; }
+.cd-pay { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 3px; line-height: 17px; margin-top: 2px; }
+.cd-pay.paid { color: #529b2e; background: #f0f9eb; }
+.cd-pay.unpaid { color: #F56C6C; background: #fef0f0; }
+.cd-pay.todo { color: #E6A23C; background: #fdf6ec; }
 .cd-dash { color: #c0c4cc; }
 .cd-empty { color: #909399; font-size: 13px; }
 .cd-pager { margin-top: 10px; text-align: right; }

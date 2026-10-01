@@ -38,8 +38,13 @@ export function assignConsignDevices(data) {
   return request({ url: '/consignment/devices/assign', method: 'post', data })
 }
 // action: receive | sell | return | markReturned
-export function updateConsignDeviceStatus(action, ids) {
-  return request({ url: '/consignment/devices/updateStatus', method: 'post', data: { action, ids } })
+// prices (sell only): { deviceId: what it sold for } — optional per device
+export function updateConsignDeviceStatus(action, ids, prices) {
+  return request({ url: '/consignment/devices/updateStatus', method: 'post', data: { action, ids, prices } })
+}
+// The shop's price for one device (sold for / asking); null clears it
+export function setConsignRetailPrice(id, retailPrice) {
+  return request({ url: `/consignment/devices/${id}/retailPrice`, method: 'post', data: { retailPrice } })
 }
 
 // ── Insights (admin) ──
@@ -56,4 +61,23 @@ export function getConsignInvoices(params) {
 }
 export function getConsignInvoiceDetail(id) {
   return request({ url: `/consignment/invoices/${id}`, method: 'get' })
+}
+// One invoice per shop, in one go (shopIds omitted = every shop with something to bill)
+export function generateConsignInvoicesBatch(shopIds) {
+  return request({ url: '/consignment/invoices/generate-batch', method: 'post', data: { shopIds }, timeout: 120000 })
+}
+// What invoices raised now would bill, per shop (sold, not invoiced yet)
+export function previewConsignInvoices(params) {
+  return request({ url: '/consignment/invoices/preview', method: 'get', params })
+}
+export function setConsignInvoicePaid(id, paid) {
+  return request({ url: `/consignment/invoices/${id}/payment`, method: 'post', data: { paid } })
+}
+// Entered in inFlow (true) or not (false) — the label on the invoice lists
+export function setConsignInvoiceInflow(id, recorded) {
+  return request({ url: `/consignment/invoices/${id}/inflow`, method: 'post', data: { recorded } })
+}
+// Unpaid dashboard invoices only — their devices go back to "to invoice"
+export function voidConsignInvoice(id) {
+  return request({ url: `/consignment/invoices/${id}/void`, method: 'post' })
 }

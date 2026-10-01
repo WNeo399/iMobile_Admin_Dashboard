@@ -3,10 +3,11 @@
         <el-card shadow="never" class="ph-card">
             <div class="ph-title"><i class="el-icon-coin" /> iMobile Accountant</div>
             <div class="ph-text">
-                What the My Fone shops owe iMobile, from Zoho Inventory: the total balance and how late it is,
-                what was invoiced and paid over any dates, and a statement per shop.
+                The Dashboard has the consignment invoicing — devices the shops have sold that aren't invoiced yet,
+                and the unpaid invoices. My Fone shows what the My Fone shops owe iMobile, from Zoho Inventory.
             </div>
-            <el-button type="primary" icon="el-icon-s-shop" @click="$router.push('/accountant/myfone')">My Fone</el-button>
+            <el-button type="primary" icon="el-icon-data-analysis" @click="$router.push('/accountant/dashboard')">Dashboard</el-button>
+            <el-button icon="el-icon-s-shop" @click="$router.push('/accountant/myfone')">My Fone</el-button>
         </el-card>
     </div>
 </template>

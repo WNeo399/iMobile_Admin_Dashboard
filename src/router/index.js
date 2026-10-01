@@ -238,14 +238,27 @@ export const moduleRoutes = [
   {
     // iMobile Accountant (2026-09-30) — what customers owe iMobile, read
     // from Zoho Inventory. Only admin and the iMobile Accountant role hold
-    // acct:* (backend routes/accountantRoutes). The unpaid-invoice
-    // Dashboard page was taken out on 2026-10-01 (not needed yet).
+    // acct:* (backend routes/accountantRoutes).
     path: "/accountant",
     component: Layout,
     redirect: "noRedirect",
     alwaysShow: true,
     meta: { title: "iMobile Accountant", icon: "el-icon-coin" },
     children: [
+      {
+        // Rebuilt 2026-10-01 around consignment invoicing: sold devices not
+        // invoiced yet (raise invoices per shop, in one go) and the unpaid
+        // consignment invoices. (The earlier unpaid-Zoho-invoice Dashboard
+        // was taken out the same day.)
+        path: "dashboard",
+        component: (resolve) => require(["@/views/accountant/dashboard"], resolve),
+        name: "AccountantDashboard",
+        meta: {
+          title: "Dashboard",
+          icon: "el-icon-data-analysis",
+          permissions: ["acct:consign:invoice"]
+        }
+      },
       {
         // The My Fone shops: what the group and each shop owes; a shop
         // opens its statement in a drawer on the same page.
@@ -795,6 +808,15 @@ export const moduleRoutes = [
             component: (resolve) => require(["@/views/consignment/devices"], resolve),
             name: "ConsignmentDevices",
             meta: { title: "Devices", icon: "el-icon-mobile-phone", permissions: ["consign:device:view"] }
+          },
+          {
+            // Invoices to the shops for what they sold: how many sold
+            // devices aren't on an invoice yet, raise one per shop when it
+            // suits (2026-10-01 — AirTable used to; those imported).
+            path: "/consignment/invoices",
+            component: (resolve) => require(["@/views/consignment/invoices"], resolve),
+            name: "ConsignmentInvoices",
+            meta: { title: "Invoices", icon: "el-icon-tickets", permissions: ["consign:invoice:manage"] }
           },
           {
             path: "/consignment/shops",

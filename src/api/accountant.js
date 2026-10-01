@@ -15,6 +15,12 @@ export function myfoneShops(refresh) {
   })
 }
 
+// One shop's unpaid invoices, from the server's cached unpaid list (no
+// extra Zoho calls) — the Accountant Dashboard's drawer.
+export function myfoneShopUnpaid(contactId) {
+  return request({ url: `/accountant/myfone/shops/${contactId}/unpaid`, method: 'get', timeout: 120000 })
+}
+
 // One shop's whole account history — invoices, payments, credit notes and
 // refunds — plus the Zoho contact. Kept 10 minutes on the server.
 export function myfoneStatement(contactId, refresh) {
