@@ -80,7 +80,8 @@ export default {
     'Distributors': '分销商',
     'iMobile Website': 'iMobile 官网',
     'Banner': '横幅广告',
-    'Spare Parts Widget': '配件浏览组件',
+    'Campaign': '邮件营销',
+    'Listing Widget': '商品列表组件',
 
     'System': '系统',
     'Users': '用户',

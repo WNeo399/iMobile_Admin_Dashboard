@@ -216,9 +216,21 @@ export const moduleRoutes = [
         component: (resolve) => require(["@/views/website/spareParts"], resolve),
         name: "WebsiteSpareParts",
         meta: {
-          title: "Spare Parts Widget",
+          title: "Listing Widget",
           icon: "el-icon-mobile-phone",
           permissions: ["web:parts:view"]
+        }
+      },
+      {
+        // Email campaigns through Zoho Campaigns: drafts (mostly from the
+        // agent API), preview, test send, send, then the summary report.
+        path: "campaigns",
+        component: (resolve) => require(["@/views/website/campaigns"], resolve),
+        name: "WebsiteCampaigns",
+        meta: {
+          title: "Campaign",
+          icon: "el-icon-message",
+          permissions: ["web:campaign:view"]
         }
       }
     ]

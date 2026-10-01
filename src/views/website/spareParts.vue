@@ -1,6 +1,7 @@
 <template>
     <!--
-        iMobile Website → Spare Parts Widget (user ask 2026-09-30): the
+        iMobile Website → Listing Widget (user ask 2026-09-30; renamed from
+        "Spare Parts Widget" 2026-10-01): the
         embeddable parts browser for the website — Brand → Series → Model →
         part type, and search; no prices, each part links to its store page
         (imobilestore.com.au/products/<Zoho item id>). Nothing to manage here:
@@ -11,7 +12,7 @@
     <div class="app-container sp-page">
         <div class="sp-head">
             <div>
-                <div class="sp-title">Spare Parts Widget</div>
+                <div class="sp-title">Listing Widget</div>
                 <div class="sp-sub">
                     The parts browser for the website — live spare parts that the online store shows, browsed by brand,
                     series and model. No prices; each part links to its page on the store.
@@ -80,12 +81,12 @@
                             title="No website is allowed yet — the widget shows an error until the website's address is added."
                             class="sp-alert" />
                         <router-link to="/system/widgetOrigin" class="sp-origin-link">
-                            Manage on System → Widget Setting (Spare Parts) <i class="el-icon-right" />
+                            Manage on System → Widget Setting (Listing) <i class="el-icon-right" />
                         </router-link>
                     </template>
                 </template>
                 <div v-else class="sp-hint">
-                    The website's address must be on the allowlist under System → Widget Setting → Spare Parts —
+                    The website's address must be on the allowlist under System → Widget Setting → Listing —
                     ask an admin to add it.
                 </div>
             </div>

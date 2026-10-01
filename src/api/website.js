@@ -47,3 +47,48 @@ export function saveBannerSettings(data) {
 export function sparePartsSummary() {
   return request({ url: '/website/spare-parts', method: 'get', timeout: 60000 })
 }
+
+// ── Email campaigns (Zoho Campaigns) — backend routes/websiteRoutes/campaigns.js ──
+const multipart = { 'Content-Type': 'multipart/form-data' } // same trap as createBanner
+
+export function listCampaigns(tab) {
+  return request({ url: '/website/campaigns', method: 'get', params: { tab } })
+}
+export function campaignOptions(refresh) {
+  return request({ url: '/website/campaigns/options', method: 'get', params: refresh ? { refresh: 1 } : {}, timeout: 60000 })
+}
+export function zohoCampaignHistory() {
+  return request({ url: '/website/campaigns/zoho-history', method: 'get', timeout: 60000 })
+}
+export function zohoCampaignReport(key) {
+  return request({ url: `/website/campaigns/zoho/${key}/report`, method: 'get', timeout: 60000 })
+}
+export function zohoCampaignRecipients(key, action, page) {
+  return request({ url: `/website/campaigns/zoho/${key}/recipients`, method: 'get', params: { action, page }, timeout: 60000 })
+}
+// data: FormData (zip | html + images[], name, subject, fromName, fromEmail, notes)
+export function createCampaign(data) {
+  return request({ url: '/website/campaigns', method: 'post', data, headers: multipart, timeout: 120000 })
+}
+export function getCampaign(id) {
+  return request({ url: `/website/campaigns/${id}`, method: 'get' })
+}
+export function updateCampaign(id, data) {
+  return request({ url: `/website/campaigns/${id}`, method: 'put', data, headers: multipart, timeout: 120000 })
+}
+export function deleteCampaign(id) {
+  return request({ url: `/website/campaigns/${id}`, method: 'delete' })
+}
+export function testCampaign(id, listKey) {
+  return request({ url: `/website/campaigns/${id}/test`, method: 'post', data: { listKey }, timeout: 120000 })
+}
+// confirmTotal: the chosen lists' contact count, typed by the reviewer
+export function sendCampaign(id, listKeys, confirmTotal) {
+  return request({ url: `/website/campaigns/${id}/send`, method: 'post', data: { listKeys, confirmTotal }, timeout: 120000 })
+}
+export function campaignReport(id, refresh) {
+  return request({ url: `/website/campaigns/${id}/report`, method: 'get', params: refresh ? { refresh: 1 } : {}, timeout: 60000 })
+}
+export function campaignRecipients(id, action, page) {
+  return request({ url: `/website/campaigns/${id}/recipients`, method: 'get', params: { action, page }, timeout: 60000 })
+}

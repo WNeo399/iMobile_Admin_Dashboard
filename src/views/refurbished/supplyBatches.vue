@@ -157,12 +157,17 @@
                     <!-- New units type their cost here; an existing unit with
                          NO cost on the register gets the same input (the
                          figure is written onto the device when the batch is
-                         saved, in the dialog's Cost currency). A recorded
-                         cost displays as-is. -->
-                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + crCurrency + ')'" width="120" align="right">
+                         saved, in the dialog's Cost currency). For staff a
+                         recorded cost displays as-is; a supplier can correct
+                         their own price, which keeps its currency. -->
+                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + crCurrency + ')'" :width="isSupplier ? 150 : 120" align="right">
                         <template slot-scope="s">
                             <el-input-number v-if="s.row.isNew || s.row.costMissing" v-model="s.row.costPrice"
                                 size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
+                            <div v-else-if="isSupplier" class="sble-own">
+                                <span class="sb-dim">{{ s.row.currency || 'AUD' }}</span>
+                                <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
+                            </div>
                             <template v-else>
                                 {{ s.row.costPrice == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.costPrice).toFixed(2) }}
                             </template>
@@ -552,6 +557,10 @@ export default {
                 tracking: batch.tracking || '',
                 lines: (batch.lines || []).map(l => {
                     const supplierId = (l.supplier && String(l.supplier.id)) || ''
+                    // A supplier is served their own charge as `price`
+                    // (never our cost) — reading costPrice here made every
+                    // priced line look unpriced.
+                    const figure = this.isSupplier ? l.price : l.costPrice
                     return {
                         deviceId: String(l.deviceId),
                         imei: l.imei,
@@ -559,9 +568,10 @@ export default {
                         color: l.color || '',
                         storage: l.storage || '',
                         grade: l.grade || '',
-                        costPrice: l.costPrice == null ? undefined : l.costPrice,
+                        costPrice: figure == null ? undefined : figure,
                         currency: l.currency || 'AUD',
-                        costMissing: l.costPrice == null,
+                        costMissing: figure == null,
+                        origCost: figure == null ? undefined : figure,
                         supplierId,
                         origSupplierId: supplierId
                     }
@@ -742,6 +752,7 @@ export default {
                 // No cost on the register yet — the dialog can fill it
                 // (written back to the device on save).
                 costMissing: d.costPrice == null,
+                origCost: d.costPrice == null ? undefined : d.costPrice,
                 supplierId,
                 origSupplierId: supplierId
             })
@@ -795,6 +806,12 @@ export default {
                         if (l.costMissing && l.costPrice != null && l.costPrice !== '') {
                             u.costPrice = l.costPrice
                             u.currency = this.crCurrency
+                        } else if (this.isSupplier && !l.costMissing && l.costPrice != null && l.costPrice !== '' &&
+                            Number(l.costPrice) !== Number(l.origCost)) {
+                            // a supplier correcting their price on an
+                            // already-priced unit — in that unit's currency
+                            u.costPrice = l.costPrice
+                            u.currency = l.currency
                         }
                         if (l.supplierId !== l.origSupplierId) u.supplierId = l.supplierId
                         return u
@@ -913,6 +930,7 @@ export default {
 .sble-model { flex: 1; min-width: 120px; }
 .sble-small { width: 100px; }
 .sble-cost { width: 90px; }
+.sble-own { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 .sb-scan-row { display: flex; align-items: center; gap: 8px; }
 .sb-scan-input { flex: 1; min-width: 0; }
 .sb-cur-label { font-size: 12px; color: #909399; white-space: nowrap; }

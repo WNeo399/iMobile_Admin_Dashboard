@@ -111,6 +111,10 @@ export function renameInflowDispatchUpload(id, data) {
 export function setInflowDispatchCustomer(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/customer`, method: 'post', data })
 }
+// Oscar Mobile return-code prefix (supplier cards print SS-<prefix>-<barcode>)
+export function setInflowDispatchReturnCode(id, data) {
+  return request({ url: `/inflow/dispatch/manual/${id}/return-code`, method: 'post', data })
+}
 // The logged-in customer's own dispatch status (portal)
 export function getMyInflowDispatch() {
   return request({ url: '/inflow/dispatch/mine', method: 'get' })

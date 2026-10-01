@@ -331,6 +331,21 @@
                 </el-tabs>
             </div>
             <span slot="footer">
+                <!-- Oscar Mobile's supplier cards print SS-<prefix>-<barcode>:
+                     the prefix is typed here (or at upload) and saved on the
+                     record — on Enter, when leaving the box, or just before
+                     a print. -->
+                <div v-if="dispatchTab === 'dispatch' && dispatchRecord && isOscarName(dispatchRecord.customerName)"
+                    class="od-rc" :title="returnCodeExample">
+                    <span class="od-rc-label">Return code</span>
+                    <span class="od-rc-fix">SS-</span>
+                    <el-input ref="returnPrefixInput" v-model="returnPrefix.value" size="small" placeholder="e.g. 310826"
+                        :class="['od-rc-input', { 'is-missing': !String(dispatchRecord.faultyCodePrefix || '').trim() }]"
+                        @keyup.enter.native="saveReturnPrefix(true)" @blur="saveReturnPrefix(false)" />
+                    <span class="od-rc-fix">-&lt;barcode&gt;</span>
+                    <i v-if="returnPrefix.saving" class="el-icon-loading od-rc-state" />
+                    <i v-else-if="returnPrefix.saved" class="el-icon-circle-check od-rc-state od-rc-ok" />
+                </div>
                 <el-button size="small" @click="dispatchVisible = false">Close</el-button>
                 <!-- Item labels straight from the order — no batch needed (the
                      label's date is today). Counts follow the REMAINING
@@ -574,7 +589,7 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
+import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
 import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBarcodeLabelsPdf, buildOscarCardLabelsPdf } from '@/utils/dispatchItemLabelPdf'
@@ -620,6 +635,8 @@ export default {
             batchDetailBatch: null,
             // Inline rename of the record title in the dialog header.
             titleEdit: { on: false, value: '', saving: false },
+            // Oscar Mobile return-code prefix, as typed in the dialog footer
+            returnPrefix: { value: '', saving: false, saved: false },
             batchEditVisible: false,
             batchEditNo: null,
             batchEditLines: [],
@@ -658,6 +675,12 @@ export default {
         }
     },
     computed: {
+        // "e.g. SS-310826-6971234567890" from the first line with a barcode
+        returnCodeExample() {
+            const li = ((this.dispatchRecord && this.dispatchRecord.lineItems) || []).find(l => String(l.sku || '').trim())
+            const prefix = String(this.returnPrefix.value || '').trim() || '<prefix>'
+            return `Printed on each supplier card as SS-<prefix>-<barcode>${li ? `, e.g. SS-${prefix}-${String(li.sku).trim()}` : ''}`
+        },
         uploadPendingCount() {
             return this.uploadRows.filter(r => !r.sku).length
         },
@@ -778,6 +801,7 @@ export default {
         // ── Dispatch dialog + scan-to-batch ──────────────────────────
         openDispatch(row) {
             this.dispatchRecord = row
+            this.returnPrefix = { value: row.faultyCodePrefix || '', saving: false, saved: false }
             this.lineOrder = this.sortedLineOrder(row.lineItems || [])
             this.dispatchTab = 'dispatch'
             this.lineFilter = 'all'
@@ -811,6 +835,7 @@ export default {
         },
         resetDispatch() {
             this.dispatchRecord = null
+            this.returnPrefix = { value: '', saving: false, saved: false }
             this.titleEdit = { on: false, value: '', saving: false }
             this.lineOrder = []
             this.batchQty = {}
@@ -1274,9 +1299,45 @@ export default {
         oscarPrefixMissing() {
             const rec = this.dispatchRecord || {}
             if (!this.isOscarName(rec.customerName)) return false
+            this.saveReturnPrefix(false) // a code typed but not yet saved prints as typed
             if (String(rec.faultyCodePrefix || '').trim()) return false
-            this.$message.warning('This Oscar Mobile record has no faulty-code prefix — re-pick the customer in the Link dialog to add one.')
+            this.$message.warning('Enter the return code (bottom left) before printing Oscar Mobile labels.')
+            this.$nextTick(() => this.$refs.returnPrefixInput && this.$refs.returnPrefixInput.focus())
             return true
+        },
+        // Saves the typed return-code prefix when it changed. The record is
+        // updated at once (so a print right after uses it) and put back if
+        // the save fails. Enter hands the cursor back to the scan box.
+        async saveReturnPrefix(backToScan) {
+            const rec = this.dispatchRecord
+            if (!rec || !rec._id) return
+            const value = String(this.returnPrefix.value || '').trim()
+            const before = String(rec.faultyCodePrefix || '').trim()
+            if (backToScan) this.$nextTick(() => this.$refs.scanInput && this.$refs.scanInput.focus())
+            if (value === before) return
+            if (/\s/.test(value)) {
+                this.$message.warning('The return code can\'t have spaces.')
+                return
+            }
+            this.$set(rec, 'faultyCodePrefix', value || null)
+            this.returnPrefix.saving = true
+            this.returnPrefix.saved = false
+            try {
+                const r = await setInflowDispatchReturnCode(rec._id, { faultyCodePrefix: value })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(rec, 'faultyCodePrefix', r.faultyCodePrefix || null)
+                if (this.dispatchRecord === rec) {
+                    this.returnPrefix.saved = true
+                    clearTimeout(this.returnPrefixTimer)
+                    this.returnPrefixTimer = setTimeout(() => { this.returnPrefix.saved = false }, 2500)
+                }
+            } catch (e) {
+                this.$set(rec, 'faultyCodePrefix', before || null)
+                if (this.dispatchRecord === rec) this.returnPrefix.value = before
+                this.$message.error(this.msg(e, 'Failed to save the return code'))
+            } finally {
+                this.returnPrefix.saving = false
+            }
         },
         openBatchEdit(batch) {
             const items = (this.dispatchRecord && this.dispatchRecord.lineItems) || []
@@ -1648,6 +1709,13 @@ export default {
 .od-title-edit-btn { padding: 2px; color: #c0c4cc; }
 .od-title-edit-btn:hover { color: #409EFF; }
 .od-title-input { width: 240px; font-weight: 400; }
+.od-rc { float: left; display: flex; align-items: center; gap: 4px; height: 32px; font-size: 13px; color: #606266; }
+.od-rc-label { margin-right: 4px; color: #303133; font-weight: 600; }
+.od-rc-fix { font-family: Menlo, Consolas, monospace; color: #909399; }
+.od-rc-input { width: 120px; }
+.od-rc-input.is-missing ::v-deep .el-input__inner { border-color: #e6a23c; background: #fdf6ec; }
+.od-rc-state { margin-left: 4px; color: #909399; }
+.od-rc-ok { color: #67c23a; }
 .od-title-save { padding: 2px; color: #67C23A; }
 .od-title-cancel { padding: 2px; color: #909399; }
 .od-dlg-progress { font-size: 12px; font-weight: normal; color: #909399; }

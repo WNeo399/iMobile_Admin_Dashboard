@@ -262,9 +262,9 @@ const KNOWN_WIDGETS = [
     },
     {
         value: 'spare-parts',
-        label: 'Spare Parts',
+        label: 'Listing',
         description:
-            "The spare parts browser on the iMobile website: shoppers pick a brand, series and model (or search) and see the parts, each linking to its store page — no prices. The parts come from the stock register (see iMobile Website → Spare Parts Widget); the allowlist controls which sites' browsers may load them."
+            "The spare parts browser on the iMobile website: shoppers pick a brand, series and model (or search) and see the parts, each linking to its store page — no prices. The parts come from the stock register (see iMobile Website → Listing Widget); the allowlist controls which sites' browsers may load them."
     }
 ]
 
