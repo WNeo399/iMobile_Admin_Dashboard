@@ -79,6 +79,7 @@ export default {
     'Embed Ordering': '嵌入订购',
     'Distributors': '分销商',
     'iMobile Website': 'iMobile 官网',
+    'iMobile Accountant': 'iMobile 会计',
     'Banner': '横幅广告',
     'Campaign': '邮件营销',
     'Listing Widget': '商品列表组件',

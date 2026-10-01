@@ -2,7 +2,8 @@
 // page, batch view). Same stock and layout family as the Order Dispatch item
 // label (utils/dispatchItemLabelPdf.js), pared down to what the parts team
 // asked for: the product name and the SKU (as a Code 128 barcode with the
-// digits under it). No date, no batch number.
+// digits under it), plus the print date as a three-character code in the
+// bottom-right corner (labelDateCode). No batch number.
 //
 // buildSppLineLabelsPdf(line, copies, orientation, size)  — one line, `copies` identical labels
 // buildSppBatchLabelsPdf(batch, orientation, size)        — every line, one label per unit
@@ -91,6 +92,20 @@ function painter(doc, orientation) {
     }
 }
 
+// ── Date code ───────────────────────────────────────────────────────
+// The day the label is printed, in the team's year / month / day code
+// (user rule 2026-10-01, 年月份代码): year 2023 A, 2024 B … 2028 F, one
+// letter a year from there; month January A … December L; day 1–6 as the
+// digit, 7 A … 20 N, then 21 P … 31 Z (no O — it reads as a zero).
+// 1 Oct 2026 → "DJ1", 21 Mar 2027 → "ECP".
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const DAY_CODES = [...'123456', ...'ABCDEFGHIJKLMN', ...'PQRSTUVWXYZ']
+export function labelDateCode(date = new Date()) {
+    const y = date.getFullYear() - 2023
+    if (y < 0 || y >= LETTERS.length) return ''
+    return LETTERS[y] + LETTERS[date.getMonth()] + DAY_CODES[date.getDate() - 1]
+}
+
 // ── The name on the label ───────────────────────────────────────────
 // The product name without the item's Device Brand, and without the four
 // words the team never wants on a label — iPhone, iPad, MacBook, Galaxy
@@ -130,16 +145,17 @@ export async function withLabelNames(lines) {
 
 // Draw one label onto the doc's CURRENT page. `pngCache` avoids re-rendering
 // the same barcode for every copy of a multi-unit line.
-function drawLabel(doc, line, pngCache, orientation, W) {
+function drawLabel(doc, line, pngCache, orientation, W, dateCode) {
     const p = painter(doc, orientation)
     doc.setTextColor(0)
     const sku = String((line && line.sku) || '').trim()
+    const BOTTOM_ROW = LABEL_H - 3.2 // baseline of the SKU digits and the date code
 
     // The bottom half is anchored (barcode bottom and digits never move);
     // the name prints at 10pt and, when it needs more lines, the barcode
     // gives up height down to a minimum a scanner still reads — only then
     // does the font shrink. Without a SKU the name has the whole label.
-    const BARCODE_BOTTOM = sku ? 32 : LABEL_H - MARGIN
+    const BARCODE_BOTTOM = sku ? 32 : dateCode ? BOTTOM_ROW - 3.5 : LABEL_H - MARGIN
     const BARCODE_MAX_H = 14
     const BARCODE_MIN_H = 8
     const DESC_TOP = 6.5
@@ -177,7 +193,21 @@ function drawLabel(doc, line, pngCache, orientation, W) {
         p.image(png, (W - bw) / 2, barcodeTop, bw, BARCODE_BOTTOM - barcodeTop)
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
-        p.text(sku, W / 2, LABEL_H - 3.2)
+        // centred, so the digits may run up to the date code on both sides;
+        // a long SKU shrinks rather than reach the corner
+        const dateW = dateCode ? doc.getTextWidth(dateCode) + 1.5 : 0
+        let skuSize = 8
+        while (skuSize > 6 && doc.getTextWidth(sku) > W - 2 * (MARGIN + dateW)) {
+            skuSize -= 0.5
+            doc.setFontSize(skuSize)
+        }
+        p.text(sku, W / 2, BOTTOM_ROW)
+    }
+
+    if (dateCode) {
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        p.text(dateCode, W - MARGIN - doc.getTextWidth(dateCode) / 2, BOTTOM_ROW)
     }
 }
 
@@ -201,9 +231,10 @@ export function buildSppLineLabelsPdf(line, copies, orientation = getLabelOrient
     const n = Math.max(1, Math.floor(Number(copies)) || unitCount(line) || 1)
     const doc = newLabelDoc(orientation, W)
     const pngCache = {}
+    const dateCode = labelDateCode()
     for (let i = 0; i < n; i++) {
         if (i > 0) addLabelPage(doc, orientation, W)
-        drawLabel(doc, line, pngCache, orientation, W)
+        drawLabel(doc, line, pngCache, orientation, W, dateCode)
     }
     return doc
 }
@@ -214,12 +245,13 @@ export function buildSppBatchLabelsPdf(batch, orientation = getLabelOrientation(
     const W = widthOf(size)
     const doc = newLabelDoc(orientation, W)
     const pngCache = {}
+    const dateCode = labelDateCode()
     let pages = 0
     for (const line of (batch && batch.lines) || []) {
         for (let i = 0; i < unitCount(line); i++) {
             if (pages > 0) addLabelPage(doc, orientation, W)
             pages++
-            drawLabel(doc, line, pngCache, orientation, W)
+            drawLabel(doc, line, pngCache, orientation, W, dateCode)
         }
     }
     return pages ? doc : null

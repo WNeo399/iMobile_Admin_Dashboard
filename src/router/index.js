@@ -236,6 +236,31 @@ export const moduleRoutes = [
     ]
   },
   {
+    // iMobile Accountant (2026-09-30) — what customers owe iMobile, read
+    // from Zoho Inventory. Only admin and the iMobile Accountant role hold
+    // acct:* (backend routes/accountantRoutes). The unpaid-invoice
+    // Dashboard page was taken out on 2026-10-01 (not needed yet).
+    path: "/accountant",
+    component: Layout,
+    redirect: "noRedirect",
+    alwaysShow: true,
+    meta: { title: "iMobile Accountant", icon: "el-icon-coin" },
+    children: [
+      {
+        // The My Fone shops: what the group and each shop owes; a shop
+        // opens its statement in a drawer on the same page.
+        path: "myfone",
+        component: (resolve) => require(["@/views/accountant/myfone"], resolve),
+        name: "AccountantMyFone",
+        meta: {
+          title: "My Fone",
+          icon: "el-icon-s-shop",
+          permissions: ["acct:myfone:view"]
+        }
+      }
+    ]
+  },
+  {
     // iMobile Spare Parts — the former iMobile → Spare Parts submenu,
     // promoted out of the iMobile group to its own top-level menu (2026-09),
     // sitting after iMobile Website and before Spare Parts Purchase.
