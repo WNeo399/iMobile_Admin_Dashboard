@@ -652,6 +652,12 @@
                                 </div>
                             </template>
                         </el-table-column>
+                        <el-table-column v-if="canViewPrice" label="Price" width="120" align="right">
+                            <template slot-scope="scope">
+                                <span v-if="scope.row.price">AUD {{ Number(scope.row.price).toFixed(2) }}</span>
+                                <span v-else style="color: #c0c4cc">—</span>
+                            </template>
+                        </el-table-column>
                     </el-table>
 
                     <div v-if="chosenParts.length" class="select-parts-summary">
@@ -2065,9 +2071,9 @@ export default {
             }
             return items
         },
-        // Parts prices show only inside the Send Parts dialog (and only to
-        // Admin / TechElite Admin) — every other price surface on this page
-        // was removed on request.
+        // Parts prices show only to Admin / TechElite Admin, in the Send Parts
+        // dialog and (back by request 2026-10-02) the Select Parts dialog —
+        // the detail Parts tab stays without prices.
         canViewPrice() {
             const roles = this.$store.getters.roles || []
             return roles.includes('admin') || roles.includes('techelite-admin')
