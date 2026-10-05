@@ -135,10 +135,11 @@
                 <el-button size="small" icon="el-icon-tickets" @click="openPicker">{{ $tp('Pick from open orders') }}</el-button>
             </div>
             <el-table :data="createForm.lines" size="mini" border max-height="380" :empty-text="$tp('Scan a SKU or pick orders to start the batch')">
-                <el-table-column :label="$tp('Product')" min-width="240" show-overflow-tooltip>
+                <!-- the name wraps to at most 2 lines; hover for all of it -->
+                <el-table-column :label="$tp('Product')" min-width="240">
                     <template slot-scope="s">
-                        <div>{{ s.row.productName }}</div>
-                        <div class="spb-dim">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
+                        <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }}</div>
+                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Supplier')" width="150" align="center">
@@ -410,10 +411,11 @@
                 </div>
             </div>
             <el-table :data="receiveForm.lines" size="mini" border max-height="380">
-                <el-table-column :label="$tp('Product')" min-width="260" show-overflow-tooltip>
+                <!-- the name wraps to at most 2 lines; hover for all of it -->
+                <el-table-column :label="$tp('Product')" min-width="260">
                     <template slot-scope="s">
-                        <div>{{ s.row.productName }}</div>
-                        <div class="spb-dim">SKU: {{ s.row.sku || '—' }}</div>
+                        <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }}</div>
+                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}</div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Shipped Qty')" width="100" align="center">
@@ -1117,7 +1119,7 @@ export default {
 .spb-line-check { color: #409eff; font-size: 18px; }
 .spb-line-main { flex: 1; min-width: 0; line-height: 1.35; }
 .spb-line-name { font-size: 13px; color: #303133; }
-/* batch detail: product name up to 2 lines, then "…" */
+/* batch create / detail / receive: product name up to 2 lines, then "…" */
 .spb-pname { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; line-height: 1.35; }
 .spb-psku { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spb-line-status { padding: 0 6px; font-size: 10px; }
