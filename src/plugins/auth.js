@@ -61,5 +61,23 @@ export default {
   hasStrictRoleOr(roles) {
     const userRoles = (store.getters && store.getters.roles) || []
     return roles.some(r => userRoles.includes(r))
+  },
+  // Is a route with `excludeRoles` hidden from this account? An account whose
+  // only role is listed never sees it. One holding other roles too (a staff
+  // account can hold several) sees it only when one of those OTHER roles
+  // grants the route by itself — what the excluded role allows doesn't count.
+  excludedByRoles(meta) {
+    const excluded = (meta && meta.excludeRoles) || []
+    const userRoles = (store.getters && store.getters.roles) || []
+    if (!excluded.length || !userRoles.some(r => excluded.includes(r))) return false
+    const rest = userRoles.filter(r => !excluded.includes(r))
+    if (!rest.length) return true
+    if (meta.permissions) {
+      const byRole = (store.getters && store.getters.rolePermissions) || {}
+      const perms = rest.reduce((all, r) => all.concat(byRole[r] || []), [])
+      return !meta.permissions.some(p => hasPermission(perms, p))
+    }
+    if (meta.roles) return !meta.roles.some(r => rest.includes(r))
+    return false
   }
 }

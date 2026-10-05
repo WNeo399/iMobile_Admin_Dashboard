@@ -9,8 +9,9 @@ function routeAllowed(route) {
   if (meta.exclusiveRoles) return auth.hasStrictRoleOr(meta.exclusiveRoles)
   // `excludeRoles` hides a route from specific roles (strict match — admin is
   // unaffected unless listed). Lets a role get its own flattened menu entry
-  // for a page without seeing the regular nested one too.
-  if (meta.excludeRoles && auth.hasStrictRoleOr(meta.excludeRoles)) return false
+  // for a page without seeing the regular nested one too. An account holding
+  // other roles as well still sees it when one of those grants it.
+  if (auth.excludedByRoles(meta)) return false
   if (meta.permissions) return auth.hasPermiOr(meta.permissions)
   if (meta.roles) return auth.hasRoleOr(meta.roles)
   return true

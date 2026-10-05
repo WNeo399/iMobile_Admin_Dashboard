@@ -145,6 +145,16 @@ export default {
   // with dots stripped (vue-i18n reads dots as path separators). Missing
   // entries fall back to the English text, so sweeps can be incremental.
   page: {
+    // ── Home: the role picker of an account holding several roles ───
+    'Home for': '首页视图',
+    'iMobile Admin': 'iMobile 管理员',
+    'iMobile Repair Admin': 'iMobile 维修管理员',
+    'TechElite Admin': 'TechElite 管理员',
+    'iMobile Purchase': 'iMobile 采购',
+    'iMobile Accountant': 'iMobile 会计',
+    'iMobile Warehouse': 'iMobile 仓库',
+    'iMobile Front Desk': 'iMobile 前台',
+
     // ── Refurbished / Stock ─────────────────────────────────────────
     'Search IMEI / serial / model / colour…': '搜索 IMEI / 序列号 / 机型 / 颜色…',
     'Grade': '成色',

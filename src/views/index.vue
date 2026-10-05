@@ -23,6 +23,20 @@
             </span>
         </div>
 
+        <div v-else-if="homeRoles.length > 1" class="view-as-bar">
+            <!--
+                An account holding several roles (staff roles can be
+                combined) picks which role's home it looks at; the main
+                role's shows first and the choice is remembered per browser.
+            -->
+            <span class="view-as-label">
+                <i class="el-icon-s-home" /> {{ $tp('Home for') }}
+            </span>
+            <el-radio-group v-model="homeRole" size="small">
+                <el-radio-button v-for="r in homeRoles" :key="r.value" :label="r.value">{{ $tp(r.label) }}</el-radio-button>
+            </el-radio-group>
+        </div>
+
         <component :is="roleHome" />
     </div>
 </template>
@@ -67,6 +81,8 @@ const ROLE_TO_COMPONENT = {
 // localStorage key for the admin "view as" preference. Per-browser so two
 // admins on different machines can keep different preferred views.
 const VIEW_AS_STORAGE_KEY = 'home-view-as-role'
+// …and the home a multi-role account last picked.
+const HOME_ROLE_STORAGE_KEY = 'home-role'
 
 export default {
     name: 'Index',
@@ -81,9 +97,14 @@ export default {
         // Hydrate from localStorage so a reload keeps the chosen view.
         // Empty string means "fall through to the default AdminHome".
         let saved = ''
-        try { saved = localStorage.getItem(VIEW_AS_STORAGE_KEY) || '' } catch (_) { /* SSR / private mode */ }
+        let savedHome = ''
+        try {
+            saved = localStorage.getItem(VIEW_AS_STORAGE_KEY) || ''
+            savedHome = localStorage.getItem(HOME_ROLE_STORAGE_KEY) || ''
+        } catch (_) { /* SSR / private mode */ }
         return {
-            viewAsRole: saved
+            viewAsRole: saved,
+            pickedHomeRole: savedHome
         }
     },
     computed: {
@@ -99,11 +120,25 @@ export default {
             if (this.isAdmin && this.viewAsRole && ROLE_TO_COMPONENT[this.viewAsRole]) {
                 return ROLE_TO_COMPONENT[this.viewAsRole]
             }
+            return this.homeRole ? ROLE_TO_COMPONENT[this.homeRole] : 'AdminHome'
+        },
+        // The account's roles that have a home of their own, main role first.
+        homeRoles() {
             const roles = (this.$store.state.user.roles) || []
-            for (const r of roles) {
-                if (ROLE_TO_COMPONENT[r]) return ROLE_TO_COMPONENT[r]
+            const labels = this.$store.state.user.roleLabels || {}
+            return roles.filter(r => ROLE_TO_COMPONENT[r]).map(r => ({ value: r, label: labels[r] || r }))
+        },
+        // The role whose home shows: the one picked, while the account still
+        // holds it; the main role otherwise.
+        homeRole: {
+            get() {
+                const held = this.homeRoles.map(r => r.value)
+                return held.includes(this.pickedHomeRole) ? this.pickedHomeRole : (held[0] || '')
+            },
+            set(val) {
+                this.pickedHomeRole = val
+                try { localStorage.setItem(HOME_ROLE_STORAGE_KEY, val) } catch (_) { /* not remembered */ }
             }
-            return 'AdminHome'
         }
     },
     watch: {

@@ -10,6 +10,10 @@ const user = {
     nickName: '',
     avatar: '',
     roles: [],
+    // A staff account can hold several roles (main role first in `roles`):
+    // each role's display name, and what each grants by itself.
+    roleLabels: {},
+    rolePermissions: {},
     permissions: [],
     // null = unscoped (sees all). An array of shop id strings = restricted.
     accessibleShopIds: null,
@@ -38,6 +42,10 @@ const user = {
     },
     SET_PERMISSIONS: (state, permissions) => {
       state.permissions = permissions
+    },
+    SET_ROLE_DETAILS: (state, { labels, permissions }) => {
+      state.roleLabels = labels || {}
+      state.rolePermissions = permissions || {}
     },
     SET_ACCESSIBLE_SHOP_IDS: (state, ids) => {
       state.accessibleShopIds = ids
@@ -75,6 +83,7 @@ const user = {
             commit('SET_ROLES', ['ROLE_DEFAULT'])
             commit('SET_PERMISSIONS', [])
           }
+          commit('SET_ROLE_DETAILS', { labels: res.roleLabels, permissions: res.rolePermissions })
           commit('SET_ID', u.id)
           commit('SET_NAME', u.username)
           commit('SET_NICK_NAME', u.nickName || u.username)
@@ -95,6 +104,7 @@ const user = {
           commit('SET_TOKEN', '')
           commit('SET_ROLES', [])
           commit('SET_PERMISSIONS', [])
+          commit('SET_ROLE_DETAILS', {})
           commit('SET_ACCESSIBLE_SHOP_IDS', null)
           commit('SET_SHOPS', [])
           removeToken()
@@ -111,6 +121,7 @@ const user = {
         commit('SET_TOKEN', '')
         commit('SET_ROLES', [])
         commit('SET_PERMISSIONS', [])
+        commit('SET_ROLE_DETAILS', {})
         commit('SET_ACCESSIBLE_SHOP_IDS', null)
         commit('SET_SHOPS', [])
         removeToken()

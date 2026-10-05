@@ -70,8 +70,9 @@
                     <el-table-column label="Email" prop="email" min-width="200" />
                     <el-table-column label="Role" min-width="150">
                         <template slot-scope="scope">
-                            <el-tag size="mini" :type="roleTagType(scope.row.role)" effect="light">
-                                {{ roleLabel(scope.row.role) }}
+                            <el-tag v-for="r in rowRoles(scope.row)" :key="r" size="mini" :type="roleTagType(r)"
+                                effect="light" class="role-tag">
+                                {{ roleLabel(r) }}
                             </el-tag>
                         </template>
                     </el-table-column>
@@ -120,10 +121,22 @@
                     <el-input v-model="form.password" type="password" show-password
                         placeholder="At least 6 characters" />
                 </el-form-item>
-                <el-form-item label="Role" prop="role">
-                    <el-select v-model="form.role" placeholder="Select a role" style="width: 100%">
-                        <el-option v-for="r in roles" :key="r.value" :label="r.label" :value="r.value" />
+                <!--
+                    One role, or several STAFF roles together (the backend
+                    marks those `combinable`). Admin and the shop / supplier /
+                    customer roles stay an account's only role, so picking
+                    one greys the rest out — and the other way round.
+                -->
+                <el-form-item label="Role" prop="roles">
+                    <el-select v-model="form.roles" multiple placeholder="Select a role" style="width: 100%">
+                        <el-option v-for="r in roles" :key="r.value" :label="r.label" :value="r.value"
+                            :disabled="roleOptionDisabled(r)" />
                     </el-select>
+                    <div class="form-hint">
+                        Staff roles can be combined — the account gets everything each of them allows, and the
+                        first one picked is its main role. Admin and the shop, supplier and customer roles
+                        can't be combined.
+                    </div>
                 </el-form-item>
                 <!--
                     Shop selector. Repair Shop is a single-shop role (one
@@ -233,7 +246,8 @@ function emptyForm() {
         username: '',
         email: '',
         password: '',
-        role: '',
+        // Main role first; more than one only for staff roles.
+        roles: [],
         shopIds: [],
         inflowCustomerName: '',
         refurbCustomerId: null,
@@ -252,7 +266,7 @@ export default {
             list: [],
             total: 0,
             // Flat list of roles (from /users/roles). Each entry has
-            // { value, label, shopScoped, group }.
+            // { value, label, shopScoped, combinable, group }.
             roles: [],
             // Group metadata from the same endpoint. { value, label }.
             roleGroups: [],
@@ -290,7 +304,7 @@ export default {
                     { required: true, message: 'Password is required', trigger: 'blur' },
                     { min: 6, message: 'At least 6 characters', trigger: 'blur' }
                 ],
-                role: [{ required: true, message: 'Role is required', trigger: 'change' }]
+                roles: [{ type: 'array', required: true, min: 1, message: 'Role is required', trigger: 'change' }]
             },
             pwdOpen: false,
             pwdSubmitting: false,
@@ -304,19 +318,25 @@ export default {
         }
     },
     computed: {
+        // The account's main role. The role-specific fields below (shops,
+        // InFlow customer, stock source) all belong to roles that can't be
+        // combined, so the main role is the only one whenever they show.
+        primaryRole() {
+            return (this.form.roles && this.form.roles[0]) || ''
+        },
         selectedRoleShopScoped() {
-            const r = this.roles.find(x => x.value === this.form.role)
+            const r = this.roles.find(x => x.value === this.primaryRole)
             return r ? r.shopScoped : false
         },
         // Repair Shop is a single-shop role; Repair Shop Owner is multi-shop.
         selectedRoleIsRepairShop() {
-            return this.form.role === 'repair-shop'
+            return this.primaryRole === 'repair-shop'
         },
         selectedRoleIsInflowCustomer() {
-            return this.form.role === 'inflow-customer'
+            return this.primaryRole === 'inflow-customer'
         },
         selectedRoleIsPhoneSupplier() {
-            return this.form.role === 'phone-supplier'
+            return this.primaryRole === 'phone-supplier'
         },
         // Bridges the single-shop select to the form.shopIds array so the
         // model stays a consistent array type regardless of role.
@@ -356,7 +376,7 @@ export default {
         // Switching INTO repair-shop must trim any extra shops the user may
         // have had from a previous shop-owner assignment, so the single-shop
         // invariant holds before save.
-        'form.role'(newRole, oldRole) {
+        primaryRole(newRole, oldRole) {
             if (newRole === oldRole) return
             if (newRole === 'repair-shop' && Array.isArray(this.form.shopIds) && this.form.shopIds.length > 1) {
                 this.form.shopIds = this.form.shopIds.slice(0, 1)
@@ -460,7 +480,7 @@ export default {
                 username: row.username || '',
                 email: row.email || '',
                 password: '',
-                role: row.role || '',
+                roles: this.rowRoles(row),
                 shopIds: (row.shopIds || []).map(String),
                 inflowCustomerName: row.inflowCustomerName || '',
                 refurbCustomerId: null,
@@ -545,7 +565,8 @@ export default {
                     const payload = {
                         username: this.form.username,
                         email: this.form.email,
-                        role: this.form.role,
+                        role: this.primaryRole,
+                        roles: this.form.roles,
                         active: this.form.active,
                         shopIds: this.selectedRoleShopScoped ? this.form.shopIds : []
                     }
@@ -595,6 +616,24 @@ export default {
         roleLabel(role) {
             const r = this.roles.find(x => x.value === role)
             return r ? r.label : role
+        },
+        // The roles an account holds, main role first. Accounts saved before
+        // roles could be combined carry only `role`.
+        rowRoles(row) {
+            const extra = Array.isArray(row.roles) ? row.roles : []
+            return [...new Set([row.role, ...extra].filter(Boolean))]
+        },
+        // Staff roles combine with each other; every other role is an
+        // account's only one. A picked role always stays clickable so it can
+        // be taken off again.
+        roleOptionDisabled(r) {
+            const picked = this.form.roles || []
+            if (!picked.length || picked.includes(r.value)) return false
+            const pickedAllStaff = picked.every(v => {
+                const p = this.roles.find(x => x.value === v)
+                return !!(p && p.combinable)
+            })
+            return !pickedAllStaff || !r.combinable
         },
         isShopScoped(role) {
             const r = this.roles.find(x => x.value === role)
@@ -699,6 +738,10 @@ export default {
 }
 .filter-label {
     color: #909399;
+}
+
+.role-tag + .role-tag {
+    margin-left: 4px;
 }
 
 .form-hint {
