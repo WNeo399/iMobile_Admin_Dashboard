@@ -282,10 +282,11 @@
                 </el-descriptions>
                 <el-table :data="view.lines" size="mini" border max-height="400" class="spb-view-lines">
                     <el-table-column label="#" type="index" width="40" align="center" />
-                    <el-table-column :label="$tp('Product')" min-width="260" show-overflow-tooltip>
+                    <!-- the name wraps to at most 2 lines (user ask 2026-10-05); hover for all of it -->
+                    <el-table-column :label="$tp('Product')" min-width="260">
                         <template slot-scope="s">
-                            <div>{{ s.row.productName }}</div>
-                            <div class="spb-dim">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
+                            <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }}</div>
+                            <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
                         </template>
                     </el-table-column>
                     <el-table-column :label="$tp('Supplier')" width="110" align="center" show-overflow-tooltip>
@@ -1116,6 +1117,9 @@ export default {
 .spb-line-check { color: #409eff; font-size: 18px; }
 .spb-line-main { flex: 1; min-width: 0; line-height: 1.35; }
 .spb-line-name { font-size: 13px; color: #303133; }
+/* batch detail: product name up to 2 lines, then "…" */
+.spb-pname { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; line-height: 1.35; }
+.spb-psku { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spb-line-status { padding: 0 6px; font-size: 10px; }
 .spb-line-qty { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spb-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }

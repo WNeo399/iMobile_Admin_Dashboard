@@ -93,7 +93,7 @@
                         <span :class="['spo-cat-n', { 'is-zero': !catCount(c) }]">{{ catCount(c) }}</span>
                     </div>
                 </div>
-                <!-- The category's pending lines, oldest first. -->
+                <!-- The category's pending lines, by item name. -->
                 <div class="spo-lines">
                     <div v-if="!catLines.length" class="spo-lines-empty">
                         <i class="el-icon-folder-opened" />
@@ -134,10 +134,11 @@
             <div v-if="view" v-loading="viewLoading">
                 <el-table :data="view.lines" size="mini" border max-height="440">
                     <el-table-column label="#" type="index" width="40" align="center" />
-                    <el-table-column :label="$tp('Product')" min-width="280" show-overflow-tooltip>
+                    <!-- the name wraps to at most 2 lines (user ask 2026-10-05); hover for all of it -->
+                    <el-table-column :label="$tp('Product')" min-width="280">
                         <template slot-scope="s">
-                            <div>{{ s.row.productName }}</div>
-                            <div class="spo-dim">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
+                            <div class="spo-pname" :title="s.row.productName">{{ s.row.productName }}</div>
+                            <div class="spo-dim spo-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
                         </template>
                     </el-table-column>
                     <el-table-column :label="$tp('Qty')" width="70" align="center">
@@ -302,8 +303,14 @@ export default {
             for (const r of this.pending) (by[this.catOf(r)] = by[this.catOf(r)] || []).push(r)
             return by
         },
+        // A category's pending lines by item name (user ask 2026-10-05) —
+        // A→Z, numbers in order ("iPhone 9" before "iPhone 11"); the same
+        // item twice keeps the older line first.
         catLines() {
-            return this.pendingByCat[this.pick.category] || []
+            const lines = this.pendingByCat[this.pick.category] || []
+            return [...lines].sort((a, b) =>
+                String(a.productName || '').localeCompare(String(b.productName || ''), 'en', { numeric: true, sensitivity: 'base' }) ||
+                new Date(a.createdAt) - new Date(b.createdAt))
         },
         selectedCount() {
             return Object.keys(this.selected).length
@@ -766,6 +773,9 @@ export default {
 .spo-line-check { color: #409eff; font-size: 18px; }
 .spo-line-main { flex: 1; min-width: 0; line-height: 1.35; }
 .spo-line-name { font-size: 13px; color: #303133; }
+/* batch view: product name up to 2 lines, then "…" */
+.spo-pname { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; line-height: 1.35; }
+.spo-psku { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spo-line-short { color: #e6a23c; }
 .spo-line-qty { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spo-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }
