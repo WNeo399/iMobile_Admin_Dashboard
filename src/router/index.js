@@ -1055,8 +1055,9 @@ export const moduleRoutes = [
     hidden: false,
     alwaysShow: false,
     // Single visible child with alwaysShow:false renders as a top-level item.
-    // The child's meta carries the role gate; only Admin, iMobile Admin and
-    // iMobile Warehouse (2026-10-05) see the menu link and can resolve the route.
+    // The child's meta carries the role gate; only Admin, iMobile Admin,
+    // iMobile Warehouse and iMobile Front Desk (2026-10-05) see the menu link
+    // and can resolve the route.
     meta: { title: "Tools", icon: "el-icon-magic-stick" },
     children: [
       {
@@ -1066,7 +1067,7 @@ export const moduleRoutes = [
         meta: {
           title: "Tools",
           icon: "el-icon-magic-stick",
-          roles: ["admin", "imobile-admin", "imobile-warehouse"]
+          roles: ["admin", "imobile-admin", "imobile-warehouse", "imobile-front-desk"]
         }
       },
       {
@@ -1080,7 +1081,7 @@ export const moduleRoutes = [
         meta: {
           title: "Location Monitoring",
           activeMenu: "/tools",
-          roles: ["admin", "imobile-admin", "imobile-warehouse"]
+          roles: ["admin", "imobile-admin", "imobile-warehouse", "imobile-front-desk"]
         }
       }
     ]

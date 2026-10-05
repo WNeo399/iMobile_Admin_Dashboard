@@ -1893,6 +1893,10 @@ const RETURN_META = [
 const SHOP_HIDDEN_STATUSES = ['waiting-solvup', 'issue-with-solvup']
 
 const LABOR_COST = 70
+// Roles with the admin-side SQT view: parts prices, Zoho order links, the
+// Solvup statuses and the shop-group filter. iMobile Front Desk works SQT
+// like TechElite Admin (2026-10-05).
+const SQT_ADMIN_SIDE_ROLES = ['admin', 'techelite-admin', 'imobile-front-desk']
 const GST_RATE = 0.1
 
 export default {
@@ -2071,18 +2075,18 @@ export default {
             }
             return items
         },
-        // Parts prices show only to Admin / TechElite Admin, in the Send Parts
+        // Parts prices show only to the admin-side roles, in the Send Parts
         // dialog and (back by request 2026-10-02) the Select Parts dialog —
         // the detail Parts tab stays without prices.
         canViewPrice() {
             const roles = this.$store.getters.roles || []
-            return roles.includes('admin') || roles.includes('techelite-admin')
+            return roles.some(r => SQT_ADMIN_SIDE_ROLES.includes(r))
         },
-        // Only Admin / TechElite Admin get the deep-link into Zoho Inventory;
+        // Only the admin-side roles get the deep-link into Zoho Inventory;
         // other roles just see the sales order number as plain text.
         canViewZohoLink() {
             const roles = this.$store.getters.roles || []
-            return roles.includes('admin') || roles.includes('techelite-admin')
+            return roles.some(r => SQT_ADMIN_SIDE_ROLES.includes(r))
         },
         devicePurchasePrice() {
             const p = this.sendPartsCase && this.sendPartsCase.device && this.sendPartsCase.device.purchasePrice
@@ -2106,7 +2110,7 @@ export default {
         // is read-only for them.
         canSeeAdminOnlyStatuses() {
             const roles = (this.$store && this.$store.state.user.roles) || []
-            return roles.includes('admin') || roles.includes('techelite-admin')
+            return roles.some(r => SQT_ADMIN_SIDE_ROLES.includes(r))
         },
         visibleStatusMeta() {
             return this.canSeeAdminOnlyStatuses
@@ -2265,7 +2269,7 @@ export default {
         // shop-scoped ones (their scope already is their shops).
         canFilterGroups() {
             const roles = (this.$store.getters.roles) || []
-            return roles.includes('admin') || roles.includes('techelite-admin')
+            return roles.some(r => SQT_ADMIN_SIDE_ROLES.includes(r))
         },
         // The shop dropdown narrows to the selected group's members.
         shopOptions() {
