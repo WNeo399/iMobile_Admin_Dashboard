@@ -1,9 +1,11 @@
-// 60mm × 40mm (or 50mm × 40mm) part label for Spare Parts Purchase lines (Batches
-// page, batch view). Same stock and layout family as the Order Dispatch item
-// label (utils/dispatchItemLabelPdf.js), pared down to what the parts team
-// asked for: the product name and the SKU (as a Code 128 barcode with the
-// digits under it), plus the print date as a three-character code in the
-// bottom-right corner (labelDateCode). No batch number.
+// Part labels for Spare Parts Purchase lines (Purchase Order, Order Batches,
+// Batches): the SKU as a QR code, the product name, the SKU digits, and the
+// print date as a three-character code in the bottom-right corner
+// (labelDateCode). No batch number. Every size uses the same layout, scaled
+// to the label (QR on every size since 2026-10-05 — it replaced the Code 128
+// barcode), stacked and centred (user asks 2026-10-05): the QR at the top as
+// large as the room allows, the name bold under it (at most 3 lines), the SKU
+// digits bold at the bottom, the date code bottom-right on the SKU's row.
 //
 // buildSppLineLabelsPdf(line, copies, orientation, size)  — one line, `copies` identical labels
 // buildSppBatchLabelsPdf(batch, orientation, size)        — every line, one label per unit
@@ -12,32 +14,26 @@
 // `line` is a batch line ({ sku, productName, shippedQty }).
 //
 // Orientation (user ask 2026-09-30, "allow for switching"): "landscape" is
-// the 50 × 40 page; "portrait" a 40 × 50 page carrying the SAME label turned
-// 90° clockwise — for a printer whose label stock is set up the other way.
-// The choice is remembered per browser; portrait by default.
+// the label's own page; "portrait" turns the page 90° clockwise — for a
+// printer whose label stock is set up the other way. The choice is
+// remembered per browser; portrait by default.
 //
-// Size (user ask 2026-09-30): 60 × 40 (default) or 50 × 40 — the width
-// changes, the layout follows it (text and barcode use the full width).
-// 40 × 30 two across (user ask 2026-10-05, the 40*30*2500*2 roll): a page is
-// one row of the roll — two labels side by side with a 2 mm gap (82 × 30) —
-// and the layout is scaled down to the 30 mm height. Labels fill the row in
-// order; a lone last label leaves the right one blank — except a single
-// label (Purchase Order), which fills the row with itself so no label is
-// wasted. Portrait turns the whole row, as it turns a single label.
-// The 40 × 30 label carries a QR code instead of the barcode (the paper is
-// too small for a readable barcode, user 2026-10-05): the name across the
-// full width at the top (at most 3 lines), the QR (the SKU) bottom-left as
-// large as the room under it allows, the SKU digits large beside it, the
-// date code bottom-right.
+// Size: 60 × 40 (default) or 50 × 40 (user ask 2026-09-30), or 40 × 30 two
+// across (user ask 2026-10-05, the 40*30*2500*2 roll): a page is then one row
+// of the roll — two labels side by side with a 2 mm gap (82 × 30). Labels
+// fill the row in order; a lone last label leaves the right one blank —
+// except a single label (Purchase Order), which fills the row with itself so
+// no label is wasted. Portrait turns the whole row, as it turns a single label.
 
 import { jsPDF } from 'jspdf'
 import { deviceTerms } from '@/api/sparePartsPurchase'
-import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 
-// The barcode layout (the 40-high sizes): name start / sizes, barcode band, bottom row.
+// The layout per label height: margin, name size / lines, QR size range,
+// the gap between the stacked parts, SKU size, date code size.
 const LAYOUTS = {
-    40: { margin: 3, descTop: 6.5, nameFont: 10, minFont: 7, bottomRow: 3.2, barcodeGap: 8, barcodeMax: 14, barcodeMin: 8, smallFont: 8, minSmall: 6 }
+    40: { margin: 3, nameFont: 10, minFont: 7, maxLines: 3, qrMax: 22, qrMin: 13, gap: 1.2, skuFont: 9, minSku: 6, dateFont: 8, dateBase: 2.6 },
+    30: { margin: 1.8, nameFont: 8, minFont: 6, maxLines: 3, qrMax: 17, qrMin: 10, gap: 0.9, skuFont: 7, minSku: 5, dateFont: 7, dateBase: 2 }
 }
 const ACROSS_GAP = 2 // mm between the labels of a two-across row
 
@@ -61,7 +57,7 @@ const SIZE_KEY = 'spp-label-size'
 export const LABEL_SIZES = [
     { key: '60x40', w: 60, h: 40, across: 1, label: '60 × 40' },
     { key: '50x40', w: 50, h: 40, across: 1, label: '50 × 40' },
-    { key: '40x30x2', w: 40, h: 30, across: 2, qr: true, label: '40 × 30 (2 across)' }
+    { key: '40x30x2', w: 40, h: 30, across: 2, label: '40 × 30 (2 across)' }
 ]
 export function getLabelSize() {
     try {
@@ -75,25 +71,8 @@ export function setLabelSize(v) {
     try { localStorage.setItem(SIZE_KEY, v) } catch (e) { /* not remembered */ }
 }
 const sizeOf = (size) => LABEL_SIZES.find(s => s.key === size) || LABEL_SIZES[0]
-// labels printed side by side on one page with this size (1 for the 40-high sizes)
+// labels printed side by side on one page with this size (2 for 40 × 30)
 export const labelsAcross = (size) => sizeOf(size).across
-
-// Render the barcode onto an off-screen canvas at a generous pixel size so it
-// stays crisp when scaled down to label millimetres; `rotated` turns it 90°
-// clockwise for the portrait page.
-function barcodePng(value, rotated) {
-    const canvas = document.createElement('canvas')
-    JsBarcode(canvas, String(value), { format: 'CODE128', displayValue: false, margin: 0, width: 4, height: 160 })
-    if (!rotated) return canvas.toDataURL('image/png')
-    const turned = document.createElement('canvas')
-    turned.width = canvas.height
-    turned.height = canvas.width
-    const ctx = turned.getContext('2d')
-    ctx.translate(turned.width, 0)
-    ctx.rotate(Math.PI / 2)
-    ctx.drawImage(canvas, 0, 0)
-    return turned.toDataURL('image/png')
-}
 
 // Draws in the label's own W × H coordinates; `ox` is where the label starts
 // across the row (the second of a two-across row starts at W + gap). On the
@@ -186,147 +165,96 @@ export async function withLabelNames(lines) {
     return list.map(l => ({ ...l, labelName: labelName(l.productName, terms[String(l.itemId)]) }))
 }
 
-// Draw one label onto the doc's CURRENT page, `col` labels across the row.
-// `pngCache` avoids re-rendering the same barcode for every copy of a
-// multi-unit line.
+// Draw one label onto the doc's CURRENT page, `col` labels across the row,
+// stacked and centred: the QR at the top as large as the room allows, the
+// name bold across the full width under it (up to three lines — it shrinks
+// first, and only a name that still doesn't fit is cut with "…"), the SKU
+// digits bold at the bottom, the date code in the bottom-right corner on the
+// SKU's row. Without a SKU the name has the whole label. `pngCache` keeps
+// one QR per SKU for every copy of a multi-unit line.
 function drawLabel(doc, line, pngCache, orientation, size, dateCode, col = 0) {
-    if (sizeOf(size).qr) return drawQrLabel(doc, line, pngCache, orientation, size, dateCode, col)
     const { w: W, h: H } = sizeOf(size)
-    const L = LAYOUTS[H]
-    const MARGIN = L.margin
+    const L = LAYOUTS[H] || LAYOUTS[40]
+    const M = L.margin
     const p = painter(doc, orientation, H, col * (W + ACROSS_GAP))
     doc.setTextColor(0)
     const sku = String((line && line.sku) || '').trim()
-    const BOTTOM_ROW = H - L.bottomRow // baseline of the SKU digits and the date code
+    const name = String((line && (line.labelName || line.productName)) || '').replace(/\s+/g, ' ').trim() || '—'
+    const maxLines = sku ? L.maxLines : 6
+    const lineH = (fs) => fs * 0.4
+    const nameW = W - M * 2
+    const nameH = (fs, n) => fs * 0.45 + (n - 1) * lineH(fs) // cap top to the last line's descenders
 
-    // The bottom half is anchored (barcode bottom and digits never move);
-    // the name prints at its full size and, when it needs more lines, the
-    // barcode gives up height down to a minimum a scanner still reads — only
-    // then does the font shrink. Without a SKU the name has the whole label.
-    const BARCODE_BOTTOM = sku ? H - L.barcodeGap : dateCode ? BOTTOM_ROW - 3.5 : H - MARGIN
-    const BARCODE_MAX_H = L.barcodeMax
-    const BARCODE_MIN_H = L.barcodeMin
-    const DESC_TOP = L.descTop
-    const DESC_GAP = H >= 40 ? 2.4 : 1.6
-    const lineH = (fs) => fs * 0.425
+    // the SKU first — the QR gets the height left above the name. It shares
+    // the date code's row (same baseline), so it keeps clear of the code on
+    // both sides (it stays centred).
+    let skuSize = L.skuFont
+    let skuCap = 0
+    const skuBase = dateCode ? H - L.dateBase : H - M
+    if (sku) {
+        let dateW = 0
+        if (dateCode) {
+            doc.setFont('helvetica', 'normal')
+            doc.setFontSize(L.dateFont)
+            dateW = doc.getTextWidth(dateCode) + L.gap
+        }
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(skuSize)
+        while (skuSize > L.minSku && doc.getTextWidth(sku) > nameW - dateW * 2) {
+            skuSize -= 0.5
+            doc.setFontSize(skuSize)
+        }
+        skuCap = skuSize * 0.253 // the digits' height in mm
+    }
+    const qrRoom = (fs, n) => skuBase - skuCap - L.gap * 2 - nameH(fs, n) - M
 
-    const name = String((line && (line.labelName || line.productName)) || '').trim() || '—'
+    // the name: shrink until it fits the allowed lines and leaves the QR its
+    // minimum size, then cut
     doc.setFont('helvetica', 'bold')
     let fontSize = L.nameFont
     let lines
     for (;;) {
         doc.setFontSize(fontSize)
-        lines = doc.splitTextToSize(name, W - MARGIN * 2)
-        const descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
-        const room = BARCODE_BOTTOM - (descBottom + DESC_GAP)
-        if ((sku ? room >= BARCODE_MIN_H : room >= 0) || fontSize <= L.minFont) break
-        fontSize -= 0.5
-    }
-    let descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
-    while (lines.length > 1 && BARCODE_BOTTOM - (descBottom + DESC_GAP) < (sku ? BARCODE_MIN_H : 0)) {
-        lines.pop()
-        descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
-    }
-    let y = DESC_TOP
-    for (const l of lines) {
-        p.text(l, W / 2, y)
-        y += lineH(fontSize)
-    }
-
-    if (sku) {
-        const key = sku + (p.rotated ? '|r' : '')
-        const png = pngCache ? pngCache[key] || (pngCache[key] = barcodePng(sku, p.rotated)) : barcodePng(sku, p.rotated)
-        const bw = W - MARGIN * 2 - 2
-        const barcodeTop = Math.max(descBottom + DESC_GAP, BARCODE_BOTTOM - BARCODE_MAX_H)
-        p.image(png, (W - bw) / 2, barcodeTop, bw, BARCODE_BOTTOM - barcodeTop)
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(L.smallFont)
-        // centred, so the digits may run up to the date code on both sides;
-        // a long SKU shrinks rather than reach the corner
-        const dateW = dateCode ? doc.getTextWidth(dateCode) + 1.5 : 0
-        let skuSize = L.smallFont
-        while (skuSize > L.minSmall && doc.getTextWidth(sku) > W - 2 * (MARGIN + dateW)) {
-            skuSize -= 0.5
-            doc.setFontSize(skuSize)
-        }
-        p.text(sku, W / 2, BOTTOM_ROW)
-    }
-
-    if (dateCode) {
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(L.smallFont)
-        p.text(dateCode, W - MARGIN - doc.getTextWidth(dateCode) / 2, BOTTOM_ROW)
-    }
-}
-
-// The small label: the name bold and centred across the full width (up to
-// three lines — it shrinks first, and only a name that still doesn't fit is
-// cut with "…"), the QR bottom-left filling the height left under it (up
-// to 17 mm), the SKU digits large and bold beside the QR, the date code in
-// the bottom-right corner. Without a SKU the name has the whole label.
-function drawQrLabel(doc, line, pngCache, orientation, size, dateCode, col) {
-    const { w: W, h: H } = sizeOf(size)
-    const M = 1.8
-    const QR_MAX = 17
-    const p = painter(doc, orientation, H, col * (W + ACROSS_GAP))
-    doc.setTextColor(0)
-    const sku = String((line && line.sku) || '').trim()
-    const name = String((line && (line.labelName || line.productName)) || '').trim() || '—'
-    const maxLines = sku ? 3 : 6
-    const lineH = (fs) => fs * 0.4
-    const nameW = W - M * 2
-
-    // the name: shrink until it fits in the allowed lines, then cut
-    doc.setFont('helvetica', 'bold')
-    let fontSize = 8
-    let lines
-    for (;;) {
-        doc.setFontSize(fontSize)
         lines = doc.splitTextToSize(name, nameW)
-        if (lines.length <= maxLines || fontSize <= 6) break
+        const fits = lines.length <= maxLines && (!sku || qrRoom(fontSize, lines.length) >= L.qrMin)
+        if (fits || fontSize <= L.minFont) break
         fontSize -= 0.5
     }
-    if (lines.length > maxLines) {
-        lines = lines.slice(0, maxLines)
-        let last = lines[lines.length - 1]
+    let keep = Math.min(lines.length, maxLines)
+    while (sku && keep > 1 && qrRoom(fontSize, keep) < L.qrMin) keep--
+    if (lines.length > keep) {
+        lines = lines.slice(0, keep)
+        let last = lines[keep - 1]
         while (last.length > 1 && doc.getTextWidth(last + '…') > nameW) last = last.slice(0, -1)
-        lines[lines.length - 1] = last.replace(/[\s,;:–-]+$/, '') + '…'
+        lines[keep - 1] = last.replace(/[\s,;:–-]+$/, '') + '…'
     }
-    const top = M + fontSize * 0.33 // first baseline: the cap height under the margin
-    let y = top
-    for (const l of lines) {
-        p.text(l, W / 2, y)
-        y += lineH(fontSize)
-    }
-    const nameBottom = top + (lines.length - 1) * lineH(fontSize) + fontSize * 0.12 // under the descenders
 
+    // the QR at the top margin; the name centred in the height between the
+    // QR and the SKU (at the top margin without a SKU)
+    let nameTop = M
     if (sku) {
-        // the QR fills the height under the name, flush with the bottom margin
-        const qs = Math.min(QR_MAX, H - M - (nameBottom + 1.2))
-        const qy = H - M - qs
+        const room = qrRoom(fontSize, lines.length)
+        const qs = Math.min(L.qrMax, room)
         const key = 'qr|' + sku
         const png = pngCache ? pngCache[key] || (pngCache[key] = qrPng(sku)) : qrPng(sku)
-        p.image(png, M, qy, qs, qs)
-
-        // the SKU digits, as large as fit beside the QR, in the band above
-        // the date code's row
-        const x0 = M + qs + 1.6
-        const x1 = W - M
+        p.image(png, (W - qs) / 2, M, qs, qs)
+        nameTop = M + qs + L.gap + (room - qs) / 2
         doc.setFont('helvetica', 'bold')
-        let skuSize = 11
         doc.setFontSize(skuSize)
-        while (skuSize > 5.5 && doc.getTextWidth(sku) > x1 - x0) {
-            skuSize -= 0.5
-            doc.setFontSize(skuSize)
-        }
-        const bandBottom = dateCode ? H - 4.6 : H - M
-        p.text(sku, (x0 + x1) / 2, (qy + bandBottom) / 2 + skuSize * 0.15)
+        p.text(sku, W / 2, skuBase)
+    }
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(fontSize)
+    let y = nameTop + fontSize * 0.33 // first baseline: the cap height under the top
+    for (const l of lines) {
+        p.text(l, W / 2, y)
+        y += lineH(fontSize)
     }
 
     if (dateCode) {
         doc.setFont('helvetica', 'normal')
-        doc.setFontSize(7)
-        p.text(dateCode, W - M, H - 2, 'right')
+        doc.setFontSize(L.dateFont)
+        p.text(dateCode, W - M, H - L.dateBase, 'right')
     }
 }
 
