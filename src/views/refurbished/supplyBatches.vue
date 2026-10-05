@@ -349,6 +349,7 @@
 </template>
 
 <script>
+import { actsAsPhoneSupplier } from '@/utils/permission'
 import {
     getSupplyBatches, getSupplyBatch, createSupplyBatch, updateSupplyBatch,
     confirmSupplyBatch, cancelSupplyBatch,
@@ -438,7 +439,7 @@ export default {
             return totals.length ? totals : null
         },
         isSupplier() {
-            return (this.$store.getters.roles || []).includes('phone-supplier')
+            return actsAsPhoneSupplier()
         },
         // A batch line's money column: our cost for staff, the supplier's
         // own charge (line.price, served instead of cost) for a supplier.

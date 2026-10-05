@@ -29,6 +29,21 @@ export function hasPermission(userPermissions, required) {
 }
 
 /**
+ * Is the logged-in account working as a PHONE SUPPLIER on the Refurbished
+ * Device pages (own stock source only, the supplier's view of a device)?
+ * Same rule as the backend's actsAsPhoneSupplier: it holds that role and
+ * none of its OTHER roles opens the stock register by itself — an account
+ * can hold several roles, and they add up.
+ * @returns {Boolean}
+ */
+export function actsAsPhoneSupplier() {
+  const roles = (store.getters && store.getters.roles) || []
+  if (!roles.includes('phone-supplier')) return false
+  const byRole = (store.getters && store.getters.rolePermissions) || {}
+  return !roles.some(r => r !== 'phone-supplier' && hasPermission(byRole[r] || [], 'refurb:stock:view'))
+}
+
+/**
  * 字符权限校验 — true if the user holds ANY of the required permissions.
  * @param {Array} value 校验值
  * @returns {Boolean}

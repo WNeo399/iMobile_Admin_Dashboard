@@ -122,10 +122,11 @@
                         placeholder="At least 6 characters" />
                 </el-form-item>
                 <!--
-                    One role, or several STAFF roles together (the backend
-                    marks those `combinable`). Admin and the shop / supplier /
-                    customer roles stay an account's only role, so picking
-                    one greys the rest out — and the other way round.
+                    One role, or several of the roles under iMobile
+                    together (the backend marks those `combinable`). The
+                    TechElite, InFlow and Consignment roles stay an account's
+                    only role, so picking one greys the rest out — and the
+                    other way round.
                 -->
                 <el-form-item label="Role" prop="roles">
                     <el-select v-model="form.roles" multiple placeholder="Select a role" style="width: 100%">
@@ -133,9 +134,9 @@
                             :disabled="roleOptionDisabled(r)" />
                     </el-select>
                     <div class="form-hint">
-                        Staff roles can be combined — the account gets everything each of them allows, and the
-                        first one picked is its main role. Admin and the shop, supplier and customer roles
-                        can't be combined.
+                        The roles under iMobile can be combined — the account gets everything each of them
+                        allows, and the first one picked is its main role. The TechElite, InFlow and
+                        Consignment roles can't be combined.
                     </div>
                 </el-form-item>
                 <!--
@@ -318,9 +319,10 @@ export default {
         }
     },
     computed: {
-        // The account's main role. The role-specific fields below (shops,
-        // InFlow customer, stock source) all belong to roles that can't be
-        // combined, so the main role is the only one whenever they show.
+        // The account's main role. The shops and InFlow customer fields
+        // belong to roles that can't be combined, so the main role is the
+        // only one whenever they show; the stock source belongs to Phone
+        // Supplier, which can be — it shows whenever that role is picked.
         primaryRole() {
             return (this.form.roles && this.form.roles[0]) || ''
         },
@@ -336,7 +338,7 @@ export default {
             return this.primaryRole === 'inflow-customer'
         },
         selectedRoleIsPhoneSupplier() {
-            return this.primaryRole === 'phone-supplier'
+            return (this.form.roles || []).includes('phone-supplier')
         },
         // Bridges the single-shop select to the form.shopIds array so the
         // model stays a consistent array type regardless of role.
@@ -623,9 +625,9 @@ export default {
             const extra = Array.isArray(row.roles) ? row.roles : []
             return [...new Set([row.role, ...extra].filter(Boolean))]
         },
-        // Staff roles combine with each other; every other role is an
-        // account's only one. A picked role always stays clickable so it can
-        // be taken off again.
+        // The roles under iMobile combine with each other; every other
+        // role is an account's only one. A picked role always stays
+        // clickable so it can be taken off again.
         roleOptionDisabled(r) {
             const picked = this.form.roles || []
             if (!picked.length || picked.includes(r.value)) return false

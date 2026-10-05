@@ -683,6 +683,7 @@
 </template>
 
 <script>
+import { actsAsPhoneSupplier } from '@/utils/permission'
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
@@ -796,7 +797,7 @@ export default {
     },
     computed: {
         isSupplier() {
-            return (this.$store.getters.roles || []).includes('phone-supplier')
+            return actsAsPhoneSupplier()
         },
         // A plausible code is enough to enable lookup / save; the backend
         // does the authoritative check. Letters are allowed because iPads
