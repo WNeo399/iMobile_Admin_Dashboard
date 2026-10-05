@@ -264,7 +264,7 @@
                         <template slot-scope="s">{{ s.row.grade || '—' }}</template>
                     </el-table-column>
                     <el-table-column :label="$tp('Battery')" width="80" align="center">
-                        <template slot-scope="s">{{ s.row.batteryHealth == null ? '—' : s.row.batteryHealth + '%' }}</template>
+                        <template slot-scope="s">{{ Number(s.row.batteryHealth) > 0 ? s.row.batteryHealth + '%' : '—' }}</template>
                     </el-table-column>
                     <el-table-column :label="$tp('Price')" width="110" align="right">
                         <template slot-scope="s">{{ s.row.price == null ? '—' : money(s.row.price, detail.currency) }}</template>

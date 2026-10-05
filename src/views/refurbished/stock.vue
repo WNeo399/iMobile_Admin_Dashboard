@@ -92,7 +92,7 @@
             </el-table-column>
             <el-table-column :label="$tp('Battery')" width="100" align="center">
                 <template slot-scope="s">
-                    <span v-if="s.row.batteryHealth == null" class="rs-dim">—</span>
+                    <span v-if="!(Number(s.row.batteryHealth) > 0)" class="rs-dim">—</span>
                     <span v-else :class="batteryClass(s.row.batteryHealth)"
                         :title="s.row.batteryCycleCount != null ? $tp('{n} cycles', { n: s.row.batteryCycleCount }) : ''">
                         {{ s.row.batteryHealth }}%
@@ -436,7 +436,7 @@
                             <div class="rs-ident-cell">
                                 <span>{{ $tp('Battery') }}</span>
                                 <b :class="batteryClass(form.batteryHealth)">
-                                    {{ form.batteryHealth == null ? '—' : form.batteryHealth + '%' }}
+                                    {{ Number(form.batteryHealth) > 0 ? form.batteryHealth + '%' : '—' }}
                                     <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ $tp('{n} cycles', { n: form.batteryCycleCount }) }}</span>
                                 </b>
                             </div>
@@ -505,7 +505,7 @@
                         <div class="rs-ident-cell">
                             <span>{{ $tp('Battery') }}</span>
                             <b :class="batteryClass(form.batteryHealth)">
-                                {{ form.batteryHealth == null ? '—' : form.batteryHealth + '%' }}
+                                {{ Number(form.batteryHealth) > 0 ? form.batteryHealth + '%' : '—' }}
                                 <span v-if="form.batteryCycleCount != null" class="rs-cycles">· {{ $tp('{n} cycles', { n: form.batteryCycleCount }) }}</span>
                             </b>
                         </div>
@@ -859,7 +859,7 @@ export default {
                 ['Serial', b.serial], ['Manufacturer Date', b.manufacturerDate],
                 ['Temperature', b.temperature], ['Design Capacity', b.designCapacity],
                 ['Actual Design Capacity', b.actualDesignCapacity], ['Full Charge Capacity', b.fullChargeCapacity],
-                ['Cycle Count', b.cycleCount], ['Health', b.health]
+                ['Cycle Count', b.cycleCount], ['Health', b.health && parseInt(b.health) === 0 ? '—' : b.health]
             ].filter(c => c[1])
         },
         reportAnalystRows() {
@@ -1385,8 +1385,9 @@ export default {
             }).catch(() => {})
         },
         // Apple treats <80% as "service recommended"; 80-89 is worth a warning.
+        // No reading (missing, or 0%) shows as a dash, uncoloured.
         batteryClass(v) {
-            if (v == null) return ''
+            if (!(Number(v) > 0)) return ''
             if (v >= 90) return 'rs-batt-good'
             if (v >= 80) return 'rs-batt-ok'
             return 'rs-batt-low'

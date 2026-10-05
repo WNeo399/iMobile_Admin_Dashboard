@@ -67,7 +67,7 @@
                     </el-table-column>
                     <el-table-column label="Battery" width="85" align="center">
                         <template slot-scope="s">
-                            <span v-if="s.row.batteryHealth != null" :class="batteryClass(s.row.batteryHealth)">{{ s.row.batteryHealth }}%</span>
+                            <span v-if="Number(s.row.batteryHealth) > 0" :class="batteryClass(s.row.batteryHealth)">{{ s.row.batteryHealth }}%</span>
                             <span v-else class="mydev-dim">—</span>
                         </template>
                     </el-table-column>
@@ -118,7 +118,7 @@
                                     <template slot-scope="l">{{ l.row.grade || '—' }}</template>
                                 </el-table-column>
                                 <el-table-column label="Battery" width="75" align="center">
-                                    <template slot-scope="l">{{ l.row.batteryHealth != null ? l.row.batteryHealth + '%' : '—' }}</template>
+                                    <template slot-scope="l">{{ Number(l.row.batteryHealth) > 0 ? l.row.batteryHealth + '%' : '—' }}</template>
                                 </el-table-column>
                                 <el-table-column label="Price" width="100" align="right">
                                     <template slot-scope="l">{{ money(l.row.price) }}</template>
@@ -184,7 +184,7 @@
                         <template slot-scope="l">{{ l.row.grade || '—' }}</template>
                     </el-table-column>
                     <el-table-column label="Battery" width="75" align="center">
-                        <template slot-scope="l">{{ l.row.batteryHealth != null ? l.row.batteryHealth + '%' : '—' }}</template>
+                        <template slot-scope="l">{{ Number(l.row.batteryHealth) > 0 ? l.row.batteryHealth + '%' : '—' }}</template>
                     </el-table-column>
                     <el-table-column label="Price" width="100" align="right">
                         <template slot-scope="l">{{ money(l.row.price) }}</template>
@@ -204,7 +204,7 @@
                         <el-descriptions-item label="Colour">{{ detailDevice.color || '—' }}</el-descriptions-item>
                         <el-descriptions-item label="Grade">{{ detailDevice.grade || '—' }}</el-descriptions-item>
                         <el-descriptions-item label="Battery">
-                            <span v-if="detailDevice.batteryHealth != null" :class="batteryClass(detailDevice.batteryHealth)">{{ detailDevice.batteryHealth }}%</span>
+                            <span v-if="Number(detailDevice.batteryHealth) > 0" :class="batteryClass(detailDevice.batteryHealth)">{{ detailDevice.batteryHealth }}%</span>
                             <span v-else>—</span>
                         </el-descriptions-item>
                         <el-descriptions-item label="IMEI">{{ detailDevice.imei || '—' }}</el-descriptions-item>
@@ -371,7 +371,7 @@ export default {
                 ['Serial', b.serial], ['Manufacturer Date', b.manufacturerDate],
                 ['Temperature', b.temperature], ['Design Capacity', b.designCapacity],
                 ['Actual Design Capacity', b.actualDesignCapacity], ['Full Charge Capacity', b.fullChargeCapacity],
-                ['Cycle Count', b.cycleCount], ['Health', b.health]
+                ['Cycle Count', b.cycleCount], ['Health', b.health && parseInt(b.health) === 0 ? '—' : b.health]
             ].filter(c => c[1])
         },
         reportAnalystRows() {
@@ -422,7 +422,9 @@ export default {
             const x = new Date(d)
             return isNaN(x.getTime()) ? '—' : x.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
         },
+        // No reading (missing, or 0%) shows as a dash, uncoloured.
         batteryClass(h) {
+            if (!(Number(h) > 0)) return ''
             return h >= 90 ? 'mydev-batt-good' : h >= 80 ? '' : 'mydev-batt-low'
         },
         openOrderDetail(orderId) {

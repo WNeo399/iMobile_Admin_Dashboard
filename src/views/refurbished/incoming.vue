@@ -83,7 +83,7 @@
                         <el-table-column prop="color" :label="$tp('Colour')" min-width="100" />
                         <el-table-column prop="capacity" :label="$tp('Capacity')" width="90" align="center" />
                         <el-table-column :label="$tp('Battery')" width="80" align="center">
-                            <template slot-scope="s">{{ s.row.battery == null ? '—' : s.row.battery + '%' }}</template>
+                            <template slot-scope="s">{{ Number(s.row.battery) > 0 ? s.row.battery + '%' : '—' }}</template>
                         </el-table-column>
                         <el-table-column :label="$tp('Price')" width="100" align="right">
                             <template slot-scope="s">{{ money(s.row.price, upload.currency) }}</template>
@@ -210,7 +210,7 @@
                         </template>
                     </el-table-column>
                     <el-table-column :label="$tp('Battery')" width="70" align="center">
-                        <template slot-scope="s">{{ battery(s.row) == null ? '—' : battery(s.row) + '%' }}</template>
+                        <template slot-scope="s">{{ Number(battery(s.row)) > 0 ? battery(s.row) + '%' : '—' }}</template>
                     </el-table-column>
                     <!-- OUR landed cost when one is known (bold, AUD; hover
                          shows the supplier's price), else the supplier's
@@ -1340,7 +1340,7 @@ export default {
                     Colour: x.color || '',
                     Capacity: x.storage || '',
                     Grade: x.grade || '',
-                    Battery: x.batteryHealth == null ? '' : `${x.batteryHealth}%`,
+                    Battery: Number(x.batteryHealth) > 0 ? `${x.batteryHealth}%` : '',
                     'Cost Price': x.costPrice == null ? '' : Number(x.costPrice),
                     Currency: x.currency || '',
                     'Stock Source': x.stockSource || '',
