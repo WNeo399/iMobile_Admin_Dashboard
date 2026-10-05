@@ -9,7 +9,8 @@
             first, PDF, Mark paid). More is to come in this section.
           · My Fone — the My Fone shops with an outstanding balance (from the
             same cached Zoho unpaid list as the My Fone page); a shop opens a
-            drawer with its unpaid invoices.
+            drawer with its invoices in a period (last 3 months by default),
+            each Paid / Unpaid / Overdue.
     -->
     <div class="ad-page">
         <div class="ad-header">
@@ -106,7 +107,7 @@
             <div class="ad-section-head">
                 <i class="el-icon-s-shop" />
                 <span class="ad-section-title">{{ $tp('My Fone') }}</span>
-                <span class="ad-section-sub">{{ $tp('shops with an outstanding balance — click one for its unpaid invoices') }}</span>
+                <span class="ad-section-sub">{{ $tp('shops with an outstanding balance — click one for its invoices') }}</span>
             </div>
 
             <div class="ad-tiles">
@@ -167,8 +168,10 @@
 
         <consign-invoice-pdf ref="pdf" />
 
-        <!-- a My Fone shop's unpaid invoices -->
-        <el-drawer :visible.sync="drawer.visible" size="min(820px, 100vw)" :with-header="false" append-to-body>
+        <!-- a My Fone shop's invoices in a period (default the last 3 months,
+             same presets as the My Fone page), newest first, each Paid / Unpaid
+             / Overdue — from the shop's statement (user ask 2026-10-05) -->
+        <el-drawer :visible.sync="drawer.visible" size="min(860px, 100vw)" :with-header="false" append-to-body>
             <div class="ad-drawer" v-loading="drawer.loading">
                 <div class="ad-drawer-head">
                     <div class="ad-drawer-who">
@@ -178,41 +181,63 @@
                     <span class="ad-spacer" />
                     <el-button size="small" icon="el-icon-close" @click="drawer.visible = false" />
                 </div>
+                <div class="ad-drawer-period">
+                    <el-radio-group v-model="drawer.period" size="mini" @change="onDrawerPreset">
+                        <el-radio-button v-for="p in PERIODS" :key="p.key" :label="p.key">{{ $tp(p.label) }}</el-radio-button>
+                    </el-radio-group>
+                    <el-date-picker v-model="drawer.range" type="daterange" size="mini" unlink-panels :range-separator="$tp('to')"
+                        :start-placeholder="$tp('From')" :end-placeholder="$tp('To')" value-format="yyyy-MM-dd" format="dd MMM yyyy"
+                        :clearable="false" class="ad-drawer-range" @change="onDrawerRange" />
+                </div>
                 <div class="ad-drawer-sum">
                     <div class="ad-drawer-fig">
-                        <div class="ad-tile-label">{{ $tp('Outstanding') }}</div>
+                        <div class="ad-tile-label">{{ $tp('Invoiced') }}</div>
+                        <div class="ad-drawer-value">{{ money(drawerInvoiced) }}</div>
+                        <div class="ad-dim">{{ $tp('{n} invoice(s) in the period', { n: drawerRows.length }) }}</div>
+                    </div>
+                    <div class="ad-drawer-fig">
+                        <div class="ad-tile-label">{{ $tp('Unpaid') }}</div>
                         <div class="ad-drawer-value">{{ money(drawerOwing) }}</div>
-                        <div class="ad-dim">{{ $tp('{n} unpaid invoice(s)', { n: drawer.rows.length }) }}</div>
+                        <div class="ad-dim">
+                            {{ $tp('{n} invoice(s)', { n: drawerRows.filter(r => r.state !== 'paid').length }) }}
+                            <template v-if="drawer.contact"> · {{ $tp('{amount} owing in total', { amount: money(drawer.contact.outstanding) }) }}</template>
+                        </div>
                     </div>
                     <div class="ad-drawer-fig">
                         <div class="ad-tile-label">{{ $tp('Overdue') }}</div>
                         <div :class="['ad-drawer-value', { 'ad-red': drawerOverdue }]">{{ money(drawerOverdue) }}</div>
-                        <div class="ad-dim">{{ $tp('{n} invoice(s)', { n: drawer.rows.filter(r => r.daysOverdue > 0).length }) }}</div>
+                        <div class="ad-dim">{{ $tp('{n} invoice(s)', { n: drawerRows.filter(r => r.state === 'overdue').length }) }}</div>
                     </div>
                 </div>
-                <el-table :data="drawer.rows" size="small" border class="ad-drawer-table" :empty-text="drawer.loading ? $tp('Loading…') : $tp('No unpaid invoices')">
-                    <el-table-column :label="$tp('Invoice')" width="130">
+                <el-table :data="drawerRows" size="small" border class="ad-drawer-table" :empty-text="drawer.loading ? $tp('Loading…') : $tp('No invoices in this period')">
+                    <el-table-column :label="$tp('Invoice')" width="115">
                         <template slot-scope="s">
                             <a :href="zohoInvoice(s.row.invoiceId)" target="_blank" rel="noopener" class="ad-link ad-mono" :title="$tp('Open in Zoho')">{{ s.row.invoiceNumber }}</a>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Order No.')" width="120">
+                    <el-table-column :label="$tp('Order No.')" width="110">
                         <template slot-scope="s"><span class="ad-mono">{{ s.row.orderNumber || '—' }}</span></template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Date')" width="110">
+                    <el-table-column :label="$tp('Date')" width="100">
                         <template slot-scope="s">{{ fmtYmd(s.row.date) }}</template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Due')" min-width="160">
-                        <template slot-scope="s">
-                            {{ fmtYmd(s.row.dueDate) }}
-                            <span v-if="s.row.daysOverdue > 0" :class="['ad-late', lateTone(s.row.daysOverdue)]">{{ $tp('{n} days late', { n: s.row.daysOverdue.toLocaleString('en-AU') }) }}</span>
-                        </template>
+                    <el-table-column :label="$tp('Due')" width="100">
+                        <template slot-scope="s">{{ fmtYmd(s.row.dueDate) }}</template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Total')" width="105" align="right">
+                    <el-table-column :label="$tp('Total')" width="95" align="right">
                         <template slot-scope="s">{{ money(s.row.total) }}</template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Balance due')" width="115" align="right">
-                        <template slot-scope="s"><b>{{ money(s.row.balance) }}</b></template>
+                    <el-table-column :label="$tp('Balance due')" width="100" align="right">
+                        <template slot-scope="s">
+                            <b v-if="s.row.balance > 0">{{ money(s.row.balance) }}</b>
+                            <span v-else class="ad-dim">—</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column :label="$tp('Status')" min-width="180">
+                        <template slot-scope="s">
+                            <span :class="['ad-inv-state', 'is-' + s.row.state]">{{ $tp(STATE_LABEL[s.row.state]) }}</span>
+                            <span v-if="s.row.state === 'overdue'" :class="['ad-late', lateTone(s.row.daysOverdue)]">{{ $tp('{n} days late', { n: s.row.daysOverdue.toLocaleString('en-AU') }) }}</span>
+                        </template>
                     </el-table-column>
                 </el-table>
             </div>
@@ -222,12 +247,16 @@
 
 <script>
 import { getConsignInvoices, setConsignInvoicePaid } from '@/api/consignment'
-import { myfoneShops, myfoneShopUnpaid } from '@/api/accountant'
+import { myfoneShops, myfoneStatement } from '@/api/accountant'
+import { PERIODS, periodBounds, todayYmd } from '@/utils/periods'
 import ConsignReadyToInvoice from '@/views/consignment/components/ConsignReadyToInvoice'
 import ConsignInvoicePdf from '@/views/consignment/components/ConsignInvoicePdf'
 import inflowMark from '@/views/consignment/components/inflowMark'
 
 const DAY = 86400000
+// An invoice's state in the shop drawer: settled, owing and not due yet, or
+// past its due date (the one-month term the backend works out).
+const STATE_LABEL = { paid: 'Paid', unpaid: 'Unpaid', overdue: 'Overdue' }
 
 export default {
     name: 'AccountantDashboard',
@@ -245,7 +274,10 @@ export default {
             mfLoading: false,
             mfFetchedAt: null,
             mfStale: false,
-            drawer: { visible: false, loading: false, shop: null, rows: [] },
+            // the shop drawer: the shop's whole statement, filtered to a period
+            drawer: { visible: false, loading: false, shop: null, contact: null, entries: [], period: 'last3', range: [] },
+            PERIODS,
+            STATE_LABEL,
             nowTick: Date.now()
         }
     },
@@ -282,11 +314,46 @@ export default {
         mfOldest() {
             return this.owingShops.map(s => s.oldestDue).filter(Boolean).sort()[0] || null
         },
+        // the shop's first invoice — where "All time" starts
+        drawerFirst() {
+            const d = this.drawer.entries.filter(e => e.kind === 'invoice' && e.date).map(e => e.date).sort()
+            return d[0] || ''
+        },
+        drawerBounds() {
+            return periodBounds(this.drawer.period, this.drawer.range, this.drawerFirst)
+        },
+        // every invoice dated in the period, newest first, with its state
+        drawerRows() {
+            const { from, to } = this.drawerBounds
+            const today = todayYmd()
+            return this.drawer.entries
+                .filter(e => e.kind === 'invoice' && e.date && (!from || e.date >= from) && (!to || e.date <= to))
+                .map(e => {
+                    const balance = Number(e.balance) || 0
+                    const owing = balance > 0.005
+                    const overdue = owing && e.dueDate && e.dueDate < today
+                    return {
+                        invoiceId: e.id,
+                        invoiceNumber: e.number,
+                        orderNumber: e.reference,
+                        date: e.date,
+                        dueDate: e.dueDate,
+                        total: Number(e.debit) || 0,
+                        balance: owing ? balance : 0,
+                        state: !owing ? 'paid' : overdue ? 'overdue' : 'unpaid',
+                        daysOverdue: overdue ? this.daysSince(e.dueDate) : 0
+                    }
+                })
+                .sort((a, b) => b.date.localeCompare(a.date) || String(b.invoiceNumber).localeCompare(String(a.invoiceNumber)))
+        },
+        drawerInvoiced() {
+            return this.drawerRows.reduce((t, r) => t + r.total, 0)
+        },
         drawerOwing() {
-            return this.drawer.rows.reduce((t, r) => t + r.balance, 0)
+            return this.drawerRows.reduce((t, r) => t + r.balance, 0)
         },
         drawerOverdue() {
-            return this.drawer.rows.filter(r => r.daysOverdue > 0).reduce((t, r) => t + r.balance, 0)
+            return this.drawerRows.filter(r => r.state === 'overdue').reduce((t, r) => t + r.balance, 0)
         }
     },
     created() {
@@ -353,16 +420,37 @@ export default {
                 this.mfLoading = false
             }
         },
+        // The shop's statement (every invoice, live from Zoho, kept 10 minutes
+        // per shop); the drawer opens on the last 3 months each time.
         async openShop(row) {
-            this.drawer = { visible: true, loading: true, shop: { name: row.name, email: row.email, phone: row.phone }, rows: [] }
-            try {
-                const r = await myfoneShopUnpaid(row.contactId)
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.drawer = { visible: true, loading: false, shop: r.shop, rows: r.rows || [] }
-            } catch (e) {
-                this.drawer.loading = false
-                this.$message.error(this.msg(e, this.$tp('Could not load the unpaid invoices')))
+            const b = periodBounds('last3')
+            this.drawer = {
+                visible: true, loading: true,
+                shop: { name: row.name, email: row.email, phone: row.phone },
+                contact: null, entries: [], period: 'last3', range: [b.from, b.to]
             }
+            try {
+                const r = await myfoneStatement(row.contactId)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const c = r.contact || {}
+                this.drawer.contact = c
+                this.drawer.shop = { name: c.name || row.name, email: c.email || row.email, phone: c.phone || row.phone }
+                this.drawer.entries = r.entries || []
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Could not load the invoices')))
+            } finally {
+                this.drawer.loading = false
+            }
+        },
+        onDrawerPreset(key) {
+            this.$nextTick(() => {
+                if (this.drawer.period !== key) return
+                const b = this.drawerBounds
+                this.drawer.range = [b.from || this.drawerFirst || '2020-01-01', b.to]
+            })
+        },
+        onDrawerRange(v) {
+            if (v && v.length === 2) this.drawer.period = 'custom'
         },
         zohoInvoice(id) {
             return `https://inventory.zoho.com/app/746138234#/invoices/${id}`
@@ -481,7 +569,13 @@ export default {
 .ad-drawer { padding: 16px 20px 24px; min-height: 100%; box-sizing: border-box; background: #f6f8fb; }
 .ad-drawer-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
 .ad-drawer-title { font-size: 18px; font-weight: 600; color: #303133; }
-.ad-drawer-sum { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.ad-drawer-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ad-drawer-range { width: 250px !important; }
+.ad-drawer-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.ad-inv-state { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 3px; padding: 0 6px; line-height: 20px; margin-right: 4px; }
+.ad-inv-state.is-paid { color: #529b2e; background: #f0f9eb; }
+.ad-inv-state.is-unpaid { color: #b88230; background: #fdf6ec; }
+.ad-inv-state.is-overdue { color: #c45656; background: #fef0f0; }
 .ad-drawer-fig { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 10px 14px; }
 .ad-drawer-value { font-size: 22px; font-weight: 600; color: #303133; margin: 2px 0; font-variant-numeric: tabular-nums; }
 .ad-drawer-table { background: #fff; }
