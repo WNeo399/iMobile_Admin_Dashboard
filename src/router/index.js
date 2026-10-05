@@ -473,6 +473,8 @@ export const moduleRoutes = [
           title: "Stock Monitoring",
           icon: "el-icon-data-line",
           permissions: ["zoho:stock:view"],
+          // iMobile Warehouse holds the stock permissions for Spare Parts only.
+          excludeRoles: ["imobile-warehouse"],
           scope: "accessories"
         }
       },
@@ -484,6 +486,7 @@ export const moduleRoutes = [
           title: "Collections",
           icon: "el-icon-files",
           permissions: ["zoho:collection:view"],
+          excludeRoles: ["imobile-warehouse"],
           scope: "accessories"
         }
       }
@@ -1052,8 +1055,8 @@ export const moduleRoutes = [
     hidden: false,
     alwaysShow: false,
     // Single visible child with alwaysShow:false renders as a top-level item.
-    // The child's meta carries the role gate; only Admin + iMobile Admin
-    // see the menu link and can resolve the route.
+    // The child's meta carries the role gate; only Admin, iMobile Admin and
+    // iMobile Warehouse (2026-10-05) see the menu link and can resolve the route.
     meta: { title: "Tools", icon: "el-icon-magic-stick" },
     children: [
       {
@@ -1063,7 +1066,7 @@ export const moduleRoutes = [
         meta: {
           title: "Tools",
           icon: "el-icon-magic-stick",
-          roles: ["admin", "imobile-admin"]
+          roles: ["admin", "imobile-admin", "imobile-warehouse"]
         }
       },
       {
@@ -1077,7 +1080,7 @@ export const moduleRoutes = [
         meta: {
           title: "Location Monitoring",
           activeMenu: "/tools",
-          roles: ["admin", "imobile-admin"]
+          roles: ["admin", "imobile-admin", "imobile-warehouse"]
         }
       }
     ]

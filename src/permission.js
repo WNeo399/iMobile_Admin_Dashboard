@@ -20,6 +20,9 @@ const isWhiteList = (path) => {
 const isRouteAllowed = (to) => {
   return to.matched.every(record => {
     const meta = record.meta || {}
+    // Hidden from these roles even when they hold the permission (same rule
+    // as the sidebar in store/modules/permission.js).
+    if (meta.excludeRoles && auth.hasStrictRoleOr(meta.excludeRoles)) return false
     if (meta.permissions) return auth.hasPermiOr(meta.permissions)
     if (meta.roles) return auth.hasRoleOr(meta.roles)
     return true

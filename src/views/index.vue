@@ -41,6 +41,7 @@ import ConsignmentShopHome from './dashboard/ConsignmentShopHome'
 import ImobilePurchaseHome from './dashboard/ImobilePurchaseHome'
 import PartsSupplierHome from './dashboard/PartsSupplierHome'
 import AccountantHome from './dashboard/AccountantHome'
+import WarehouseHome from './dashboard/WarehouseHome'
 
 // Role-aware home shell. Picks the dashboard variant that matches the user's
 // primary role; falls back to an admin-ish view for unknown roles so an
@@ -57,7 +58,8 @@ const ROLE_TO_COMPONENT = {
     'consignment-shop': 'ConsignmentShopHome',
     'imobile-purchase': 'ImobilePurchaseHome',
     'parts-supplier': 'PartsSupplierHome',
-    'imobile-accountant': 'AccountantHome'
+    'imobile-accountant': 'AccountantHome',
+    'imobile-warehouse': 'WarehouseHome'
 }
 
 // localStorage key for the admin "view as" preference. Per-browser so two
@@ -70,7 +72,8 @@ export default {
         WelcomeBanner, AdminHome, TechEliteAdminHome,
         IMobileAdminHome, IMobileRepairAdminHome,
         ShopOwnerHome, RepairShopHome, InflowCustomerHome,
-        PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome, PartsSupplierHome, AccountantHome
+        PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome, PartsSupplierHome, AccountantHome,
+        WarehouseHome
     },
     data() {
         // Hydrate from localStorage so a reload keeps the chosen view.

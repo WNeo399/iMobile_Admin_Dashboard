@@ -5,9 +5,12 @@
             <div class="ph-text">
                 The Dashboard has the consignment invoicing — devices the shops have sold that aren't invoiced yet,
                 and the unpaid invoices. My Fone shows what the My Fone shops owe iMobile, from Zoho Inventory.
+                InFlow has the sales orders and their payments, and Refurbished Device the stock, sales and consignment.
             </div>
             <el-button type="primary" icon="el-icon-data-analysis" @click="$router.push('/accountant/dashboard')">Dashboard</el-button>
             <el-button icon="el-icon-s-shop" @click="$router.push('/accountant/myfone')">My Fone</el-button>
+            <el-button icon="el-icon-s-order" @click="$router.push('/inflow/salesOrders')">InFlow Sales Orders</el-button>
+            <el-button icon="el-icon-mobile-phone" @click="$router.push('/refurbished/stock')">Refurbished Stock</el-button>
         </el-card>
     </div>
 </template>
