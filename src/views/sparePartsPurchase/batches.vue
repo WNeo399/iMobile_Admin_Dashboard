@@ -365,8 +365,9 @@
                 </el-radio-group>
                 <span class="label-orient-gap">{{ $tp('Size') }}</span>
                 <el-radio-group v-model="labelSize" size="mini" @change="onLabelSize">
-                    <el-radio-button v-for="z in LABEL_SIZES" :key="z.key" :label="z.key">{{ z.label }}</el-radio-button>
+                    <el-radio-button v-for="z in LABEL_SIZES" :key="z.key" :label="z.key">{{ $tp(z.label) }}</el-radio-button>
                 </el-radio-group>
+                <span v-if="labelSize === '40x30x2'">{{ $tp('2 labels per page, side by side') }}</span>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spb-label-frame" title="labels" />
             <span slot="footer">
