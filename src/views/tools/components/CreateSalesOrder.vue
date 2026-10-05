@@ -4,8 +4,8 @@
         <div v-if="step === 'compose'" class="step compose-step">
             <div class="intro-note">
                 <i class="el-icon-info" />
-                Order will be created against Retail / Walk-in customer.
-                Re-assign the customer (and any other fields) in Zoho
+                Order will be created against {{ cfg.placeholderParty }}.
+                Re-assign the {{ cfg.party }} (and any other fields) in Zoho
                 Inventory once it's there.
             </div>
 
@@ -113,12 +113,12 @@
                 </el-table-column>
             </el-table>
 
-            <!-- Optional notes — appended to the SO. -->
+            <!-- Optional notes — appended to the order. -->
             <el-input
                 v-model="notes"
                 type="textarea"
                 :rows="2"
-                placeholder="Notes (optional) — appears on the sales order"
+                :placeholder="`Notes (optional) — appears on the ${cfg.noun}`"
                 resize="vertical"
             />
 
@@ -142,19 +142,19 @@
                     type="primary"
                     :loading="creating"
                     :disabled="lineItems.length === 0"
-                    icon="el-icon-shopping-cart-2"
+                    :icon="cfg.icon"
                     @click="createOrder"
-                >{{ creating ? 'Creating…' : `Create Sales Order (${lineItems.length})` }}</el-button>
+                >{{ creating ? 'Creating…' : `${cfg.action} (${lineItems.length})` }}</el-button>
             </div>
         </div>
 
         <!-- ── Done step ──────────────────────────────────────────────── -->
         <div v-else-if="step === 'done'" class="step done-step">
             <div class="done-icon"><i class="el-icon-circle-check" /></div>
-            <div class="done-title">Sales order {{ createdSO.salesOrderNumber }} created</div>
+            <div class="done-title">{{ cfg.title }} {{ createdSO.number }} created</div>
             <div class="done-sub">
                 {{ lineItems.length }} line item<span v-if="lineItems.length !== 1">s</span>
-                sent to Zoho Inventory. Re-assign the customer in Zoho.
+                sent to Zoho Inventory. Re-assign the {{ cfg.party }} in Zoho.
             </div>
             <div class="step-actions center">
                 <el-button @click="reset">Create another</el-button>
@@ -168,6 +168,7 @@
 
 <script>
 import { createBuzztechSalesOrder } from '@/api/tools/buzztech'
+import { createZohoPurchaseOrder } from '@/api/tools/zohoPurchaseOrder'
 import { searchProducts, lookupProductBySku, getItemLocations } from '@/api/zoho/products/product'
 
 // Placeholder customer the SO is raised against. Staff are expected to
@@ -176,8 +177,52 @@ const PLACEHOLDER_CUSTOMER_ID = '2591985000300565735'
 
 const ZOHO_ORG_ID = '746138234'
 
+// The tool comes in two kinds (Tools page: Create Sales Order / Create
+// Purchase Order, user ask 2026-10-05) — the same search / scan / list
+// flow, differing only in what is raised in Zoho Inventory and against
+// whom. A purchase order goes under the "Vendor Placeholder" vendor (the
+// backend's default), as a sales order goes under Retail / Walk-in.
+const KINDS = {
+    sales: {
+        noun: 'sales order',
+        title: 'Sales order',
+        action: 'Create Sales Order',
+        icon: 'el-icon-shopping-cart-2',
+        party: 'customer',
+        placeholderParty: 'Retail / Walk-in customer',
+        listTitle: 'Picking List',
+        zohoPath: 'salesorders',
+        // priceListId is optional — Zoho falls back to the customer's
+        // default pricebook.
+        create: (lineItems, extra) => createBuzztechSalesOrder({ customerId: PLACEHOLDER_CUSTOMER_ID, lineItems, ...extra }),
+        result: (d) => ({ id: d.salesOrderId, number: d.salesOrderNumber })
+    },
+    purchase: {
+        noun: 'purchase order',
+        title: 'Purchase order',
+        action: 'Create Purchase Order',
+        icon: 'el-icon-shopping-bag-1',
+        party: 'vendor',
+        placeholderParty: 'the Vendor Placeholder vendor',
+        listTitle: 'Purchase List',
+        zohoPath: 'purchaseorders',
+        // No rate is sent — Zoho prices each line at the item's purchase rate.
+        create: (lineItems, extra) => createZohoPurchaseOrder({ lineItems, ...extra }),
+        result: (d) => ({ id: d.purchaseOrderId, number: d.purchaseOrderNumber })
+    }
+}
+
 export default {
     name: 'CreateSalesOrder',
+    props: {
+        // 'sales' (default) or 'purchase' — see KINDS.
+        kind: { type: String, default: 'sales' }
+    },
+    computed: {
+        cfg() {
+            return KINDS[this.kind] || KINDS.sales
+        }
+    },
     data() {
         return {
             step: 'compose',
@@ -585,7 +630,7 @@ export default {
                         <td class="qty">${escapeHtml(li.qty)}</td>
                     </tr>`).join('')
 
-                const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Picking List</title>
+                const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${this.cfg.listTitle}</title>
                     <style>
                         @page { size: A4; margin: 15mm; }
                         * { box-sizing: border-box; }
@@ -603,7 +648,7 @@ export default {
                         th.qty, td.qty { width: 70px; text-align: center; }
                         td.loc { font-weight: 600; }
                     </style></head><body>
-                    <h1>Picking List</h1>
+                    <h1>${this.cfg.listTitle}</h1>
                     <div class="meta">${this.lineItems.length} item${this.lineItems.length === 1 ? '' : 's'} · ${dateStr}</div>
                     <table>
                         <thead><tr><th>Product</th><th class="loc">Location</th><th class="qty">Quantity</th></tr></thead>
@@ -629,7 +674,7 @@ export default {
                 }, 150)
             } catch (e) {
                 console.error('Print list failed:', e)
-                this.$message.error('Could not build the picking list.')
+                this.$message.error('Could not build the list.')
                 this.printingList = false
             }
         },
@@ -639,27 +684,21 @@ export default {
             this.creating = true
             this.lastError = ''
             try {
-                // Re-use the standalone create endpoint. priceListId is now
-                // optional — Zoho will fall back to the customer's default
-                // pricebook.
-                const payload = {
-                    customerId: PLACEHOLDER_CUSTOMER_ID,
-                    lineItems: this.lineItems.map(li => ({
-                        itemId: li.itemId,
-                        quantity: li.qty
-                    }))
-                }
+                // The kind's standalone create endpoint (sales or purchase).
+                const lineItems = this.lineItems.map(li => ({
+                    itemId: li.itemId,
+                    quantity: li.qty
+                }))
                 const trimmedNotes = (this.notes || '').trim()
-                if (trimmedNotes) payload.notes = trimmedNotes
 
-                const res = await createBuzztechSalesOrder(payload)
+                const res = await this.cfg.create(lineItems, trimmedNotes ? { notes: trimmedNotes } : {})
                 if (!res || !res.success || !res.data) {
                     throw new Error((res && res.message) || 'Create failed')
                 }
-                this.createdSO = res.data
+                this.createdSO = this.cfg.result(res.data)
                 this.step = 'done'
             } catch (e) {
-                console.error('SO create failed:', e)
+                console.error('Order create failed:', e)
                 this.lastError = this.describeError(e)
             } finally {
                 this.creating = false
@@ -675,8 +714,8 @@ export default {
             this.pendingScanCode = ''
         },
         openInZoho() {
-            if (!this.createdSO || !this.createdSO.salesOrderId) return
-            const url = `https://inventory.zoho.com/app/${ZOHO_ORG_ID}#/salesorders/${this.createdSO.salesOrderId}`
+            if (!this.createdSO || !this.createdSO.id) return
+            const url = `https://inventory.zoho.com/app/${ZOHO_ORG_ID}#/${this.cfg.zohoPath}/${this.createdSO.id}`
             window.open(url, '_blank', 'noopener,noreferrer')
         },
         describeError(e) {

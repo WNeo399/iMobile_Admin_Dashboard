@@ -90,6 +90,7 @@
             <component
                 v-if="dialogOpen && activeTool && activeTool.component"
                 :is="activeTool.component"
+                v-bind="activeTool.props || {}"
                 @close="dialogOpen = false"
             />
         </el-dialog>
@@ -110,6 +111,9 @@ import BarcodeGenerator from './components/BarcodeGenerator'
 //   - 'route'  : $router.push(`route`) — for larger tools that earn their
 //                own page (and deep-linkable URL)
 //   - 'coming-soon' / undefined : non-clickable placeholder
+//
+// `props` (optional) are passed to a dialog tool's component — one
+// component can serve two cards (Create Sales Order / Create Purchase Order).
 //
 // To add a new tool: append a row here, then either create the dialog
 // component under ./components/ or register the route in router/index.js.
@@ -132,6 +136,18 @@ const TOOLS = [
         color: 'purple',
         entry: 'dialog',
         component: CreateSalesOrder,
+        dialogWidth: '720px'
+    },
+    {
+        // The same tool as Create Sales Order, raising a purchase order.
+        id: 'create-purchase-order',
+        name: 'Create Purchase Order',
+        description: 'Search Zoho products, build a draft purchase order, then re-assign the vendor in Zoho.',
+        icon: 'el-icon-shopping-bag-1',
+        color: 'pink',
+        entry: 'dialog',
+        component: CreateSalesOrder,
+        props: { kind: 'purchase' },
         dialogWidth: '720px'
     },
     {
@@ -317,6 +333,7 @@ export default {
 .tool-icon-purple { background: #f5f3ff; color: #6d28d9; }
 .tool-icon-red    { background: #fef2f2; color: #b91c1c; }
 .tool-icon-teal   { background: #f0fdfa; color: #0f766e; }
+.tool-icon-pink   { background: #fdf2f8; color: #be185d; }
 
 .tool-body {
     flex: 1;
