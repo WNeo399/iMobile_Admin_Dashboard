@@ -595,8 +595,9 @@ export default {
         onPage(p) { this.query.page = p; this.loadItems() },
         onSize(s) { this.query.pageSize = s; this.query.page = 1; this.loadItems() },
 
-        // Re-read this item's four rates live from Zoho and swap them into
-        // the row (a green "live" tag marks refreshed rows).
+        // Re-read this item's four rates and its cost live from Zoho Inventory
+        // and swap them into the row with the recomputed flags — the server
+        // corrects the register row too (a green "live" tag marks refreshed rows).
         async checkLive(row) {
             if (row.__liveLoading) return
             this.$set(row, '__liveLoading', true)
@@ -608,6 +609,11 @@ export default {
                 this.$set(row, 'priceVip', p.vip)
                 this.$set(row, 'priceSvip', p.svip)
                 this.$set(row, 'priceWholesale', p.wholesale)
+                if (r.purchasePrice != null) this.$set(row, 'purchasePrice', r.purchasePrice)
+                if (r.flags && !(r.flagsSeq < (row.__flagsSeq || 0))) {
+                    for (const k of Object.keys(r.flags)) this.$set(row, k, r.flags[k])
+                    row.__flagsSeq = r.flagsSeq || 0
+                }
                 this.$set(row, '__live', true)
             } catch (e) {
                 this.$message.error(this.msg(e, 'Could not read the live prices'))

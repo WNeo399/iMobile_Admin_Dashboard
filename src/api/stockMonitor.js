@@ -35,8 +35,9 @@ export function getStockItemPurchaseOrders(itemId, params) {
   })
 }
 
-// The four price-list rates for one item, live from Zoho Analytics — the
-// Price Monitoring page's per-row "check live" button.
+// The four price-list rates and the cost for one item, live from Zoho
+// Inventory (the register row is corrected too) — the Price Monitoring
+// page's per-row "check live" button.
 export function getStockItemPrices(itemId) {
   return request({ url: `/stock-monitor/item/${itemId}/prices`, method: 'get', timeout: 30000 })
 }
