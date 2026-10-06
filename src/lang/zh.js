@@ -908,7 +908,7 @@ export default {
     'Unit price for {no} (¥)': '{no} 的单价（¥）',
     // ── end New Product / Special Order board ───────────────────────────
     // ── Spare Parts Purchase → Add Item ─────────────────────────────────
-    'Add Item': '添加商品',
+    'Add Item': '添加',
     'added as Pending': '以待处理状态添加',
     'Search by SKU or product name, or scan a barcode': '按 SKU 或产品名称搜索，或扫描条码',
     'in the list': '已在列表中',
