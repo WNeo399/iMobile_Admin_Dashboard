@@ -25,8 +25,9 @@
         <div class="spp-main">
             <div class="spp-topbar">
                 <!-- Open lines by default (Received / Cancelled cards show the rest);
-                     stock lines are raised from the Stock Monitoring dashboard,
-                     a product not in Zoho yet with Order New Product. Order
+                     Zoho items are added here with Add Item (or from the Stock
+                     Monitoring dashboard), a product not in Zoho yet with Order
+                     New Product. Order
                      batches and shipment batches are made on their own pages
                      (the buttons left this bar on 2026-10-06). -->
                 <!-- New Product / Special Order: the table by default (user 2026-10-06, while the
@@ -35,7 +36,10 @@
                     <el-radio-button label="board" :title="$tp('Board')"><i class="el-icon-s-grid" /><span v-if="!isMobile"> {{ $tp('Board') }}</span></el-radio-button>
                     <el-radio-button label="table" :title="$tp('Table')"><i :class="isMobile ? 'el-icon-s-order' : 'el-icon-tickets'" /><span v-if="!isMobile"> {{ $tp('Table') }}</span></el-radio-button>
                 </el-radio-group>
-                <el-button v-if="can('spp:order:create')" type="primary" size="small" icon="el-icon-plus" @click="openNewProduct">{{ $tp(activeCategory === 'Special Order' ? 'New Special Order' : 'Order New Product') }}</el-button>
+                <!-- Add Item: Zoho items as Pending lines (not on the two pinned lists) -->
+                <el-button v-if="can('spp:order:create') && !isPinned" type="primary" size="small" icon="el-icon-plus" @click="addVisible = true">{{ $tp('Add Item') }}</el-button>
+                <el-button v-if="can('spp:order:create')" type="primary" size="small" :plain="!isPinned" :icon="isPinned ? 'el-icon-plus' : 'el-icon-circle-plus-outline'"
+                    @click="openNewProduct">{{ $tp(activeCategory === 'Special Order' ? 'New Special Order' : (isMobile && !isPinned ? 'New Product' : 'Order New Product')) }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
             </div>
@@ -254,6 +258,9 @@
             </div>
             </template>
         </div>
+
+        <!-- ── Add Item: Zoho items from the register → Pending lines ── -->
+        <add-item-dialog :visible.sync="addVisible" :default-sea="activeCategory === '海运'" :mobile="isMobile" @added="load" />
 
         <!-- ── Place order (one line) ───────────────────────────────── -->
         <el-dialog :visible.sync="placeVisible" :width="dlgWidth('480px')" :custom-class="mDlg" append-to-body>
@@ -544,6 +551,7 @@
 import TreePanel from '@/components/TreePanel'
 import ChannelBoard from './components/ChannelBoard'
 import OrderCard from './components/OrderCard'
+import AddItemDialog from './components/AddItemDialog'
 import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
@@ -580,7 +588,7 @@ const ACTION_LABELS = {
 
 export default {
     name: 'SppOrders',
-    components: { TreePanel, ChannelBoard, OrderCard },
+    components: { TreePanel, ChannelBoard, OrderCard, AddItemDialog },
     data() {
         return {
             STATUS_LIST,
@@ -653,6 +661,8 @@ export default {
             compact: false,
             // Phones (< 768px): no tree, chip strip, cards, folded filters.
             isMobile: false,
+            // Add Item dialog
+            addVisible: false,
             mFilters: false,
             // The table fills what is left under the header rows.
             tableHeight: 400
