@@ -23,6 +23,15 @@ export const CLASSIFICATIONS = ['Screen', 'Housing', 'Middle Frame', 'BackCover'
 export const CHANNELS = ['海运', 'Special Order', 'New Product']
 export const CATEGORIES = [...CLASSIFICATIONS, ...CHANNELS]
 export const isChannel = c => CHANNELS.includes(c)
+// New Product and Special Order lines are quoted first: the quote parks them
+// in To Confirm, and once confirmed they are ordered as usual. Until then
+// they "await a quote" (the backend's awaitsQuote).
+export const QUOTE_FIRST = ['New Product', 'Special Order']
+export const awaitsQuote = r => !!r && QUOTE_FIRST.includes(r.category) && ['pending', 'shortage'].includes(r.status) && !r.confirmed
+// Who a Special Order is for — the usual names; another can be typed.
+export const REQUESTED_FOR = ['Shen', 'JoJo', 'Parana', 'iMobile']
+// Photos a line can carry (the backend's MAX_IMAGES).
+export const MAX_IMAGES = 6
 
 export const BATCH_STATUS = {
     draft: { label: 'Draft', type: 'warning' },

@@ -238,7 +238,7 @@ import {
     listOrderBatches, getOrderBatch, createOrderBatch, updateOrderBatch, confirmOrderBatch, discardOrderBatch,
     priceOrderBatch, listOrders, getMeta
 } from '@/api/sparePartsPurchase'
-import { STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
+import { STATUS_META, CATEGORIES, QUOTE_FIRST, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 
 export default {
@@ -410,9 +410,9 @@ export default {
                     rows.push(...((r && r.rows) || []))
                     if (!r || rows.length >= (r.total || 0) || !(r.rows || []).length) break
                 }
-                // a New Product still waiting for its quote / confirmation
+                // a New Product / Special Order still waiting for its quote / confirmation
                 // cannot be placed yet (the backend refuses it too)
-                this.pending = rows.filter(r => !(r.category === 'New Product' && !r.confirmed))
+                this.pending = rows.filter(r => !(QUOTE_FIRST.includes(r.category) && !r.confirmed))
                 // land on the first category that has something to pick
                 if (!this.pick.category || !this.catCount(this.pick.category)) {
                     this.pick.category = CATEGORIES.find(c => this.catCount(c)) || CATEGORIES[0]

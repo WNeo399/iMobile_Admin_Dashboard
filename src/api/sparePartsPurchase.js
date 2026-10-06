@@ -85,6 +85,14 @@ export function cancelOrder(id, note) {
 export function reopenOrder(id) {
   return request({ url: `${BASE}/orders/${id}/reopen`, method: 'post' })
 }
+// Photos on a line (field "image", one per call) — mostly New Product /
+// Special Order lines, which have no Zoho item picture.
+export function uploadOrderImage(id, formData) {
+  return request({ url: `${BASE}/orders/${id}/images`, method: 'post', data: formData, headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
+}
+export function deleteOrderImage(id, imageId) {
+  return request({ url: `${BASE}/orders/${id}/images/${imageId}`, method: 'delete' })
+}
 // Scan-to-batch: the oldest waiting line for a SKU, skipping `exclude` ids.
 export function lookupOrder(sku, exclude) {
   return request({ url: `${BASE}/orders/lookup`, method: 'get', params: { sku, exclude: (exclude || []).join(',') } })

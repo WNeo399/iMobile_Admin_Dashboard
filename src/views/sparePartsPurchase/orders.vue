@@ -2,7 +2,7 @@
     <div class="spp-page">
         <!-- Category tree: every line files under one purchase category; the
              count is the lines still to arrive. -->
-        <tree-panel ref="treeRef" :tree-data="treeData" :title="$tp('Purchase Orders')" title-icon-class="el-icon-box"
+        <tree-panel v-show="!isMobile" ref="treeRef" :tree-data="treeData" :title="$tp('Purchase Orders')" title-icon-class="el-icon-box"
             node-key="id" :default-expand-all="true" :show-search="false" @node-click="onNodeClick" @collapsed-change="onTreeToggle">
             <!-- New Product and Special Order are their own lists, pinned above
                  the tree (like Stock Monitoring's Dashboard / 海运) and kept out
@@ -29,27 +29,48 @@
                      a product not in Zoho yet with Order New Product. Order
                      batches and shipment batches are made on their own pages
                      (the buttons left this bar on 2026-10-06). -->
-                <el-button v-if="can('spp:order:create')" type="primary" size="small" icon="el-icon-plus" @click="openNewProduct">{{ $tp('Order New Product') }}</el-button>
+                <!-- New Product / Special Order: the table by default (user 2026-10-06, while the
+                     board is being rethought); Board is a switch for this visit only -->
+                <el-radio-group v-if="isPinned" v-model="pinView" size="small" class="spp-view" @change="onPinView">
+                    <el-radio-button label="board" :title="$tp('Board')"><i class="el-icon-s-grid" /><span v-if="!isMobile"> {{ $tp('Board') }}</span></el-radio-button>
+                    <el-radio-button label="table" :title="$tp('Table')"><i :class="isMobile ? 'el-icon-s-order' : 'el-icon-tickets'" /><span v-if="!isMobile"> {{ $tp('Table') }}</span></el-radio-button>
+                </el-radio-group>
+                <el-button v-if="can('spp:order:create')" type="primary" size="small" icon="el-icon-plus" @click="openNewProduct">{{ $tp(activeCategory === 'Special Order' ? 'New Special Order' : 'Order New Product') }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
             </div>
 
-            <div class="spp-header">
-                <div class="spp-h-title">{{ activeCategory ? catLabel(activeCategory) : $tp('All orders') }}</div>
+            <!-- phone: the tree is hidden, the lists are a strip (pending counts) -->
+            <div v-if="isMobile" ref="mlists" class="spp-mlists">
+                <span :class="['spp-mchip', { on: !activeCategory }]" @click="pickList('')">{{ $tp('All orders') }}<b v-if="treeData[0].count">{{ treeData[0].count }}</b></span>
+                <span v-for="p in PINNED" :key="p.category" :class="['spp-mchip', 'is-pin', { on: activeCategory === p.category }]" @click="pickList(p.category)">
+                    <i :class="p.icon" />{{ catLabel(p.category) }}<b v-if="pendingOf(p.category)">{{ pendingOf(p.category) }}</b></span>
+                <span class="spp-mchip-sep" />
+                <span v-for="c in treeData[0].children" :key="c.id" :class="['spp-mchip', { on: activeCategory === c.id }]" @click="pickList(c.id)">
+                    {{ c.label }}<b v-if="c.count">{{ c.count }}</b></span>
             </div>
 
+            <div v-if="!isMobile" class="spp-header">
+                <div class="spp-h-title">{{ activeCategory ? catLabel(activeCategory) : $tp('All orders') }}</div>
+                <div v-if="boardMode" class="spp-h-sub">{{ $tp('Supplier quotes → iMobile confirms → supplier orders and ships → iMobile receives') }}
+                    <span v-if="boardCapped" class="spp-warn"> · {{ $tp('Showing the oldest {n} open lines', { n: 200 }) }}</span></div>
+            </div>
+
+            <channel-board v-if="boardMode" :rows="boardRows" :category="activeCategory" :loading="loading" :received-cap="BOARD_RECEIVED"
+                :can="can" :can-either="canEither" :mobile="isMobile" @action="onBoardAction" />
+            <template v-else>
             <div class="spp-filters">
-                <div class="spp-f-item">
+                <div v-if="!isMobile" class="spp-f-item">
                     <label>{{ $tp('Status') }}</label>
                     <el-select v-model="activeStatus" size="small" :placeholder="$tp('All statuses')" clearable
                         style="width:150px" @change="onStatusChange">
                         <el-option v-for="s in STATUS_LIST" :key="s.value" :label="$tp(s.label)" :value="s.value" />
                     </el-select>
                 </div>
-                <div class="spp-f-item">
+                <div v-if="!isMobile || mFilters" class="spp-f-item">
                     <label>{{ $tp('Supplier') }}</label>
                     <el-select v-model="activeSupplier" size="small" :placeholder="$tp('All suppliers')" clearable filterable
-                        style="width:180px" @change="reload">
+                        :style="{ width: isMobile ? '100%' : '180px' }" @change="reload">
                         <el-option v-for="s in suppliers" :key="s" :label="s" :value="s" />
                     </el-select>
                 </div>
@@ -59,7 +80,9 @@
                         :placeholder="$tp('Product, SKU, order no, supplier, tracking…')"
                         @keyup.enter.native="reload" @clear="reload" />
                 </div>
-                <el-button size="small" @click="resetFilters">{{ $tp('Reset') }}</el-button>
+                <el-button v-if="isMobile" size="small" icon="el-icon-s-operation" :type="activeSupplier ? 'primary' : 'default'" :plain="!!activeSupplier"
+                    :title="$tp('Filters')" class="spp-f-toggle" @click="mFilters = !mFilters" />
+                <el-button v-if="!isMobile || mFilters" size="small" @click="resetFilters">{{ $tp('Reset') }}</el-button>
             </div>
 
             <!-- Status cards double as the status filter. -->
@@ -77,7 +100,13 @@
             <!-- Height is measured (whatever the header rows take on this screen);
                  `compact` drops the wide columns and folds their facts into the
                  product cell. -->
-            <el-table ref="table" v-loading="loading" :data="rows" size="mini" :height="tableHeight" class="spp-table">
+            <!-- phone: the lines as cards, with the table's actions -->
+            <div v-if="isMobile" v-loading="loading" class="spp-mcards">
+                <order-card v-for="r in rows" :key="r._id" :row="r" :can="can" :can-either="canEither" show-status detailed :placeholder="false"
+                    @action="onBoardAction" />
+                <div v-if="!rows.length && !loading" class="spp-empty spp-mempty">{{ $tp('No purchase orders here') }}</div>
+            </div>
+            <el-table v-else ref="table" v-loading="loading" :data="rows" size="mini" :height="tableHeight" class="spp-table">
                 <!-- The day the line was raised; the SP- number stays internal. -->
                 <el-table-column :label="$tp('Date')" :width="compact ? 92 : 100" align="center" :fixed="!compact">
                     <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
@@ -91,13 +120,17 @@
                         <div class="spp-sub">
                             <span v-if="s.row.sku">SKU: {{ s.row.sku }}</span>
                             <span v-if="s.row.category" class="spp-cat">{{ catLabel(s.row.category) }}</span>
+                            <span v-if="s.row.requestedFor" class="spp-for"><i class="el-icon-user" /> {{ s.row.requestedFor }}</span>
+                            <span v-if="s.row.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
+                            <span v-if="s.row.images && s.row.images.length" class="spp-photos" :title="$tp('Photos')" @click="openDetail(s.row)">
+                                <i class="el-icon-picture" /> {{ s.row.images.length }}</span>
                             <!-- Small screens: the supplier and order date live here instead of their own columns. -->
                             <span v-if="compact && s.row.supplier" class="spp-fold">· {{ s.row.supplier }}</span>
                             <span v-if="compact && s.row.orderedAt" class="spp-fold">· {{ $tp('Ordered') }} {{ fmtDay(s.row.orderedAt) }}</span>
                             <!-- Went through To Confirm and was confirmed — the mark stays. -->
                             <span v-if="s.row.confirmed" class="spp-tag-ok" :title="confirmedTitle(s.row.confirmed)">
                                 <i class="el-icon-circle-check" /> {{ $tp('Confirmed') }}</span>
-                            <!-- A New Product is quoted, then confirmed, before it is ordered. -->
+                            <!-- A New Product / Special Order is quoted, then confirmed, before it is ordered. -->
                             <span v-if="awaitsQuote(s.row)" class="spp-tag-quote" :title="$tp('Quote it first; the quote moves it to To Confirm.')">
                                 <i class="el-icon-price-tag" /> {{ $tp('Needs a quote') }}</span>
                         </div>
@@ -214,14 +247,16 @@
             </el-table>
 
             <div class="spp-pager">
-                <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total"
+                <el-pagination background :small="isMobile" :pager-count="isMobile ? 5 : 7"
+                    :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'" :total="total"
                     :page-size="pageSize" :page-sizes="[10, 20, 50, 100]" :current-page="page"
                     @current-change="onPage" @size-change="onSize" />
             </div>
+            </template>
         </div>
 
         <!-- ── Place order (one line) ───────────────────────────────── -->
-        <el-dialog :visible.sync="placeVisible" width="480px" append-to-body>
+        <el-dialog :visible.sync="placeVisible" :width="dlgWidth('480px')" :custom-class="mDlg" append-to-body>
             <div slot="title" class="spp-dlg-head"><i class="el-icon-document-checked" /> {{ $tp('Place order') }}</div>
             <div v-if="placeRow" class="spp-card">
                 <div class="spp-line-name" :title="placeRow.productName">{{ placeRow.productName }}</div>
@@ -245,59 +280,100 @@
                 <div class="spp-hint"><i class="el-icon-time" /> {{ $tp('The order time is recorded as now and the line moves to Ordered.') }}
                     {{ $tp('The price can wait until the line ships.') }}</div>
             </el-form>
-            <span slot="footer">
+            <span slot="footer" class="spp-dlg-foot">
                 <el-button size="small" @click="placeVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-check" :loading="placing" @click="submitPlace">{{ $tp('Confirm order') }}</el-button>
             </span>
         </el-dialog>
 
-        <!-- ── Order New Product: a product not in Zoho yet ──────────── -->
-        <el-dialog :visible.sync="newVisible" width="580px" append-to-body custom-class="spp-np-dlg" @opened="focusNewName">
-            <div slot="title" class="spp-dlg-head"><i class="el-icon-circle-plus-outline" /> {{ $tp('Order New Product') }}
-                <span class="spp-dlg-no">{{ $tp('a product not in Zoho yet') }}</span></div>
-            <!-- the road a new product takes -->
-            <div class="spp-np-steps">
-                <span class="spp-np-step is-now"><b>1</b>{{ $tp('Order it') }}</span>
-                <i class="el-icon-arrow-right" />
-                <span class="spp-np-step"><b>2</b>{{ $tp('Supplier quotes') }}</span>
-                <i class="el-icon-arrow-right" />
-                <span class="spp-np-step"><b>3</b>{{ $tp('You confirm') }}</span>
-                <i class="el-icon-arrow-right" />
-                <span class="spp-np-step"><b>4</b>{{ $tp('Ordered as usual') }}</span>
-            </div>
-            <el-form label-position="top" size="small" class="spp-np-form" @submit.native.prevent>
-                <div class="spp-row">
-                    <el-form-item :label="$tp('Product name')" required class="spp-col">
-                        <el-input ref="newName" v-model="newForm.productName" maxlength="200" clearable
-                            :placeholder="$tp('e.g. Samsung Galaxy Z Flip 7 FE (F761) Main Battery')" @keyup.enter.native="submitNewProduct(false)" />
-                    </el-form-item>
-                    <el-form-item :label="$tp('Quantity')" required class="spp-np-qty">
-                        <el-input-number v-model="newForm.orderQty" :min="1" :max="99999" :precision="0" controls-position="right" style="width:110px" />
-                    </el-form-item>
+        <!-- ── Order New Product / Special Order: a product not in Zoho yet,
+             or one ordered for someone. Both are quoted first, confirmed,
+             then ordered as usual (user rules 2026-10-06). ───────────── -->
+        <el-dialog :visible.sync="newVisible" :width="dlgWidth('600px')" :top="isMobile ? '3vh' : '15vh'" append-to-body :custom-class="'spp-np-dlg ' + mDlg"
+            @opened="focusNewName" @closed="clearNewFiles">
+            <div slot="title" class="spp-dlg-head"><i :class="isSpecial ? 'el-icon-star-off' : 'el-icon-circle-plus-outline'" /> {{ $tp(isSpecial ? 'New Special Order' : 'Order New Product') }}</div>
+            <!-- a screenshot pasted anywhere in the dialog becomes a photo -->
+            <div @paste="onNewPaste">
+                <!-- which list it goes on -->
+                <div class="spp-np-types">
+                    <div v-for="t in NEW_TYPES" :key="t.category" :class="['spp-np-type', { on: newForm.category === t.category }]" @click="newForm.category = t.category">
+                        <i :class="t.icon" class="spp-np-type-icon" />
+                        <div class="spp-np-type-text">
+                            <div class="spp-np-type-title">{{ catLabel(t.category) }}</div>
+                            <div class="spp-np-type-sub">{{ $tp(t.sub) }}</div>
+                        </div>
+                        <i v-if="newForm.category === t.category" class="el-icon-success spp-np-type-tick" />
+                    </div>
                 </div>
-                <el-form-item :label="$tp('Note')">
-                    <el-input v-model="newForm.note" type="textarea" :rows="2" resize="none" maxlength="500"
-                        :placeholder="$tp('Optional — a link, a photo reference, the colour…')" />
-                </el-form-item>
-            </el-form>
-            <!-- "Save & add another" keeps the dialog open; what went in shows here -->
-            <div v-if="newAdded.length" class="spp-np-added">
-                <div class="spp-np-added-title"><i class="el-icon-circle-check" /> {{ $tp('Added just now') }} ({{ newAdded.length }})</div>
-                <div v-for="a in newAdded" :key="a.no" class="spp-np-added-row">
-                    <span class="spp-np-added-name" :title="a.name">{{ a.name }}</span><b>× {{ a.qty }}</b>
+                <!-- the road both take -->
+                <div v-if="!isMobile" class="spp-np-steps">
+                    <span class="spp-np-step is-now"><b>1</b>{{ $tp('Order it') }}</span>
+                    <i class="el-icon-arrow-right" />
+                    <span class="spp-np-step"><b>2</b>{{ $tp('Supplier quotes') }}</span>
+                    <i class="el-icon-arrow-right" />
+                    <span class="spp-np-step"><b>3</b>{{ $tp('You confirm') }}</span>
+                    <i class="el-icon-arrow-right" />
+                    <span class="spp-np-step"><b>4</b>{{ $tp('Ordered as usual') }}</span>
+                </div>
+                <el-form label-position="top" size="small" class="spp-np-form" @submit.native.prevent>
+                    <div class="spp-row">
+                        <el-form-item :label="$tp('Product name')" required class="spp-col">
+                            <el-input ref="newName" v-model="newForm.productName" maxlength="200" clearable
+                                :placeholder="$tp('e.g. Samsung Galaxy Z Flip 7 FE (F761) Main Battery')" @keyup.enter.native="submitNewProduct(false)" />
+                        </el-form-item>
+                        <el-form-item :label="$tp('Quantity')" required class="spp-np-qty">
+                            <el-input-number v-model="newForm.orderQty" :min="1" :max="99999" :precision="0" controls-position="right" style="width:110px" />
+                        </el-form-item>
+                    </div>
+                    <!-- a Special Order says who it is for, and whether it is urgent -->
+                    <div v-if="isSpecial" class="spp-row">
+                        <el-form-item :label="$tp('For')" class="spp-col">
+                            <el-select v-model="newForm.requestedFor" filterable allow-create default-first-option clearable
+                                :placeholder="$tp('Who is it for? Pick or type')" style="width:100%">
+                                <el-option v-for="n in REQUESTED_FOR" :key="n" :label="n" :value="n" />
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item :label="$tp('Urgent')" class="spp-np-urgent">
+                            <el-checkbox v-model="newForm.urgent" border>{{ $tp('Urgent') }}</el-checkbox>
+                        </el-form-item>
+                    </div>
+                    <el-form-item :label="$tp('Note')">
+                        <el-input v-model="newForm.note" type="textarea" :rows="2" resize="none" maxlength="500"
+                            :placeholder="$tp('Optional — a link, a photo reference, the colour…')" />
+                    </el-form-item>
+                    <el-form-item class="spp-np-photo-item">
+                        <span slot="label">{{ $tp('Photos') }} <span class="spp-np-opt">{{ $tp('optional — click, or paste a screenshot') }}</span></span>
+                        <el-upload action="#" list-type="picture-card" accept="image/*" multiple :auto-upload="false" :limit="MAX_IMAGES"
+                            :file-list="newFiles" :on-change="onNewFiles" :on-remove="onNewFiles" :on-exceed="onNewExceed" :on-preview="previewNewFile"
+                            :class="['spp-np-photos', { full: newFiles.length >= MAX_IMAGES }]">
+                            <i class="el-icon-plus" />
+                        </el-upload>
+                    </el-form-item>
+                </el-form>
+                <!-- "Save & add another" keeps the dialog open; what went in shows here -->
+                <div v-if="newAdded.length" class="spp-np-added">
+                    <div class="spp-np-added-title"><i class="el-icon-circle-check" /> {{ $tp('Added just now') }} ({{ newAdded.length }})</div>
+                    <div v-for="a in newAdded" :key="a.no" class="spp-np-added-row">
+                        <i :class="a.category === 'Special Order' ? 'el-icon-star-off' : 'el-icon-circle-plus-outline'" class="spp-np-added-icon" />
+                        <span class="spp-np-added-name" :title="a.name">{{ a.name }}</span>
+                        <span v-if="a.requestedFor" class="spp-for">{{ a.requestedFor }}</span>
+                        <span v-if="a.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
+                        <span v-if="a.photos" class="spp-sub"><i class="el-icon-picture" /> {{ a.photos }}</span>
+                        <b>× {{ a.qty }}</b>
+                    </div>
                 </div>
             </div>
-            <span slot="footer">
+            <span slot="footer" class="spp-dlg-foot">
                 <el-button size="small" @click="newVisible = false">{{ newAdded.length ? $tp('Done') : $tp('Cancel') }}</el-button>
                 <el-button size="small" icon="el-icon-plus" :loading="newSaving === 'again'" :disabled="!!newSaving"
                     @click="submitNewProduct(true)">{{ $tp('Save & add another') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-check" :loading="newSaving === 'close'" :disabled="!!newSaving"
-                    @click="submitNewProduct(false)">{{ $tp('Order New Product') }}</el-button>
+                    @click="submitNewProduct(false)">{{ $tp(isSpecial ? 'New Special Order' : 'Order New Product') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── Quote ────────────────────────────────────────────────── -->
-        <el-dialog :visible.sync="quoteVisible" width="420px" append-to-body>
+        <el-dialog :visible.sync="quoteVisible" :width="dlgWidth('420px')" :custom-class="mDlg" append-to-body>
             <div slot="title" class="spp-dlg-head"><i class="el-icon-price-tag" /> {{ $tp('Quote') }}</div>
             <div v-if="quoteRow" class="spp-card">
                 <div class="spp-line-name" :title="quoteRow.productName">{{ quoteRow.productName }}</div>
@@ -318,25 +394,38 @@
                         :placeholder="awaitsQuote(quoteRow) ? $tp('Optional') : $tp('What needs confirming?')" />
                 </el-form-item>
                 <div v-if="quoteRow && awaitsQuote(quoteRow)" class="spp-hint"><i class="el-icon-question" />
-                    {{ $tp('A new product goes to To Confirm with its quote; once confirmed it is ordered as usual.') }}</div>
+                    {{ $tp('This line goes to To Confirm with its quote; once confirmed it is ordered as usual.') }}</div>
                 <div v-else-if="quoteForm.toConfirm && quoteRow && quoteRow.status !== 'toConfirm'" class="spp-hint"><i class="el-icon-question" />
                     {{ $tp('The line parks in To Confirm with this quote; confirm it to carry on.') }}</div>
                 <div v-else class="spp-hint"><i class="el-icon-info" /> {{ $tp('A quote is a reference price only; the status does not change.') }}</div>
             </el-form>
-            <span slot="footer">
+            <span slot="footer" class="spp-dlg-foot">
                 <el-button size="small" @click="quoteVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-check" :loading="quoting" @click="submitQuote">{{ $tp('Save quote') }}</el-button>
             </span>
         </el-dialog>
 
         <!-- ── Details ──────────────────────────────────────────────── -->
-        <el-dialog :visible.sync="detailVisible" width="680px" append-to-body>
+        <el-dialog :visible.sync="detailVisible" :width="dlgWidth('680px')" :top="isMobile ? '3vh' : '15vh'" :custom-class="mDlg" append-to-body @closed="onDetailClosed">
             <div slot="title" class="spp-dlg-head"><i class="el-icon-document"></i> {{ $tp('Order details') }}<span v-if="detail" class="spp-dlg-no">{{ fmtDay(detail.createdAt) }}</span></div>
             <div v-loading="detailLoading">
-                <el-descriptions v-if="detail" :column="2" border size="small" class="spp-detail">
+                <el-descriptions v-if="detail" :column="isMobile ? 1 : 2" border size="small" class="spp-detail">
                     <el-descriptions-item :label="$tp('Product')" :span="2">
                         {{ detail.productName }}<a v-if="detail.itemId" class="spp-prod-zoho" :href="zohoLink(detail.itemId)"
                             target="_blank" rel="noopener" :title="$tp('Open in Zoho')"><i class="el-icon-link" /></a>
+                    </el-descriptions-item>
+                    <!-- a Special Order: who it is for, urgent (editable any time) -->
+                    <el-descriptions-item v-if="isSpecialDetail" :label="$tp('For')">
+                        <el-select v-if="can('spp:order:create')" v-model="detailForm.requestedFor" size="mini" filterable allow-create
+                            default-first-option clearable :placeholder="$tp('Pick or type')" style="width:160px">
+                            <el-option v-for="n in REQUESTED_FOR" :key="n" :label="n" :value="n" />
+                        </el-select>
+                        <span v-else>{{ detail.requestedFor || '—' }}</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item v-if="isSpecialDetail" :label="$tp('Urgent')">
+                        <el-checkbox v-if="can('spp:order:create')" v-model="detailForm.urgent">{{ $tp('Urgent') }}</el-checkbox>
+                        <span v-else-if="detail.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
+                        <span v-else>—</span>
                     </el-descriptions-item>
                     <el-descriptions-item label="SKU">{{ detail.sku || '—' }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Category')">
@@ -392,6 +481,21 @@
                         maxlength="200" show-word-limit :placeholder="$tp('Optional')" />
                     <div v-else>{{ detail.note || '—' }}</div>
                 </div>
+                <!-- photos: saved straight away (not with Save) -->
+                <div v-if="detail" class="spp-detail-note">
+                    <div class="spp-detail-label">{{ $tp('Photos') }} <span class="spp-sub">{{ (detail.images || []).length }} / {{ MAX_IMAGES }}</span></div>
+                    <div class="spp-photo-row">
+                        <div v-for="im in detail.images || []" :key="im.id" class="spp-photo">
+                            <el-image :src="im.url" fit="cover" :preview-src-list="(detail.images || []).map(i => i.url)" class="spp-photo-img" />
+                            <i v-if="canEither" class="el-icon-close spp-photo-del" :title="$tp('Remove photo')" @click="removePhoto(im)" />
+                        </div>
+                        <el-upload v-if="canEither && (detail.images || []).length < MAX_IMAGES" action="#" :show-file-list="false" accept="image/*"
+                            :http-request="addPhoto" :disabled="photoBusy" class="spp-photo-add">
+                            <div v-loading="photoBusy" class="spp-photo-add-box"><i class="el-icon-plus" /></div>
+                        </el-upload>
+                        <span v-if="!(detail.images || []).length && !canEither" class="spp-sub">—</span>
+                    </div>
+                </div>
                 <div v-if="detail && detail.history && detail.history.length" class="spp-history">
                     <div class="spp-detail-label">{{ $tp('History') }}</div>
                     <div v-for="(h, i) in detail.history" :key="i" class="spp-hist-row">
@@ -402,7 +506,7 @@
                     </div>
                 </div>
             </div>
-            <span slot="footer">
+            <span slot="footer" class="spp-dlg-foot">
                 <el-button size="small" @click="detailVisible = false">{{ $tp('Close') }}</el-button>
                 <el-button v-if="can('spp:order:create')" type="primary" size="small" icon="el-icon-check" :loading="detailSaving"
                     @click="saveDetail">{{ $tp('Save') }}</el-button>
@@ -411,7 +515,7 @@
 
         <!-- ── Part labels (50×40: product name + SKU barcode), the PDF
              previewed, then printed or saved ─────────────────────────── -->
-        <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+        <el-dialog :title="labelTitle" :visible.sync="labelVisible" :width="dlgWidth('560px')" :custom-class="mDlg" append-to-body top="5vh" @closed="cleanupLabels">
             <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
                  printer whose label stock runs the other way; remembered. -->
             <div class="label-orient">
@@ -427,7 +531,7 @@
                 <span v-if="labelSize === '40x30x2'">{{ $tp('The label prints twice, side by side — each copy in the printer dialog gives 2') }}</span>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
-            <span slot="footer">
+            <span slot="footer" class="spp-dlg-foot">
                 <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
                 <el-button size="small" @click="labelVisible = false">{{ $tp('Close') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-printer" @click="printLabels">{{ $tp('Print') }}</el-button>
@@ -438,13 +542,15 @@
 
 <script>
 import TreePanel from '@/components/TreePanel'
+import ChannelBoard from './components/ChannelBoard'
+import OrderCard from './components/OrderCard'
 import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
     listOrders, getOrder, updateOrder, quoteOrder, placeOrder, priceOrder, shortageOrder,
-    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders
+    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders, uploadOrderImage, deleteOrderImage
 } from '@/api/sparePartsPurchase'
-import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
+import { STATUS_LIST, STATUS_META, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
 
 // The channels with a list of their own, pinned above the category tree and
 // left out of the tree and of "All orders" (user ask 2026-10-06).
@@ -453,6 +559,15 @@ const PINNED = [
     { category: 'Special Order', icon: 'el-icon-star-off' }
 ]
 const PINNED_CATS = PINNED.map(p => p.category)
+// What the Order New Product dialog can raise.
+const NEW_TYPES = [
+    { category: 'New Product', icon: 'el-icon-circle-plus-outline', sub: 'A product not in Zoho yet' },
+    { category: 'Special Order', icon: 'el-icon-star-off', sub: 'Ordered for someone in particular' }
+]
+const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: '', requestedFor: '', urgent: false })
+// The board shows every open line and the latest received ones.
+const BOARD_OPEN = 200
+const BOARD_RECEIVED = 30
 import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
@@ -460,12 +575,12 @@ const ACTION_LABELS = {
     created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
     cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
     toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft',
-    priced: 'Unit price set'
+    priced: 'Unit price set', photo: 'Photo'
 }
 
 export default {
     name: 'SppOrders',
-    components: { TreePanel },
+    components: { TreePanel, ChannelBoard, OrderCard },
     data() {
         return {
             STATUS_LIST,
@@ -492,7 +607,17 @@ export default {
             exporting: false,
             // Order New Product
             newVisible: false,
-            newForm: { productName: '', orderQty: 1, note: '' },
+            newForm: blankNew('New Product'),
+            // the photos picked / pasted, uploaded once the line exists
+            newFiles: [],
+            NEW_TYPES,
+            REQUESTED_FOR,
+            MAX_IMAGES,
+            // the pinned lists: 'table' | 'board' — the table by default, not remembered
+            pinView: 'table',
+            boardRows: [],
+            boardCapped: false,
+            BOARD_RECEIVED,
             // '' | 'again' (Save & add another) | 'close'
             newSaving: '',
             // what went in while the dialog stayed open
@@ -507,8 +632,11 @@ export default {
             detailVisible: false,
             detail: null,
             detailLoading: false,
-            detailForm: { note: '', orderQty: null, category: '' },
+            detailForm: { note: '', orderQty: null, category: '', requestedFor: '', urgent: false },
             detailSaving: false,
+            // a photo uploading in the details; the list reloads on close if any changed
+            photoBusy: false,
+            photosChanged: false,
             // The ordered line whose price is being typed: { id, value }
             priceEdit: { id: null, value: undefined },
             priceSaving: false,
@@ -523,6 +651,9 @@ export default {
             LABEL_SIZES,
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
             compact: false,
+            // Phones (< 768px): no tree, chip strip, cards, folded filters.
+            isMobile: false,
+            mFilters: false,
             // The table fills what is left under the header rows.
             tableHeight: 400
         }
@@ -550,6 +681,22 @@ export default {
         },
         categoryOptions() {
             return this.categories.length ? this.categories : CATEGORIES
+        },
+        // a phone's dialogs: tighter padding, wrapping footer
+        mDlg() {
+            return this.isMobile ? 'spp-dlg-m' : ''
+        },
+        isPinned() {
+            return PINNED_CATS.includes(this.activeCategory)
+        },
+        boardMode() {
+            return this.isPinned && this.pinView === 'board'
+        },
+        isSpecial() {
+            return this.newForm.category === 'Special Order'
+        },
+        isSpecialDetail() {
+            return !!this.detail && (this.detail.category === 'Special Order' || (this.editable && this.detailForm.category === 'Special Order'))
         }
     },
     created() {
@@ -578,6 +725,7 @@ export default {
         // ── Fit the screen ─────────────────────────────────────────
         onResize() {
             this.compact = window.innerWidth < 1440
+            this.isMobile = window.innerWidth < 768
             this.$nextTick(this.fitTable)
         },
         // The table takes the room under the header rows down to the pager.
@@ -623,6 +771,7 @@ export default {
         },
         // ── Loading ────────────────────────────────────────────────
         async load() {
+            if (this.boardMode) return this.loadBoard()
             this.loading = true
             try {
                 const r = await listOrders({
@@ -655,6 +804,43 @@ export default {
             }
         },
         reload() { this.page = 1; this.load() },
+        // The stage board: every open line of the pinned list (oldest first)
+        // and the latest received ones; the counts come along as usual.
+        async loadBoard() {
+            const category = this.activeCategory
+            this.loading = true
+            try {
+                const [open, done] = await Promise.all([
+                    listOrders({ category, open: 1, page: 1, pageSize: BOARD_OPEN, sort: 'oldest' }),
+                    listOrders({ category, status: 'received', page: 1, pageSize: BOARD_RECEIVED, sort: 'received' })
+                ])
+                for (const r of [open, done]) if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (category !== this.activeCategory) return
+                this.boardRows = [...(open.rows || []), ...(done.rows || [])]
+                this.boardCapped = (open.total || 0) > (open.rows || []).length
+                this.byStatus = open.byStatus || {}
+                this.byCategory = open.byCategory || {}
+                this.categories = open.categories || []
+                this.suppliers = open.suppliers || []
+                this.treeInit = true
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to load purchase orders')))
+            } finally {
+                this.loading = false
+            }
+        },
+        onPinView() {
+            this.reload()
+        },
+        // The board's buttons run the page's own actions.
+        onBoardAction(key, row) {
+            const run = {
+                detail: this.openDetail, label: this.printLineLabels, quote: this.openQuote, confirm: this.confirm,
+                place: this.openPlace, shortage: this.markShortage, cancel: this.cancel, reopen: this.reopen,
+                toConfirm: this.toConfirm, price: this.promptPrice
+            }[key]
+            if (run) run(row)
+        },
         onStatusChange() {
             if (this.activeStatus === 'received' || this.activeStatus === 'cancelled') this.openOnly = false
             this.reload()
@@ -684,15 +870,31 @@ export default {
             return (this.byCategory[category] && this.byCategory[category].pending) || 0
         },
         onPage(p) { this.page = p; this.load() },
+        // phone: a chip in the list strip (the tree's job on a big screen)
+        pickList(cat) {
+            if (PINNED_CATS.includes(cat)) this.openPin(cat)
+            else {
+                this.onNodeClick({ id: cat || 'root' })
+                if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey(cat || 'root')
+            }
+            this.$nextTick(() => {
+                const el = this.$refs.mlists && this.$refs.mlists.querySelector('.spp-mchip.on')
+                if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'center' })
+            })
+        },
+        dlgWidth(w) {
+            return this.isMobile ? '94%' : w
+        },
         onSize(s) { this.pageSize = s; this.reload() },
-        // A New Product line waits for its quote (then To Confirm, then
-        // Confirmed) before it can be ordered — the backend's awaitsQuote.
+        // A New Product / Special Order line waits for its quote (then To
+        // Confirm, then Confirmed) before it can be ordered — the backend's awaitsQuote.
         awaitsQuote(row) {
-            return !!row && row.category === 'New Product' && ['pending', 'shortage'].includes(row.status) && !row.confirmed
+            return needsQuote(row)
         },
         // ── Order New Product ──────────────────────────────────────
         openNewProduct() {
-            this.newForm = { productName: '', orderQty: 1, note: '' }
+            this.clearNewFiles()
+            this.newForm = blankNew(this.activeCategory === 'Special Order' ? 'Special Order' : 'New Product')
             this.newAdded = []
             this.newVisible = true
         },
@@ -700,24 +902,73 @@ export default {
             const r = this.$refs.newName
             if (r && r.focus) r.focus()
         },
+        // el-upload keeps the picked files (nothing uploads until the line exists)
+        onNewFiles(file, fileList) {
+            this.newFiles = fileList.slice()
+        },
+        onNewExceed() {
+            this.$message.warning(this.$tp('At most {n} photos', { n: MAX_IMAGES }))
+        },
+        previewNewFile(file) {
+            if (file && file.url) window.open(file.url, '_blank')
+        },
+        // A screenshot pasted into the dialog (Ctrl+V) is added as a photo.
+        onNewPaste(e) {
+            const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter(x => /^image\//i.test(x.type))
+            if (!files.length) return
+            e.preventDefault()
+            const room = MAX_IMAGES - this.newFiles.length
+            if (room <= 0) { this.onNewExceed(); return }
+            const stamp = Date.now()
+            const added = files.slice(0, room).map((raw, i) => ({
+                uid: stamp + i, status: 'ready', raw, url: URL.createObjectURL(raw),
+                name: raw.name && raw.name !== 'image.png' ? raw.name : `screenshot-${stamp + i}.png`
+            }))
+            this.newFiles = [...this.newFiles, ...added]
+            if (files.length > room) this.onNewExceed()
+        },
+        clearNewFiles() {
+            for (const x of this.newFiles) { if (x.url && x.url.startsWith('blob:')) { try { URL.revokeObjectURL(x.url) } catch (e) { /* ignore */ } } }
+            this.newFiles = []
+        },
         // `again`: keep the dialog open for the next product.
         async submitNewProduct(again) {
             if (this.newSaving) return
-            const productName = (this.newForm.productName || '').trim()
-            const orderQty = Number(this.newForm.orderQty)
+            const f = this.newForm
+            const productName = (f.productName || '').trim()
+            const orderQty = Number(f.orderQty)
             if (!productName) { this.$message.warning(this.$tp('Enter the product name')); this.focusNewName(); return }
             if (!Number.isInteger(orderQty) || orderQty < 1) { this.$message.warning(this.$tp('Quantity must be a positive number')); return }
+            const category = f.category === 'Special Order' ? 'Special Order' : 'New Product'
+            const line = { productName, orderQty, category, note: (f.note || '').trim() }
+            if (category === 'Special Order') { line.requestedFor = (f.requestedFor || '').trim(); line.urgent = !!f.urgent }
             this.newSaving = again ? 'again' : 'close'
             try {
-                const r = await createOrders([{ productName, orderQty, category: 'New Product', note: (this.newForm.note || '').trim() }])
+                const r = await createOrders([line])
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const no = (r.orderNos || [])[0] || ''
-                this.$message.success(this.$tp('{no} created — waiting for a quote', { no }))
-                // show the New Product list behind the dialog
-                this.openPin('New Product')
+                const id = (r.ids || [])[0]
+                // the photos go onto the new line, one at a time
+                const files = this.newFiles.filter(x => x.raw)
+                let failed = 0
+                for (const x of files) {
+                    try {
+                        if (!id) throw new Error('no id')
+                        const fd = new FormData()
+                        fd.append('image', x.raw, x.name)
+                        const u = await uploadOrderImage(id, fd)
+                        if (!u || u.success === false) throw new Error('Failed')
+                    } catch (e) { failed++ }
+                }
+                if (failed) this.$message.warning(this.$tp('{no} created, but {n} photo(s) did not upload — add them from its details', { no, n: failed }))
+                else this.$message.success(this.$tp('{no} created — waiting for a quote', { no }))
+                // show that list behind the dialog
+                this.openPin(category)
                 if (again) {
-                    this.newAdded.unshift({ no, name: productName, qty: orderQty })
-                    this.newForm = { productName: '', orderQty: 1, note: '' }
+                    this.newAdded.unshift({ no, name: productName, qty: orderQty, category, requestedFor: line.requestedFor || '', urgent: !!line.urgent, photos: files.length - failed })
+                    this.clearNewFiles()
+                    // the list and who it is for stay for the next one
+                    this.newForm = { ...blankNew(category), requestedFor: f.requestedFor || '' }
                     this.$nextTick(this.focusNewName)
                 } else {
                     this.newVisible = false
@@ -833,7 +1084,7 @@ export default {
             try {
                 const r = await this.$prompt(this.$tp('Move {no} to To Confirm? Say what needs confirming.', { no: row.orderNo }),
                     this.$tp('To Confirm'), {
-                        confirmButtonText: this.$tp('Move to To Confirm'), cancelButtonText: this.$tp('Cancel'), inputType: 'textarea',
+                        customClass: 'spp-msgbox', confirmButtonText: this.$tp('Move to To Confirm'), cancelButtonText: this.$tp('Cancel'), inputType: 'textarea',
                         inputPlaceholder: this.$tp('What needs confirming?'),
                         inputValidator: v => (v && v.trim() ? true : this.$tp('A note is required'))
                     })
@@ -856,7 +1107,7 @@ export default {
             let note = ''
             try {
                 const r = await this.$prompt(this.$tp('Confirm {no}? It goes back to Pending, marked Confirmed.', { no: row.orderNo }),
-                    this.$tp('Confirm'), { confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel'), inputPlaceholder: this.$tp('Optional') })
+                    this.$tp('Confirm'), { customClass: 'spp-msgbox', confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel'), inputPlaceholder: this.$tp('Optional') })
                 note = (r && r.value) || ''
             } catch (e) { return }
             try {
@@ -872,7 +1123,7 @@ export default {
             let note = ''
             try {
                 const r = await this.$prompt(this.$tp('Mark {no} as shortage? Add a note for iMobile if you like.', { no: row.orderNo }),
-                    this.$tp('Shortage'), { confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel'), inputPlaceholder: this.$tp('Optional') })
+                    this.$tp('Shortage'), { customClass: 'spp-msgbox', confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel'), inputPlaceholder: this.$tp('Optional') })
                 note = (r && r.value) || ''
             } catch (e) { return }
             try {
@@ -887,7 +1138,7 @@ export default {
         async cancel(row) {
             try {
                 await this.$confirm(this.$tp('Cancel {no}? It can be reopened later.', { no: row.orderNo }), this.$tp('Cancel order'),
-                    { type: 'warning', confirmButtonText: this.$tp('Cancel order'), cancelButtonText: this.$tp('Keep') })
+                    { type: 'warning', customClass: 'spp-msgbox', confirmButtonText: this.$tp('Cancel order'), cancelButtonText: this.$tp('Keep') })
             } catch (e) { return }
             try {
                 const r = await cancelOrder(row._id)
@@ -946,6 +1197,30 @@ export default {
                 this.priceSaving = false
             }
         },
+        // The cards' "Set unit price" (the table edits it inline).
+        async promptPrice(row) {
+            const cur = row.unitPrice != null ? row.unitPrice : row.quotedPrice
+            let v
+            try {
+                const r = await this.$prompt(this.$tp('Unit price for {no} (¥)', { no: row.orderNo }), this.$tp('Unit Price'), {
+                    customClass: 'spp-msgbox', inputValue: cur == null ? '' : String(cur), inputType: 'number', inputPlaceholder: '0.00',
+                    inputValidator: x => (x !== '' && x != null && !isNaN(Number(x)) && Number(x) >= 0) || this.$tp('Enter a unit price of 0 or more'),
+                    confirmButtonText: this.$tp('Save'), cancelButtonText: this.$tp('Cancel')
+                })
+                v = Number(r.value)
+            } catch (e) { return }
+            const price = Math.round(v * 100) / 100
+            if (price === row.unitPrice) return
+            try {
+                const r = await priceOrder(row._id, price)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(row, 'unitPrice', r.unitPrice)
+                this.$set(row, 'lineTotal', r.lineTotal)
+                this.$message.success(this.$tp('Price saved'))
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to save the prices')))
+            }
+        },
         // ── Part labels ────────────────────────────────────────────
         // ONE label (user ask 2026-09-30): the copies are set in the
         // printer dialog.
@@ -1001,14 +1276,14 @@ export default {
         // ── Details ────────────────────────────────────────────────
         async openDetail(row) {
             this.detail = row
-            this.detailForm = { note: row.note || '', orderQty: row.orderQty, category: row.category || '' }
+            this.detailForm = { note: row.note || '', orderQty: row.orderQty, category: row.category || '', requestedFor: row.requestedFor || '', urgent: !!row.urgent }
             this.detailVisible = true
             this.detailLoading = true
             try {
                 const r = await getOrder(row._id)
                 if (r && r.order) {
                     this.detail = r.order
-                    this.detailForm = { note: r.order.note || '', orderQty: r.order.orderQty, category: r.order.category || '' }
+                    this.detailForm = { note: r.order.note || '', orderQty: r.order.orderQty, category: r.order.category || '', requestedFor: r.order.requestedFor || '', urgent: !!r.order.urgent }
                 }
             } catch (e) { /* the row's copy stands */ } finally {
                 this.detailLoading = false
@@ -1019,6 +1294,7 @@ export default {
             try {
                 const data = { note: this.detailForm.note }
                 if (this.editable) { data.orderQty = this.detailForm.orderQty; data.category = this.detailForm.category }
+                if (this.isSpecialDetail) { data.requestedFor = this.detailForm.requestedFor || ''; data.urgent = !!this.detailForm.urgent }
                 const r = await updateOrder(this.detail._id, data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(this.$tp('Saved'))
@@ -1029,6 +1305,43 @@ export default {
             } finally {
                 this.detailSaving = false
             }
+        },
+        // Photos save at once; the list catches up when the details close.
+        async addPhoto({ file }) {
+            const d = this.detail
+            if (!d) return
+            this.photoBusy = true
+            try {
+                const fd = new FormData()
+                fd.append('image', file, file.name)
+                const r = await uploadOrderImage(d._id, fd)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(d, 'images', [...(d.images || []), r.image])
+                this.photosChanged = true
+                this.$message.success(this.$tp('Photo added'))
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to upload the photo')))
+            } finally {
+                this.photoBusy = false
+            }
+        },
+        async removePhoto(im) {
+            try {
+                await this.$confirm(this.$tp('Remove this photo?'), this.$tp('Photos'),
+                    { type: 'warning', customClass: 'spp-msgbox', confirmButtonText: this.$tp('Remove'), cancelButtonText: this.$tp('Keep') })
+            } catch (e) { return }
+            const d = this.detail
+            try {
+                const r = await deleteOrderImage(d._id, im.id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$set(d, 'images', (d.images || []).filter(i => i.id !== im.id))
+                this.photosChanged = true
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
+            }
+        },
+        onDetailClosed() {
+            if (this.photosChanged) { this.photosChanged = false; this.load() }
         }
     }
 }
@@ -1123,12 +1436,68 @@ export default {
 .spp-np-added-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: #303133; padding: 2px 0;
     b { flex-shrink: 0; color: #606266; } }
 .spp-np-added-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Special Order: who it is for / urgent; photos */
+.spp-for { margin-left: 6px; color: #409eff; background: #ecf5ff; border-radius: 10px; padding: 0 6px; white-space: nowrap; }
+.spp-urgent { margin-left: 6px; color: #fff; background: #f56c6c; border-radius: 10px; padding: 0 6px; font-weight: 600; white-space: nowrap; }
+.spp-photos { margin-left: 6px; color: #909399; cursor: pointer; white-space: nowrap; &:hover { color: #409eff; } }
+.spp-view { margin-right: auto; flex-shrink: 0; display: inline-flex; white-space: nowrap; }
+.spp-np-types { display: flex; gap: 10px; margin-bottom: 12px; }
+.spp-np-type { flex: 1; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #dcdfe6; border-radius: 8px; cursor: pointer; transition: all .15s; position: relative;
+    &:hover { border-color: #b3d8ff; background: #f7fbff; }
+    &.on { border-color: #409eff; background: #ecf5ff; box-shadow: 0 0 0 1px #409eff inset; .spp-np-type-icon { color: #409eff; } } }
+.spp-np-type-icon { font-size: 22px; color: #909399; }
+.spp-np-type-text { flex: 1; min-width: 0; }
+.spp-np-type-title { font-size: 13px; font-weight: 600; color: #303133; }
+.spp-np-type-sub { font-size: 11px; color: #909399; margin-top: 2px; }
+.spp-np-type-tick { color: #409eff; font-size: 16px; }
+.spp-np-urgent { flex: 0 0 auto; ::v-deep .el-form-item__label { visibility: hidden; } }
+.spp-np-opt { font-size: 11px; color: #c0c4cc; font-weight: 400; }
+.spp-np-photo-item { margin-bottom: 4px !important; }
+.spp-np-photos { line-height: 1;
+    ::v-deep .el-upload--picture-card { width: 72px; height: 72px; line-height: 78px; border-radius: 6px; i { font-size: 20px; } }
+    ::v-deep .el-upload-list--picture-card .el-upload-list__item { width: 72px; height: 72px; margin: 0 8px 8px 0; border-radius: 6px; }
+    ::v-deep .el-upload-list--picture-card .el-upload-list__item-actions { font-size: 14px; }
+    ::v-deep .el-upload-list__item.is-ready .el-upload-list__item-status-label { display: none; }
+    &.full ::v-deep .el-upload--picture-card { display: none; } }
+.spp-np-added-icon { color: #909399; flex-shrink: 0; }
+.spp-photo-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.spp-photo { position: relative; width: 72px; height: 72px; }
+.spp-photo-img { width: 72px; height: 72px; border-radius: 6px; border: 1px solid #ebeef5; }
+.spp-photo-del { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 11px;
+    border-radius: 50%; background: #f56c6c; color: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
+.spp-photo-add-box { width: 72px; height: 72px; border: 1px dashed #c0ccda; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    color: #8c939d; font-size: 20px; background: #fbfdff; &:hover { border-color: #409eff; color: #409eff; } }
 .spp-tag-quote { display: inline-flex; align-items: center; gap: 2px; color: #e6a23c; background: #fdf6ec; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 .spp-act-quote { color: #e6a23c; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 .spp-act-confirm { color: #0ea5a5; font-weight: 600; }
 .spp-empty { color: #909399; }
 .spp-pager { padding-top: 8px; text-align: right; }
+/* ── phone (< 768px): list strip, cards, folded filters ── */
+.spp-mlists { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    &::-webkit-scrollbar { display: none; } }
+.spp-mchip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border: 1px solid #e4e7ed; border-radius: 15px;
+    font-size: 12px; color: #606266; background: #fff; white-space: nowrap; cursor: pointer;
+    i { color: #909399; }
+    b { color: #f56c6c; font-weight: 600; font-size: 11px; }
+    &.is-pin { font-weight: 600; }
+    &.on { color: #409eff; border-color: #409eff; background: #ecf5ff; i { color: #409eff; } } }
+.spp-mchip-sep { flex: 0 0 1px; background: #e4e7ed; margin: 5px 2px; }
+.spp-mcards { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px 0 10px; -webkit-overflow-scrolling: touch; }
+.spp-mempty { display: block; text-align: center; padding: 40px 0; }
+.spp-f-toggle { flex-shrink: 0; }
+@media (max-width: 767px) {
+    .spp-main { padding: 8px 10px 4px; }
+    .spp-topbar { flex-wrap: nowrap; gap: 6px; .el-button + .el-button { margin-left: 0; } }
+    .spp-filters { gap: 8px; margin-bottom: 8px; align-items: center;
+        .spp-f-item label { display: none; }
+        .spp-f-grow { order: -2; flex: 1 1 0; min-width: 0; }
+        .spp-f-toggle { order: -1; margin-left: 0; }
+        .spp-f-item:not(.spp-f-grow) { flex: 1 1 0; min-width: 0; } }
+    .spp-kpis { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; &::-webkit-scrollbar { display: none; } }
+    .spp-kpi { flex-shrink: 0; }
+    .spp-pager { padding-top: 6px; text-align: center; }
+}
 .spp-dlg-head { font-size: 15px; font-weight: 600; color: #303133; i { color: #409eff; margin-right: 4px; } }
 .spp-dlg-no { margin-left: 8px; font-weight: 400; color: #909399; font-size: 13px; }
 .spp-line-name { color: #303133; line-height: 1.3; }
@@ -1146,4 +1515,21 @@ export default {
 
 <style lang="scss">
 .spp-suggestions { min-width: 460px !important; li { line-height: 1.3 !important; padding: 4px 12px !important; } }
+/* Element's dialog body breaks words mid-letter; wrap at spaces instead */
+.spp-np-dlg .el-dialog__body, .spp-dlg-m .el-dialog__body { word-break: normal; overflow-wrap: break-word; }
+/* phone: message boxes and dialogs fit the screen */
+.spp-msgbox { max-width: calc(100vw - 24px); }
+.spp-dlg-m { margin-bottom: 3vh !important;
+    .el-dialog__header { padding: 14px 14px 8px; }
+    .el-dialog__body { padding: 10px 14px; }
+    .el-dialog__footer { padding: 8px 14px 14px; }
+    .spp-dlg-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; .el-button { flex: 1 1 auto; } .el-button + .el-button { margin-left: 0; } }
+    .spp-row { gap: 8px; }
+    .spp-hist-row { flex-wrap: wrap; gap: 2px 8px; }
+    .el-descriptions-item__label { white-space: nowrap; width: 84px; }
+    .spp-np-types { gap: 8px; }
+    .spp-np-type { padding: 8px 10px; gap: 8px; }
+    .spp-np-type-sub, .spp-np-type-tick { display: none; }
+    .spp-np-type-icon { font-size: 18px; }
+    .spp-label-frame { height: 48vh; } }
 </style>
