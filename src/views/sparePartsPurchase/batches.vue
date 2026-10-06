@@ -126,6 +126,14 @@
                     <el-date-picker v-model="createForm.shippedAt" size="small" type="date" value-format="yyyy-MM-dd"
                         format="yyyy-MM-dd" :clearable="false" :editable="false" style="width:150px" />
                 </div>
+                <!-- The parcel's freight (¥). Optional; it goes on the Zoho PO
+                     as its own "Shipping fee" line. -->
+                <div class="spb-field spb-field-ship">
+                    <label>{{ $tp('Shipping cost') }} (¥)</label>
+                    <el-input-number v-model="createForm.shippingCost" size="small" :min="0" :precision="2" :controls="false"
+                        :placeholder="$tp('Optional')" style="width:150px" />
+                    <span class="spb-dim spb-field-hint">{{ $tp('Added to the Zoho PO as its own line') }}</span>
+                </div>
             </div>
             <div class="spb-scan">
                 <el-input ref="scanRef" v-model="scan" size="small" prefix-icon="el-icon-full-screen" clearable
@@ -199,7 +207,7 @@
                 </span>
                 <span>
                     <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
-                    <el-button size="small" icon="el-icon-document" :loading="savingDraft" :disabled="!createForm.lines.length && !createForm.tracking && !createForm.note"
+                    <el-button size="small" icon="el-icon-document" :loading="savingDraft" :disabled="!createForm.lines.length && !createForm.tracking && !createForm.note && createForm.shippingCost == null"
                         @click="saveDraft">{{ draftId ? $tp('Save draft') : $tp('Save as draft') }}</el-button>
                     <el-button type="primary" size="small" icon="el-icon-truck" :loading="creating" :disabled="!createForm.lines.length"
                         @click="submitCreate">{{ $tp('Ship {n} line(s)', { n: createForm.lines.length }) }}</el-button>
@@ -270,7 +278,8 @@
                         <template v-if="view.receivedAt">{{ fmtDay(view.receivedAt) }}<span v-if="view.receivedBy"> · {{ view.receivedBy }}</span><span v-if="view.receiveNote"> · {{ $tp('on receipt') }}: {{ view.receiveNote }}</span></template>
                         <span v-else>—</span>
                     </el-descriptions-item>
-                    <el-descriptions-item :label="$tp('Zoho PO')" :span="2">
+                    <el-descriptions-item :label="$tp('Shipping cost')">{{ view.shippingCost != null ? yuan(view.shippingCost) : '—' }}</el-descriptions-item>
+                    <el-descriptions-item :label="$tp('Zoho PO')">
                         <template v-if="view.zoho && view.zoho.pos && view.zoho.pos.length">
                             <span v-for="p in view.zoho.pos" :key="p.purchaseorderId" class="spb-zpo-inline">
                                 <a class="spb-link" :href="zohoPoLink(p.purchaseorderId)" target="_blank" rel="noopener">{{ p.number }}</a>
@@ -477,7 +486,7 @@ export default {
             LABEL_SIZES,
             // create / draft
             createVisible: false,
-            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', lines: [] },
+            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [] },
             creating: false,
             draftId: null,
             savingDraft: false,
@@ -652,7 +661,7 @@ export default {
         // ── Create ─────────────────────────────────────────────────
         async openCreate() {
             this.draftId = null
-            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', lines: [] }
+            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [] }
             this.scan = ''
             this.createVisible = true
             this.loadSuppliers()
@@ -665,6 +674,7 @@ export default {
                 tracking: row.tracking || '',
                 shippedAt: fmtDay(row.shippedAt) !== '—' ? fmtDay(row.shippedAt) : todayYmd(),
                 note: row.note || '',
+                shippingCost: row.shippingCost != null ? row.shippingCost : undefined,
                 lines: (row.lines || []).map(l => ({
                     orderId: l.orderId, orderNo: l.orderNo, sku: l.sku, productName: l.productName, category: l.category,
                     status: l.status, supplier: l.supplier || '', orderedAt: l.orderedAt,
@@ -681,6 +691,8 @@ export default {
                 tracking: this.createForm.tracking,
                 shippedAt: this.createForm.shippedAt,
                 note: this.createForm.note,
+                // null (not undefined) when blank, so clearing the field on a draft clears it there too
+                shippingCost: this.createForm.shippingCost == null ? null : this.createForm.shippingCost,
                 lines: this.createForm.lines.map(l => ({ orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
@@ -1067,6 +1079,8 @@ export default {
 .spb-field { display: flex; flex-direction: column; gap: 3px; min-width: 200px; label { font-size: 12px; color: #909399; } }
 .spb-field-date { min-width: 150px; }
 .spb-field-vendor { min-width: 170px; }
+.spb-field-ship { min-width: 150px; }
+.spb-field-hint { font-size: 11px; }
 .spb-below { margin-top: 10px; }
 .spb-inline { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .spb-inline-tracking { max-width: 440px; }

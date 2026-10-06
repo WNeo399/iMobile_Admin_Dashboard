@@ -108,7 +108,7 @@ export function listBatches(params) {
 export function getBatch(idOrNo) {
   return request({ url: `${BASE}/batches/${idOrNo}`, method: 'get' })
 }
-// { tracking, shippedAt (YYYY-MM-DD), note, lines: [{ orderId, qty, supplier, unitPrice }] }
+// { tracking, shippedAt (YYYY-MM-DD), note, shippingCost (¥, optional), lines: [{ orderId, qty, supplier, unitPrice }] }
 // — ships straight away; with draft: true it is saved as a draft instead.
 export function createBatch(data) {
   return request({ url: `${BASE}/batches`, method: 'post', data, timeout: 90000 })

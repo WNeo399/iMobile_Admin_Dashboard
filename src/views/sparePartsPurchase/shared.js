@@ -64,6 +64,8 @@ export const zohoPoLink = id => `https://inventory.zoho.com/app/746138234#/purch
 // The packing list for a batch as a standalone HTML document — shown in a
 // preview first, printed from there. `tp` is the page's $tp so the sheet
 // follows the app language. Columns: product, unit price, ordered, shipped.
+// A shipping cost on the batch adds two foot rows: the cost, and the total
+// with it.
 export function packingListHtml(batch, tp) {
     const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const lines = batch.lines || []
@@ -78,6 +80,11 @@ export function packingListHtml(batch, tp) {
     const totalQty = lines.reduce((t, l) => t + (Number(l.shippedQty) || 0), 0)
     const priced = lines.some(l => l.unitPrice != null)
     const totalAmount = lines.reduce((t, l) => t + (Number(l.shippedQty) || 0) * (Number(l.unitPrice) || 0), 0)
+    const shipping = Number(batch.shippingCost) > 0 ? Number(batch.shippingCost) : 0
+    const shippingRows = shipping ? `
+            <tr><td></td><td>${esc(tp('Shipping cost'))}</td><td></td><td></td><td></td><td class="r">${esc(yuan(shipping))}</td></tr>
+            <tr><td></td><td>${esc(tp('Total with shipping'))}</td><td></td><td></td><td></td>
+                <td class="r">${priced ? esc(yuan(Math.round((totalAmount + shipping) * 100) / 100)) : ''}</td></tr>` : ''
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
         <title>${esc(batch.batchNo)} ${esc(tp('Packing List'))}</title>
         <style>
@@ -108,7 +115,7 @@ export function packingListHtml(batch, tp) {
             <th class="r">${esc(tp('Unit Price'))}</th><th class="r">${esc(tp('Line total'))}</th>
         </tr></thead><tbody>${rowsHtml}</tbody>
         <tfoot><tr><td></td><td>${esc(tp('Total'))}</td><td></td><td class="c">${totalQty}</td><td></td>
-            <td class="r">${priced ? esc(yuan(totalAmount)) : ''}</td></tr></tfoot></table>
+            <td class="r">${priced ? esc(yuan(totalAmount)) : ''}</td></tr>${shippingRows}</tfoot></table>
         </body></html>`
 }
 
