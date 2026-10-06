@@ -4,6 +4,15 @@
              count is the lines still to arrive. -->
         <tree-panel ref="treeRef" :tree-data="treeData" :title="$tp('Purchase Orders')" title-icon-class="el-icon-box"
             node-key="id" :default-expand-all="true" :show-search="false" @node-click="onNodeClick" @collapsed-change="onTreeToggle">
+            <!-- New Product and Special Order are their own lists, pinned above
+                 the tree (like Stock Monitoring's Dashboard / 海运) and kept out
+                 of the tree and of "All orders". The count is the pending lines. -->
+            <template #top>
+                <div v-for="p in PINNED" :key="p.category" :class="['spp-pin', { on: activeCategory === p.category }]" @click="openPin(p.category)">
+                    <i :class="p.icon" /> <span class="spp-pin-label">{{ catLabel(p.category) }}</span>
+                    <span :class="['spp-node-count', { 'is-zero': !pendingOf(p.category) }]" :title="$tp('Pending')">{{ pendingOf(p.category) }}</span>
+                </div>
+            </template>
             <template #node="{ data }">
                 <span class="spp-node">
                     <i :class="data.id === 'root' ? 'el-icon-notebook-2' : 'el-icon-document'" class="spp-node-icon" />
@@ -243,25 +252,47 @@
         </el-dialog>
 
         <!-- ── Order New Product: a product not in Zoho yet ──────────── -->
-        <el-dialog :visible.sync="newVisible" width="480px" append-to-body>
-            <div slot="title" class="spp-dlg-head"><i class="el-icon-plus" /> {{ $tp('Order New Product') }}</div>
-            <el-form label-position="top" size="small" @submit.native.prevent>
-                <el-form-item :label="$tp('Product name')" required>
-                    <el-input v-model="newForm.productName" maxlength="200" show-word-limit :placeholder="$tp('e.g. Samsung Galaxy Z Flip 7 FE (F761) Main Battery')" />
+        <el-dialog :visible.sync="newVisible" width="580px" append-to-body custom-class="spp-np-dlg" @opened="focusNewName">
+            <div slot="title" class="spp-dlg-head"><i class="el-icon-circle-plus-outline" /> {{ $tp('Order New Product') }}
+                <span class="spp-dlg-no">{{ $tp('a product not in Zoho yet') }}</span></div>
+            <!-- the road a new product takes -->
+            <div class="spp-np-steps">
+                <span class="spp-np-step is-now"><b>1</b>{{ $tp('Order it') }}</span>
+                <i class="el-icon-arrow-right" />
+                <span class="spp-np-step"><b>2</b>{{ $tp('Supplier quotes') }}</span>
+                <i class="el-icon-arrow-right" />
+                <span class="spp-np-step"><b>3</b>{{ $tp('You confirm') }}</span>
+                <i class="el-icon-arrow-right" />
+                <span class="spp-np-step"><b>4</b>{{ $tp('Ordered as usual') }}</span>
+            </div>
+            <el-form label-position="top" size="small" class="spp-np-form" @submit.native.prevent>
+                <div class="spp-row">
+                    <el-form-item :label="$tp('Product name')" required class="spp-col">
+                        <el-input ref="newName" v-model="newForm.productName" maxlength="200" clearable
+                            :placeholder="$tp('e.g. Samsung Galaxy Z Flip 7 FE (F761) Main Battery')" @keyup.enter.native="submitNewProduct(false)" />
+                    </el-form-item>
+                    <el-form-item :label="$tp('Quantity')" required class="spp-np-qty">
+                        <el-input-number v-model="newForm.orderQty" :min="1" :max="99999" :precision="0" controls-position="right" style="width:110px" />
+                    </el-form-item>
+                </div>
+                <el-form-item :label="$tp('Note')">
+                    <el-input v-model="newForm.note" type="textarea" :rows="2" resize="none" maxlength="500"
+                        :placeholder="$tp('Optional — a link, a photo reference, the colour…')" />
                 </el-form-item>
-                <el-form-item :label="$tp('Quantity')" required>
-                    <el-input-number v-model="newForm.orderQty" :min="1" :max="99999" :precision="0" :controls="false" style="width:160px" />
-                </el-form-item>
-                <el-form-item :label="$tp('Note') + ' (' + $tp('optional') + ')'">
-                    <el-input v-model="newForm.note" type="textarea" :rows="2" resize="none" maxlength="500" show-word-limit
-                        :placeholder="$tp('Optional')" />
-                </el-form-item>
-                <div class="spp-hint"><i class="el-icon-info" />
-                    {{ $tp('Files under New Product. The supplier quotes it first; the quote moves it to To Confirm, and once confirmed it is ordered as usual.') }}</div>
             </el-form>
+            <!-- "Save & add another" keeps the dialog open; what went in shows here -->
+            <div v-if="newAdded.length" class="spp-np-added">
+                <div class="spp-np-added-title"><i class="el-icon-circle-check" /> {{ $tp('Added just now') }} ({{ newAdded.length }})</div>
+                <div v-for="a in newAdded" :key="a.no" class="spp-np-added-row">
+                    <span class="spp-np-added-name" :title="a.name">{{ a.name }}</span><b>× {{ a.qty }}</b>
+                </div>
+            </div>
             <span slot="footer">
-                <el-button size="small" @click="newVisible = false">{{ $tp('Cancel') }}</el-button>
-                <el-button type="primary" size="small" icon="el-icon-check" :loading="newSaving" @click="submitNewProduct">{{ $tp('Order New Product') }}</el-button>
+                <el-button size="small" @click="newVisible = false">{{ newAdded.length ? $tp('Done') : $tp('Cancel') }}</el-button>
+                <el-button size="small" icon="el-icon-plus" :loading="newSaving === 'again'" :disabled="!!newSaving"
+                    @click="submitNewProduct(true)">{{ $tp('Save & add another') }}</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="newSaving === 'close'" :disabled="!!newSaving"
+                    @click="submitNewProduct(false)">{{ $tp('Order New Product') }}</el-button>
             </span>
         </el-dialog>
 
@@ -414,6 +445,14 @@ import {
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders
 } from '@/api/sparePartsPurchase'
 import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
+
+// The channels with a list of their own, pinned above the category tree and
+// left out of the tree and of "All orders" (user ask 2026-10-06).
+const PINNED = [
+    { category: 'New Product', icon: 'el-icon-circle-plus-outline' },
+    { category: 'Special Order', icon: 'el-icon-star-off' }
+]
+const PINNED_CATS = PINNED.map(p => p.category)
 import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
@@ -454,7 +493,11 @@ export default {
             // Order New Product
             newVisible: false,
             newForm: { productName: '', orderQty: 1, note: '' },
-            newSaving: false,
+            // '' | 'again' (Save & add another) | 'close'
+            newSaving: '',
+            // what went in while the dialog stayed open
+            newAdded: [],
+            PINNED,
             // Quote
             quoteVisible: false,
             quoteRow: null,
@@ -492,10 +535,11 @@ export default {
         treeData() {
             // Every category, even empty — the count is the lines still
             // waiting to be placed (pending), in red.
-            const cats = this.categories.length ? this.categories : CATEGORIES
+            // (the pinned channels are not in it)
+            const cats = (this.categories.length ? this.categories : CATEGORIES).filter(c => !PINNED_CATS.includes(c))
             const pending = cat => (this.byCategory[cat] && this.byCategory[cat].pending) || 0
             const children = cats.map(cat => ({ id: cat, label: this.catLabel(cat), count: pending(cat) }))
-            const total = Object.keys(this.byCategory).reduce((sum, cat) => sum + pending(cat), 0)
+            const total = Object.keys(this.byCategory).filter(c => !PINNED_CATS.includes(c)).reduce((sum, cat) => sum + pending(cat), 0)
             return [{ id: 'root', label: this.$tp('All orders'), count: total, children }]
         },
         canEither() {
@@ -585,6 +629,7 @@ export default {
                     page: this.page,
                     pageSize: this.pageSize,
                     category: this.activeCategory || undefined,
+                    excludeCategory: this.activeCategory ? undefined : PINNED_CATS.join(','),
                     status: this.activeStatus || undefined,
                     supplier: this.activeSupplier || undefined,
                     open: (!this.activeStatus && this.openOnly) ? 1 : undefined,
@@ -629,6 +674,15 @@ export default {
             this.activeCategory = data.id === 'root' ? '' : data.id
             this.reload()
         },
+        // A pinned channel: its own list; the tree shows nothing selected.
+        openPin(category) {
+            this.activeCategory = category
+            if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey(null)
+            this.reload()
+        },
+        pendingOf(category) {
+            return (this.byCategory[category] && this.byCategory[category].pending) || 0
+        },
         onPage(p) { this.page = p; this.load() },
         onSize(s) { this.pageSize = s; this.reload() },
         // A New Product line waits for its quote (then To Confirm, then
@@ -639,27 +693,39 @@ export default {
         // ── Order New Product ──────────────────────────────────────
         openNewProduct() {
             this.newForm = { productName: '', orderQty: 1, note: '' }
+            this.newAdded = []
             this.newVisible = true
         },
-        async submitNewProduct() {
+        focusNewName() {
+            const r = this.$refs.newName
+            if (r && r.focus) r.focus()
+        },
+        // `again`: keep the dialog open for the next product.
+        async submitNewProduct(again) {
+            if (this.newSaving) return
             const productName = (this.newForm.productName || '').trim()
             const orderQty = Number(this.newForm.orderQty)
-            if (!productName) { this.$message.warning(this.$tp('Enter the product name')); return }
+            if (!productName) { this.$message.warning(this.$tp('Enter the product name')); this.focusNewName(); return }
             if (!Number.isInteger(orderQty) || orderQty < 1) { this.$message.warning(this.$tp('Quantity must be a positive number')); return }
-            this.newSaving = true
+            this.newSaving = again ? 'again' : 'close'
             try {
                 const r = await createOrders([{ productName, orderQty, category: 'New Product', note: (this.newForm.note || '').trim() }])
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('{no} created — waiting for a quote', { no: (r.orderNos || [])[0] || '' }))
-                this.newVisible = false
-                // show it: the New Product category, open lines
-                this.activeCategory = 'New Product'
-                if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey('New Product')
-                this.reload()
+                const no = (r.orderNos || [])[0] || ''
+                this.$message.success(this.$tp('{no} created — waiting for a quote', { no }))
+                // show the New Product list behind the dialog
+                this.openPin('New Product')
+                if (again) {
+                    this.newAdded.unshift({ no, name: productName, qty: orderQty })
+                    this.newForm = { productName: '', orderQty: 1, note: '' }
+                    this.$nextTick(this.focusNewName)
+                } else {
+                    this.newVisible = false
+                }
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to create the order')))
             } finally {
-                this.newSaving = false
+                this.newSaving = ''
             }
         },
         // ── Place / quote / shortage / cancel / reopen ─────────────
@@ -691,6 +757,7 @@ export default {
             try {
                 const base = {
                     category: this.activeCategory || undefined,
+                    excludeCategory: this.activeCategory ? undefined : PINNED_CATS.join(','),
                     status: this.activeStatus || undefined,
                     supplier: this.activeSupplier || undefined,
                     open: (!this.activeStatus && this.openOnly) ? 1 : undefined,
@@ -1033,6 +1100,29 @@ export default {
 .label-orient-gap { margin-left: 12px; }
 .spp-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spp-confirm { color: #0ea5a5; }
+/* the pinned lists above the tree — Stock Monitoring's .dash-tab look */
+.spp-pin { margin: 10px 10px 0; padding: 0 10px; height: 34px; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+    color: #606266; border: 1px solid #e8eaed; border-radius: 4px; cursor: pointer; transition: all .15s;
+    i { color: #909399; font-size: 15px; }
+    &:hover { color: #409eff; border-color: #b3d8ff; background: #f0f7ff; i { color: #409eff; } }
+    &.on { color: #409eff; background: #e6f0fd; border-color: #b3d8ff; i { color: #409eff; } }
+    &:last-of-type { margin-bottom: 4px; } }
+.spp-pin-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Order New Product */
+.spp-np-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 10px; margin-bottom: 14px;
+    background: #f7f9fc; border: 1px solid #ebeef5; border-radius: 6px; font-size: 12px; color: #909399;
+    > i { color: #c0c4cc; font-size: 11px; } }
+.spp-np-step { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    b { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%;
+        background: #e4e7ed; color: #606266; font-size: 11px; }
+    &.is-now { color: #409eff; font-weight: 600; b { background: #409eff; color: #fff; } } }
+.spp-np-qty { flex: 0 0 auto; }
+.spp-np-form .el-form-item { margin-bottom: 12px; }
+.spp-np-added { margin-top: 4px; padding: 8px 10px; border: 1px dashed #c2e7b0; border-radius: 6px; background: #f0f9eb; max-height: 140px; overflow-y: auto; }
+.spp-np-added-title { font-size: 12px; color: #67c23a; font-weight: 600; margin-bottom: 4px; }
+.spp-np-added-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: #303133; padding: 2px 0;
+    b { flex-shrink: 0; color: #606266; } }
+.spp-np-added-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spp-tag-quote { display: inline-flex; align-items: center; gap: 2px; color: #e6a23c; background: #fdf6ec; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 .spp-act-quote { color: #e6a23c; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
