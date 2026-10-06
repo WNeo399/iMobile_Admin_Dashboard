@@ -151,39 +151,8 @@ export const moduleRoutes = [
           permissions: ["zoho:salesOrder:create", "po:specialOrder:view"]
         }
       },
-      {
-        // Serials Lookup — the Apple SVP feature: the genuine-serial list
-        // (uploaded from the supplier's sheet) the public lookup site checks
-        // against, plus the customer enquiries it generates. Grouped as a
-        // submenu via ParentView, like Catalogue.
-        path: "svp",
-        component: (resolve) => require(["@/components/ParentView"], resolve),
-        redirect: "noRedirect",
-        alwaysShow: true,
-        meta: { title: "Serials Lookup", icon: "el-icon-search" },
-        children: [
-          {
-            path: "/imobile/svp/serials",
-            component: (resolve) => require(["@/views/imobile/svp/serials"], resolve),
-            name: "ImobileSvpSerials",
-            meta: {
-              title: "Serials",
-              icon: "el-icon-files",
-              permissions: ["svp:serial:view"]
-            }
-          },
-          {
-            path: "/imobile/svp/enquiries",
-            component: (resolve) => require(["@/views/imobile/svp/enquiries"], resolve),
-            name: "ImobileSvpEnquiry",
-            meta: {
-              title: "Enquiries",
-              icon: "el-icon-chat-dot-round",
-              permissions: ["svp:enquiry:view"]
-            }
-          }
-        ]
-      },
+      // (Serials Lookup — the Apple SVP pages — moved to the iMobile Spare
+      // Parts menu on 2026-10-06; their /imobile/svp/... addresses stayed.)
     ]
   },
   {
@@ -383,6 +352,41 @@ export const moduleRoutes = [
               title: "Reference Data",
               icon: "el-icon-s-operation",
               permissions: ["zoho:collection:view"]
+            }
+          }
+        ]
+      },
+      {
+        // Serials Lookup — the Apple SVP feature: the genuine-serial list
+        // (uploaded from the supplier's sheet) the public lookup site checks
+        // against, plus the customer enquiries it generates. Grouped as a
+        // submenu via ParentView, like Catalogue. Moved here from the
+        // iMobile menu (user ask 2026-10-06); the page paths stay
+        // /imobile/svp/... so the notification link and bookmarks still work.
+        path: "svp",
+        component: (resolve) => require(["@/components/ParentView"], resolve),
+        redirect: "noRedirect",
+        alwaysShow: true,
+        meta: { title: "Serials Lookup", icon: "el-icon-search" },
+        children: [
+          {
+            path: "/imobile/svp/serials",
+            component: (resolve) => require(["@/views/imobile/svp/serials"], resolve),
+            name: "ImobileSvpSerials",
+            meta: {
+              title: "Serials",
+              icon: "el-icon-files",
+              permissions: ["svp:serial:view"]
+            }
+          },
+          {
+            path: "/imobile/svp/enquiries",
+            component: (resolve) => require(["@/views/imobile/svp/enquiries"], resolve),
+            name: "ImobileSvpEnquiry",
+            meta: {
+              title: "Enquiries",
+              icon: "el-icon-chat-dot-round",
+              permissions: ["svp:enquiry:view"]
             }
           }
         ]
