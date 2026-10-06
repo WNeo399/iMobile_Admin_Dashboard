@@ -126,14 +126,6 @@
                     <el-date-picker v-model="createForm.shippedAt" size="small" type="date" value-format="yyyy-MM-dd"
                         format="yyyy-MM-dd" :clearable="false" :editable="false" style="width:150px" />
                 </div>
-                <!-- The parcel's freight (¥). Optional; it goes on the Zoho PO
-                     as its own "Shipping fee" line. -->
-                <div class="spb-field spb-field-ship">
-                    <label>{{ $tp('Shipping cost') }} (¥)</label>
-                    <el-input-number v-model="createForm.shippingCost" size="small" :min="0" :precision="2" :controls="false"
-                        :placeholder="$tp('Optional')" style="width:150px" />
-                    <span class="spb-dim spb-field-hint">{{ $tp('Added to the Zoho PO as its own line') }}</span>
-                </div>
             </div>
             <div class="spb-scan">
                 <el-input ref="scanRef" v-model="scan" size="small" prefix-icon="el-icon-full-screen" clearable
@@ -189,10 +181,21 @@
                     </template>
                 </el-table-column>
             </el-table>
-            <!-- Tracking on its own line, the note as a text area beneath. -->
-            <div class="spb-field spb-below">
-                <label>{{ $tp('Tracking') }}</label>
-                <el-input v-model="createForm.tracking" size="small" :placeholder="$tp('Can be added later')" clearable />
+            <!-- Tracking with the parcel's freight beside it (the two arrive
+                 together, on the courier's docket); the note beneath. The
+                 shipping cost is optional and goes on the Zoho PO as its own
+                 "Shipping fee" line. -->
+            <div class="spb-head-fields spb-below">
+                <div class="spb-field spb-field-grow">
+                    <label>{{ $tp('Tracking') }}</label>
+                    <el-input v-model="createForm.tracking" size="small" :placeholder="$tp('Can be added later')" clearable />
+                </div>
+                <div class="spb-field spb-field-ship">
+                    <label>{{ $tp('Shipping cost') }} (¥)</label>
+                    <el-input-number v-model="createForm.shippingCost" size="small" :min="0" :precision="2" :controls="false"
+                        :placeholder="$tp('Optional')" style="width:150px" />
+                    <span class="spb-dim spb-field-hint">{{ $tp('Added to the Zoho PO as its own line') }}</span>
+                </div>
             </div>
             <div class="spb-field spb-below">
                 <label>{{ $tp('Note') }}</label>
@@ -203,7 +206,14 @@
                 <span class="spb-sum">
                     <el-button v-if="draftId" type="text" size="small" icon="el-icon-delete" class="spb-del" :loading="discarding"
                         @click="discardDraft">{{ $tp('Discard draft') }}</el-button>
-                    <template v-if="createForm.lines.length">{{ $tp('{n} line(s)', { n: createForm.lines.length }) }} · {{ $tp('{n} pcs', { n: createTotal }) }}</template>
+                    <template v-if="createForm.lines.length">{{ $tp('{n} line(s)', { n: createForm.lines.length }) }} · {{ $tp('{n} pcs', { n: createTotal }) }}
+                        <!-- the money: goods from the priced lines, plus the shipping cost -->
+                        <template v-if="createAmount.goods || createAmount.shipping">
+                            · <b>{{ $tp('Total') }} {{ yuan(createAmount.total) }}</b>
+                            <span v-if="createAmount.shipping" class="spb-dim"> ({{ $tp('goods') }} {{ yuan(createAmount.goods) }} + {{ $tp('shipping') }} {{ yuan(createAmount.shipping) }})</span>
+                        </template>
+                        <span v-if="createAmount.unpriced" class="spb-warn"> · {{ $tp('{n} line(s) without a price', { n: createAmount.unpriced }) }}</span>
+                    </template>
                 </span>
                 <span>
                     <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
@@ -279,7 +289,15 @@
                         <span v-else>—</span>
                     </el-descriptions-item>
                     <el-descriptions-item :label="$tp('Shipping cost')">{{ view.shippingCost != null ? yuan(view.shippingCost) : '—' }}</el-descriptions-item>
-                    <el-descriptions-item :label="$tp('Zoho PO')">
+                    <el-descriptions-item :label="$tp('Total')">
+                        <template v-if="viewAmount.goods || viewAmount.shipping">
+                            <b>{{ yuan(viewAmount.total) }}</b>
+                            <span v-if="viewAmount.shipping" class="spb-dim"> ({{ $tp('goods') }} {{ yuan(viewAmount.goods) }} + {{ $tp('shipping') }} {{ yuan(viewAmount.shipping) }})</span>
+                            <span v-if="viewAmount.unpriced" class="spb-dim"> · {{ $tp('{n} line(s) without a price', { n: viewAmount.unpriced }) }}</span>
+                        </template>
+                        <span v-else>—</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item :label="$tp('Zoho PO')" :span="3">
                         <template v-if="view.zoho && view.zoho.pos && view.zoho.pos.length">
                             <span v-for="p in view.zoho.pos" :key="p.purchaseorderId" class="spb-zpo-inline">
                                 <a class="spb-link" :href="zohoPoLink(p.purchaseorderId)" target="_blank" rel="noopener">{{ p.number }}</a>
@@ -450,7 +468,7 @@
 <script>
 import { hasPermission } from '@/utils/permission'
 import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
-import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml } from './shared'
+import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
@@ -560,6 +578,13 @@ export default {
         },
         createTotal() {
             return this.createForm.lines.reduce((t, l) => t + (Number(l.qty) || 0), 0)
+        },
+        // the money on the form / on the batch being viewed
+        createAmount() {
+            return batchAmount(this.createForm.lines, this.createForm.shippingCost, l => l.qty)
+        },
+        viewAmount() {
+            return this.view ? batchAmount(this.view.lines, this.view.shippingCost) : batchAmount([], 0)
         }
     },
     created() {
@@ -1079,7 +1104,7 @@ export default {
 .spb-field { display: flex; flex-direction: column; gap: 3px; min-width: 200px; label { font-size: 12px; color: #909399; } }
 .spb-field-date { min-width: 150px; }
 .spb-field-vendor { min-width: 170px; }
-.spb-field-ship { min-width: 150px; }
+.spb-field-ship { min-width: 150px; flex: 0 0 auto; }
 .spb-field-hint { font-size: 11px; }
 .spb-below { margin-top: 10px; }
 .spb-inline { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }

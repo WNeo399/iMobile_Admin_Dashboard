@@ -57,6 +57,22 @@ export function yuan(v) {
     const n = Number(v)
     return isNaN(n) ? String(v) : '¥' + n.toFixed(2)
 }
+// What a batch costs: shipped qty × unit price over the lines that carry a
+// price, plus the shipping cost. `qtyOf` picks the quantity field — the
+// Create Batch form has `qty`, a shipped batch `shippedQty`. `unpriced`
+// counts the lines left out for having no price.
+export function batchAmount(lines, shippingCost, qtyOf = l => l.shippedQty) {
+    let goods = 0
+    let unpriced = 0
+    for (const l of lines || []) {
+        if (l.unitPrice == null || l.unitPrice === '') { unpriced++; continue }
+        goods += (Number(qtyOf(l)) || 0) * (Number(l.unitPrice) || 0)
+    }
+    const shipping = Number(shippingCost) > 0 ? Number(shippingCost) : 0
+    const r2 = n => Math.round(n * 100) / 100
+    return { goods: r2(goods), shipping: r2(shipping), total: r2(goods + shipping), unpriced }
+}
+
 export const dhlLink = t => `https://www.dhl.com/au-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encodeURIComponent(t)}`
 export const zohoLink = id => `https://inventory.zoho.com/app/746138234#/inventory/items/${id}`
 export const zohoPoLink = id => `https://inventory.zoho.com/app/746138234#/purchaseorders/${id}`
