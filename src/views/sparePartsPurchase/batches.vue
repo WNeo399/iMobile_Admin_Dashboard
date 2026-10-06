@@ -89,7 +89,9 @@
                 <template slot-scope="s">
                     <template v-if="s.row.status === 'draft'">
                         <el-button v-if="can('spp:batch:create')" type="text" size="mini" icon="el-icon-edit" @click="openDraft(s.row)">{{ $tp('Edit') }}</el-button>
-                        <span v-else class="spb-dim">{{ $tp('Draft') }}</span>
+                        <!-- the same discard the draft dialog offers, right from the list (user ask 2026-10-06) -->
+                        <el-button v-if="can('spp:batch:create')" type="text" size="mini" icon="el-icon-delete" class="spb-del" @click="deleteDraft(s.row)">{{ $tp('Delete') }}</el-button>
+                        <span v-if="!can('spp:batch:create')" class="spb-dim">{{ $tp('Draft') }}</span>
                     </template>
                     <template v-else>
                         <el-button type="text" size="mini" icon="el-icon-view" @click="openView(s.row)">{{ $tp('View') }}</el-button>
@@ -735,6 +737,22 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to save the draft')))
             } finally {
                 this.savingDraft = false
+            }
+        },
+        // Delete a draft from the list: nothing has shipped, its lines are untouched.
+        async deleteDraft(row) {
+            const what = row.tracking ? `${row.tracking} · ` : ''
+            try {
+                await this.$confirm(`${what}${row.createdBy || ''} · ${this.$tp('{n} line(s)', { n: row.lineCount || 0 })}\n${this.$tp('Discard this draft? Nothing has shipped.')}`, this.$tp('Delete draft'),
+                    { type: 'warning', confirmButtonText: this.$tp('Delete'), cancelButtonText: this.$tp('Keep') })
+            } catch (e) { return }
+            try {
+                const r = await discardBatchDraft(row._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('Draft deleted'))
+                this.reload()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to discard the draft')))
             }
         },
         async discardDraft() {

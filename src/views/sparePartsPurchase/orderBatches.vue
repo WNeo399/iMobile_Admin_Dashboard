@@ -410,7 +410,9 @@ export default {
                     rows.push(...((r && r.rows) || []))
                     if (!r || rows.length >= (r.total || 0) || !(r.rows || []).length) break
                 }
-                this.pending = rows
+                // a New Product still waiting for its quote / confirmation
+                // cannot be placed yet (the backend refuses it too)
+                this.pending = rows.filter(r => !(r.category === 'New Product' && !r.confirmed))
                 // land on the first category that has something to pick
                 if (!this.pick.category || !this.catCount(this.pick.category)) {
                     this.pick.category = CATEGORIES.find(c => this.catCount(c)) || CATEGORIES[0]

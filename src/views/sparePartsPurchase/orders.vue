@@ -16,13 +16,12 @@
         <div class="spp-main">
             <div class="spp-topbar">
                 <!-- Open lines by default (Received / Cancelled cards show the rest);
-                     new lines are raised from the Stock Monitoring dashboard. -->
-                <!-- Several pending lines with one supplier happen on the Order
-                     Batches page (the list to send them comes from there). -->
-                <el-button v-if="can('spp:order:supply')" size="small" icon="el-icon-document-checked"
-                    @click="$router.push({ path: '/sparePartsPurchase/order-batches', query: { create: '1' } })">{{ $tp('Create Order Batch') }}</el-button>
+                     stock lines are raised from the Stock Monitoring dashboard,
+                     a product not in Zoho yet with Order New Product. Order
+                     batches and shipment batches are made on their own pages
+                     (the buttons left this bar on 2026-10-06). -->
+                <el-button v-if="can('spp:order:create')" type="primary" size="small" icon="el-icon-plus" @click="openNewProduct">{{ $tp('Order New Product') }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
-                <el-button v-if="can('spp:batch:create')" type="warning" plain size="small" icon="el-icon-truck" @click="goCreateBatch">{{ $tp('Create Batch') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
             </div>
 
@@ -89,6 +88,9 @@
                             <!-- Went through To Confirm and was confirmed — the mark stays. -->
                             <span v-if="s.row.confirmed" class="spp-tag-ok" :title="confirmedTitle(s.row.confirmed)">
                                 <i class="el-icon-circle-check" /> {{ $tp('Confirmed') }}</span>
+                            <!-- A New Product is quoted, then confirmed, before it is ordered. -->
+                            <span v-if="awaitsQuote(s.row)" class="spp-tag-quote" :title="$tp('Quote it first; the quote moves it to To Confirm.')">
+                                <i class="el-icon-price-tag" /> {{ $tp('Needs a quote') }}</span>
                         </div>
                         <div v-if="s.row.note" class="spp-note">{{ $tp('Note') }}: {{ s.row.note }}</div>
                         <div v-if="s.row.splitFrom" class="spp-sub"><i class="el-icon-share" /> {{ $tp('Remainder of a short shipment') }}</div>
@@ -168,7 +170,10 @@
                         <el-tooltip :content="$tp('Print label')" placement="top">
                             <el-button size="mini" type="text" icon="el-icon-printer" class="spp-act-label" @click="printLineLabels(s.row)" />
                         </el-tooltip>
-                        <el-tooltip v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
+                        <el-tooltip v-if="can('spp:order:supply') && awaitsQuote(s.row)" :content="$tp('Quote')" placement="top" :disabled="!compact">
+                            <el-button size="mini" type="text" icon="el-icon-price-tag" class="spp-act-quote" @click="openQuote(s.row)">{{ compact ? '' : $tp('Quote') }}</el-button>
+                        </el-tooltip>
+                        <el-tooltip v-else-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
                             :content="$tp('Place order')" placement="top" :disabled="!compact">
                             <el-button size="mini" type="text" icon="el-icon-document-checked" @click="openPlace(s.row)">{{ compact ? '' : $tp('Place order') }}</el-button>
                         </el-tooltip>
@@ -182,7 +187,7 @@
                             <el-dropdown-menu slot="dropdown">
                                 <el-dropdown-item v-if="can('spp:order:supply') && ['pending', 'shortage', 'ordered', 'toConfirm'].includes(s.row.status)"
                                     :command="() => openQuote(s.row)" icon="el-icon-price-tag">{{ $tp('Quote') }}</el-dropdown-item>
-                                <el-dropdown-item v-if="canEither && ['pending', 'ordered', 'shortage'].includes(s.row.status)"
+                                <el-dropdown-item v-if="canEither && ['pending', 'ordered', 'shortage'].includes(s.row.status) && !awaitsQuote(s.row)"
                                     :command="() => toConfirm(s.row)" icon="el-icon-question">{{ $tp('To Confirm') }}</el-dropdown-item>
                                 <el-dropdown-item v-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'ordered')"
                                     :command="() => markShortage(s.row)" icon="el-icon-remove-outline">{{ $tp('Shortage') }}</el-dropdown-item>
@@ -237,6 +242,29 @@
             </span>
         </el-dialog>
 
+        <!-- ── Order New Product: a product not in Zoho yet ──────────── -->
+        <el-dialog :visible.sync="newVisible" width="480px" append-to-body>
+            <div slot="title" class="spp-dlg-head"><i class="el-icon-plus" /> {{ $tp('Order New Product') }}</div>
+            <el-form label-position="top" size="small" @submit.native.prevent>
+                <el-form-item :label="$tp('Product name')" required>
+                    <el-input v-model="newForm.productName" maxlength="200" show-word-limit :placeholder="$tp('e.g. Samsung Galaxy Z Flip 7 FE (F761) Main Battery')" />
+                </el-form-item>
+                <el-form-item :label="$tp('Quantity')" required>
+                    <el-input-number v-model="newForm.orderQty" :min="1" :max="99999" :precision="0" :controls="false" style="width:160px" />
+                </el-form-item>
+                <el-form-item :label="$tp('Note') + ' (' + $tp('optional') + ')'">
+                    <el-input v-model="newForm.note" type="textarea" :rows="2" resize="none" maxlength="500" show-word-limit
+                        :placeholder="$tp('Optional')" />
+                </el-form-item>
+                <div class="spp-hint"><i class="el-icon-info" />
+                    {{ $tp('Files under New Product. The supplier quotes it first; the quote moves it to To Confirm, and once confirmed it is ordered as usual.') }}</div>
+            </el-form>
+            <span slot="footer">
+                <el-button size="small" @click="newVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="newSaving" @click="submitNewProduct">{{ $tp('Order New Product') }}</el-button>
+            </span>
+        </el-dialog>
+
         <!-- ── Quote ────────────────────────────────────────────────── -->
         <el-dialog :visible.sync="quoteVisible" width="420px" append-to-body>
             <div slot="title" class="spp-dlg-head"><i class="el-icon-price-tag" /> {{ $tp('Quote') }}</div>
@@ -251,14 +279,16 @@
                     </el-input>
                 </el-form-item>
                 <!-- "Quote, then confirm": the line parks in To Confirm with the price. -->
-                <el-form-item v-if="quoteRow && quoteRow.status !== 'toConfirm'">
+                <el-form-item v-if="quoteRow && quoteRow.status !== 'toConfirm' && !awaitsQuote(quoteRow)">
                     <el-checkbox v-model="quoteForm.toConfirm">{{ $tp('Move to To Confirm') }}</el-checkbox>
                 </el-form-item>
                 <el-form-item v-if="quoteForm.toConfirm && quoteRow && quoteRow.status !== 'toConfirm'" :label="$tp('Needs confirming')">
                     <el-input v-model="quoteForm.note" type="textarea" :rows="2" resize="none" maxlength="200" show-word-limit
-                        :placeholder="$tp('What needs confirming?')" />
+                        :placeholder="awaitsQuote(quoteRow) ? $tp('Optional') : $tp('What needs confirming?')" />
                 </el-form-item>
-                <div v-if="quoteForm.toConfirm && quoteRow && quoteRow.status !== 'toConfirm'" class="spp-hint"><i class="el-icon-question" />
+                <div v-if="quoteRow && awaitsQuote(quoteRow)" class="spp-hint"><i class="el-icon-question" />
+                    {{ $tp('A new product goes to To Confirm with its quote; once confirmed it is ordered as usual.') }}</div>
+                <div v-else-if="quoteForm.toConfirm && quoteRow && quoteRow.status !== 'toConfirm'" class="spp-hint"><i class="el-icon-question" />
                     {{ $tp('The line parks in To Confirm with this quote; confirm it to carry on.') }}</div>
                 <div v-else class="spp-hint"><i class="el-icon-info" /> {{ $tp('A quote is a reference price only; the status does not change.') }}</div>
             </el-form>
@@ -381,7 +411,7 @@ import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
     listOrders, getOrder, updateOrder, quoteOrder, placeOrder, priceOrder, shortageOrder,
-    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder
+    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders
 } from '@/api/sparePartsPurchase'
 import { STATUS_LIST, STATUS_META, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
 import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
@@ -421,6 +451,10 @@ export default {
             placeForm: { supplier: '', unitPrice: undefined },
             placing: false,
             exporting: false,
+            // Order New Product
+            newVisible: false,
+            newForm: { productName: '', orderQty: 1, note: '' },
+            newSaving: false,
             // Quote
             quoteVisible: false,
             quoteRow: null,
@@ -597,8 +631,36 @@ export default {
         },
         onPage(p) { this.page = p; this.load() },
         onSize(s) { this.pageSize = s; this.reload() },
-        goCreateBatch() {
-            this.$router.push({ path: '/sparePartsPurchase/batches', query: { create: '1' } })
+        // A New Product line waits for its quote (then To Confirm, then
+        // Confirmed) before it can be ordered — the backend's awaitsQuote.
+        awaitsQuote(row) {
+            return !!row && row.category === 'New Product' && ['pending', 'shortage'].includes(row.status) && !row.confirmed
+        },
+        // ── Order New Product ──────────────────────────────────────
+        openNewProduct() {
+            this.newForm = { productName: '', orderQty: 1, note: '' }
+            this.newVisible = true
+        },
+        async submitNewProduct() {
+            const productName = (this.newForm.productName || '').trim()
+            const orderQty = Number(this.newForm.orderQty)
+            if (!productName) { this.$message.warning(this.$tp('Enter the product name')); return }
+            if (!Number.isInteger(orderQty) || orderQty < 1) { this.$message.warning(this.$tp('Quantity must be a positive number')); return }
+            this.newSaving = true
+            try {
+                const r = await createOrders([{ productName, orderQty, category: 'New Product', note: (this.newForm.note || '').trim() }])
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('{no} created — waiting for a quote', { no: (r.orderNos || [])[0] || '' }))
+                this.newVisible = false
+                // show it: the New Product category, open lines
+                this.activeCategory = 'New Product'
+                if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey('New Product')
+                this.reload()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to create the order')))
+            } finally {
+                this.newSaving = false
+            }
         },
         // ── Place / quote / shortage / cancel / reopen ─────────────
         openPlace(row) {
@@ -675,7 +737,8 @@ export default {
         },
         openQuote(row) {
             this.quoteRow = row
-            this.quoteForm = { unitPrice: row.quotedPrice != null ? row.quotedPrice : undefined, toConfirm: false, note: '' }
+            // a New Product awaiting its quote always goes to To Confirm with it
+            this.quoteForm = { unitPrice: row.quotedPrice != null ? row.quotedPrice : undefined, toConfirm: this.awaitsQuote(row), note: '' }
             this.quoteVisible = true
         },
         async submitQuote() {
@@ -970,6 +1033,8 @@ export default {
 .label-orient-gap { margin-left: 12px; }
 .spp-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spp-confirm { color: #0ea5a5; }
+.spp-tag-quote { display: inline-flex; align-items: center; gap: 2px; color: #e6a23c; background: #fdf6ec; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
+.spp-act-quote { color: #e6a23c; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 .spp-act-confirm { color: #0ea5a5; font-weight: 600; }
 .spp-empty { color: #909399; }
