@@ -199,7 +199,8 @@
             <span slot="footer">
                 <!-- Dispatch / credit / payment actions live in the table's
                      ··· menu; the dialog stays a read-only view. -->
-                <el-button v-if="detail && detail.invoicePdfUrl" size="small" icon="el-icon-document" @click="openPdf(detail)">View Invoice</el-button>
+                <!-- no InFlow PDF (hand-entered order): one is drawn from the order -->
+                <el-button v-if="detail" size="small" icon="el-icon-document" :loading="pdfBuilding" @click="openPdf(detail)">View Invoice</el-button>
                 <el-button size="small" @click="detailVisible = false">Close</el-button>
             </span>
         </el-dialog>
@@ -398,13 +399,51 @@
         </el-dialog>
 
         <!-- Invoice PDF preview -->
-        <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="60%" top="7vh">
+        <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="60%" top="7vh" @closed="onPdfClosed">
             <div class="io-pdf-wrap">
                 <iframe v-if="pdfUrl" :src="pdfUrl" class="io-pdf-frame" title="Invoice PDF" />
             </div>
             <span slot="footer">
+                <span v-if="pdfGenerated" class="io-pdf-note"><i class="el-icon-info" /> Made from the order — this order has no InFlow PDF</span>
                 <el-link v-if="pdfUrl" type="primary" :href="pdfUrl" target="_blank" rel="noopener" :underline="false" class="io-pdf-open"><i class="el-icon-top-right" /> Open in new tab</el-link>
+                <el-button v-if="pdfGenerated" v-hasPermi="['inflow:order:create']" size="small" icon="el-icon-edit-outline" @click="openInvoiceDetails">Invoice details</el-button>
+                <el-button v-if="pdfGenerated" size="small" type="primary" icon="el-icon-download" @click="downloadGeneratedPdf">Download</el-button>
                 <el-button size="small" @click="pdfVisible = false">Close</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- The vendor's and customer's details on generated invoices — kept on
+             their records, so every order of theirs uses them. -->
+        <el-dialog title="Invoice details" :visible.sync="invDetailVisible" width="640px" append-to-body>
+            <el-form label-position="top" size="small" class="io-invdet">
+                <div class="io-invdet-head">From — {{ invDetail.vendorName || 'vendor' }}</div>
+                <el-form-item label="Address">
+                    <el-input v-model="invDetail.vendor.address" type="textarea" :rows="2" placeholder="12/105 Cochranes Road&#10;Moorabbin, VIC  Australia  3189" />
+                </el-form-item>
+                <div class="io-invdet-row">
+                    <el-form-item label="Email"><el-input v-model="invDetail.vendor.email" /></el-form-item>
+                    <el-form-item label="Phone"><el-input v-model="invDetail.vendor.phone" /></el-form-item>
+                    <el-form-item label="ABN"><el-input v-model="invDetail.vendor.abn" /></el-form-item>
+                </div>
+                <div class="io-invdet-head">To — {{ invDetail.customerName || 'customer' }}</div>
+                <div class="io-invdet-row">
+                    <el-form-item label="Billing address (under the name)">
+                        <el-input v-model="invDetail.customer.billingAddress" type="textarea" :rows="2" />
+                    </el-form-item>
+                    <el-form-item label="Shipping address (blank = same)">
+                        <el-input v-model="invDetail.customer.shippingAddress" type="textarea" :rows="2" />
+                    </el-form-item>
+                </div>
+                <div class="io-invdet-row">
+                    <el-form-item label="Contact"><el-input v-model="invDetail.customer.contact" /></el-form-item>
+                    <el-form-item label="Phone"><el-input v-model="invDetail.customer.phone" /></el-form-item>
+                    <el-form-item label="Payment terms"><el-input v-model="invDetail.customer.paymentTerms" placeholder="Net 30" /></el-form-item>
+                </div>
+                <div class="io-invdet-hint">"Net 30" sets the due date 30 days after the invoice date. Saved for every order of this vendor and customer.</div>
+            </el-form>
+            <span slot="footer">
+                <el-button size="small" @click="invDetailVisible = false">Cancel</el-button>
+                <el-button size="small" type="primary" :loading="invDetailSaving" @click="saveInvoiceDetails">Save</el-button>
             </span>
         </el-dialog>
 
@@ -499,11 +538,14 @@
 </template>
 
 <script>
-import { getInflowOrders, getInflowOrder, createInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload, updateInflowInvoiceNumber } from '@/api/inflow'
+import { getInflowOrders, getInflowOrder, createInflowOrder, recordInflowPayment, deleteInflowPayment, getInflowFilters, getInflowOrderCredits, getInflowOrderDispatch, resolveInflowSkuMap, createInflowDispatchUpload, updateInflowInvoiceNumber, updateInflowInvoiceDetails } from '@/api/inflow'
+import invoicePdfMixin from './invoicePdfMixin'
 import { searchProducts } from '@/api/zoho/products/product'
 
 export default {
     name: 'InflowSalesOrders',
+    // no InFlow PDF → an invoice drawn from the order (./invoicePdfMixin)
+    mixins: [invoicePdfMixin],
     data() {
         return {
             loading: false,
@@ -523,6 +565,9 @@ export default {
             creditVisible: false, creditOrder: null, applying: false,
             credits: [], creditsLoading: false, creditApply: {}, creditDate: this.today(),
             pdfVisible: false, pdfUrl: '', pdfTitle: '',
+            // the generated invoice's parties, being edited
+            invDetailVisible: false, invDetailSaving: false,
+            invDetail: { vendorName: '', customerName: '', vendor: {}, customer: {} },
             linkDispatchVisible: false, linkDispatchOrder: null,
             // Dispatch Status dialog: the linked record (null = not linked),
             // plus the "create from this order" working rows.
@@ -690,11 +735,41 @@ export default {
                 this.invRenaming = false
             }
         },
-        openPdf(row) {
-            if (!row || !row.invoicePdfUrl) { this.$message.warning('No invoice PDF for this order.'); return }
-            this.pdfUrl = row.invoicePdfUrl
-            this.pdfTitle = row.invoiceNumber || ''
-            this.pdfVisible = true
+        // (openPdf comes from invoicePdfMixin) the order with its lines + parties
+        async loadOrderForPdf(id) {
+            const r = await getInflowOrder(id)
+            return r && r.success !== false ? r.order : null
+        },
+        openInvoiceDetails() {
+            const o = this.pdfGenerated
+            if (!o) return
+            const p = o.invoiceParties || {}
+            const v = p.vendor || {}
+            const c = p.customer || {}
+            this.invDetail = {
+                orderId: o._id,
+                vendorName: v.name || o.vendor || '',
+                customerName: c.name || o.customerName || '',
+                vendor: { address: v.address || '', email: v.email || '', phone: v.phone || '', abn: v.abn || '' },
+                customer: { billingAddress: c.billingAddress || '', shippingAddress: c.shippingAddress || '', contact: c.contact || '', phone: c.phone || '', paymentTerms: c.paymentTerms || '' }
+            }
+            this.invDetailVisible = true
+        },
+        async saveInvoiceDetails() {
+            this.invDetailSaving = true
+            try {
+                const r = await updateInflowInvoiceDetails(this.invDetail.orderId, { vendor: this.invDetail.vendor, customer: this.invDetail.customer })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const order = { ...this.pdfGenerated, invoiceParties: r.invoiceParties }
+                if (this.detail && this.detail._id === order._id) this.$set(this.detail, 'invoiceParties', r.invoiceParties)
+                this.invDetailVisible = false
+                this.showGeneratedPdf(order)
+                this.$message.success('Invoice details saved')
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to save the invoice details'))
+            } finally {
+                this.invDetailSaving = false
+            }
         },
         // Record Payment — cash only.
         openPayment(row) {
@@ -1178,6 +1253,11 @@ export default {
     border-top: 1px solid #ebeef5;
     font-size: 15px; font-weight: 600; color: #303133;
 }
+/* generated invoices (no InFlow PDF) */
+.io-pdf-note { float: left; line-height: 32px; font-size: 12px; color: #909399; i { margin-right: 4px; } }
+.io-invdet-head { font-size: 13px; font-weight: 600; color: #303133; margin: 4px 0 8px; }
+.io-invdet-row { display: flex; gap: 12px; > * { flex: 1; } }
+.io-invdet-hint { font-size: 12px; color: #909399; }
 </style>
 
 <style>

@@ -96,7 +96,7 @@
                 </template>
             </div>
             <span slot="footer">
-                <el-button v-if="detail && detail.invoicePdfUrl" size="small" icon="el-icon-document" @click="openPdf(detail)">View Invoice</el-button>
+                <el-button v-if="detail" size="small" icon="el-icon-document" :loading="pdfBuilding" @click="openPdf(detail)">View Invoice</el-button>
                 <el-button size="small" @click="detailVisible = false">Close</el-button>
             </span>
         </el-dialog>
@@ -160,10 +160,11 @@
         </el-dialog>
 
         <!-- Invoice PDF -->
-        <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="60%" top="7vh">
+        <el-dialog :title="(pdfTitle || 'Invoice') + ' — Invoice PDF'" :visible.sync="pdfVisible" width="60%" top="7vh" @closed="onPdfClosed">
             <div class="oh-pdf-wrap"><iframe v-if="pdfUrl" :src="pdfUrl" class="oh-pdf-frame" title="Invoice PDF" /></div>
             <span slot="footer">
                 <el-link v-if="pdfUrl" type="primary" :href="pdfUrl" target="_blank" rel="noopener" :underline="false" class="oh-pdf-open"><i class="el-icon-top-right" /> Open in new tab</el-link>
+                <el-button v-if="pdfGenerated" size="small" type="primary" icon="el-icon-download" @click="downloadGeneratedPdf">Download</el-button>
                 <el-button size="small" @click="pdfVisible = false">Close</el-button>
             </span>
         </el-dialog>
@@ -172,9 +173,12 @@
 
 <script>
 import { getInflowStatement, getInflowStatementOrder, getInflowStatementOrderDispatch } from '@/api/inflow'
+import invoicePdfMixin from './invoicePdfMixin'
 
 export default {
     name: 'InflowOrderHistory',
+    // no InFlow PDF → an invoice drawn from the order (./invoicePdfMixin)
+    mixins: [invoicePdfMixin],
     data() {
         return {
             loading: false,
@@ -244,11 +248,10 @@ export default {
                 this.detailLoading = false
             }
         },
-        openPdf(row) {
-            if (!row || !row.invoicePdfUrl) { this.$message.warning('No invoice PDF for this order.'); return }
-            this.pdfUrl = row.invoicePdfUrl
-            this.pdfTitle = row.invoiceNumber || ''
-            this.pdfVisible = true
+        // (openPdf comes from invoicePdfMixin) the order with its lines + parties
+        async loadOrderForPdf(id) {
+            const r = await getInflowStatementOrder(id)
+            return r && r.success !== false ? r.order : null
         },
         async openDispatchStatus(row) {
             this.dispatchOrder = row

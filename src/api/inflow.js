@@ -19,6 +19,12 @@ export function getInflowOrder(id) {
 export function updateInflowInvoiceNumber(id, invoiceNumber) {
   return request({ url: `/inflow/salesorders/${id}/invoice-number`, method: 'put', data: { invoiceNumber } })
 }
+// The vendor's / customer's details on generated invoices (orders without an
+// InFlow PDF), saved on their records. { vendor: { address, email, phone, abn },
+// customer: { billingAddress, shippingAddress, contact, phone, paymentTerms } }
+export function updateInflowInvoiceDetails(id, data) {
+  return request({ url: `/inflow/salesorders/${id}/invoice-details`, method: 'put', data })
+}
 
 export function recordInflowPayment(id, data) {
   return request({ url: `/inflow/salesorders/${id}/payment`, method: 'post', data })
