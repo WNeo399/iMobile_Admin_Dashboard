@@ -132,25 +132,8 @@ export const moduleRoutes = [
           permissions: ["zoho:salesOrder:create"]
         }
       },
-      {
-        // Special Order — review the imb_special_orders collection
-        // populated by the embeddable Special Order widget shipped
-        // out of the iMobile_Widget repo (POST /widget/specialOrder
-        // on the backend). Same permission gate as Credit Note so
-        // the same role can triage incoming customer requests.
-        path: "specialOrder",
-        component: (resolve) => require(["@/views/imobile/specialOrder/index"], resolve),
-        name: "ImobileSpecialOrder",
-        meta: {
-          title: "Special Order",
-          icon: "el-icon-shopping-cart-2",
-          // ANY-match: the original zoho gate (admin / iMobile Admin) OR the
-          // dedicated po:specialOrder:view held by the iMobile Purchase role
-          // (which must NOT get zoho:salesOrder:create — that would also
-          // unlock the Credit Note page).
-          permissions: ["zoho:salesOrder:create", "po:specialOrder:view"]
-        }
-      },
+      // (Special Order — the review page for the website form / WhatsApp
+      // requests in imb_special_orders — was removed on 2026-10-07, unused.)
       // (Serials Lookup — the Apple SVP pages — moved to the iMobile Spare
       // Parts menu on 2026-10-06; their /imobile/svp/... addresses stayed.)
     ]

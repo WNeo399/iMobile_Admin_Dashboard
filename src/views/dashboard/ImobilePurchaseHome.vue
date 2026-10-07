@@ -3,11 +3,9 @@
         <el-card shadow="never" class="ph-card">
             <div class="ph-title"><i class="el-icon-shopping-cart-full" /> Purchasing</div>
             <div class="ph-text">
-                Track purchase orders through ordering, shipping and receiving — and triage
-                incoming special-order requests from customers.
+                Track purchase orders through ordering, shipping and receiving.
             </div>
             <el-button type="primary" icon="el-icon-notebook-2" @click="$router.push('/sparePartsPurchase/orders')">Purchase Order</el-button>
-            <el-button icon="el-icon-shopping-cart-2" @click="$router.push('/imobile/specialOrder')">Special Order</el-button>
         </el-card>
     </div>
 </template>

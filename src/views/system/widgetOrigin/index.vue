@@ -246,7 +246,7 @@ const KNOWN_WIDGETS = [
         value: 'special-order',
         label: 'Special Order',
         description:
-            "Embeddable form on customer-facing sites where shoppers can submit special-order requests (name, description, images). Submissions land in the imb_special_orders collection and show up under iMobile → Special Order for triage."
+            "Embeddable form on customer-facing sites where shoppers can submit special-order requests (name, description, images). Submissions land in the imb_special_orders collection (the iMobile → Special Order review page was removed on 2026-10-07)."
     },
     {
         value: 'exploded-diagram',
