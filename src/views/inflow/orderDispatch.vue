@@ -8,13 +8,15 @@
                 placeholder="Customer" class="f-customer" @change="reload">
                 <el-option v-for="c in customerOptions" :key="c" :label="c" :value="c" />
             </el-select>
-            <!-- Defaults to everything still open — dispatched records are
-                 finished paperwork and only show when ticked. Empty = all. -->
+            <!-- Defaults to everything still open — dispatched and closed
+                 records are finished paperwork and only show when ticked.
+                 Empty = all. -->
             <el-select v-model="query.status" size="small" class="f-status" multiple collapse-tags
                 placeholder="All statuses" @change="reload">
                 <el-option label="Pending" value="pending" />
                 <el-option label="Partial" value="partial" />
                 <el-option label="Dispatched" value="dispatched" />
+                <el-option label="Closed" value="closed" />
             </el-select>
             <span class="od-spacer" />
             <span class="od-meta">{{ total.toLocaleString() }} orders</span>
@@ -69,13 +71,22 @@
             </el-table-column>
             <el-table-column label="Status" width="105" align="center">
                 <template slot-scope="s">
-                    <el-tag size="mini" :type="dispatchTag(s.row.dispatchStatus)">{{ dispatchLabel(s.row.dispatchStatus) }}</el-tag>
+                    <el-tooltip v-if="s.row.dispatchStatus === 'closed'" :content="closedText(s.row)" placement="top">
+                        <el-tag size="mini" :type="dispatchTag(s.row.dispatchStatus)">{{ dispatchLabel(s.row.dispatchStatus) }}</el-tag>
+                    </el-tooltip>
+                    <el-tag v-else size="mini" :type="dispatchTag(s.row.dispatchStatus)">{{ dispatchLabel(s.row.dispatchStatus) }}</el-tag>
                 </template>
             </el-table-column>
-            <el-table-column label="" width="190" align="center">
+            <el-table-column label="" width="250" align="center">
                 <template slot-scope="s">
                     <el-button size="mini" type="text" icon="el-icon-box" @click="openDispatch(s.row)">Dispatch</el-button>
                     <template v-if="s.row.recordType === 'manual'">
+                        <!-- Close = leave the undispatched rest as it is. -->
+                        <el-button v-if="s.row.dispatchStatus === 'pending' || s.row.dispatchStatus === 'partial'"
+                            size="mini" type="text" icon="el-icon-circle-close" class="od-close-btn"
+                            @click="closeDispatch(s.row)">Close</el-button>
+                        <el-button v-else-if="s.row.dispatchStatus === 'closed'" size="mini" type="text"
+                            icon="el-icon-refresh-left" @click="reopenDispatch(s.row)">Reopen</el-button>
                         <el-button size="mini" type="text" icon="el-icon-connection" @click="openLink(s.row)">Link</el-button>
                         <el-button size="mini" type="text" icon="el-icon-delete" class="od-del" @click="deleteUpload(s.row)" />
                     </template>
@@ -113,8 +124,17 @@
                 <el-tabs v-model="dispatchTab" @tab-click="onDispatchTab">
                     <el-tab-pane name="dispatch">
                         <span slot="label"><i class="el-icon-box" /> Dispatch</span>
+                <!-- Closed: the rest stays undispatched; no scanning until
+                     it is reopened. -->
+                <el-alert v-if="dispatchClosed" type="info" :closable="false" show-icon class="od-closed-alert"
+                    :title="`Closed with ${totalRemaining} unit${totalRemaining === 1 ? '' : 's'} not dispatched`">
+                    <div class="od-closed-body">
+                        <span>{{ closedText(dispatchRecord) }}</span>
+                        <el-button size="mini" icon="el-icon-refresh-left" @click="reopenDispatch(dispatchRecord)">Reopen</el-button>
+                    </div>
+                </el-alert>
                 <!-- Scan-to-batch bar -->
-                <div class="od-scan-row">
+                <div v-else class="od-scan-row">
                     <el-input
                         ref="scanInput"
                         v-model="scanCode"
@@ -153,6 +173,9 @@
                         <el-radio-button label="fulfilled">Fulfilled ({{ fulfilledCount }})</el-radio-button>
                     </el-radio-group>
                     <span class="od-spacer" />
+                    <el-button v-if="!dispatchClosed && dispatchRecord.recordType === 'manual'" size="mini"
+                        icon="el-icon-circle-close" :disabled="!totalRemaining"
+                        @click="closeDispatch(dispatchRecord)">Close Dispatch</el-button>
                     <el-button size="mini" icon="el-icon-printer" :disabled="!remainingCount"
                         @click="openRemainingList">Print Remaining</el-button>
                 </div>
@@ -242,7 +265,7 @@
                                 size="mini" class="od-batch-qty"
                                 @change="v => setBatchQty(li.row.__idx, v)" />
                             <el-button
-                                v-else-if="remainingOf(li.row) > 0"
+                                v-else-if="remainingOf(li.row) > 0 && !dispatchClosed"
                                 size="mini" type="text" icon="el-icon-plus"
                                 @click="setBatchQty(li.row.__idx, 1)"
                             >Add</el-button>
@@ -589,7 +612,7 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku } from '@/api/inflow'
+import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku, closeInflowDispatch, reopenInflowDispatch } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
 import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBarcodeLabelsPdf, buildOscarCardLabelsPdf } from '@/utils/dispatchItemLabelPdf'
@@ -691,6 +714,10 @@ export default {
         },
         // Units the Dispatch tab's pre-batch label print covers: remaining
         // quantity across lines that have a barcode.
+        // The open record was closed with quantity still to dispatch.
+        dispatchClosed() {
+            return !!(this.dispatchRecord && this.dispatchRecord.dispatchStatus === 'closed')
+        },
         dispatchLabelUnits() {
             const rec = this.dispatchRecord
             if (!rec) return 0
@@ -980,7 +1007,9 @@ export default {
             const dispatched = items.reduce((s, li) => s + (Number(li.dispatchedQty) || 0), 0)
             this.$set(this.dispatchRecord, 'orderedQty', ordered)
             this.$set(this.dispatchRecord, 'dispatchedQty', dispatched)
-            this.$set(this.dispatchRecord, 'dispatchStatus', dispatched <= 0 ? 'pending' : dispatched < ordered ? 'partial' : 'dispatched')
+            this.$set(this.dispatchRecord, 'dispatchStatus',
+                this.dispatchRecord.closed && dispatched < ordered ? 'closed'
+                    : dispatched <= 0 ? 'pending' : dispatched < ordered ? 'partial' : 'dispatched')
         },
         // ── Inline SKU editing in the dispatch dialog ────────────────
         // Any line can take a SKU here. With a barcode the save goes into
@@ -1673,8 +1702,57 @@ export default {
                 }
             }).catch(() => {})
         },
-        dispatchTag(s) { return { pending: 'danger', partial: 'warning', dispatched: 'success' }[s] || 'info' },
-        dispatchLabel(s) { return { pending: 'Pending', partial: 'Partial', dispatched: 'Dispatched' }[s] || s },
+        // ── Close / reopen ───────────────────────────────────────────
+        // Close = the undispatched rest is left as it is: the record reads
+        // "Closed", leaves the open list and Owing Stocks, and takes no more
+        // dispatch until reopened. The row stays in view (with Reopen) until
+        // the next refresh.
+        closeDispatch(row) {
+            const left = Math.max(0, (Number(row.orderedQty) || 0) - (Number(row.dispatchedQty) || 0))
+            this.$prompt(
+                `Close "${row.invoiceNumber}" with ${left} unit${left === 1 ? '' : 's'} not dispatched? It leaves the open list and Owing Stocks, and takes no more dispatch until it is reopened.`,
+                'Close Order Dispatch',
+                { type: 'warning', confirmButtonText: 'Close Dispatch', cancelButtonText: 'Cancel', inputPlaceholder: 'Reason (optional)' }
+            ).then(async ({ value }) => {
+                try {
+                    const r = await closeInflowDispatch(row._id, value || '')
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$set(row, 'closed', r.closed)
+                    this.$set(row, 'dispatchStatus', 'closed')
+                    if (this.dispatchRecord === row) this.batchQty = {}
+                    this.$message.success(`${row.invoiceNumber} closed`)
+                } catch (e) {
+                    this.$message.error(this.msg(e, 'Failed to close the dispatch'))
+                }
+            }).catch(() => {})
+        },
+        reopenDispatch(row) {
+            this.$confirm(
+                `Reopen "${row.invoiceNumber}"? It goes back to the open list and Owing Stocks, and can be dispatched again.`,
+                'Reopen Order Dispatch',
+                { type: 'info', confirmButtonText: 'Reopen', cancelButtonText: 'Cancel' }
+            ).then(async () => {
+                try {
+                    const r = await reopenInflowDispatch(row._id)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.$delete(row, 'closed')
+                    this.$set(row, 'dispatchStatus', r.dispatchStatus)
+                    this.$message.success(`${row.invoiceNumber} reopened`)
+                } catch (e) {
+                    this.$message.error(this.msg(e, 'Failed to reopen the dispatch'))
+                }
+            }).catch(() => {})
+        },
+        closedText(r) {
+            const c = (r && r.closed) || {}
+            let t = 'Closed'
+            if (c.at) t += ` ${this.dateTimeStr(c.at)}`
+            if (c.by) t += ` by ${c.by}`
+            if (c.note) t += ` — ${c.note}`
+            return t
+        },
+        dispatchTag(s) { return { pending: 'danger', partial: 'warning', dispatched: 'success', closed: 'info' }[s] || 'info' },
+        dispatchLabel(s) { return { pending: 'Pending', partial: 'Partial', dispatched: 'Dispatched', closed: 'Closed' }[s] || s },
         dateStr(o) {
             if (o && o.invoiceDateRaw) return o.invoiceDateRaw
             if (o && o.invoiceDate) { const d = new Date(o.invoiceDate); if (!isNaN(d)) return d.toLocaleDateString('en-AU') }
@@ -1705,6 +1783,10 @@ export default {
 .od-dim { color: #C0C4CC; }
 .od-done { color: #67C23A; font-weight: 600; }
 .od-del { color: #F56C6C; }
+.od-close-btn { color: #909399; }
+.od-close-btn:hover { color: #F56C6C; }
+.od-closed-alert { margin-bottom: 12px; }
+.od-closed-body { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
 .od-dlg-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #303133; }
 .od-title-edit-btn { padding: 2px; color: #c0c4cc; }
 .od-title-edit-btn:hover { color: #409EFF; }

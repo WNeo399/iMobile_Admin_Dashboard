@@ -245,8 +245,8 @@ export default {
         lineDone(li) {
             return Number(li.quantity) > 0 && this.remainingOf(li) === 0
         },
-        dispatchTag(s) { return { pending: 'info', partial: 'warning', dispatched: 'success' }[s] || 'info' },
-        dispatchLabel(s) { return { pending: 'Preparing', partial: 'Partially Dispatched', dispatched: 'Dispatched' }[s] || s },
+        dispatchTag(s) { return { pending: 'info', partial: 'warning', dispatched: 'success', closed: 'info' }[s] || 'info' },
+        dispatchLabel(s) { return { pending: 'Preparing', partial: 'Partially Dispatched', dispatched: 'Dispatched', closed: 'Closed' }[s] || s },
         dateStr(o) {
             if (o && o.invoiceDateRaw) return o.invoiceDateRaw
             if (o && o.date) { const d = new Date(o.date); if (!isNaN(d)) return d.toLocaleDateString('en-AU') }

@@ -273,8 +273,8 @@ export default {
         // Dispatch wording is customer-facing: "Preparing" reads better than
         // "Pending" for stock that hasn't been packed yet (matches the
         // Dispatch Status page).
-        dispatchTag(s) { return { pending: 'info', partial: 'warning', dispatched: 'success' }[s] || 'info' },
-        dispatchLabel(s) { return { pending: 'Preparing', partial: 'Partially Dispatched', dispatched: 'Dispatched' }[s] || s },
+        dispatchTag(s) { return { pending: 'info', partial: 'warning', dispatched: 'success', closed: 'info' }[s] || 'info' },
+        dispatchLabel(s) { return { pending: 'Preparing', partial: 'Partially Dispatched', dispatched: 'Dispatched', closed: 'Closed' }[s] || s },
         outClass(v) { const n = Number(v); if (n > 0) return 'owing'; if (n < 0) return 'neg'; return '' },
         dateOnly(v) {
             if (!v) return '—'

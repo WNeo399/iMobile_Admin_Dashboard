@@ -128,6 +128,14 @@ export function getMyInflowDispatch() {
 export function deleteInflowDispatchUpload(id) {
   return request({ url: `/inflow/dispatch/manual/${id}`, method: 'delete' })
 }
+// Close a dispatch record with quantity still undispatched (left as it is,
+// no more dispatch) — { note? } — and reopen it.
+export function closeInflowDispatch(id, note) {
+  return request({ url: `/inflow/dispatch/${id}/close`, method: 'post', data: { note } })
+}
+export function reopenInflowDispatch(id) {
+  return request({ url: `/inflow/dispatch/${id}/reopen`, method: 'post' })
+}
 
 // Customer portal management (admin)
 // Link / unlink the Refurbished customer whose purchases this customer's

@@ -982,8 +982,8 @@ export default {
         lineRemaining(row) {
             return Math.max(0, (Number(row.quantity) || 0) - (Number(row.dispatchedQty) || 0))
         },
-        dispatchTag(s) { return { pending: 'danger', partial: 'warning', dispatched: 'success' }[s] || 'info' },
-        dispatchLabel(s) { return { pending: 'Pending', partial: 'Partial', dispatched: 'Dispatched' }[s] || s },
+        dispatchTag(s) { return { pending: 'danger', partial: 'warning', dispatched: 'success', closed: 'info' }[s] || 'info' },
+        dispatchLabel(s) { return { pending: 'Pending', partial: 'Partial', dispatched: 'Dispatched', closed: 'Closed' }[s] || s },
         async fetchSkuSuggestions(query, cb) {
             const q = (query || '').trim()
             if (!q) { cb([]); return }
