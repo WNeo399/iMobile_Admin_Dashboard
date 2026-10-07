@@ -8,8 +8,9 @@
          (id / productName / stock / sales[30] …); the accessors below read
          either. Sorting is the parent's job: the table says what was asked
          for (sort-change { prop, order: 'asc' | 'desc' }). -->
-    <div class="sit">
-        <el-table ref="table" :data="rows" v-loading="loading" size="mini" border :row-key="idOf"
+    <div :class="['sit', { 'sit-compact': showPrices }]">
+        <!-- height (Browse Items): the body scrolls under a fixed header -->
+        <el-table ref="table" :data="rows" v-loading="loading" size="mini" border :row-key="idOf" v-bind="height ? { height } : {}"
             :empty-text="emptyText"
             @sort-change="onTableSort" @selection-change="sel => $emit('selection-change', sel)">
             <el-table-column v-if="selectable" type="selection" width="40" align="center" :reserve-selection="true" />
@@ -17,7 +18,7 @@
             <!-- SKU, product and shelf in one column. The column's own
                  sort arrows would only cover one field, so the header
                  carries SKU / Shelf sort links instead. -->
-            <el-table-column prop="name" label="Product" min-width="380">
+            <el-table-column prop="name" label="Product" :min-width="showPrices ? 280 : 380">
                 <template #header>
                     <div class="sd-prod-head">
                         <span>Product</span>
@@ -29,7 +30,7 @@
                     </div>
                 </template>
                 <template slot-scope="s">
-                    <div class="sd-prod">
+                    <div class="sd-prod" :data-item="idOf(s.row)">
                         <!-- Clicking the image opens the viewer, not the detail drawer. -->
                         <product-thumb :src="s.row.imageUrl" :item-id="idOf(s.row)" />
                         <div class="sd-prod-text">
@@ -46,6 +47,13 @@
                                             :class="s.row.__seaBusy ? 'el-icon-loading' : 'el-icon-ship'" /> 海运</span>
                                 </el-tooltip>
                             </div>
+                            <!-- Row price edit: tier-order / below-cost checks on the
+                                 prices as typed (advisory — pushing is allowed). -->
+                            <template v-if="priceEditor && priceEditor.rowEdit.itemId === idOf(s.row)">
+                                <div v-for="w in priceEditor.rowWarnings" :key="w" class="sd-row-warn">
+                                    <i class="el-icon-warning-outline" /> {{ w }}
+                                </div>
+                            </template>
                             <!-- The Archive list: when and why it went there. -->
                             <div v-if="archivedView" class="sd-archived-when">
                                 <i class="el-icon-box" /> {{ archivedWhen(s.row) }}<span v-if="s.row.archivedReason"
@@ -53,6 +61,15 @@
                             </div>
                         </div>
                     </div>
+                </template>
+            </el-table-column>
+
+            <!-- Browse Items: the part type — its classification, or the sub
+                 classification inside Small Parts (Rear Camera, SIM Tray …). -->
+            <el-table-column v-if="showType" label="Type" width="128" align="center">
+                <template slot-scope="s">
+                    <span v-if="s.row.classification" class="sd-type" :title="typeTitle(s.row)">{{ typeOf(s.row) }}</span>
+                    <span v-else class="sd-dim">—</span>
                 </template>
             </el-table-column>
 
@@ -83,6 +100,20 @@
                     </div>
                 </template>
             </el-table-column>
+
+            <!-- Browse Items: the four price lists in AUD (Admin / iMobile
+                 Warehouse — the server only sends them to those), one header
+                 row so the header stays short. -->
+            <template v-if="showPrices">
+                <el-table-column v-for="p in PRICE_COLS" :key="p.prop" :prop="p.prop" :label="p.label" :width="priceEditor ? p.editWidth : p.width"
+                    :align="priceEditor ? 'center' : 'right'" sortable="custom" class-name="sd-price-col">
+                    <template slot-scope="s">
+                        <!-- editable: the shared cell (components/PriceCell.vue), queued for Zoho -->
+                        <price-cell v-if="priceEditor" :row="s.row" :col="editColOf(p)" :pm="priceEditor" compact />
+                        <span v-else :class="s.row[p.prop] == null ? 'sd-dim' : 'sd-mono'">{{ money(s.row[p.prop]) }}</span>
+                    </template>
+                </el-table-column>
+            </template>
 
             <!-- Open purchases in Spare Parts Purchase by stage — pending
                  (待处理), ordered (已下单), shipped (已发货) … — read live; the
@@ -145,7 +176,7 @@
                 </template>
             </el-table-column>
 
-            <el-table-column prop="daysSinceSale" label="Last sold" width="104" sortable="custom">
+            <el-table-column v-if="showLastSold" prop="daysSinceSale" label="Last sold" width="104" sortable="custom">
                 <template slot-scope="s">
                     <span class="sd-dim">{{ lastSold(s.row.daysSinceSale) }}</span>
                 </template>
@@ -153,8 +184,28 @@
 
             <!-- (No Create PO button: a PO is raised in the On order cell —
                  user ask 2026-09-24.) -->
-            <el-table-column label="" :width="hideMode ? 100 : 76" align="center">
+            <el-table-column label="" :width="hideMode || priceEditor ? 100 : 76" align="center">
                 <template slot-scope="s">
+                    <!-- Row price edit in progress: push / use formula / cancel
+                         (push on click — after the inputs' blur commits — and
+                         cancel on mousedown, as on Price Monitoring). -->
+                    <template v-if="priceEditor && priceEditor.rowEdit.itemId === idOf(s.row)">
+                        <el-tooltip placement="top" :content="priceEditor.rowSubmitLabel">
+                            <el-button type="text" size="mini" icon="el-icon-check" class="sd-row-save" :disabled="!priceEditor.rowChanges.length"
+                                @click="priceEditor.submitRowEdit">{{ priceEditor.rowChanges.length || '' }}</el-button>
+                        </el-tooltip>
+                        <el-tooltip v-if="priceEditor.PRICE_COLS.some(c => priceEditor.refPrice(s.row, c) != null)" content="Use all formula prices" placement="top">
+                            <el-button type="text" size="mini" icon="el-icon-document-copy" @click="priceEditor.rowUseAllRefs" />
+                        </el-tooltip>
+                        <el-tooltip content="Cancel" placement="top">
+                            <el-button type="text" size="mini" icon="el-icon-close" class="sd-row-cancel" @mousedown.native.prevent="priceEditor.cancelRowEdit" />
+                        </el-tooltip>
+                    </template>
+                    <template v-else>
+                    <!-- All four prices at once, right in the row. -->
+                    <el-tooltip v-if="priceEditor && priceEditor.canEditPrices" content="Edit all prices" placement="left">
+                        <el-button type="text" size="mini" icon="el-icon-edit-outline" @click.stop="priceEditor.openRowEdit(s.row)" />
+                    </el-tooltip>
                     <!-- The item drawer (rows do not open it on click). -->
                     <el-tooltip content="Detail" placement="left">
                         <el-button type="text" size="mini" icon="el-icon-view" @click.stop="openDetail(s.row)" />
@@ -173,6 +224,7 @@
                             :icon="isArchived(s.row) ? 'el-icon-refresh-left' : 'el-icon-box'"
                             @click.stop="toggleArchive(s.row)" />
                     </el-tooltip>
+                    </template>
                 </template>
             </el-table-column>
         </el-table>
@@ -184,6 +236,8 @@
 <script>
 import ProductThumb from '@/components/ProductThumb'
 import StockItemDrawer from './StockItemDrawer'
+import PriceCell from './PriceCell'
+import { PRICE_COLS as EDIT_PRICE_COLS } from '../priceEditing'
 import { setStockItemArchived } from '@/api/stockMonitor'
 import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
 import { createOrders, updateOrder, cancelOrder, purchasesByItemIds } from '@/api/sparePartsPurchase'
@@ -212,6 +266,13 @@ const SALE_REASONS = [
     { key: 'repair', label: 'Repair', title: 'Repair team — adjustment reason "iMobile Repair Team"' },
     { key: 'neto', label: 'Neto', title: 'Neto store — adjustment reason "Neto Accessories Sold"' }
 ]
+const PRICE_COLS = [
+    { prop: 'pricePlatinum', label: 'Platinum', width: 100, editWidth: 112 },
+    { prop: 'priceVip', label: 'VIP', width: 84, editWidth: 112 },
+    { prop: 'priceSvip', label: 'SVIP', width: 88, editWidth: 112 },
+    { prop: 'priceWholesale', label: 'Wholesale', width: 106, editWidth: 112 }
+]
+const TYPE_LABELS = { BackCover: 'Back Cover' }
 const CHANNELS = [
     { key: 'sea', label: '海运', title: '海运 — sea freight' },
     { key: 'air', label: '空运', title: '空运 — air freight' }
@@ -219,7 +280,7 @@ const CHANNELS = [
 
 export default {
     name: 'StockItemsTable',
-    components: { ProductThumb, StockItemDrawer },
+    components: { ProductThumb, StockItemDrawer, PriceCell },
     directives: {
         // the inline quantity box takes the cursor as soon as it appears
         focus: { inserted(el) { el.focus(); if (el.select) el.select() } }
@@ -243,11 +304,23 @@ export default {
         // Read the open purchase lines for the rows whenever they change.
         // Off when the parent already brings them (row.purchase).
         autoSpp: { type: Boolean, default: true },
+        // Browse Items (2026-10-07): a Type column, the four price columns
+        // (rows carry pricePlatinum / priceVip / priceSvip / priceWholesale),
+        // and Last sold left out.
+        showType: { type: Boolean, default: false },
+        showPrices: { type: Boolean, default: false },
+        showLastSold: { type: Boolean, default: true },
+        // a fixed table height (px): the header stays put, the rows scroll
+        height: { type: Number, default: 0 },
+        // Browse Items: the page with the shared price-editing mixin
+        // (../priceEditing.js) — the price cells become editable.
+        priceEditor: { type: Object, default: null },
         emptyText: { type: String, default: 'Nothing matches these filters.' }
     },
     data() {
         return {
             HEAD_SORTS,
+            PRICE_COLS,
             SALES_DAYS,
             STAGES,
             CHANNELS,
@@ -313,6 +386,17 @@ export default {
             return row.__spp !== undefined ? row.__spp : row.purchase
         },
         isArchived(row) { return this.archivedView || row.archived === true },
+        // the part type: Small Parts shows its sub classification
+        typeOf(row) {
+            if (row.classification === 'Small Parts' && row.subClassification) return row.subClassification
+            return TYPE_LABELS[row.classification] || row.classification
+        },
+        typeTitle(row) {
+            return [TYPE_LABELS[row.classification] || row.classification, row.subClassification].filter(Boolean).join(' › ')
+        },
+        money(v) { return v == null || v === '' ? '—' : '$' + Number(v).toFixed(2) },
+        // the editor's column for a price column (its list key and label)
+        editColOf(p) { return EDIT_PRICE_COLS.find(c => c.prop === p.prop) },
         // "Archived 30 Sep 2026" — items archived before this was recorded
         // (2026-09-30) have no date.
         archivedWhen(row) {
@@ -563,6 +647,16 @@ export default {
 .sd-warn { color: #e6a23c; }
 .sd-bad { color: #ff4949; }
 .sd-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* Browse Items: a short header — every label on one line, one height */
+.sit-compact ::v-deep .el-table__header th { padding: 7px 0; background: #f5f7fa; }
+.sit-compact ::v-deep .el-table__header th .cell { white-space: nowrap; line-height: 22px; font-size: 12px; color: #606266; font-weight: 600; }
+.sit-compact ::v-deep .el-table__header th.sd-price-col { background: #f8f9fb; }
+.sit-compact ::v-deep .sd-price-col .cell { padding-right: 10px; }
+.sd-row-warn { font-size: 11px; color: #e6a23c; line-height: 1.4; margin-top: 2px; }
+.sd-row-save { color: #67c23a; padding: 2px; }
+.sd-row-cancel { color: #909399; padding: 2px; }
+.sd-type { display: inline-block; max-width: 100%; padding: 1px 8px; border-radius: 10px; font-size: 11px; color: #606266; background: #f4f4f5;
+    border: 1px solid #e9e9eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sd-mono, .sd-sku { font-variant-numeric: tabular-nums; }
 .sd-sku { font-weight: 600; color: #1890ff; cursor: pointer; }
 .sd-archived-when { font-size: 11px; color: #909399; margin-top: 2px; }

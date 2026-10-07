@@ -114,6 +114,11 @@ export function getBrowseItems(params) {
   return request({ url: '/stock-monitor/browse-items', method: 'get', params })
 }
 
+// Browse Items: the catalogue as Device Brand → Series → Model with counts.
+export function getModelTree(params) {
+  return request({ url: '/stock-monitor/model-tree', method: 'get', params })
+}
+
 // Live stock for the rows on screen — one Zoho Inventory read per page of
 // ids. Overlaid on the stored numbers by liveStockMixin.
 export function getLiveStock(itemIds) {

@@ -284,6 +284,20 @@ export const moduleRoutes = [
         meta: { permissions: ["zoho:stock:view"] }
       },
       {
+        // Browse Items (user ask 2026-10-07): every part by Device Brand →
+        // Series → Model, with type chips, stock, sales, the four price
+        // lists and the On order cell. Admin and iMobile Warehouse only
+        // (parts:browse:view — Admin through *:*:*).
+        path: "/zohoInventory/browseItems",
+        component: (resolve) => require(["@/views/zohoInventory/browseItems"], resolve),
+        name: "BrowseItems",
+        meta: {
+          title: "Browse Items",
+          icon: "el-icon-s-grid",
+          permissions: ["parts:browse:view"]
+        }
+      },
+      {
         // All spare-parts SKUs with the four price-list rates from the
         // daily snapshot, plus price-health tiles (missing / placeholder /
         // below cost / wrong order).
