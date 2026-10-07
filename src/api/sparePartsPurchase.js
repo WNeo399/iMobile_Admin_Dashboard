@@ -130,6 +130,45 @@ export function shipBatchDraft(id, data) {
 export function discardBatchDraft(id) {
   return request({ url: `${BASE}/batches/${id}`, method: 'delete' })
 }
+
+// ── New Products: the models we want parts for, and creating the missing
+// Zoho items (routes/sparePartsPurchaseRoutes/newProducts.js) ──────────
+export function listNewProducts(params) {
+  return request({ url: `${BASE}/new-products`, method: 'get', params })
+}
+export function addNewProductModel(data) {
+  return request({ url: `${BASE}/new-products/models`, method: 'post', data })
+}
+export function updateNewProductModel(id, data) {
+  return request({ url: `${BASE}/new-products/models/${id}`, method: 'put', data })
+}
+// one model's items, every classification ({ model, items, missing })
+export function newProductModelItems(id) {
+  return request({ url: `${BASE}/new-products/models/${id}/items`, method: 'get' })
+}
+// Drafts of the create dialog (kept in our DB, not in Zoho until submitted);
+// save / update take FormData (fields, JSON prices / compatibleModels / order, photos)
+export function saveNewProductDraft(data) {
+  return request({ url: `${BASE}/new-products/drafts`, method: 'post', data, timeout: 120000 })
+}
+export function updateNewProductDraft(id, data) {
+  return request({ url: `${BASE}/new-products/drafts/${id}`, method: 'put', data, timeout: 120000 })
+}
+export function getNewProductDraft(id) {
+  return request({ url: `${BASE}/new-products/drafts/${id}`, method: 'get' })
+}
+export function deleteNewProductDraft(id) {
+  return request({ url: `${BASE}/new-products/drafts/${id}`, method: 'delete' })
+}
+// the next free parts SKU (22xxx), checked in Zoho
+export function nextNewProductSku() {
+  return request({ url: `${BASE}/new-products/next-sku`, method: 'get', timeout: 30000 })
+}
+// { modelId, part, name, sku, quality, rate, compatibleModels } → one Zoho Inventory
+// item; a FormData with "images" also uploads its photos
+export function createNewProductItem(data) {
+  return request({ url: `${BASE}/new-products/items`, method: 'post', data, timeout: 120000 })
+}
 export function updateBatch(id, data) {
   return request({ url: `${BASE}/batches/${id}`, method: 'put', data })
 }

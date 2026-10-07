@@ -449,6 +449,21 @@ export const moduleRoutes = [
           icon: "el-icon-picture-outline",
           permissions: ["spp:image:view", "zoho:stock:view"]
         }
+      },
+      {
+        // New Products (user ask 2026-10-06): the device models we want
+        // parts for (Skyline's Motorola list first), whether Zoho already
+        // has each part type, and creating the missing items in Zoho.
+        // spp:product:* sits inside spp:*:*, so the staff roles have it and
+        // the parts supplier does not.
+        path: "new-products",
+        component: (resolve) => require(["@/views/sparePartsPurchase/newProducts"], resolve),
+        name: "SppNewProducts",
+        meta: {
+          title: "New Products",
+          icon: "el-icon-mobile-phone",
+          permissions: ["spp:product:view"]
+        }
       }
     ]
   },
