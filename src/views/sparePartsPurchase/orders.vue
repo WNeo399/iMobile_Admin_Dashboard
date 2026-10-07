@@ -36,9 +36,10 @@
                     <el-radio-button label="board" :title="$tp('Board')"><i class="el-icon-s-grid" /><span v-if="!isMobile"> {{ $tp('Board') }}</span></el-radio-button>
                     <el-radio-button label="table" :title="$tp('Table')"><i :class="isMobile ? 'el-icon-s-order' : 'el-icon-tickets'" /><span v-if="!isMobile"> {{ $tp('Table') }}</span></el-radio-button>
                 </el-radio-group>
-                <!-- Add Item: Zoho items as Pending lines (not on the two pinned lists) -->
-                <el-button v-if="can('spp:order:create') && !isPinned" type="primary" size="small" icon="el-icon-plus" @click="addVisible = true">{{ $tp('Add Item') }}</el-button>
-                <el-button v-if="can('spp:order:create')" type="primary" size="small" :plain="!isPinned" :icon="isPinned ? 'el-icon-plus' : 'el-icon-circle-plus-outline'"
+                <!-- Add Item: Zoho items as Pending lines (not on the two pinned lists).
+                     The parts supplier may add lines too, but not Special Orders. -->
+                <el-button v-if="canAdd && !isPinned" type="primary" size="small" icon="el-icon-plus" @click="addVisible = true">{{ $tp('Add Item') }}</el-button>
+                <el-button v-if="canAdd && (activeCategory !== 'Special Order' || canSpecial)" type="primary" size="small" :plain="!isPinned" :icon="isPinned ? 'el-icon-plus' : 'el-icon-circle-plus-outline'"
                     @click="openNewProduct">{{ $tp(activeCategory === 'Special Order' ? 'New Special Order' : (isMobile && !isPinned ? 'New Product' : 'Order New Product')) }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
@@ -303,7 +304,7 @@
             <div @paste="onNewPaste">
                 <!-- which list it goes on -->
                 <div class="spp-np-types">
-                    <div v-for="t in NEW_TYPES" :key="t.category" :class="['spp-np-type', { on: newForm.category === t.category }]" @click="newForm.category = t.category">
+                    <div v-for="t in newTypes" :key="t.category" :class="['spp-np-type', { on: newForm.category === t.category }]" @click="newForm.category = t.category">
                         <i :class="t.icon" class="spp-np-type-icon" />
                         <div class="spp-np-type-text">
                             <div class="spp-np-type-title">{{ catLabel(t.category) }}</div>
@@ -686,6 +687,17 @@ export default {
         canEither() {
             return this.can('spp:order:create') || this.can('spp:order:supply')
         },
+        // Adding lines (Add Item, Order New Product): iMobile, or the parts
+        // supplier (spp:order:add, 2026-10-07) — who can't raise Special Orders.
+        canAdd() {
+            return this.can('spp:order:create') || this.can('spp:order:add')
+        },
+        canSpecial() {
+            return this.can('spp:order:create')
+        },
+        newTypes() {
+            return this.canSpecial ? NEW_TYPES : NEW_TYPES.filter(t => t.category !== 'Special Order')
+        },
         editable() {
             return !!this.detail && this.detail.status === 'pending' && this.can('spp:order:create')
         },
@@ -904,7 +916,7 @@ export default {
         // ── Order New Product ──────────────────────────────────────
         openNewProduct() {
             this.clearNewFiles()
-            this.newForm = blankNew(this.activeCategory === 'Special Order' ? 'Special Order' : 'New Product')
+            this.newForm = blankNew(this.activeCategory === 'Special Order' && this.canSpecial ? 'Special Order' : 'New Product')
             this.newAdded = []
             this.newVisible = true
         },
