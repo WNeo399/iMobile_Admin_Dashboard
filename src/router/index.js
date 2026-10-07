@@ -259,6 +259,21 @@ export const moduleRoutes = [
     meta: { title: "iMobile Spare Parts", icon: "el-icon-notebook-2" },
     children: [
       {
+        // Browse Items (user ask 2026-10-07; first in the menu since the same
+        // day, Stock Monitoring is collections only): every part by Device Brand →
+        // Series → Model, with type chips, stock, sales, the four price
+        // lists and the On order cell. Admin and iMobile Warehouse only
+        // (parts:browse:view — Admin through *:*:*).
+        path: "/zohoInventory/browseItems",
+        component: (resolve) => require(["@/views/zohoInventory/browseItems"], resolve),
+        name: "BrowseItems",
+        meta: {
+          title: "Browse Items",
+          icon: "el-icon-s-grid",
+          permissions: ["parts:browse:view"]
+        }
+      },
+      {
         path: "/zohoInventory/stockMonitoring",
         component: (resolve) => require(["@/views/zohoInventory/stockmonitoring"], resolve),
         name: "StockMonitoring",
@@ -282,20 +297,6 @@ export const moduleRoutes = [
         redirect: "/zohoInventory/stockMonitoring",
         hidden: true,
         meta: { permissions: ["zoho:stock:view"] }
-      },
-      {
-        // Browse Items (user ask 2026-10-07): every part by Device Brand →
-        // Series → Model, with type chips, stock, sales, the four price
-        // lists and the On order cell. Admin and iMobile Warehouse only
-        // (parts:browse:view — Admin through *:*:*).
-        path: "/zohoInventory/browseItems",
-        component: (resolve) => require(["@/views/zohoInventory/browseItems"], resolve),
-        name: "BrowseItems",
-        meta: {
-          title: "Browse Items",
-          icon: "el-icon-s-grid",
-          permissions: ["parts:browse:view"]
-        }
       },
       {
         // All spare-parts SKUs with the four price-list rates from the
