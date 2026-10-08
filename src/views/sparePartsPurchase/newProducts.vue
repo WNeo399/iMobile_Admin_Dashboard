@@ -13,13 +13,6 @@
         <tree-panel ref="treeRef" :tree-data="tree" :title="$tp('Device Model')" title-icon-class="el-icon-mobile-phone"
             node-key="id" :show-search="true" :search-placeholder="$tp('Find a model, code or series')" storage-key="new-products-tree-width"
             :default-expanded-keys="expandedKeys" :default-width="260" :accordion="true" :filter-method="treeFilter" @node-click="onNode">
-            <!-- which models the tree shows -->
-            <template #top>
-                <div class="spn-status">
-                    <span v-for="f in STATUS" :key="f.value" :class="['spn-st', { on: status === f.value, 'is-miss': f.value === 'missing' }]"
-                        @click="status = f.value">{{ $tp(f.label) }} <b>{{ statusCount(f.value) }}</b></span>
-                </div>
-            </template>
             <template #node="{ data }">
                 <span :class="['spn-node', 'is-' + data.type]">
                     <brand-icon v-if="data.type === 'brand'" :brand="data.brand" :label="data.label" :size="16" class="spn-node-icon" />
@@ -215,7 +208,9 @@
                                 :suffix-icon="skuLoading ? 'el-icon-loading' : ''" />
                         </el-form-item>
                         <el-form-item :label="$tp('Quality')" class="spn-col">
-                            <el-select v-model="createForm.quality" clearable :placeholder="$tp('None')" style="width:100%" @change="onQuality">
+                            <!-- the register's qualities, most used first; a new one can be typed -->
+                            <el-select v-model="createForm.quality" clearable filterable allow-create default-first-option
+                                :placeholder="$tp('None')" style="width:100%" @change="onQuality">
                                 <el-option v-for="q in qualities.filter(Boolean)" :key="q" :label="q" :value="q" />
                             </el-select>
                         </el-form-item>
@@ -319,11 +314,6 @@ import { hasPermission } from '@/utils/permission'
 import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, nextNewProductSku, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { zohoLink } from './shared'
 
-const STATUS = [
-    { value: '', label: 'All' },
-    { value: 'missing', label: 'Missing' },
-    { value: 'complete', label: 'Complete' }
-]
 // the order the classifications are shown in after the needed parts
 const CLASS_ORDER = ['Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'IC', 'Tools', 'Accessory', 'Other']
 const CLASS_LABELS = { BackCover: 'Back Cover', '': 'Unclassified' }
@@ -343,12 +333,10 @@ export default {
     components: { TreePanel, BrandIcon, ImagePicker },
     data() {
         return {
-            STATUS,
             loading: false,
             brands: [],
             qualities: [],
             rows: [],
-            status: '',
             // the picked tree node: { type: brand | series | model, brand, series, modelId }
             sel: { type: '', brand: '', series: '', modelId: '' },
             expandedKeys: [],
@@ -365,6 +353,8 @@ export default {
             skuLoading: false,
             createFiles: [],
             createNarrow: false,
+            // the quality whose [tag] is on the name now
+            appliedQuality: '',
             // drafts: the open ones (from the list), and the one in the dialog
             drafts: [],
             draftsOpen: false,
@@ -392,11 +382,6 @@ export default {
             for (const d of this.drafts) (map[d.modelId] = map[d.modelId] || []).push(d)
             return map
         },
-        statusRows() {
-            if (this.status === 'missing') return this.rows.filter(r => r.missing.length)
-            if (this.status === 'complete') return this.rows.filter(r => !r.missing.length)
-            return this.rows
-        },
         // Brand › Series › Model, in the server's order (series order, then model)
         tree() {
             const out = []
@@ -406,7 +391,7 @@ export default {
                 const node = { id: 'b:' + b.value, type: 'brand', brand: b.value, label: b.label, children: [], count: 0, missing: 0 }
                 brandNodes.set(b.value, node)
             }
-            for (const r of this.statusRows) {
+            for (const r of this.rows) {
                 const b = brandNodes.get(r.brand)
                 if (!b) continue
                 const series = r.series || 'Other'
@@ -468,10 +453,10 @@ export default {
             all.forEach(g => g.items.sort(byName))
             return all
         },
-        // a brand / series: its models (after the status filter)
+        // a brand / series: its models
         nodeRows() {
             const { type, brand, series } = this.sel
-            return this.statusRows.filter(r => {
+            return this.rows.filter(r => {
                 if (!type) return true
                 if (r.brand !== brand) return false
                 return type !== 'series' || (r.series || 'Other') === series
@@ -550,7 +535,7 @@ export default {
         }
     },
     watch: {
-        // a rebuilt tree (status filter, reload) loses its open branch and
+        // a rebuilt tree (a reload) loses its open branch and
         // highlight: put them back
         tree() {
             this.$nextTick(() => {
@@ -586,11 +571,6 @@ export default {
         },
         brandLabel(brand) {
             return ((this.brands.find(b => b.value === brand) || {}).label) || brand || ''
-        },
-        statusCount(v) {
-            if (v === 'missing') return this.rows.filter(r => r.missing.length).length
-            if (v === 'complete') return this.rows.filter(r => !r.missing.length).length
-            return this.rows.length
         },
         haveCount(partKey) {
             return this.nodeRows.filter(r => (r.have[partKey] || []).length).length
@@ -704,6 +684,7 @@ export default {
             const brand = this.brands.find(b => b.value === row.brand) || {}
             this.clearCreateFiles()
             this.createDraftId = null
+            this.appliedQuality = ''
             this.createNarrow = window.innerWidth < 900
             this.createRow = row
             this.createPart = part
@@ -739,7 +720,8 @@ export default {
         // another one swaps it, clearing it takes it off. Only a trailing tag
         // that IS a quality is replaced, so typed wording stays.
         withQuality(name, quality) {
-            const known = this.qualities.filter(Boolean)
+            // the list's qualities, and the one put on last (it may have been typed)
+            const known = [...this.qualities.filter(Boolean), this.appliedQuality].filter(Boolean)
             let base = String(name || '').trim()
             for (let m = base.match(/\s*\[([^\]]+)\]$/); m && known.includes(m[1]); m = base.match(/\s*\[([^\]]+)\]$/)) {
                 base = base.slice(0, m.index).trim()
@@ -748,6 +730,7 @@ export default {
         },
         onQuality(q) {
             this.createForm.name = this.withQuality(this.createForm.name, q || '')
+            this.appliedQuality = q || ''
         },
         // a screenshot pasted into the form goes to the picker (same checks)
         onCreatePaste(e) {
@@ -892,6 +875,7 @@ export default {
             if (!row || !part) { this.$message.error(this.$tp('Could not open the draft')); return }
             this.openCreate(row, part)
             this.createDraftId = d._id
+            this.appliedQuality = d.quality || ''
             this.createForm = {
                 name: d.name || (row.defaultNames || {})[part.key] || '',
                 sku: d.sku || '',
@@ -992,12 +976,6 @@ export default {
 .spn-page { display: flex; height: calc(100vh - 84px); overflow: hidden; }
 .spn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px 8px; background: #fff; }
 /* tree */
-.spn-status { display: flex; gap: 4px; padding: 0 2px 2px; }
-.spn-st { flex: 1; text-align: center; padding: 4px 2px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 11px; color: #606266; cursor: pointer; white-space: nowrap;
-    b { font-weight: 600; color: #909399; margin-left: 2px; }
-    &:hover { border-color: #b3d8ff; color: #409eff; }
-    &.on { border-color: #409eff; background: #ecf5ff; color: #409eff; b { color: #409eff; } }
-    &.is-miss.on { border-color: #e6a23c; background: #fdf6ec; color: #e6a23c; b { color: #e6a23c; } } }
 .spn-node { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
 .spn-node.is-brand .spn-node-label { font-weight: 600; color: #303133; }
 .spn-node-icon { flex-shrink: 0; }
