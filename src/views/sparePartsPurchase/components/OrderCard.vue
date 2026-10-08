@@ -15,7 +15,8 @@
                 <div class="oc-facts">
                     <span v-if="showStatus" class="oc-status" :style="statusStyle">{{ statusLabel }}</span>
                     <b>× {{ row.orderQty }}</b>
-                    <span v-if="row.requestedFor" class="oc-for"><i class="el-icon-user" /> {{ row.requestedFor }}</span>
+                    <!-- Special Order: the account that raised it (user 2026-10-08) -->
+                    <span v-if="createdByName" class="oc-for" :title="$tp('Created by')"><i class="el-icon-user" /> {{ createdByName }}</span>
                     <span v-if="row.urgent" class="oc-urgent">{{ $tp('Urgent') }}</span>
                     <span v-if="row.images && row.images.length > 1" class="oc-dim"><i class="el-icon-picture" /> {{ row.images.length }}</span>
                     <span v-if="awaits" class="oc-needs"><i class="el-icon-price-tag" /> {{ $tp('Needs a quote') }}</span>
@@ -80,6 +81,11 @@ export default {
     },
     computed: {
         supply() { return this.can('spp:order:supply') },
+        // a Special Order's account ('' for lines imported from the Tencent sheet)
+        createdByName() {
+            const r = this.row
+            return r.category === 'Special Order' && r.source !== 'tencent' ? r.createdBy || '' : ''
+        },
         awaits() { return awaitsQuote(this.row) },
         price() { return this.row.unitPrice != null ? this.row.unitPrice : this.row.quotedPrice },
         idLine() { const r = this.row; return [r.sku ? 'SKU ' + r.sku : '', r.category ? this.$tp(r.category) : '', r.supplier].filter(Boolean).join(' · ') },

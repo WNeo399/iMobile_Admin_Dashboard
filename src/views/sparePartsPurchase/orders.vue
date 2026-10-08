@@ -125,7 +125,8 @@
                         <div class="spp-sub">
                             <span v-if="s.row.sku">SKU: {{ s.row.sku }}</span>
                             <span v-if="s.row.category" class="spp-cat">{{ catLabel(s.row.category) }}</span>
-                            <span v-if="s.row.requestedFor" class="spp-for"><i class="el-icon-user" /> {{ s.row.requestedFor }}</span>
+                            <!-- Special Order: the account that raised it (user 2026-10-08) -->
+                            <span v-if="specialBy(s.row)" class="spp-for" :title="$tp('Created by')"><i class="el-icon-user" /> {{ specialBy(s.row) }}</span>
                             <span v-if="s.row.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
                             <span v-if="s.row.images && s.row.images.length" class="spp-photos" :title="$tp('Photos')" @click="openDetail(s.row)">
                                 <i class="el-icon-picture" /> {{ s.row.images.length }}</span>
@@ -781,6 +782,11 @@ export default {
         // page shows them in the app language.
         catLabel(c) {
             return c ? this.$tp(c) : '—'
+        },
+        // A Special Order's chip: the account that raised it ('' for lines
+        // imported from the Tencent sheet — no account behind those)
+        specialBy(row) {
+            return row.category === 'Special Order' && row.source !== 'tencent' ? row.createdBy || '' : ''
         },
         statusLabel(v) {
             const m = STATUS_META[v]
