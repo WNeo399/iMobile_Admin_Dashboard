@@ -510,6 +510,25 @@ export const moduleRoutes = [
     ]
   },
   {
+    // Exyon Accessories (2026-10-08) — Exyon's accessory orders, read from
+    // their MySQL table exyon.accessory_orders. Admin-only for now (only
+    // admin's wildcard carries exyon:*); more pages to come.
+    path: "/exyonAccessories",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "Exyon Accessories", icon: "el-icon-goods" },
+    children: [
+      {
+        path: "/exyonAccessories/orders",
+        component: (resolve) => require(["@/views/exyonAccessories/orders"], resolve),
+        name: "ExyonAccessoryOrders",
+        meta: { title: "Orders", icon: "el-icon-tickets", permissions: ["exyon:accessory:view"] }
+      }
+    ]
+  },
+  {
     path: "/sqt",
     component: Layout,
     redirect: "noRedirect",
