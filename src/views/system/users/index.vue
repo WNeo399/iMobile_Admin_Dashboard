@@ -122,7 +122,7 @@
                         placeholder="At least 6 characters" />
                 </el-form-item>
                 <!--
-                    One role, or several of the roles under iMobile
+                    One role, or several of the roles under iMobile and Exyon
                     together (the backend marks those `combinable`). The
                     TechElite, InFlow and Consignment roles stay an account's
                     only role, so picking one greys the rest out — and the
@@ -134,7 +134,7 @@
                             :disabled="roleOptionDisabled(r)" />
                     </el-select>
                     <div class="form-hint">
-                        The roles under iMobile can be combined — the account gets everything each of them
+                        The roles under iMobile and Exyon can be combined — the account gets everything each of them
                         allows, and the first one picked is its main role. The TechElite, InFlow and
                         Consignment roles can't be combined.
                     </div>
@@ -625,7 +625,7 @@ export default {
             const extra = Array.isArray(row.roles) ? row.roles : []
             return [...new Set([row.role, ...extra].filter(Boolean))]
         },
-        // The roles under iMobile combine with each other; every other
+        // The roles under iMobile and Exyon combine with each other; every other
         // role is an account's only one. A picked role always stays
         // clickable so it can be taken off again.
         roleOptionDisabled(r) {
