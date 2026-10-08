@@ -63,9 +63,20 @@
                     <el-tag v-if="s.row.channel" size="mini" effect="plain" :type="channelTag(s.row.channel)">{{ s.row.channel }}</el-tag>
                 </template>
             </el-table-column>
-            <el-table-column prop="sku" label="SKU" width="110" show-overflow-tooltip />
-            <el-table-column :label="$tp('Product')" min-width="260">
-                <template slot-scope="s"><div class="xa-product">{{ s.row.productName || '—' }}</div></template>
+            <el-table-column label="SKU" width="130">
+                <template slot-scope="s">
+                    <div class="xa-sku" :title="$tp('Neto SKU')">{{ s.row.sku }}</div>
+                    <div v-if="s.row.zohoSku" class="xa-zoho" :title="s.row.zohoName">Zoho {{ s.row.zohoSku }}</div>
+                </template>
+            </el-table-column>
+            <el-table-column :label="$tp('Product')" min-width="280">
+                <template slot-scope="s">
+                    <div class="xa-prod">
+                        <el-image v-if="s.row.image" :src="s.row.image" fit="contain" :preview-src-list="[s.row.image]" class="xa-thumb" />
+                        <div v-else class="xa-thumb xa-thumb-none"><i class="el-icon-picture-outline" /></div>
+                        <div class="xa-product">{{ s.row.productName || '—' }}</div>
+                    </div>
+                </template>
             </el-table-column>
             <el-table-column :label="$tp('Qty')" width="60" align="right">
                 <template slot-scope="s">{{ s.row.quantity }}</template>
@@ -252,6 +263,11 @@ export default {
 .xa-dim { font-size: 12px; color: #909399; }
 .xa-order { font-weight: 600; color: #303133; margin-bottom: 2px; }
 .xa-product { line-height: 1.35; color: #303133; word-break: normal; }
+.xa-prod { display: flex; align-items: center; gap: 8px; }
+.xa-thumb { flex-shrink: 0; width: 40px; height: 40px; border-radius: 4px; border: 1px solid #ebeef5; background: #fff; cursor: zoom-in; }
+.xa-thumb-none { display: flex; align-items: center; justify-content: center; background: #f5f7fa; color: #c0c4cc; font-size: 16px; cursor: default; }
+.xa-sku { font-family: Menlo, Consolas, monospace; font-size: 12px; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xa-zoho { display: inline-block; margin-top: 2px; padding: 0 5px; border-radius: 3px; background: #ecf5ff; color: #1f6fd1; font-size: 11px; line-height: 17px; white-space: nowrap; }
 .xa-empty { color: #909399; font-size: 13px; }
 .xa-pager { margin-top: 10px; text-align: right; }
 .xa-more { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; padding: 4px 12px; font-size: 12px; color: #303133;

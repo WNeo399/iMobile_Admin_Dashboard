@@ -511,8 +511,8 @@ export const moduleRoutes = [
   },
   {
     // Exyon Accessories (2026-10-08) — Exyon's accessory orders, read from
-    // their MySQL table exyon.accessory_orders. Admin-only for now (only
-    // admin's wildcard carries exyon:*); more pages to come.
+    // their MySQL table exyon.accessory_orders: Orders, Dispatch, Pick Lists. Admin-only
+    // for now (only admin's wildcard carries exyon:*).
     path: "/exyonAccessories",
     component: Layout,
     redirect: "noRedirect",
@@ -525,6 +525,22 @@ export const moduleRoutes = [
         component: (resolve) => require(["@/views/exyonAccessories/orders"], resolve),
         name: "ExyonAccessoryOrders",
         meta: { title: "Orders", icon: "el-icon-tickets", permissions: ["exyon:accessory:view"] }
+      },
+      {
+        // the Pick / New orders to process (2026-10-08): single line items
+        // (by SKU), multiple line items, and the ones on a pick list
+        path: "/exyonAccessories/dispatch",
+        component: (resolve) => require(["@/views/exyonAccessories/dispatch"], resolve),
+        name: "ExyonAccessoryDispatch",
+        meta: { title: "Dispatch", icon: "el-icon-box", permissions: ["exyon:accessory:view"] }
+      },
+      {
+        // one record per day of the orders being processed, printed as a
+        // pick list (2026-10-08)
+        path: "/exyonAccessories/pickLists",
+        component: (resolve) => require(["@/views/exyonAccessories/pickLists"], resolve),
+        name: "ExyonAccessoryPickLists",
+        meta: { title: "Pick Lists", icon: "el-icon-printer", permissions: ["exyon:accessory:view"] }
       }
     ]
   },
