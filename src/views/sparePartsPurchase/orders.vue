@@ -138,6 +138,9 @@
                             <!-- A New Product / Special Order is quoted, then confirmed, before it is ordered. -->
                             <span v-if="awaitsQuote(s.row)" class="spp-tag-quote" :title="$tp('Quote it first; the quote moves it to To Confirm.')">
                                 <i class="el-icon-price-tag" /> {{ $tp('Needs a quote') }}</span>
+                            <!-- a New Product not in Zoho yet: make the item there (user ask 2026-10-08) -->
+                            <a v-if="canZohoCreate(s.row)" class="spp-zoho-create" @click="openZohoCreate(s.row)">
+                                <i class="el-icon-upload2" /> {{ $tp('Create in Zoho') }}</a>
                         </div>
                         <div v-if="s.row.note" class="spp-note">{{ $tp('Note') }}: {{ s.row.note }}</div>
                         <div v-if="s.row.splitFrom" class="spp-sub"><i class="el-icon-share" /> {{ $tp('Remainder of a short shipment') }}</div>
@@ -413,6 +416,9 @@
             </span>
         </el-dialog>
 
+        <!-- ── a New Product line → a Zoho item ─────────────────────── -->
+        <create-zoho-item-dialog :visible.sync="zohoVisible" :order="zohoOrder" @created="onZohoCreated" />
+
         <!-- ── Details ──────────────────────────────────────────────── -->
         <el-dialog :visible.sync="detailVisible" :width="dlgWidth('680px')" :top="isMobile ? '3vh' : '15vh'" :custom-class="mDlg" append-to-body @closed="onDetailClosed">
             <div slot="title" class="spp-dlg-head"><i class="el-icon-document"></i> {{ $tp('Order details') }}<span v-if="detail" class="spp-dlg-no">{{ fmtDay(detail.createdAt) }}</span></div>
@@ -421,6 +427,9 @@
                     <el-descriptions-item :label="$tp('Product')" :span="2">
                         {{ detail.productName }}<a v-if="detail.itemId" class="spp-prod-zoho" :href="zohoLink(detail.itemId)"
                             target="_blank" rel="noopener" :title="$tp('Open in Zoho')"><i class="el-icon-link" /></a>
+                        <span v-if="detail.sku" class="spp-sub"> · SKU {{ detail.sku }}</span>
+                        <el-button v-if="canZohoCreate(detail)" size="mini" type="primary" plain icon="el-icon-upload2" class="spp-zoho-btn"
+                            @click="openZohoCreate(detail)">{{ $tp('Create in Zoho') }}</el-button>
                     </el-descriptions-item>
                     <!-- a Special Order: who it is for, urgent (editable any time) -->
                     <el-descriptions-item v-if="isSpecialDetail" :label="$tp('For')">
@@ -553,6 +562,7 @@ import TreePanel from '@/components/TreePanel'
 import ChannelBoard from './components/ChannelBoard'
 import OrderCard from './components/OrderCard'
 import AddItemDialog from './components/AddItemDialog'
+import CreateZohoItemDialog from './components/CreateZohoItemDialog'
 import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
@@ -589,7 +599,7 @@ const ACTION_LABELS = {
 
 export default {
     name: 'SppOrders',
-    components: { TreePanel, ChannelBoard, OrderCard, AddItemDialog },
+    components: { TreePanel, ChannelBoard, OrderCard, AddItemDialog, CreateZohoItemDialog },
     data() {
         return {
             STATUS_LIST,
@@ -639,6 +649,9 @@ export default {
             quoting: false,
             // Details (note / qty / category editable while pending)
             detailVisible: false,
+            // a New Product line being created in Zoho
+            zohoVisible: false,
+            zohoOrder: null,
             detail: null,
             detailLoading: false,
             detailForm: { note: '', orderQty: null, category: '', requestedFor: '', urgent: false },
@@ -859,7 +872,7 @@ export default {
             const run = {
                 detail: this.openDetail, label: this.printLineLabels, quote: this.openQuote, confirm: this.confirm,
                 place: this.openPlace, shortage: this.markShortage, cancel: this.cancel, reopen: this.reopen,
-                toConfirm: this.toConfirm, price: this.promptPrice
+                toConfirm: this.toConfirm, price: this.promptPrice, zoho: this.openZohoCreate
             }[key]
             if (run) run(row)
         },
@@ -1295,6 +1308,20 @@ export default {
             if (this.labelUrl) { try { URL.revokeObjectURL(this.labelUrl.replace('#toolbar=0', '')) } catch (e) { /* ignore */ } }
             this.labelUrl = ''
         },
+        // ── A New Product line → a Zoho item ───────────────────────
+        // a New Product not in Zoho yet (not cancelled), for whoever may create items
+        canZohoCreate(row) {
+            return !!row && row.category === 'New Product' && !row.itemId && row.status !== 'cancelled' && this.can('spp:product:create')
+        },
+        openZohoCreate(row) {
+            this.zohoOrder = row
+            this.zohoVisible = true
+        },
+        onZohoCreated() {
+            // the line now carries the item: the list, and the details if open
+            this.load()
+            if (this.detailVisible && this.detail && this.zohoOrder && this.detail._id === this.zohoOrder._id) this.openDetail(this.detail)
+        },
         // ── Details ────────────────────────────────────────────────
         async openDetail(row) {
             this.detail = row
@@ -1528,6 +1555,8 @@ export default {
 .spp-col { flex: 1; }
 .spp-hint { font-size: 12px; color: #909399; i { margin-right: 3px; } }
 .spp-detail-note { margin-top: 12px; }
+.spp-zoho-create { color: #409eff; cursor: pointer; white-space: nowrap; &:hover { text-decoration: underline; } i { margin-right: 1px; } }
+.spp-zoho-btn { margin-left: 8px; padding: 4px 8px; }
 .spp-detail-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
 .spp-history { margin-top: 12px; }
 .spp-hist-row { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed #f0f0f0; }

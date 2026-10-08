@@ -146,6 +146,15 @@ export function updateNewProductModel(id, data) {
 export function newProductModelItems(id) {
   return request({ url: `${BASE}/new-products/models/${id}/items`, method: 'get' })
 }
+// A New Product line on the Purchase Order page → a Zoho item: the dialog's
+// pick lists (?brand= adds that brand's series and models), and the create
+// (FormData: fields, JSON lists, photo order + new photos)
+export function getZohoItemOptions(params) {
+  return request({ url: `${BASE}/zoho-item/options`, method: 'get', params })
+}
+export function createZohoItemForOrder(id, data) {
+  return request({ url: `${BASE}/orders/${id}/zoho-item`, method: 'post', data, timeout: 120000 })
+}
 // Drafts of the create dialog (kept in our DB, not in Zoho until submitted);
 // save / update take FormData (fields, JSON prices / compatibleModels / order, photos)
 export function saveNewProductDraft(data) {

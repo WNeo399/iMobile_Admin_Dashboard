@@ -101,6 +101,8 @@ export default {
                 { key: 'detail', label: 'Details', icon: 'el-icon-view' },
                 { key: 'label', label: 'Print label', icon: 'el-icon-printer' }
             ]
+            // a New Product not in Zoho yet → make the item there
+            if (this.row.category === 'New Product' && !this.row.itemId && s !== 'cancelled' && this.can('spp:product:create')) m.push({ key: 'zoho', label: 'Create in Zoho', icon: 'el-icon-upload2' })
             if (this.supply && ['pending', 'shortage', 'ordered', 'toConfirm'].includes(s) && main !== 'quote') m.push({ key: 'quote', label: 'Quote', icon: 'el-icon-price-tag' })
             if (this.supply && s === 'ordered') m.push({ key: 'price', label: 'Set unit price', icon: 'el-icon-edit' })
             if (this.canEither && ['pending', 'ordered', 'shortage'].includes(s) && !this.awaits) m.push({ key: 'toConfirm', label: 'To Confirm', icon: 'el-icon-question' })
