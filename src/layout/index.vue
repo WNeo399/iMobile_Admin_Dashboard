@@ -10,8 +10,9 @@
       <app-main/>
       <settings ref="settingRef"/>
     </div>
-    <!-- Global floating AI assistant — visible to users who can query the data -->
-    <ai-assistant-orb v-hasPermi="['ai:query:use']"/>
+    <!-- Global floating AI assistant — visible to users who can query the data;
+         a route with meta.hideAiOrb (the Defective Devices chat pages) goes without -->
+    <ai-assistant-orb v-if="!$route.meta.hideAiOrb" v-hasPermi="['ai:query:use']"/>
   </div>
 </template>
 

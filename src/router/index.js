@@ -545,6 +545,32 @@ export const moduleRoutes = [
     ]
   },
   {
+    // Defective Devices (2026-10-09) — old or faulty units sold as they are,
+    // one listing per unit with AI-drafted text, photos and video. Admin-only
+    // for now (only admin's wildcard carries defect:*).
+    path: "/defective",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "Defective Devices", icon: "el-icon-mobile-phone" },
+    children: [
+      {
+        // a listing built in a chat with the AI assistant (2026-10-09)
+        path: "/defective/new",
+        component: (resolve) => require(["@/views/defective/newListing"], resolve),
+        name: "DefectiveNewListing",
+        meta: { title: "New Listing", icon: "el-icon-chat-line-round", permissions: ["defect:listing:manage"], hideAiOrb: true }
+      },
+      {
+        path: "/defective/listings",
+        component: (resolve) => require(["@/views/defective/listings"], resolve),
+        name: "DefectiveListings",
+        meta: { title: "Listings", icon: "el-icon-collection", permissions: ["defect:listing:view"], hideAiOrb: true }
+      }
+    ]
+  },
+  {
     path: "/sqt",
     component: Layout,
     redirect: "noRedirect",
