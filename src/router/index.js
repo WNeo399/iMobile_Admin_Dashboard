@@ -893,15 +893,15 @@ export const moduleRoutes = [
           {
             // Supplier shipments counted in by the warehouse, then pushed
             // into Stock under the iMobile location. exclusiveRoles =
-            // strict match: Admin and iMobile Admin (added 2026-09-21),
-            // nobody else.
+            // strict match: Admin, iMobile Admin (2026-09-21) and iMobile
+            // Warehouse (2026-10-09), nobody else.
             path: "/refurbished/incoming",
             component: (resolve) => require(["@/views/refurbished/incoming"], resolve),
             name: "RefurbishedIncoming",
             meta: {
               title: "Incoming Stocks",
               icon: "el-icon-download",
-              exclusiveRoles: ["admin", "imobile-admin"]
+              exclusiveRoles: ["admin", "imobile-admin", "imobile-warehouse"]
             }
           },
           {
