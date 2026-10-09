@@ -56,9 +56,17 @@ export function checkRefurbDeviceBlackbelt(id) {
   return request({ url: `/refurbished/devices/${id}/blackbelt-check`, method: 'post', timeout: 30000 })
 }
 
-// Bulk shelf move off the Stock page — In Stock devices only.
+// Bulk shelf move off the Stock page — In Stock devices only. The answer
+// carries `transfer` ({ _id, transferNo, count, to }): the record it left.
 export function bulkAssignLocation(data) {
   return request({ url: '/refurbished/devices/bulk-location', method: 'post', data, timeout: 120000 })
+}
+// The transfer records (Warehouse → Transfers): list without lines, one in full.
+export function listRefurbTransfers(params) {
+  return request({ url: '/refurbished/transfers', method: 'get', params })
+}
+export function getRefurbTransfer(id) {
+  return request({ url: `/refurbished/transfers/${id}`, method: 'get' })
 }
 
 // ── Customers — buyers of refurbished stock ───────────────────────────

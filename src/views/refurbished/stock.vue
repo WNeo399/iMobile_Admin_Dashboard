@@ -343,6 +343,20 @@
             </span>
         </el-dialog>
 
+        <!-- the transfer record the move just left: print or download it now -->
+        <el-dialog :title="$tp('Transfer saved')" :visible.sync="doneVisible" width="440px" top="12vh">
+            <div v-if="doneTransfer" class="rs-done">
+                <div class="rs-done-no">{{ doneTransfer.transferNo }}</div>
+                <div class="rs-done-txt">{{ $tp('{n} device(s) moved to {location}', { n: doneTransfer.count, location: $tenum(doneTransfer.to) }) }}</div>
+                <div class="rs-done-dim">{{ $tp('The record is kept under Refurbished Device → Warehouse → Transfers') }}</div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="doneVisible = false">{{ $tp('Close') }}</el-button>
+                <el-button size="small" icon="el-icon-download" :loading="doneBusy" @click="downloadDone">{{ $tp('Download') }}</el-button>
+                <el-button size="small" type="primary" icon="el-icon-printer" :loading="doneBusy" @click="printDone">{{ $tp('Print') }}</el-button>
+            </span>
+        </el-dialog>
+
         <!-- ── Return a sold device ──────────────────────────────────
              Raises a one-device Sales Return (SR-…) so it lands in the
              same ledger as returns raised from the Sales Return page.
@@ -683,11 +697,13 @@
 </template>
 
 <script>
+import { buildTransferPdf, buildTransferWorkbook, transferFileBase } from '@/utils/refurbTransferPdf'
+import * as XLSX from 'xlsx-js-style'
 import { actsAsPhoneSupplier } from '@/utils/permission'
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
-    bulkAssignLocation, lookupSoldDevice, createSalesReturn,
+    bulkAssignLocation, getRefurbTransfer, lookupSoldDevice, createSalesReturn,
     getSupplyBatches, createSupplyBatch, addToSupplyBatch, getRefurbSuppliers
 } from '@/api/refurbished'
 
@@ -762,6 +778,8 @@ export default {
             exyonMsg: '',
             exyonTone: 'ok',
             exyonSaving: false,
+            // the transfer record the last Assign To Exyon left
+            doneTransfer: null, doneVisible: false, doneBusy: false,
 
             // Returning a sold device off its order (record only).
             returnVisible: false,
@@ -1188,6 +1206,7 @@ export default {
                     deviceIds: this.exyonRows.map(d => d._id)
                 })
                 this.$message.success(r.message || this.$tp('Moved'))
+                if (r.transfer) { this.doneTransfer = r.transfer; this.doneVisible = true }
                 if ((r.skipped || []).length) {
                     this.$notify.warning({
                         title: this.$tp('Some devices were skipped'),
@@ -1202,6 +1221,32 @@ export default {
             } finally {
                 this.exyonSaving = false
             }
+        },
+
+        // ── the transfer record: print / download right away ─────────
+        async fullDone() {
+            if (this.doneTransfer.lines) return this.doneTransfer
+            const r = await getRefurbTransfer(this.doneTransfer._id)
+            if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+            this.doneTransfer = r.transfer
+            return r.transfer
+        },
+        async printDone() {
+            this.doneBusy = true
+            try {
+                const t = await this.fullDone()
+                const doc = buildTransferPdf(t)
+                doc.autoPrint()
+                const w = window.open(doc.output('bloburl'))
+                if (!w) doc.save(transferFileBase(t) + '.pdf')
+            } catch (e) { this.$message.error(this.msg(e, this.$tp('Failed to build the PDF'))) } finally { this.doneBusy = false }
+        },
+        async downloadDone() {
+            this.doneBusy = true
+            try {
+                const t = await this.fullDone()
+                XLSX.writeFile(buildTransferWorkbook(t), transferFileBase(t) + '.xlsx')
+            } catch (e) { this.$message.error(this.msg(e, this.$tp('Failed to build the spreadsheet'))) } finally { this.doneBusy = false }
         },
 
         // ── return a sold device ─────────────────────────────────────
@@ -1687,4 +1732,8 @@ export default {
     border: 1px dashed #dcdfe6; border-radius: 8px;
     padding: 12px; margin-bottom: 16px; text-align: center;
 }
+.rs-done { text-align: center; padding: 6px 0 2px; }
+.rs-done-no { font-size: 22px; font-weight: 700; color: #303133; }
+.rs-done-txt { margin-top: 4px; font-size: 14px; color: #303133; }
+.rs-done-dim { margin-top: 6px; font-size: 12px; color: #909399; }
 </style>

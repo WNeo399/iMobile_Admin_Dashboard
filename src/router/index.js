@@ -944,6 +944,18 @@ export const moduleRoutes = [
             }
           },
           {
+            // The records left by bulk shelf moves (Assign To Exyon on the
+            // Stock page) — printable transfer notes and spreadsheets (2026-10-09).
+            path: "/refurbished/transfers",
+            component: (resolve) => require(["@/views/refurbished/transfers"], resolve),
+            name: "RefurbishedTransfers",
+            meta: {
+              title: "Transfers",
+              icon: "el-icon-sort",
+              permissions: ["refurb:stock:view"]
+            }
+          },
+          {
             // Faulty devices sent to a workshop and reconciled back in.
             // The list may include units we do not hold in the register.
             path: "/refurbished/repairs",
