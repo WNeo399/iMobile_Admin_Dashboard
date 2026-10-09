@@ -418,7 +418,7 @@ const TOOLS = [
             if (!r || r.success === false) throw new Error((r && r.message) || 'No draft came back')
             const d = r.draft
             if (apply) {
-                const u = await updateDefectiveListing(l._id, { title: d.title, summary: d.summary, description: d.description, conditionLabel: d.conditionLabel || undefined })
+                const u = await updateDefectiveListing(l._id, { title: d.title, summary: d.summary, description: d.description || undefined })
                 if (!u || u.success === false) throw new Error((u && u.message) || 'The draft was not saved')
             }
             return { done: true, listingNo: l.listingNo, applied: !!apply, photosRead: r.photos, draft: { title: d.title, summary: d.summary, ...d.description, conditionLabel: d.conditionLabel }, questions: d.openQuestions }
