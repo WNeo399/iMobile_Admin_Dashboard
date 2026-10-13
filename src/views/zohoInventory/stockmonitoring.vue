@@ -145,6 +145,10 @@
                     <div class="sd-spacer" />
                     <el-button v-if="!isAccessories && multipleSelection.length" type="text" size="mini"
                         @click="() => { $refs.table.clearSelection() }">Clear Selection ({{ multipleSelection.length }})</el-button>
+                    <!-- the ticked rows onto the 海运 list (user ask 2026-10-13);
+                         not on 海运 itself -->
+                    <el-button v-if="!isAccessories && !isSeaView && !showHidden && multipleSelection.length" size="mini" plain type="primary"
+                        icon="el-icon-ship" :loading="seaBusy" @click="addToSea">Add {{ multipleSelection.length }} to 海运</el-button>
                     <el-button v-if="hiddenCount || showHidden" type="text" size="mini"
                         @click="toggleShowHidden">{{ showHidden ? 'Back to list' : `${hiddenCount} hidden — view` }}</el-button>
                     <el-button v-if="queryParams.quick && !showHidden" type="text" size="mini" @click="pickTile('')">Clear filter</el-button>
@@ -330,6 +334,7 @@ import { getProductDetail } from "../../api/zoho/products/product";
 // collection's rows and their sales windows — and overlay live stock on the
 // rows shown. Accessories still read Zoho live through getCurrentStock.
 import { getStockCollectionItems, getLiveStock } from "@/api/stockMonitor";
+import { addSeaFreightItems, seaAddMessage } from "@/api/zoho/stockMonitoring";
 import ProductDetailDialog from "@/components/ProductDetailDialog"
 import ProductThumb from "@/components/ProductThumb"
 import CollectionFormDialog from "@/views/products/collection/CollectionFormDialog.vue"
@@ -415,6 +420,8 @@ export default {
             seaFreightId: '',
             product: {},
             multipleSelection: [],
+            // a bulk 海运 add in flight
+            seaBusy: false,
         }
     },
     computed: {
@@ -925,6 +932,28 @@ export default {
         },
         handleSelectionChange(val) {
             this.multipleSelection = val;
+        },
+        // "Add N to 海运": the ticked rows. Items already listed are skipped.
+        async addToSea() {
+            const rows = this.multipleSelection
+            const n = rows.length
+            if (!n) return
+            try {
+                await this.$confirm(`Add ${n.toLocaleString()} item${n === 1 ? '' : 's'} to the 海运 list? Items already on it are skipped.`,
+                    'Add to 海运', { type: 'info', confirmButtonText: 'Add', cancelButtonText: 'Cancel' })
+            } catch (e) { return }
+            this.seaBusy = true
+            try {
+                const r = await addSeaFreightItems(rows.map(x => ({ id: String(x.id || x.itemId || ''), name: x.productName || x.name || '', sku: x.sku || '' })))
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(seaAddMessage(r))
+                this.clearSelection()
+                this.getList()
+            } catch (e) {
+                this.$message.error((e && e.response && e.response.data && e.response.data.message) || (e && e.message) || 'Failed to add to 海运')
+            } finally {
+                this.seaBusy = false
+            }
         },
         clearSelection() {
             this.multipleSelection = []

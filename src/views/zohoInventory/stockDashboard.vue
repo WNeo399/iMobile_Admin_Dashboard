@@ -28,9 +28,12 @@
 
         <!-- ── filters ──────────────────────────────────────────────── -->
         <div class="sd-filters">
+            <!-- A search selects the Total products tile (search()), so it
+                 runs over every item rather than the bucket picked before.
+                 Clearing the box only reloads — the tile stays. -->
             <el-input v-model="query.search" size="small" clearable class="sd-search"
                 placeholder="SKU or product name" prefix-icon="el-icon-search"
-                @keyup.enter.native="reload" @clear="reload" />
+                @keyup.enter.native="search" @clear="reload" />
 
             <el-select v-model="query.category" size="small" clearable filterable placeholder="Category"
                 class="sd-sel" @change="reload">
@@ -56,7 +59,7 @@
                     :label="`${o.value} (${o.count})`" :value="o.value" />
             </el-select>
 
-            <el-button size="mini" type="primary" icon="el-icon-search" @click="reload">Search</el-button>
+            <el-button size="mini" type="primary" icon="el-icon-search" @click="search">Search</el-button>
             <el-button size="mini" icon="el-icon-refresh" @click="resetFilters">Reset</el-button>
 
             <div class="sd-spacer" />
@@ -74,7 +77,7 @@
                 :class="['sd-tile', 'tone-' + t.tone, { on: query.filter === t.key }]"
                 @click="pickTile(t.key)">
                 <div class="sd-tile-label">{{ t.label }}</div>
-                <div class="sd-tile-value">{{ (counts[t.key] || 0).toLocaleString() }}</div>
+                <div class="sd-tile-value">{{ tileValue(t.key).toLocaleString() }}</div>
                 <div class="sd-tile-note">{{ t.note }}</div>
             </div>
         </div>
@@ -92,16 +95,22 @@
                 <el-button v-if="query.filter === 'archived' && query.sort !== 'archivedAt'" type="text" size="mini"
                     @click="onSort({ prop: 'archivedAt', order: 'desc' })">Newest archived first</el-button>
                 <div class="sd-spacer" />
+                <!-- tick rows (the header box takes the page, kept across
+                     pages) and file them under 海运 (user ask 2026-10-13) -->
+                <template v-if="selection.length && query.filter !== 'archived'">
+                    <el-button type="text" size="mini" @click="clearSelection">Clear selection ({{ selection.length }})</el-button>
+                    <el-button size="mini" plain type="primary" icon="el-icon-ship" :loading="seaBusy" @click="addToSea">Add {{ selection.length }} to 海运</el-button>
+                </template>
                 <el-button v-if="query.filter !== 'all'" type="text" size="mini"
                     @click="pickTile('all')">Clear filter</el-button>
             </div>
 
             <!-- The shared stock table: the inline On order cell (POs raised there),
                  海运 / Archive actions and the item drawer come with it. -->
-            <stock-items-table :rows="rows" :loading="loading"
+            <stock-items-table ref="table" :rows="rows" :loading="loading"
                 :sort="{ prop: query.sort, order: query.order }" :sales-days.sync="salesDays"
-                :archived-view="query.filter === 'archived'"
-                @sort-change="onSort" @archived="onArchived" />
+                :archived-view="query.filter === 'archived'" selectable
+                @sort-change="onSort" @archived="onArchived" @selection-change="sel => { selection = sel }" />
 
             <div class="sd-pager">
                 <el-pagination background layout="total, sizes, prev, pager, next"
@@ -117,15 +126,19 @@ import {
     getStockSummary, getStockItems, getStockShelves,
     runStockSnapshot, getStockSnapshotRun
 } from '@/api/stockMonitor'
+import { addSeaFreightItems, seaAddMessage } from '@/api/zoho/stockMonitoring'
 import liveStockMixin from './liveStockMixin'
 // The table (with its inline PO cell and the item drawer) is shared with
 // Stock Monitoring's 海运, Browse and Collections lists.
 import StockItemsTable from './components/StockItemsTable'
 
-// Tiles in the order a buyer reads them: how bad, what needs ordering, what
-// is covered, what runs out soon. (The sitting-still tile went at the user's
-// ask; the cover tile went too and came back on 2026-09-29.)
+// Tiles in the order a buyer reads them: the whole register first (Total
+// products, added 2026-10-13 at the user's ask — it is what a search
+// selects), then how bad, what needs ordering, what is covered, what runs
+// out soon. (The sitting-still tile went at the user's ask; the cover tile
+// went too and came back on 2026-09-29.)
 const TILES = [
+    { key: 'all', label: 'Total products', tone: 'total', tag: 'info', note: 'live register, any stock state' },
     { key: 'outOfStock', label: 'Out of stock', tone: 'plain', tag: 'danger', note: 'nothing on the shelf' },
     { key: 'uncovered', label: 'Nothing on order', tone: 'bad', tag: 'danger', note: 'the buy list' },
     { key: 'onOrder', label: 'On order', tone: 'good', tag: 'success', note: 'covered by a PO', partsOnly: true },
@@ -171,6 +184,10 @@ export default {
 
             rows: [],
             total: 0,
+            // the ticked rows (kept across pages by the table) and the
+            // bulk 海运 add in flight
+            selection: [],
+            seaBusy: false,
             query: {
                 filter: 'uncovered',
                 search: '', category: '', collection: '', location: '', vendor: '',
@@ -312,6 +329,16 @@ export default {
             this.query.page = 1
             await Promise.all([this.loadItems(), this.loadSummary()])
         },
+        // The search box (Enter) and the Search button: a search runs over
+        // the whole register, so the Total products tile becomes the
+        // selected one first (user ask 2026-10-13). The Archive review is
+        // left alone — searching inside it is deliberate. The dropdown
+        // filters keep whatever tile is selected (narrowing a bucket by
+        // vendor or shelf is how the buy list is worked).
+        search() {
+            if (this.query.filter !== 'archived') this.query.filter = 'all'
+            return this.reload()
+        },
         async loadSummary() {
             this.summaryLoading = true
             try {
@@ -373,6 +400,39 @@ export default {
             this.query.filter = next
             this.query.page = 1
             this.loadItems()
+        },
+        // A tile's number. The summary's `all` counts the Archive bucket
+        // too, while every list but the Archive's leaves it out — so Total
+        // products shows the live register, the same rows its list has.
+        tileValue(key) {
+            const c = this.counts
+            if (key === 'all') return Math.max(0, (c.all || 0) - (c.archived || 0))
+            return c[key] || 0
+        },
+        clearSelection() {
+            this.selection = []
+            if (this.$refs.table) this.$refs.table.clearSelection()
+        },
+        // "Add N to 海运": the ticked rows. Items already listed are skipped.
+        async addToSea() {
+            const n = this.selection.length
+            if (!n) return
+            try {
+                await this.$confirm(`Add ${n.toLocaleString()} item${n === 1 ? '' : 's'} to the 海运 list? Items already on it are skipped.`,
+                    'Add to 海运', { type: 'info', confirmButtonText: 'Add', cancelButtonText: 'Cancel' })
+            } catch (e) { return }
+            this.seaBusy = true
+            try {
+                const r = await addSeaFreightItems(this.selection.map(x => ({ id: String(x.itemId || x.id || ''), name: x.name || x.productName || '', sku: x.sku || '' })))
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(seaAddMessage(r))
+                this.clearSelection()
+                this.loadItems()
+            } catch (e) {
+                this.$message.error(this.msg(e, 'Failed to add to 海运'))
+            } finally {
+                this.seaBusy = false
+            }
         },
         // A row moved to (or back from) the Archive: the list and its
         // counts change.
@@ -467,7 +527,8 @@ export default {
 .sd-sel-sm { width: 120px; }
 
 .sd-tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
-.sd-tiles > .sd-tile { flex: 1 1 200px; max-width: 340px; }
+/* five tiles on one row at a laptop width (the Total products tile made it five) */
+.sd-tiles > .sd-tile { flex: 1 1 170px; max-width: 340px; }
 .sd-tile {
     background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; padding: 14px 16px;
     display: flex; flex-direction: column; gap: 6px; cursor: pointer;
@@ -486,6 +547,7 @@ export default {
     &.on { border-color: #ff4949; box-shadow: 0 0 0 1px #ff4949 inset; }
 }
 .sd-tile.tone-warn .sd-tile-value { color: #e6a23c; }
+.sd-tile.tone-total .sd-tile-value { color: #409eff; }
 .sd-tile.tone-good .sd-tile-value { color: #67c23a; }
 
 .sd-card { background: #fff; border: 1px solid #e6ebf5; border-radius: 4px; overflow: hidden; }

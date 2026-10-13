@@ -29,6 +29,14 @@ export function addSeaFreightItems(items) {
 export function removeSeaFreightItem(itemId) {
   return request({ url: `/zoho/seaFreight/items/${itemId}`, method: 'delete' })
 }
+// The toast after a bulk add: { added, already, total }.
+export function seaAddMessage(r) {
+  const n = v => Number(v || 0).toLocaleString()
+  let s = `${n(r.added)} added to 海运`
+  if (r.already) s += `, ${n(r.already)} already there`
+  if (r.total != null) s += ` · ${n(r.total)} on the list`
+  return s
+}
 
 // Hide the picked items from the Stock Monitoring list (page-level only —
 // the dashboard and Price Monitoring still count them).

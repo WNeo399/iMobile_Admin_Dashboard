@@ -40,6 +40,10 @@
                     <el-radio-button label="grid" title="Grid"><i class="el-icon-menu" /><span class="bi-view-t"> Grid</span></el-radio-button>
                 </el-radio-group>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" title="Refresh" @click="refreshAll" />
+                <!-- tick rows (list view; the header box takes the page, kept
+                     across pages) and file them under 海运 (user ask 2026-10-13) -->
+                <el-button v-if="selection.length" size="small" plain type="primary" icon="el-icon-ship" :loading="seaBusy"
+                    @click="addToSea">Add {{ selection.length }} to 海运</el-button>
             </div>
 
             <!-- part type chips: the classification, plain; the counts follow
@@ -58,6 +62,18 @@
             </div>
 
             <div class="bi-filters">
+                <!-- the device pick (user ask 2026-10-13): one cascader — on
+                     a brand its series, each opening to its models; tick a
+                     whole series or single models (any of them matches). On
+                     a series its models, flat. The options come with the
+                     list, counted over the whole node, so a pick never
+                     empties the other choices. -->
+                <div v-if="pickOptions.length" class="bi-f">
+                    <label>{{ pickFlat ? 'Model' : 'Series / Model' }}</label>
+                    <el-cascader v-model="fPick" :options="pickOptions" :props="PICK_PROPS" size="small" clearable filterable
+                        collapse-tags :show-all-levels="false" placeholder="All" style="width:340px" popper-class="bi-pick-popper"
+                        @change="reload" />
+                </div>
                 <div class="bi-f">
                     <label>Quality</label>
                     <el-select v-model="quality" size="small" clearable placeholder="All" style="width:190px" @change="reload">
@@ -72,6 +88,7 @@
                     </el-select>
                 </div>
                 <el-button v-if="filtered" type="text" size="small" icon="el-icon-close" class="bi-clear" @click="clearFilters">Clear all</el-button>
+                <el-button v-if="selection.length" type="text" size="small" class="bi-clear" @click="clearSelection">Clear selection ({{ selection.length }})</el-button>
                 <span class="bi-spacer" />
                 <span class="bi-hint"><i class="el-icon-info" /> Click a part's On order cell to raise a PO</span>
             </div>
@@ -79,7 +96,7 @@
             <div ref="body" :class="['bi-body', 'is-' + view]">
                 <stock-items-table v-if="view === 'list'" ref="table" :rows="rows" :loading="loading" :sort="sort" :sales-days.sync="salesDays"
                     show-type show-prices :show-last-sold="false" :height="tableHeight" :price-editor="canEditPrices ? pm : null"
-                    empty-text="No parts match" @sort-change="onSort" />
+                    selectable empty-text="No parts match" @sort-change="onSort" @selection-change="sel => { selection = sel }" />
 
                 <div v-else v-loading="loading" class="bi-grid">
                     <div v-for="r in rows" :key="r.itemId" class="bi-card" @click="$refs.drawer.open(r)">
@@ -126,6 +143,7 @@ import liveStockMixin from './liveStockMixin'
 import priceEditMixin from './priceEditing'
 import PriceQueueZone from './components/PriceQueueZone'
 import { getModelTree, getBrowseItems } from '@/api/stockMonitor'
+import { addSeaFreightItems, seaAddMessage } from '@/api/zoho/stockMonitoring'
 
 const NONE = '__none__'
 const CLASS_LABELS = { BackCover: 'Back Cover', [NONE]: 'Unclassified' }
@@ -166,9 +184,20 @@ export default {
             quality: '',
             stock: '',
             search: '',
+            // the device pick: cascader paths — [series] for a whole series,
+            // [series, model] for one model (flat lists: [model]); values as
+            // the server names them, NONE for "No series"
+            fPick: [],
+            PICK_PROPS: { multiple: true, checkStrictly: true },
+            // series → models of the picked node, as the list answered
+            seriesModels: [],
             // the list
             rows: [],
             total: 0,
+            // the ticked rows (list view; kept across pages by the table)
+            // and the bulk 海运 add in flight
+            selection: [],
+            seaBusy: false,
             classes: [],
             qualities: [],
             page: 1,
@@ -214,8 +243,58 @@ export default {
             const b = this.node && this.node.sel && this.node.sel.brand
             return b || ''
         },
+        // where the picked node sits: a brand (series under it), a series
+        // (models under it), a model, or the whole catalogue
+        nodeLevel() {
+            const sel = (this.node && this.node.sel) || {}
+            if (sel.model) return 'model'
+            if (sel.series !== undefined) return 'series'
+            if (sel.brand !== undefined) return 'brand'
+            return 'all'
+        },
+        // the node's series, each with its models; a brand without series
+        // answers a flat model list, wrapped as one nameless group
+        seriesGroups() {
+            const sm = this.seriesModels || []
+            if (!sm.length) return []
+            if (!sm[0].children) return [{ value: '', label: '', count: 0, children: sm }]
+            return sm
+        },
+        // flat (models only): on a series node, or a brand without series
+        pickFlat() {
+            const g = this.seriesGroups
+            return this.nodeLevel === 'series' || (g.length === 1 && g[0].value === '')
+        },
+        // the cascader's options — on a brand or a series only. Series →
+        // models, the series counted as the tree counts them; flat, each
+        // model once (a part also carrying a second series would otherwise
+        // repeat), in natural order.
+        pickOptions() {
+            if (this.nodeLevel !== 'brand' && this.nodeLevel !== 'series') return []
+            const g = this.seriesGroups.filter(x => x.children && x.children.length)
+            if (!g.length) return []
+            if (!this.pickFlat) {
+                return g.map(x => ({ value: x.value, label: this.seriesLabel(x), children: x.children.map(m => ({ value: m.value, label: m.label })) }))
+            }
+            // on a series node only ITS models — the ones the tree files
+            // under it (a part also carrying a second series brings that
+            // series' models into the list's answer, and the list's own
+            // grouping, made over the node alone, can file a shared model
+            // differently from the tree, which groups over the whole brand)
+            let pool = g
+            if (this.nodeLevel === 'series') {
+                const sel = (this.node && this.node.sel) || {}
+                const inTree = new Set(((this.node && this.node.children) || []).map(c => c.sel && c.sel.model))
+                const own = g.find(x => x.value === sel.series)
+                pool = (own ? [own] : g).map(x => ({ ...x, children: inTree.size ? x.children.filter(m => inTree.has(m.value)) : x.children }))
+            }
+            const seen = new Set()
+            const all = []
+            for (const x of pool) for (const m of x.children) if (!seen.has(m.value)) { seen.add(m.value); all.push({ value: m.value, label: m.label }) }
+            return all.sort((a, b) => a.value.localeCompare(b.value, undefined, { numeric: true }))
+        },
         filtered() {
-            return !!(this.cls || this.quality || this.stock || this.search)
+            return !!(this.cls || this.quality || this.stock || this.search || this.fPick.length)
         },
         asOf() {
             if (!this.metricsAt) return ''
@@ -230,6 +309,8 @@ export default {
         },
         // a sub-type row coming or going moves the table
         subChips() { this.$nextTick(this.fitTable) },
+        // so does the device pick appearing or wrapping
+        pickOptions() { this.$nextTick(this.fitTable) },
         // a sales-sorted list follows the Sold window
         salesDays() {
             if (/^units\d+$/.test(this.sort.prop)) this.load()
@@ -276,6 +357,14 @@ export default {
             return !!data && typeof data.id === 'string' && data.id.indexOf('|') < 0
         },
         classLabel(c) { return CLASS_LABELS[c] || c },
+        // "S Series (1741)": the tree's count for the series (items in it);
+        // the list's own count sums per model, so a part fitting three
+        // models would count three times
+        seriesLabel(x) {
+            const inTree = ((this.node && this.node.children) || []).find(c => c.sel && c.sel.series === x.value)
+            const n = inTree ? inTree.count : x.count
+            return `${x.value === NONE ? 'No series' : x.value} (${n})`
+        },
         typeOf(r) {
             if (r.classification === 'Small Parts' && r.subClassification) return r.subClassification
             return CLASS_LABELS[r.classification] || r.classification
@@ -302,10 +391,38 @@ export default {
         },
         onNode(data) {
             this.node = data
-            // a new place: the type chips start again, the other filters stay
+            // a new place: the type chips and the device picks start again,
+            // the other filters stay
             this.cls = ''
             this.sub = ''
+            this.fPick = []
+            this.clearSelection()
             this.reload()
+        },
+        clearSelection() {
+            this.selection = []
+            if (this.$refs.table && this.$refs.table.clearSelection) this.$refs.table.clearSelection()
+        },
+        // "Add N to 海运": the ticked rows. Items already listed are skipped.
+        async addToSea() {
+            const n = this.selection.length
+            if (!n) return
+            try {
+                await this.$confirm(`Add ${n.toLocaleString()} part${n === 1 ? '' : 's'} to the 海运 list? Items already on it are skipped.`,
+                    'Add to 海运', { type: 'info', confirmButtonText: 'Add', cancelButtonText: 'Cancel' })
+            } catch (e) { return }
+            this.seaBusy = true
+            try {
+                const r = await addSeaFreightItems(this.selection.map(x => ({ id: String(x.itemId || x.id || ''), name: x.productName || x.name || '', sku: x.sku || '' })))
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(seaAddMessage(r))
+                this.clearSelection()
+                this.load()
+            } catch (e) {
+                this.$message.error((e && e.response && e.response.data && e.response.data.message) || (e && e.message) || 'Failed to add to 海运')
+            } finally {
+                this.seaBusy = false
+            }
         },
         // ── the list ───────────────────────────────────────────────
         params() {
@@ -321,6 +438,19 @@ export default {
             if (sel.brand !== undefined) p.brand = sel.brand
             if (sel.series !== undefined) p.series = sel.series
             if (sel.model) p.models = [sel.model]
+            // the device pick: whole series and single models, any of them
+            // matches (the server ORs seriesIn and models)
+            if (this.fPick.length) {
+                const seriesIn = []
+                const models = []
+                for (const path of this.fPick) {
+                    if (this.pickFlat) models.push(path[path.length - 1])
+                    else if (path.length === 1) seriesIn.push(path[0])
+                    else models.push(path[1])
+                }
+                if (seriesIn.length) p.seriesIn = seriesIn
+                if (models.length) p.models = models
+            }
             if (this.cls) p.classification = this.cls
             if (this.sub) p.sub = this.sub
             if (this.quality) p.quality = this.quality
@@ -344,6 +474,7 @@ export default {
                 this.total = r.total || 0
                 this.classes = r.classes || []
                 this.qualities = r.qualities || []
+                this.seriesModels = r.seriesModels || []
                 this.metricsAt = r.metricsAt || null
                 // the stock on screen, live from Zoho (one call per page)
                 this.overlayLiveStock(this.rows)
@@ -381,6 +512,7 @@ export default {
             this.quality = ''
             this.stock = ''
             this.search = ''
+            this.fPick = []
             this.reload()
         },
         onSort({ prop, order }) {
@@ -398,6 +530,13 @@ export default {
     }
 }
 </script>
+
+<style lang="scss">
+/* the Series / Model cascader's panel (teleported to body): taller, so a
+   series' hundred-odd models need less scrolling */
+.bi-pick-popper .el-cascader-menu__wrap { height: 340px; }
+.bi-pick-popper .el-cascader-menu { min-width: 220px; }
+</style>
 
 <style lang="scss" scoped>
 .bi-page { display: flex; height: calc(100vh - 84px); overflow: hidden; }
