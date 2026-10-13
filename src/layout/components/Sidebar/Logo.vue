@@ -41,7 +41,7 @@ export default {
     // default build-time title.
     title() {
       const roles = (this.$store && this.$store.state.user.roles) || []
-      const techEliteFacing = ['techelite-admin', 'repair-shop', 'shop-owner']
+      const techEliteFacing = ['techelite-admin', 'repair-shop', 'shop-owner', 'sqt-call-center']
       if (roles.some(r => techEliteFacing.includes(r))) {
         return 'TechElite Dashboard'
       }

@@ -604,6 +604,20 @@ export const moduleRoutes = [
         }
       },
       {
+        // Call Center (2026-10-13): the cases still to phone, the customer's
+        // details, mark as contacted, notes. The SQT Call Center role holds
+        // only sqt:callcenter:*, so this is its whole menu; Admin / TechElite
+        // Admin / Front Desk see it too. Backend routes/sqtRoutes/callCenter.
+        path: "callCenter",
+        component: (resolve) => require(["@/views/sqt/callCenter/index"], resolve),
+        name: "SqtCallCenter",
+        meta: {
+          title: "Call Center",
+          icon: "el-icon-phone-outline",
+          permissions: ["sqt:callcenter:view"]
+        }
+      },
+      {
         // Return tracking dashboard — outstanding parts/devices to recover
         // from shops on terminal cases. HQ-only (sqt:case:trackReturn), so the
         // menu link is hidden from shop roles.

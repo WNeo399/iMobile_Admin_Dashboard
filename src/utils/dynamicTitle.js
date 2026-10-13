@@ -6,7 +6,7 @@ import defaultSettings from '@/settings'
 // TechElite Admin and the two shop-side roles see the TechElite-branded
 // title; everyone else (Admin, iMobile Admin, unauthenticated) uses the
 // build-time VUE_APP_TITLE.
-const TECH_ELITE_ROLES = ['techelite-admin', 'repair-shop', 'shop-owner']
+const TECH_ELITE_ROLES = ['techelite-admin', 'repair-shop', 'shop-owner', 'sqt-call-center']
 
 function brandTitle() {
   const roles = (store.state.user && store.state.user.roles) || []
