@@ -132,6 +132,21 @@ export const moduleRoutes = [
           permissions: ["zoho:salesOrder:create"]
         }
       },
+      {
+        // Screen Buyback (2026-10-13) — the ABCD grade price list: what we
+        // pay back for a returned screen per model and grade, with the
+        // workbook (dropdowns + lookups) downloadable. Backend
+        // routes/screenBuybackRoutes; Admin, iMobile Admin, Warehouse,
+        // Front Desk hold buyback:price:*.
+        path: "screenBuyback",
+        component: (resolve) => require(["@/views/imobile/screenBuyback/index"], resolve),
+        name: "ImobileScreenBuyback",
+        meta: {
+          title: "Screen Buyback",
+          icon: "el-icon-mobile-phone",
+          permissions: ["buyback:price:view"]
+        }
+      },
       // (Special Order — the review page for the website form / WhatsApp
       // requests in imb_special_orders — was removed on 2026-10-07, unused.)
       // (Serials Lookup — the Apple SVP pages — moved to the iMobile Spare
