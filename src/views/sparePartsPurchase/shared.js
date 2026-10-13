@@ -30,7 +30,7 @@ export const isChannel = c => CHANNELS.includes(c)
 export const QUOTE_FIRST = ['New Product', 'Special Order']
 export const awaitsQuote = r => !!r && QUOTE_FIRST.includes(r.category) && ['pending', 'shortage'].includes(r.status) && !r.confirmed
 // Who a Special Order is for — the usual names; another can be typed.
-export const REQUESTED_FOR = ['Shen', 'JoJo', 'Parana', 'iMobile']
+export const REQUESTED_FOR = ['Shen', 'JoJo', 'Prana', 'iMobile']
 // Photos a line can carry (the backend's MAX_IMAGES).
 export const MAX_IMAGES = 6
 
