@@ -1465,6 +1465,8 @@ export default {
     'None yet': '还没有',
     'text not written': '文字未撰写',
     '{n} drafts': '{n} 个草稿',
+    'Sound on': '提示音开',
+    'Sound off': '提示音关',
     'Mark as completed': '标记为已完成',
     'Marked as completed': '已标记为已完成',
     'completed by hand': '手动完成',

@@ -8,7 +8,9 @@
     <el-dialog :visible.sync="open" :fullscreen="fullscreen" :width="fullscreen ? undefined : '520px'" append-to-body top="4vh"
         custom-class="bsc-dialog" :close-on-click-modal="false" @closed="stop">
         <div slot="title" class="bsc-head"><i class="el-icon-camera" /> {{ $tp('Scan with the camera') }}</div>
-        <div class="bsc-stage">
+        <div class="bsc-body" @pointerdown="unlockAudio">
+        <!-- taller on phones (fullscreen) so more of the camera's view shows -->
+        <div :class="['bsc-stage', { 'bsc-stage-tall': fullscreen }]">
             <video ref="video" class="bsc-video" autoplay playsinline muted />
             <div class="bsc-frame" />
             <div v-if="state === 'starting'" class="bsc-overlay">{{ $tp('Starting the camera…') }}</div>
@@ -28,10 +30,12 @@
             </div>
             <el-button v-if="torchable" size="small" :icon="torch ? 'el-icon-sunny' : 'el-icon-moon'" @click="toggleTorch">{{ $tp('Light') }}</el-button>
             <el-button v-if="cameras.length > 1" size="small" icon="el-icon-refresh" @click="switchCamera">{{ $tp('Switch camera') }}</el-button>
+            <el-button size="small" :icon="sound ? 'el-icon-bell' : 'el-icon-close-notification'" :title="sound ? $tp('Sound on') : $tp('Sound off')" @click="toggleSound" />
         </div>
         <div class="bsc-engine bsc-dim">{{ engine === 'native' ? $tp('Using the built-in barcode reader') : engine === 'zxing' ? $tp('Using the JavaScript barcode reader') : '' }}</div>
         <!-- whatever the parent wants under the camera (Batches: the lines scanned so far) -->
         <slot />
+        </div>
         <span slot="footer">
             <el-button type="primary" size="small" icon="el-icon-check" @click="open = false">{{ $tp('Done') }}</el-button>
         </span>
@@ -43,6 +47,9 @@
 // (utils/sppLabelPdf); supplier packaging adds the 1-D ones.
 const NATIVE_FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'qr_code', 'data_matrix']
 const REPEAT_MS = 1500
+// the beep switch, remembered per browser
+const SOUND_KEY = 'spp.scanSound'
+const readSound = () => { try { return localStorage.getItem(SOUND_KEY) !== 'off' } catch (e) { return true } }
 
 export default {
     name: 'BarcodeScanner',
@@ -56,7 +63,8 @@ export default {
             stream: null, track: null, cameras: [], cameraIndex: 0,
             torchable: false, torch: false,
             detector: null, zxing: null, zxingControls: null, raf: 0,
-            last: '', lastAt: 0, count: 0
+            last: '', lastAt: 0, count: 0,
+            sound: readSound(), audio: null
         }
     },
     computed: {
@@ -74,6 +82,7 @@ export default {
     methods: {
         async start() {
             this.stop()
+            this.unlockAudio()
             this.state = 'starting'
             this.error = ''
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -157,7 +166,47 @@ export default {
             this.lastAt = now
             this.count += 1
             if (navigator.vibrate) { try { navigator.vibrate(60) } catch (e) { /* no haptics */ } }
+            this.beep('ok')
             this.$emit('scan', code)
+        },
+        // ── sound: a short high beep per read; two low tones when the parent
+        // reports a scan with no order behind it (`beep('bad')`) ──
+        unlockAudio() {
+            if (!this.sound) return
+            try {
+                const AC = window.AudioContext || window.webkitAudioContext
+                if (!AC) return
+                if (!this.audio) this.audio = new AC()
+                if (this.audio.state === 'suspended') this.audio.resume().catch(() => {})
+            } catch (e) { /* no sound on this device */ }
+        },
+        beep(kind) {
+            if (!this.sound) return
+            this.unlockAudio()
+            const ctx = this.audio
+            if (!ctx) return
+            try {
+                const bad = kind === 'bad'
+                const tones = bad ? [[300, 0, 0.16], [300, 0.22, 0.16]] : [[1400, 0, 0.09]]
+                for (const [freq, at, dur] of tones) {
+                    const o = ctx.createOscillator()
+                    const g = ctx.createGain()
+                    o.type = bad ? 'square' : 'sine'
+                    o.frequency.value = freq
+                    const t = ctx.currentTime + at
+                    g.gain.setValueAtTime(0.0001, t)
+                    g.gain.exponentialRampToValueAtTime(bad ? 0.25 : 0.35, t + 0.01)
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+                    o.connect(g).connect(ctx.destination)
+                    o.start(t)
+                    o.stop(t + dur + 0.02)
+                }
+            } catch (e) { /* no sound */ }
+        },
+        toggleSound() {
+            this.sound = !this.sound
+            try { localStorage.setItem(SOUND_KEY, this.sound ? 'on' : 'off') } catch (e) { /* not remembered */ }
+            if (this.sound) { this.unlockAudio(); this.beep('ok') }
         },
         async toggleTorch() {
             if (!this.track) return
@@ -182,6 +231,9 @@ export default {
             if (video) video.srcObject = null
             if (this.state !== 'error') this.state = 'idle'
         }
+    },
+    destroyed() {
+        if (this.audio) { try { this.audio.close() } catch (e) { /* already closed */ } this.audio = null }
     }
 }
 </script>
@@ -189,8 +241,9 @@ export default {
 <style lang="scss" scoped>
 .bsc-head { font-size: 15px; font-weight: 600; color: #303133; i { color: #409eff; margin-right: 4px; } }
 .bsc-stage { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000; border-radius: 8px; overflow: hidden; }
+.bsc-stage-tall { aspect-ratio: 1 / 1; }
 .bsc-video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.bsc-frame { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 2px solid rgba(64, 158, 255, .9); border-radius: 8px;
+.bsc-frame { position: absolute; left: 5%; right: 5%; top: 14%; bottom: 14%; border: 2px solid rgba(64, 158, 255, .9); border-radius: 8px;
     box-shadow: 0 0 0 2000px rgba(0, 0, 0, .25); pointer-events: none; }
 .bsc-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
     color: #fff; font-size: 14px; text-align: center; padding: 20px; background: rgba(0, 0, 0, .55); i { font-size: 30px; } }

@@ -175,7 +175,7 @@
                 <el-button v-if="hasCamera" size="small" type="primary" plain icon="el-icon-camera" @click="cameraVisible = true">{{ $tp('Scan with camera') }}</el-button>
                 <el-button size="small" icon="el-icon-tickets" @click="openPicker">{{ $tp('Pick from open orders') }}</el-button>
             </div>
-            <barcode-scanner :visible.sync="cameraVisible" :fullscreen="phone" @scan="onCameraScan">
+            <barcode-scanner ref="scanner" :visible.sync="cameraVisible" :fullscreen="phone" @scan="onCameraScan">
                 <!-- the batch as it builds, under the camera (user ask
                      2026-10-13): every line with its count, +/− and remove;
                      the line just read moves to the top. A scan with no
@@ -347,7 +347,9 @@
                     <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                     <el-button size="small" icon="el-icon-document" :loading="savingDraft" :disabled="!createForm.lines.length && !createForm.tracking && !createForm.note && createForm.shippingCost == null"
                         @click="saveDraft">{{ draftId ? $tp('Save draft') : $tp('Save as draft') }}</el-button>
-                    <el-button type="primary" size="small" icon="el-icon-truck" :loading="creating" :disabled="!createForm.lines.length"
+                    <!-- Ship waits until every line has a price (user ask 2026-10-13) and no
+                         unmatched line is left; the footer text says what is missing -->
+                    <el-button type="primary" size="small" icon="el-icon-truck" :loading="creating" :disabled="!canShip"
                         @click="submitCreate">{{ $tp('Ship {n} line(s)', { n: createForm.lines.length }) }}</el-button>
                 </span>
             </div>
@@ -755,6 +757,10 @@ export default {
         // lines scanned with no order behind them (kept for adjustment)
         unmatchedCount() {
             return this.createForm.lines.filter(l => l.unmatched).length
+        },
+        // the batch can ship: lines on it, every one priced, none unmatched
+        canShip() {
+            return this.createForm.lines.length > 0 && !this.createAmount.unpriced && !this.unmatchedCount
         },
         viewAmount() {
             return this.view ? batchAmount(this.view.lines, this.view.shippingCost) : batchAmount([], 0)
@@ -1183,6 +1189,8 @@ export default {
                 this.createForm.lines.unshift(line)
             }
             this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}`, type: 'warning', duration: 2000 })
+            // heard without looking: the camera's low double tone
+            if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
         },
         // Look again for the order behind an unmatched line (one may have
         // been raised since): on a hit the line becomes that order's line.
