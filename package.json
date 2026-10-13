@@ -25,6 +25,8 @@
   },
   "dependencies": {
     "@riophae/vue-treeselect": "0.4.0",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "axios": "0.30.3",
     "clipboard": "2.0.8",
     "core-js": "3.37.1",

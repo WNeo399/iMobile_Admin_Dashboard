@@ -115,6 +115,8 @@ export default {
             if (this.supply && (s === 'pending' || s === 'ordered')) m.push({ key: 'shortage', label: 'Shortage', icon: 'el-icon-remove-outline' })
             if (this.canEither && ['shortage', 'cancelled'].includes(s) && main !== 'reopen') m.push({ key: 'reopen', label: 'Reopen', icon: 'el-icon-refresh-left' })
             if (this.canEither && ['pending', 'shortage', 'toConfirm'].includes(s)) m.push({ key: 'cancel', label: 'Cancel order', icon: 'el-icon-circle-close', divided: true })
+            // sent and received outside the system (2026-10-13): closes as received, no batch
+            if (this.can('spp:order:receive') && ['pending', 'toConfirm', 'ordered', 'shortage'].includes(s)) m.push({ key: 'complete', label: 'Mark as completed', icon: 'el-icon-circle-check', divided: true })
             return m
         },
         // the date that matters at this step

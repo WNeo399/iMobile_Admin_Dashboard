@@ -191,8 +191,12 @@ const STATUS_META = {
     unrepairable: { label: 'Unrepairable', tag: 'danger' },
     ber: { label: 'BER', tag: 'danger' },
     completed: { label: 'Completed', tag: 'success' },
-    cancelled: { label: 'Cancelled', tag: 'info' }
+    cancelled: { label: 'Cancelled', tag: 'info' },
+    // what a non-admin sees in place of the internal Solvup statuses
+    'in-progress': { label: 'In progress', tag: '' }
 }
+// internal — the server already strips these for non-admin users
+const SOLVUP = ['waiting-solvup', 'issue-with-solvup']
 
 export default {
     name: 'SqtCallCenter',
@@ -210,7 +214,9 @@ export default {
         }
     },
     computed: {
-        canContact() { return hasPermission(this.$store.getters.permissions, 'sqt:callcenter:contact') }
+        canContact() { return hasPermission(this.$store.getters.permissions, 'sqt:callcenter:contact') },
+        // admin-side SQT users see the Solvup hand-off; the call center does not
+        canSeeSolvup() { return hasPermission(this.$store.getters.permissions, 'sqt:case:changeStatus') }
     },
     created() { this.load() },
     mounted() {
@@ -251,8 +257,8 @@ export default {
         isNoCall(c) { return !!(c && c.callCenter && c.callCenter.noCall) && !this.isContacted(c) },
         callNotes(c) { return ((c && c.notes) || []).filter(n => n.source === 'call-center') },
         notesNewestFirst(c) { return ((c && c.notes) || []).slice().reverse() },
-        historyNewestFirst(c) { return ((c && c.statusHistory) || []).slice().reverse() },
-        statusLabel(s) { return (STATUS_META[s] && STATUS_META[s].label) || s || '—' },
+        historyNewestFirst(c) { return ((c && c.statusHistory) || []).filter(h => this.canSeeSolvup || !SOLVUP.includes(h.status)).slice().reverse() },
+        statusLabel(s) { const k = !this.canSeeSolvup && SOLVUP.includes(s) ? 'in-progress' : s; return (STATUS_META[k] && STATUS_META[k].label) || k || '—' },
         statusType(s) { return (STATUS_META[s] && STATUS_META[s].tag) || 'info' },
         fmtDate(d) {
             if (!d) return '—'

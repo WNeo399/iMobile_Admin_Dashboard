@@ -85,6 +85,10 @@ export function cancelOrder(id, note) {
 export function reopenOrder(id) {
   return request({ url: `${BASE}/orders/${id}/reopen`, method: 'post' })
 }
+// a line sent and received outside the system closes as received, no batch (2026-10-13)
+export function completeOrder(id, data) {
+  return request({ url: `${BASE}/orders/${id}/complete`, method: 'post', data })
+}
 // Photos on a line (field "image", one per call) — mostly New Product /
 // Special Order lines, which have no Zoho item picture.
 export function uploadOrderImage(id, formData) {

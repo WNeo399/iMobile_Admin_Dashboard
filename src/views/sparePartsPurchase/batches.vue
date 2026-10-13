@@ -15,7 +15,40 @@
             <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
 
-        <el-table v-loading="loading" :data="rows" size="mini" border :empty-text="$tp('No batches yet')">
+        <!-- phones (2026-10-13): a card per batch instead of the wide table -->
+        <div v-if="phone" v-loading="loading" class="spb-cards">
+            <div v-if="!rows.length && !loading" class="spb-cards-empty">{{ $tp('No batches yet') }}</div>
+            <div v-for="r in rows" :key="r._id" class="spb-card">
+                <div class="spb-card-head">
+                    <el-tag v-if="r.status === 'draft'" size="mini" type="warning" class="spb-draft-tag" @click="openDraft(r)">{{ $tp('Draft') }}</el-tag>
+                    <el-button v-else type="text" class="spb-no" @click="openView(r)">{{ r.batchNo }}</el-button>
+                    <el-tag size="mini" :type="batchTag(r.status)" effect="plain">{{ batchLabel(r.status) }}</el-tag>
+                    <span class="spb-spacer" />
+                    <span class="spb-dim">{{ fmtDay(r.shippedAt) }}</span>
+                </div>
+                <div class="spb-card-row"><span>{{ $tp('Tracking') }}</span>
+                    <a v-if="r.tracking" class="spb-link" :href="dhlLink(r.tracking)" target="_blank" rel="noopener">{{ r.tracking }}</a>
+                    <em v-else>{{ $tp('not yet') }}</em></div>
+                <div class="spb-card-row"><span>{{ $tp('Lines') }}</span><span><b>{{ r.lineCount }}</b> · {{ r.totalQty }} {{ $tp('Pcs') }}<span v-if="r.discrepancy" class="spb-warn"> · {{ $tp('qty differs') }}</span><span v-if="r.unmatchedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: r.unmatchedCount }) }}</span></span></div>
+                <div v-if="r.zoho && r.zoho.pos && r.zoho.pos.length" class="spb-card-row"><span>{{ $tp('Zoho PO') }}</span>
+                    <span><a v-for="p in r.zoho.pos" :key="p.purchaseorderId" class="spb-link spb-zpo-inline" :href="zohoPoLink(p.purchaseorderId)" target="_blank" rel="noopener">{{ p.number }}</a></span></div>
+                <div v-if="r.receivedAt" class="spb-card-row"><span>{{ $tp('Received') }}</span><span>{{ fmtDay(r.receivedAt) }}<template v-if="r.receivedBy"> · {{ r.receivedBy }}</template></span></div>
+                <div class="spb-card-row"><span>{{ $tp('Created by') }}</span><span>{{ r.createdBy || '—' }} · {{ fmtWhen(r.createdAt) }}</span></div>
+                <div v-if="r.note" class="spb-card-row"><span>{{ $tp('Note') }}</span><span>{{ r.note }}</span></div>
+                <div class="spb-card-actions">
+                    <template v-if="r.status === 'draft'">
+                        <el-button v-if="can('spp:batch:create')" size="mini" icon="el-icon-edit" @click="openDraft(r)">{{ $tp('Edit') }}</el-button>
+                        <el-button v-if="r.lineCount" size="mini" icon="el-icon-download" @click="downloadPriceSheet(r)">{{ $tp('Price sheet') }}</el-button>
+                        <el-button v-if="can('spp:batch:create')" size="mini" icon="el-icon-delete" class="spb-del" @click="deleteDraft(r)">{{ $tp('Delete') }}</el-button>
+                    </template>
+                    <template v-else>
+                        <el-button size="mini" icon="el-icon-view" @click="openView(r)">{{ $tp('View') }}</el-button>
+                        <el-button v-if="can('spp:order:receive') && r.status === 'shipped'" size="mini" type="success" plain icon="el-icon-circle-check" @click="openReceive(r)">{{ $tp('Receive') }}</el-button>
+                    </template>
+                </div>
+            </div>
+        </div>
+        <el-table v-else v-loading="loading" :data="rows" size="mini" border :empty-text="$tp('No batches yet')">
             <el-table-column :label="$tp('Batch')" width="110">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.status === 'draft'" size="mini" type="warning" class="spb-draft-tag" @click="openDraft(s.row)">{{ $tp('Draft') }}</el-tag>
@@ -65,6 +98,7 @@
                 <template slot-scope="s">
                     <el-tag size="mini" :type="batchTag(s.row.status)" effect="plain">{{ batchLabel(s.row.status) }}</el-tag>
                     <div v-if="s.row.discrepancy" class="spb-warn">{{ $tp('qty differs') }}</div>
+                    <div v-if="s.row.unmatchedCount" class="spb-warn">{{ $tp('{n} not on any order', { n: s.row.unmatchedCount }) }}</div>
                 </template>
             </el-table-column>
             <el-table-column :label="$tp('Received')" width="150">
@@ -85,10 +119,12 @@
             <el-table-column :label="$tp('Note')" min-width="140" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.note || '—' }}</template>
             </el-table-column>
-            <el-table-column :label="$tp('Actions')" width="210" align="center">
+            <el-table-column :label="$tp('Actions')" width="250" align="center">
                 <template slot-scope="s">
                     <template v-if="s.row.status === 'draft'">
                         <el-button v-if="can('spp:batch:create')" type="text" size="mini" icon="el-icon-edit" @click="openDraft(s.row)">{{ $tp('Edit') }}</el-button>
+                        <!-- the sheet the purchase team fills the prices in on -->
+                        <el-button v-if="s.row.lineCount" type="text" size="mini" icon="el-icon-download" @click="downloadPriceSheet(s.row)">{{ $tp('Price sheet') }}</el-button>
                         <!-- the same discard the draft dialog offers, right from the list (user ask 2026-10-06) -->
                         <el-button v-if="can('spp:batch:create')" type="text" size="mini" icon="el-icon-delete" class="spb-del" @click="deleteDraft(s.row)">{{ $tp('Delete') }}</el-button>
                         <span v-if="!can('spp:batch:create')" class="spb-dim">{{ $tp('Draft') }}</span>
@@ -104,15 +140,15 @@
         </el-table>
 
         <div class="spb-pager">
-            <el-pagination background layout="total, sizes, prev, pager, next" :total="total" :page-size="pageSize"
-                :page-sizes="[10, 20, 50]" :current-page="page" @current-change="onPage" @size-change="onSize" />
+            <el-pagination background :small="phone" :layout="phone ? 'prev, pager, next' : 'total, sizes, prev, pager, next'" :pager-count="phone ? 5 : 7"
+                :total="total" :page-size="pageSize" :page-sizes="[10, 20, 50]" :current-page="page" @current-change="onPage" @size-change="onSize" />
         </div>
 
         <!-- ── Create batch ─────────────────────────────────────────── -->
         <!-- Scan a SKU to pull its oldest waiting line, or pick lines from
              the open list. The shipped qty defaults to the ordered qty; a
              smaller number is a short shipment and still closes the line. -->
-        <el-dialog :visible.sync="createVisible" width="960px" append-to-body top="5vh" @closed="onCreateClosed">
+        <el-dialog :visible.sync="createVisible" width="960px" append-to-body top="5vh" :fullscreen="phone" :custom-class="dlgClass" @closed="onCreateClosed">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-truck" /> {{ draftId ? $tp('Draft batch') : $tp('Create Batch') }}
                 <span v-if="draftId" class="spb-dim spb-dlg-sub">{{ $tp('saved, not shipped') }}</span></div>
             <div class="spb-head-fields">
@@ -131,17 +167,92 @@
             </div>
             <div class="spb-scan">
                 <el-input ref="scanRef" v-model="scan" size="small" prefix-icon="el-icon-full-screen" clearable
-                    :placeholder="$tp('Scan a SKU — one scan counts one unit; the oldest waiting order fills first…')" @keyup.enter.native="doScan">
+                    :placeholder="phone ? $tp('Scan or type a SKU') : $tp('Scan a SKU — one scan counts one unit; the oldest waiting order fills first…')" @keyup.enter.native="doScan">
                     <el-button slot="append" icon="el-icon-plus" :loading="scanning" @click="doScan" />
                 </el-input>
+                <!-- the device camera reads the label's barcode (phones; any
+                     browser with a camera) — each read is one scan -->
+                <el-button v-if="hasCamera" size="small" type="primary" plain icon="el-icon-camera" @click="cameraVisible = true">{{ $tp('Scan with camera') }}</el-button>
                 <el-button size="small" icon="el-icon-tickets" @click="openPicker">{{ $tp('Pick from open orders') }}</el-button>
             </div>
-            <el-table :data="createForm.lines" size="mini" border max-height="380" :empty-text="$tp('Scan a SKU or pick orders to start the batch')">
+            <barcode-scanner :visible.sync="cameraVisible" :fullscreen="phone" @scan="onCameraScan">
+                <!-- the batch as it builds, under the camera (user ask
+                     2026-10-13): every line with its count, +/− and remove;
+                     the line just read moves to the top. A scan with no
+                     order behind it stays on as an unmatched line. -->
+                <div class="spb-scanlist">
+                    <div class="spb-scanlist-head">
+                        <b>{{ $tp('{n} line(s)', { n: createForm.lines.length }) }}</b> · {{ $tp('{n} pcs', { n: createTotal }) }}
+                        <span v-if="unmatchedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unmatchedCount }) }}</span>
+                    </div>
+                    <div v-if="!createForm.lines.length" class="spb-scanlist-empty">{{ $tp('Scanned lines show here') }}</div>
+                    <div v-for="(l, i) in createForm.lines" :key="'s-' + (l.orderId || l.sku) + '-' + i" :class="['spb-scanrow', { hit: isLastScan(l), bad: l.unmatched }]">
+                        <div class="spb-scanrow-main">
+                            <div class="spb-pname">{{ l.productName || l.sku }}</div>
+                            <div class="spb-dim">{{ l.sku || '—' }}<template v-if="l.unmatched"> · <span class="spb-warn">{{ unmatchedLabel(l) }}</span></template><template v-else> · {{ $tp('ordered {n}', { n: l.orderQty }) }}</template></div>
+                        </div>
+                        <div class="spb-scanrow-qty">
+                            <el-button size="mini" icon="el-icon-minus" circle :disabled="!l.qty || l.qty <= 1" @click="bumpQty(l, -1)" />
+                            <b>{{ l.qty == null ? '—' : l.qty }}</b>
+                            <el-button size="mini" icon="el-icon-plus" circle @click="bumpQty(l, 1)" />
+                        </div>
+                        <el-button type="text" icon="el-icon-close" class="spb-del spb-scanrow-del" @click="createForm.lines.splice(i, 1)" />
+                    </div>
+                </div>
+            </barcode-scanner>
+            <!-- phones: a card per line — the fields that need typing (supplier, price, qty) big enough to tap -->
+            <div v-if="phone" class="spb-line-cards">
+                <div v-if="!createForm.lines.length" class="spb-cards-empty">{{ $tp('Scan a SKU or pick orders to start the batch') }}</div>
+                <div v-for="(l, i) in createForm.lines" :key="l.orderId + '-' + i" class="spb-lcard">
+                    <div class="spb-lcard-head">
+                        <div class="spb-lcard-main">
+                            <div class="spb-pname">{{ l.productName || l.sku }}</div>
+                            <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> ·
+                                <span v-if="l.unmatched" class="spb-warn">{{ unmatchedLabel(l) }}</span>
+                                <template v-else-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template></div>
+                        </div>
+                        <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="createForm.lines.splice(i, 1)" />
+                    </div>
+                    <!-- no order behind it: just the count, and a way to look for its order again -->
+                    <div v-if="l.unmatched" class="spb-lcard-grid">
+                        <div class="spb-lcard-f">
+                            <label>{{ $tp('Scanned Qty') }}</label>
+                            <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" style="width:100%" />
+                        </div>
+                        <div class="spb-lcard-f spb-lcard-btn">
+                            <el-button size="small" icon="el-icon-search" :loading="l.matching" @click="rematch(l)">{{ $tp('Find order') }}</el-button>
+                        </div>
+                    </div>
+                    <div v-else class="spb-lcard-grid">
+                        <div v-if="l.status === 'pending'" class="spb-lcard-f spb-lcard-wide">
+                            <label>{{ $tp('Supplier') }} *</label>
+                            <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Select')" style="width:100%">
+                                <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
+                            </el-select>
+                        </div>
+                        <div class="spb-lcard-f">
+                            <label>{{ $tp('Unit Price') }} (¥)</label>
+                            <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" style="width:100%"
+                                :placeholder="$tp('to fill')" />
+                            <div class="spb-dim">{{ $tp('required to ship') }}</div>
+                        </div>
+                        <div class="spb-lcard-f">
+                            <label>{{ $tp('Shipped Qty') }} *</label>
+                            <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" style="width:100%" :placeholder="String(l.orderQty)"
+                                :class="{ 'spb-short': l.qty != null && l.qty < l.orderQty }" />
+                            <div class="spb-dim">{{ $tp('Ordered Qty') }}: {{ l.orderQty }}</div>
+                        </div>
+                    </div>
+                    <div v-if="l.qty != null && l.qty < l.orderQty" class="spb-short-note">{{ $tp('short {n} — the rest becomes a new line', { n: l.orderQty - l.qty }) }}</div>
+                </div>
+            </div>
+            <el-table v-else :data="createForm.lines" size="mini" border max-height="380" :empty-text="$tp('Scan a SKU or pick orders to start the batch')">
                 <!-- the name wraps to at most 2 lines; hover for all of it -->
                 <el-table-column :label="$tp('Product')" min-width="240">
                     <template slot-scope="s">
-                        <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }}</div>
-                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
+                        <div class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
+                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span>
+                            <el-button v-if="s.row.unmatched" type="text" size="mini" icon="el-icon-search" class="spb-find" :loading="s.row.matching" @click="rematch(s.row)">{{ $tp('Find order') }}</el-button></div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Supplier')" width="150" align="center">
@@ -155,24 +266,28 @@
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered')" width="110" align="center">
                     <template slot-scope="s">
-                        <el-tag v-if="s.row.status === 'pending'" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
+                        <el-tag v-if="s.row.unmatched" size="mini" type="danger" effect="plain">{{ unmatchedLabel(s.row) }}</el-tag>
+                        <el-tag v-else-if="s.row.status === 'pending'" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
                         <template v-else>{{ fmtDay(s.row.orderedAt) }}</template>
                     </template>
                 </el-table-column>
-                <!-- Required to ship: prefilled from the line, editable on every line. -->
-                <el-table-column :label="$tp('Unit Price') + ' *'" width="110" align="center">
+                <!-- Wanted to ship, not to save a draft (the purchase team can
+                     fill the prices in on the downloaded sheet): prefilled from
+                     the line, editable on every line. -->
+                <el-table-column :label="$tp('Unit Price') + ' (¥)'" width="110" align="center">
                     <template slot-scope="s">
-                        <el-input-number v-model="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false" placeholder="¥"
-                            style="width:88px" :class="{ 'spb-short': s.row.unitPrice == null }" />
+                        <el-input-number v-if="!s.row.unmatched" v-model="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false" :placeholder="$tp('to fill')"
+                            style="width:88px" />
+                        <span v-else class="spb-dim">—</span>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered Qty')" width="90" align="center">
-                    <template slot-scope="s">{{ s.row.orderQty }}</template>
+                    <template slot-scope="s">{{ s.row.unmatched ? '—' : s.row.orderQty }}</template>
                 </el-table-column>
                 <el-table-column :label="$tp('Shipped Qty')" width="120" align="center">
                     <template slot-scope="s">
                         <el-input-number v-model="s.row.qty" size="mini" :min="1" :controls="false" style="width:76px"
-                            :placeholder="String(s.row.orderQty)" :class="{ 'spb-short': s.row.qty != null && s.row.qty < s.row.orderQty }" />
+                            :placeholder="s.row.orderQty == null ? '' : String(s.row.orderQty)" :class="{ 'spb-short': s.row.qty != null && s.row.qty < s.row.orderQty }" />
                         <div v-if="s.row.qty != null && s.row.qty < s.row.orderQty" class="spb-short-note">{{ $tp('short {n} — the rest becomes a new line', { n: s.row.orderQty - s.row.qty }) }}</div>
                         <div v-else-if="s.row.qty == null" class="spb-dim">{{ $tp('type or scan') }}</div>
                     </template>
@@ -183,6 +298,16 @@
                     </template>
                 </el-table-column>
             </el-table>
+            <!-- The price sheet (user ask 2026-10-13): a draft is saved with
+                 the prices left blank, the list goes to the purchase team as a
+                 spreadsheet, they fill the Unit Price column and send it back,
+                 and the file is uploaded here to fill the prices in. -->
+            <div v-if="createForm.lines.length" class="spb-price-tools">
+                <el-button type="text" size="mini" icon="el-icon-download" @click="downloadPriceSheet()">{{ $tp('Download price sheet') }}</el-button>
+                <el-button type="text" size="mini" icon="el-icon-upload2" :loading="pricesUploading" @click="$refs.priceFile.click()">{{ $tp('Upload prices') }}</el-button>
+                <input ref="priceFile" type="file" accept=".xlsx,.xls,.csv" class="spb-file" @change="uploadPrices">
+                <span class="spb-dim spb-price-hint">{{ $tp('Prices can be filled in later: send the sheet to the purchase team and upload it when it comes back') }}</span>
+            </div>
             <!-- Tracking with the parcel's freight beside it (the two arrive
                  together, on the courier's docket); the note beneath. The
                  shipping cost is optional and goes on the Zoho PO as its own
@@ -215,6 +340,7 @@
                             <span v-if="createAmount.shipping" class="spb-dim"> ({{ $tp('goods') }} {{ yuan(createAmount.goods) }} + {{ $tp('shipping') }} {{ yuan(createAmount.shipping) }})</span>
                         </template>
                         <span v-if="createAmount.unpriced" class="spb-warn"> · {{ $tp('{n} line(s) without a price', { n: createAmount.unpriced }) }}</span>
+                        <span v-if="unmatchedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unmatchedCount }) }}</span>
                     </template>
                 </span>
                 <span>
@@ -231,7 +357,7 @@
              left (open lines in red, picks in green), its lines on the
              right (ordered first, oldest first); a click picks a line and
              the picks add up across categories. ─────────────────────── -->
-        <el-dialog :visible.sync="pickerVisible" width="960px" append-to-body top="4vh">
+        <el-dialog :visible.sync="pickerVisible" width="960px" append-to-body top="4vh" :fullscreen="phone" :custom-class="dlgClass">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-tickets" /> {{ $tp('Open orders') }}</div>
             <!-- One supplier's lines only (counts and list follow); picks
                  made under another supplier stay picked. -->
@@ -277,12 +403,12 @@
         </el-dialog>
 
         <!-- ── View batch ───────────────────────────────────────────── -->
-        <el-dialog :visible.sync="viewVisible" width="900px" append-to-body top="5vh">
+        <el-dialog :visible.sync="viewVisible" width="900px" append-to-body top="5vh" :fullscreen="phone" :custom-class="dlgClass">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-tickets" /> {{ view ? view.batchNo : '' }}
                 <el-tag v-if="view" size="mini" :type="batchTag(view.status)" effect="plain" class="spb-dlg-tag">{{ batchLabel(view.status) }}</el-tag>
             </div>
             <div v-if="view">
-                <el-descriptions :column="3" border size="small" class="spb-desc">
+                <el-descriptions :column="phone ? 1 : 3" border size="small" class="spb-desc">
                     <el-descriptions-item :label="$tp('Shipped')">{{ fmtDay(view.shippedAt) }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Zoho vendor')">{{ view.zohoVendorName || '—' }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Created by')">{{ view.createdBy || '—' }} · {{ fmtWhen(view.createdAt) }}</el-descriptions-item>
@@ -299,7 +425,7 @@
                         </template>
                         <span v-else>—</span>
                     </el-descriptions-item>
-                    <el-descriptions-item :label="$tp('Zoho PO')" :span="3">
+                    <el-descriptions-item :label="$tp('Zoho PO')" :span="phone ? 1 : 3">
                         <template v-if="view.zoho && view.zoho.pos && view.zoho.pos.length">
                             <span v-for="p in view.zoho.pos" :key="p.purchaseorderId" class="spb-zpo-inline">
                                 <a class="spb-link" :href="zohoPoLink(p.purchaseorderId)" target="_blank" rel="noopener">{{ p.number }}</a>
@@ -310,7 +436,24 @@
                         <span v-else>—</span>
                     </el-descriptions-item>
                 </el-descriptions>
-                <el-table :data="view.lines" size="mini" border max-height="400" class="spb-view-lines">
+                <div v-if="phone" class="spb-line-cards">
+                    <div v-for="(l, i) in view.lines" :key="i" class="spb-lcard">
+                        <div class="spb-lcard-head">
+                            <div class="spb-lcard-main">
+                                <div class="spb-pname">{{ i + 1 }}. {{ l.productName }}</div>
+                                <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span><span v-if="l.supplier"> · {{ l.supplier }}</span></div>
+                            </div>
+                            <el-button type="text" icon="el-icon-printer" class="spb-lcard-del" :title="$tp('Print {n} label(s)', { n: Math.max(1, Math.floor(Number(l.shippedQty)) || 0) })" @click="printLineLabels(l)" />
+                        </div>
+                        <div class="spb-lcard-nums">
+                            <span><em>{{ $tp('Unit Price') }}</em>{{ yuan(l.unitPrice) }}</span>
+                            <span><em>{{ $tp('Ordered Qty') }}</em>{{ l.orderQty }}</span>
+                            <span><em>{{ $tp('Shipped Qty') }}</em><b :class="qtyTone(l)">{{ l.shippedQty }}</b></span>
+                            <span v-if="view.status === 'received'"><em>{{ $tp('Received Qty') }}</em><span :class="{ 'spb-warn': l.receivedQty !== l.shippedQty }">{{ l.receivedQty }}</span></span>
+                        </div>
+                    </div>
+                </div>
+                <el-table v-else :data="view.lines" size="mini" border max-height="400" class="spb-view-lines">
                     <el-table-column label="#" type="index" width="40" align="center" />
                     <!-- the name wraps to at most 2 lines (user ask 2026-10-05); hover for all of it -->
                     <el-table-column :label="$tp('Product')" min-width="260">
@@ -373,7 +516,7 @@
         </el-dialog>
 
         <!-- ── Print preview ────────────────────────────────────────── -->
-        <el-dialog :title="$tp('Print preview')" :visible.sync="printVisible" width="860px" append-to-body top="4vh"
+        <el-dialog :title="$tp('Print preview')" :visible.sync="printVisible" :width="phone ? '96%' : '860px'" append-to-body top="4vh"
             custom-class="spb-print-dlg">
             <iframe ref="printFrame" class="spb-print-frame" :srcdoc="printHtml" title="packing list" />
             <span slot="footer">
@@ -383,7 +526,7 @@
         </el-dialog>
 
         <!-- ── Label preview: the PDF, printed or saved from here ───── -->
-        <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" append-to-body top="5vh" @closed="cleanupLabels">
+        <el-dialog :title="labelTitle" :visible.sync="labelVisible" :width="phone ? '96%' : '560px'" append-to-body top="5vh" @closed="cleanupLabels">
             <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
                  printer whose label stock runs the other way; remembered. -->
             <div class="label-orient">
@@ -407,7 +550,7 @@
         </el-dialog>
 
         <!-- ── Edit tracking / date / note ──────────────────────────── -->
-        <el-dialog :title="$tp('Edit batch')" :visible.sync="editVisible" width="480px" append-to-body>
+        <el-dialog :title="$tp('Edit batch')" :visible.sync="editVisible" :width="phone ? '96%' : '480px'" append-to-body>
             <el-form label-position="top" size="small" @submit.native.prevent>
                 <el-form-item :label="$tp('Tracking')">
                     <el-input v-model="editForm.tracking" clearable />
@@ -427,7 +570,7 @@
         </el-dialog>
 
         <!-- ── Receive ──────────────────────────────────────────────── -->
-        <el-dialog :visible.sync="receiveVisible" width="760px" append-to-body top="6vh">
+        <el-dialog :visible.sync="receiveVisible" width="760px" append-to-body top="6vh" :fullscreen="phone" :custom-class="dlgClass">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-circle-check" /> {{ $tp('Receive') }} {{ receiveBatchDoc ? receiveBatchDoc.batchNo : '' }}</div>
             <div class="spb-head-fields">
                 <div class="spb-field spb-field-date">
@@ -440,7 +583,18 @@
                     <el-input v-model="receiveForm.note" size="small" maxlength="200" :placeholder="$tp('Anything missing or damaged?')" clearable />
                 </div>
             </div>
-            <el-table :data="receiveForm.lines" size="mini" border max-height="380">
+            <div v-if="phone" class="spb-line-cards">
+                <div v-for="(l, i) in receiveForm.lines" :key="i" class="spb-lcard">
+                    <div class="spb-pname">{{ l.productName }}</div>
+                    <div class="spb-dim">SKU: {{ l.sku || '—' }}</div>
+                    <div class="spb-lcard-grid">
+                        <div class="spb-lcard-f"><label>{{ $tp('Shipped Qty') }}</label><b :class="qtyTone(l)" class="spb-lcard-val">{{ l.shippedQty }}</b></div>
+                        <div class="spb-lcard-f"><label>{{ $tp('Received Qty') }}</label>
+                            <el-input-number v-model="l.receivedQty" size="small" :min="0" :controls="false" style="width:100%" :class="{ 'spb-short': l.receivedQty !== l.shippedQty }" /></div>
+                    </div>
+                </div>
+            </div>
+            <el-table v-else :data="receiveForm.lines" size="mini" border max-height="380">
                 <!-- the name wraps to at most 2 lines; hover for all of it -->
                 <el-table-column :label="$tp('Product')" min-width="260">
                     <template slot-scope="s">
@@ -470,6 +624,8 @@
 <script>
 import { hasPermission } from '@/utils/permission'
 import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
+import BarcodeScanner from './components/BarcodeScanner'
+import * as XLSX from 'xlsx-js-style'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 // Category names are stored in English (the register's words) and shown
@@ -480,6 +636,7 @@ const NO_SUPPLIER = '__none__'
 
 export default {
     name: 'SppBatches',
+    components: { BarcodeScanner },
     data() {
         return {
             rows: [],
@@ -504,6 +661,13 @@ export default {
             labelOrientation: getLabelOrientation(),
             labelSize: getLabelSize(),
             LABEL_SIZES,
+            // a phone-width window (user ask 2026-10-13: batches are created on
+            // the team's phones): cards instead of tables, fullscreen dialogs
+            phone: window.innerWidth < 768,
+            // the camera scanner (Create Batch): shown wherever a camera API exists
+            hasCamera: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+            cameraVisible: false,
+            lastScan: '', // the SKU just read — its line is highlighted in the camera view
             // create / draft
             createVisible: false,
             createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [] },
@@ -511,6 +675,7 @@ export default {
             draftId: null,
             savingDraft: false,
             discarding: false,
+            pricesUploading: false,
             scan: '',
             scanning: false,
             // picker
@@ -541,6 +706,8 @@ export default {
         }
     },
     computed: {
+        // the create / picker / view / receive dialogs on a phone
+        dlgClass() { return this.phone ? 'spb-dlg spb-dlg-phone' : 'spb-dlg' },
         // The supplier filter's options: every supplier on a waiting line,
         // busiest first, plus the lines with none (usually still pending).
         pickerSuppliers() {
@@ -583,7 +750,11 @@ export default {
         },
         // the money on the form / on the batch being viewed
         createAmount() {
-            return batchAmount(this.createForm.lines, this.createForm.shippingCost, l => l.qty)
+            return batchAmount(this.createForm.lines.filter(l => !l.unmatched), this.createForm.shippingCost, l => l.qty)
+        },
+        // lines scanned with no order behind them (kept for adjustment)
+        unmatchedCount() {
+            return this.createForm.lines.filter(l => l.unmatched).length
         },
         viewAmount() {
             return this.view ? batchAmount(this.view.lines, this.view.shippingCost) : batchAmount([], 0)
@@ -595,6 +766,13 @@ export default {
     // Coming back to the tab (kept alive by the tags bar): fresh data, and
     // a ?batch= / ?create= link opens even when the tab was already open.
     // The first activation follows created(), which has done both.
+    mounted() {
+        this.onResize = () => { this.phone = window.innerWidth < 768 }
+        window.addEventListener('resize', this.onResize)
+    },
+    beforeDestroy() {
+        window.removeEventListener('resize', this.onResize)
+    },
     activated() {
         if (!this.activatedOnce) { this.activatedOnce = true; return }
         this.load().then(() => this.fromQuery())
@@ -702,7 +880,7 @@ export default {
                 shippedAt: fmtDay(row.shippedAt) !== '—' ? fmtDay(row.shippedAt) : todayYmd(),
                 note: row.note || '',
                 shippingCost: row.shippingCost != null ? row.shippingCost : undefined,
-                lines: (row.lines || []).map(l => ({
+                lines: (row.lines || []).map(l => (l.unmatched ? this.unmatchedLine(l.sku, l, l.qty == null ? undefined : l.qty) : {
                     orderId: l.orderId, orderNo: l.orderNo, sku: l.sku, productName: l.productName, category: l.category,
                     status: l.status, supplier: l.supplier || '', orderedAt: l.orderedAt,
                     unitPrice: l.unitPrice != null ? l.unitPrice : undefined, orderQty: l.orderQty, qty: l.qty == null ? undefined : l.qty
@@ -720,7 +898,9 @@ export default {
                 note: this.createForm.note,
                 // null (not undefined) when blank, so clearing the field on a draft clears it there too
                 shippingCost: this.createForm.shippingCost == null ? null : this.createForm.shippingCost,
-                lines: this.createForm.lines.map(l => ({ orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
+                lines: this.createForm.lines.map(l => (l.unmatched
+                    ? { unmatched: true, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, qty: l.qty }
+                    : { orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
         async saveDraft() {
@@ -737,6 +917,129 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to save the draft')))
             } finally {
                 this.savingDraft = false
+            }
+        },
+        // ── Price sheet ────────────────────────────────────────────
+        // The lines as a spreadsheet for the purchase team: they fill the Unit
+        // Price column (yellow) and send the file back. From the form, or a
+        // draft's row in the list. The Order ID column is what the upload
+        // matches on (SKU / Order No as fallbacks), so a renamed header or a
+        // re-sorted sheet still comes back right.
+        downloadPriceSheet(row) {
+            const lines = (row ? (row.lines || []) : this.createForm.lines).filter(l => !l.unmatched)
+            if (!lines.length) { this.$message.info(this.$tp('Nothing to export')); return }
+            const t = k => this.$tp(k)
+            const tracking = row ? row.tracking : this.createForm.tracking
+            const date = fmtDay(new Date().toISOString())
+            const price = `${t('Unit Price')} (¥)`
+            const data = lines.map((l, i) => ({
+                '#': i + 1,
+                [t('Order No')]: l.orderNo || '',
+                'SKU': l.sku || '',
+                [t('Product')]: l.productName || '',
+                [t('Category')]: l.category ? t(l.category) : '',
+                [t('Supplier')]: l.supplier || '',
+                [t('Ordered Qty')]: l.orderQty != null ? l.orderQty : '',
+                [t('Shipped Qty')]: l.qty != null ? l.qty : '',
+                [price]: l.unitPrice != null ? l.unitPrice : '',
+                [t('Order ID')]: String(l.orderId || '')
+            }))
+            const ws = XLSX.utils.json_to_sheet(data, { origin: 'A3' })
+            XLSX.utils.sheet_add_aoa(ws, [
+                [`${t('Price sheet')} — ${tracking || t('Draft batch')} — ${date}`],
+                [t('Fill in the Unit Price column and send the file back; leave the other columns as they are')]
+            ], { origin: 'A1' })
+            ws['!cols'] = [4, 12, 14, 50, 14, 14, 11, 11, 14, 26].map(w => ({ wch: w }))
+            ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }]
+            const head = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '409EFF' } }, alignment: { horizontal: 'center', vertical: 'center' } }
+            const fillIn = { fill: { fgColor: { rgb: 'FFF2CC' } }, numFmt: '0.00' }
+            ws.A1.s = { font: { bold: true, sz: 13 } }
+            ws.A2.s = { font: { italic: true, color: { rgb: '606266' } } }
+            const PRICE_COL = 8
+            for (let c = 0; c < 10; c++) {
+                const h = ws[XLSX.utils.encode_cell({ r: 2, c })]
+                if (h) h.s = c === PRICE_COL ? { ...head, fill: { fgColor: { rgb: 'E6A23C' } } } : head
+            }
+            for (let r = 0; r < data.length; r++) {
+                const addr = XLSX.utils.encode_cell({ r: 3 + r, c: PRICE_COL })
+                if (!ws[addr]) ws[addr] = { t: 's', v: '' }
+                ws[addr].s = fillIn
+            }
+            const wb = XLSX.utils.book_new()
+            XLSX.utils.book_append_sheet(wb, ws, t('Price sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 30))
+            XLSX.writeFile(wb, `${t('Price sheet')} - ${(tracking || t('Draft batch')).replace(/[\\/?*[\]:]/g, ' ')} - ${date}.xlsx`)
+        },
+        // The sheet back from the purchase team: the prices go onto the lines
+        // in the form (a supplier typed on a pending line without one is
+        // taken too). Rows are matched by Order ID, else Order No, else SKU.
+        // Nothing is saved until the draft is saved or shipped.
+        async uploadPrices(e) {
+            const file = e.target.files && e.target.files[0]
+            e.target.value = ''
+            if (!file) return
+            this.pricesUploading = true
+            try {
+                const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+                const ws = wb.Sheets[wb.SheetNames[0]]
+                const aoa = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) : []
+                const norm = v => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '')
+                const t = k => norm(this.$tp(k))
+                const COLS = {
+                    orderId: ['orderid', t('Order ID')],
+                    orderNo: ['orderno', t('Order No')],
+                    sku: ['sku'],
+                    price: ['unitprice', 'price', t('Unit Price'), t('Price')],
+                    supplier: ['supplier', t('Supplier')]
+                }
+                // the header row: the first row (title rows above it skipped) naming the SKU or Order ID column
+                let hi = -1
+                let idx = {}
+                for (let r = 0; r < Math.min(aoa.length, 30); r++) {
+                    const m = {}
+                    aoa[r].forEach((c, ci) => { const n = norm(c); for (const k in COLS) if (m[k] == null && COLS[k].includes(n)) m[k] = ci })
+                    if (m.sku != null || m.orderId != null) { hi = r; idx = m; break }
+                }
+                if (hi < 0 || idx.price == null) throw new Error(this.$tp('The file needs a SKU (or Order ID) column and a Unit Price column'))
+                const lines = this.createForm.lines
+                const used = new Set()
+                const find = (row) => {
+                    const by = (fn) => lines.find(l => !used.has(l) && fn(l))
+                    const id = idx.orderId != null ? String(row[idx.orderId] || '').trim() : ''
+                    const no = idx.orderNo != null ? String(row[idx.orderNo] || '').trim() : ''
+                    const sku = idx.sku != null ? String(row[idx.sku] || '').trim().toLowerCase() : ''
+                    return (id && by(l => String(l.orderId) === id)) ||
+                        (no && by(l => String(l.orderNo || '') === no)) ||
+                        (sku && by(l => String(l.sku || '').toLowerCase() === sku)) || null
+                }
+                let filled = 0; let blank = 0; let unmatched = 0
+                for (let r = hi + 1; r < aoa.length; r++) {
+                    const row = aoa[r]
+                    if (!row || row.every(c => c === '' || c == null)) continue
+                    const raw = String(row[idx.price] == null ? '' : row[idx.price]).replace(/[¥￥,\s]/g, '')
+                    const line = find(row)
+                    if (!line) { unmatched++; continue }
+                    used.add(line)
+                    if (idx.supplier != null && line.status === 'pending' && !line.supplier && String(row[idx.supplier] || '').trim()) {
+                        line.supplier = String(row[idx.supplier]).trim()
+                    }
+                    if (raw === '') { blank++; continue }
+                    const p = Number(raw)
+                    if (!isFinite(p) || p < 0) { blank++; continue }
+                    line.unitPrice = Math.round(p * 100) / 100
+                    filled++
+                }
+                if (!filled) {
+                    this.$message.warning(this.$tp('No prices found in the file') + (unmatched ? ` · ${this.$tp('{n} row(s) not matched', { n: unmatched })}` : ''))
+                    return
+                }
+                const parts = [this.$tp('{n} price(s) filled', { n: filled })]
+                if (blank) parts.push(this.$tp('{n} row(s) without a price', { n: blank }))
+                if (unmatched) parts.push(this.$tp('{n} row(s) not matched', { n: unmatched }))
+                this.$message({ type: unmatched ? 'warning' : 'success', duration: 6000, message: `${parts.join(' · ')} — ${this.$tp('save the draft or ship to keep them')}` })
+            } catch (err) {
+                this.$message.error(this.msg(err, this.$tp('Failed to read the file')))
+            } finally {
+                this.pricesUploading = false
             }
         },
         // Delete a draft from the list: nothing has shipped, its lines are untouched.
@@ -790,7 +1093,8 @@ export default {
         // and is typed in; a scanned line counts up one per scan.
         addLine(o, qty) {
             if (this.createForm.lines.find(l => l.orderId === o._id)) return false
-            this.createForm.lines.push({
+            // the newest line on top, where it is seen on a phone
+            this.createForm.lines.unshift({
                 orderId: o._id,
                 orderNo: o.orderNo,
                 sku: o.sku,
@@ -815,6 +1119,8 @@ export default {
             const open = this.createForm.lines.find(l => same(l) && (l.qty == null || l.qty < l.orderQty))
             if (open) {
                 open.qty = (open.qty || 0) + 1
+                this.toTop(open)
+                this.lastScan = sku
                 this.$message({ message: `${sku} · ${open.qty} / ${open.orderQty}`, type: 'success', duration: 1200 })
                 this.scan = ''
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
@@ -824,10 +1130,9 @@ export default {
             try {
                 const r = await lookupOrder(sku, this.createForm.lines.map(l => l.orderId))
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.lastScan = sku
                 if (!r.match) {
-                    this.$message.warning(r.hadWaiting
-                        ? this.$tp('Every waiting order for {sku} is already filled on this batch', { sku })
-                        : this.$tp('No waiting order for {sku}', { sku }))
+                    this.keepUnmatched(sku, r)
                 } else {
                     this.addLine(r.match, 1)
                     this.$message({ message: `${sku} · 1 / ${r.match.orderQty}` + (r.remaining ? ` · ${this.$tp('{n} more waiting order(s)', { n: r.remaining })}` : ''), type: 'success', duration: 1500 })
@@ -839,6 +1144,75 @@ export default {
                 this.scanning = false
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
             }
+        },
+        // the line just scanned goes to the top, where the camera view shows it
+        toTop(line) {
+            const i = this.createForm.lines.indexOf(line)
+            if (i > 0) { this.createForm.lines.splice(i, 1); this.createForm.lines.unshift(line) }
+        },
+        isLastScan(l) {
+            return !!this.lastScan && String(l.sku || '').toLowerCase() === this.lastScan.toLowerCase()
+        },
+        bumpQty(l, d) {
+            l.qty = Math.max(1, (Number(l.qty) || 0) + d)
+        },
+        unmatchedLabel(l) {
+            return l.reason === 'over' ? this.$tp('Over the ordered quantity') : this.$tp('Not on any order')
+        },
+        // the shape of a line with no order behind it (`src` = the lookup's
+        // register item, or the saved draft line)
+        unmatchedLine(sku, src, qty) {
+            return {
+                orderId: null, unmatched: true, reason: (src && src.reason === 'over') ? 'over' : 'none', matching: false,
+                orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.classification)) || '',
+                status: 'unmatched', supplier: '', orderedAt: null, unitPrice: undefined, orderQty: null, qty
+            }
+        },
+        // A scan with no order behind it (user ask 2026-10-13: "leave it as
+        // it is for future adjustment"): not thrown away — kept on the batch
+        // as an unmatched line, by SKU, for someone to remove or to match
+        // once its order exists. Nothing ships while one is on the form.
+        keepUnmatched(sku, r) {
+            const same = l => l.unmatched && String(l.sku || '').toLowerCase() === sku.toLowerCase()
+            let line = this.createForm.lines.find(same)
+            if (line) {
+                line.qty = (line.qty || 0) + 1
+                this.toTop(line)
+            } else {
+                line = this.unmatchedLine(sku, { ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none' }, 1)
+                this.createForm.lines.unshift(line)
+            }
+            this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}`, type: 'warning', duration: 2000 })
+        },
+        // Look again for the order behind an unmatched line (one may have
+        // been raised since): on a hit the line becomes that order's line.
+        async rematch(l) {
+            this.$set(l, 'matching', true)
+            try {
+                const r = await lookupOrder(l.sku, this.createForm.lines.filter(x => x.orderId).map(x => x.orderId))
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (!r.match) { this.$message.info(this.$tp('Still no waiting order for {sku}', { sku: l.sku })); return }
+                const i = this.createForm.lines.indexOf(l)
+                if (i < 0) return
+                this.createForm.lines.splice(i, 1)
+                this.addLine(r.match, l.qty || 1)
+                this.$message.success(`${l.sku} → ${r.match.orderNo}`)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Lookup failed')))
+            } finally { this.$set(l, 'matching', false) }
+        },
+        // a camera read is one scan, through the same path as the scan box;
+        // reads queue behind an in-flight lookup so none is lost
+        async onCameraScan(code) {
+            this.cameraQueue = (this.cameraQueue || []).concat(code)
+            if (this.cameraBusy) return
+            this.cameraBusy = true
+            try {
+                while (this.cameraQueue.length) {
+                    this.scan = this.cameraQueue.shift()
+                    await this.doScan()
+                }
+            } finally { this.cameraBusy = false }
         },
         openPicker() {
             this.pickerPicked = {}
@@ -888,11 +1262,12 @@ export default {
         },
         addPicked() {
             let n = 0
-            for (const o of Object.values(this.pickerPicked)) if (this.addLine(o)) n++
+            for (const o of Object.values(this.pickerPicked).reverse()) if (this.addLine(o)) n++
             this.pickerVisible = false
             if (n) this.$message.success(this.$tp('{n} line(s) added', { n }))
         },
         async submitCreate() {
+            if (this.unmatchedCount) { this.$message.warning(this.$tp('{n} line(s) are not on any order — remove them or find their order before shipping', { n: this.unmatchedCount })); return }
             if (!this.createForm.zohoVendorId) { this.$message.warning(this.$tp('Select the Zoho vendor')); return }
             for (const l of this.createForm.lines) {
                 if (!l.qty || l.qty < 1) { this.$message.warning(this.$tp('{sku}: enter the shipped quantity', { sku: l.sku || l.productName })); return }
@@ -1137,6 +1512,20 @@ export default {
 /* Short while counting: yellow, like a short shipped figure — not an error. */
 .spb-short ::v-deep .el-input__inner { color: #e6a23c; border-color: #e6a23c; }
 .spb-short-note { font-size: 11px; color: #e6a23c; }
+.spb-price-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; margin-top: 6px; .el-button { padding: 4px 0; } }
+.spb-price-hint { flex: 1 1 240px; word-break: normal; }
+.spb-file { display: none; }
+.spb-find { padding: 0; margin-left: 6px; }
+.spb-lcard-btn { justify-content: flex-end; }
+// the camera view's line list
+.spb-scanlist { margin-top: 10px; max-height: 42vh; overflow: auto; border-top: 1px solid #ebeef5; }
+.spb-scanlist-head { font-size: 12px; color: #909399; padding: 8px 0 4px; }
+.spb-scanlist-empty { padding: 16px; text-align: center; color: #c0c4cc; font-size: 13px; }
+.spb-scanrow { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #f2f6fc; border-radius: 6px; transition: background .4s;
+    &.hit { background: #ecf5ff; } &.bad { background: #fef0f0; } }
+.spb-scanrow-main { flex: 1; min-width: 0; font-size: 13px; .spb-pname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; } }
+.spb-scanrow-qty { display: flex; align-items: center; gap: 6px; b { min-width: 24px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; } }
+.spb-scanrow-del { padding: 0; font-size: 16px; }
 .spb-zpo { line-height: 1.4; white-space: nowrap; }
 .spb-draft-tag { cursor: pointer; }
 .spb-dlg-sub { margin-left: 8px; font-weight: 400; }
@@ -1186,4 +1575,57 @@ export default {
 .spb-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
 .spb-desc { margin-bottom: 10px; }
 .spb-hint { font-size: 12px; color: #909399; margin-top: 8px; i { margin-right: 3px; } }
+/* phones (user ask 2026-10-13): the list and the dialogs' lines as cards */
+.spb-cards { display: flex; flex-direction: column; gap: 10px; min-height: 80px; }
+.spb-cards-empty { padding: 26px 10px; text-align: center; color: #909399; font-size: 13px; }
+.spb-card { border: 1px solid #ebeef5; border-radius: 8px; padding: 10px 12px; background: #fff; }
+.spb-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.spb-card-row { display: flex; gap: 8px; font-size: 13px; line-height: 1.6; > span:first-child { flex: 0 0 74px; color: #909399; font-size: 12px; } em { font-style: normal; color: #c0c4cc; } }
+.spb-card-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; .el-button { margin-left: 0; } }
+.spb-line-cards { display: flex; flex-direction: column; gap: 8px; }
+.spb-lcard { border: 1px solid #ebeef5; border-radius: 8px; padding: 10px; background: #fafbfc; }
+.spb-lcard-head { display: flex; align-items: flex-start; gap: 8px; }
+.spb-lcard-main { flex: 1; min-width: 0; font-size: 13px; }
+.spb-lcard-del { padding: 0; font-size: 18px; }
+.spb-lcard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.spb-lcard-wide { grid-column: 1 / -1; }
+.spb-lcard-f { display: flex; flex-direction: column; gap: 3px; label { font-size: 12px; color: #909399; } }
+.spb-lcard-val { font-size: 16px; line-height: 32px; }
+.spb-lcard-nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; font-size: 13px; span { display: flex; flex-direction: column; } em { font-style: normal; font-size: 11px; color: #909399; } }
+@media (max-width: 767px) {
+    .spb-page { padding: 10px 10px 16px; }
+    .spb-bar { gap: 8px; }
+    .spb-bar .el-radio-group { width: 100%; display: flex; overflow-x: auto; }
+    .spb-search { width: 100%; }
+    .spb-bar > .el-button { flex: 1; margin-left: 0; }
+    .spb-pager { text-align: center; }
+    .spb-picker-supplier { width: 100%; }
+}
+</style>
+
+<style lang="scss">
+/* phone dialogs (they append to body, so outside the scoped block):
+   fullscreen with tight paddings, fields and footer buttons stacked, the
+   open-orders picker's categories as a scrolling row */
+.spb-dlg-phone .el-dialog__header { padding: 12px 14px 8px; }
+.spb-dlg-phone .el-dialog__body { padding: 8px 12px 12px; }
+.spb-dlg-phone .el-dialog__footer { padding: 8px 12px 14px; }
+.spb-dlg-phone .spb-head-fields { flex-direction: column; gap: 8px; }
+.spb-dlg-phone .spb-field { min-width: 0; }
+.spb-dlg-phone .spb-field-date .el-date-editor, .spb-dlg-phone .spb-field-ship .el-input-number { width: 100% !important; }
+.spb-dlg-phone .spb-scan { flex-wrap: wrap; .el-input { flex: 1 1 100%; } .el-button { flex: 1; margin-left: 0; } }
+.spb-dlg-phone .spb-footer { flex-direction: column; align-items: stretch; gap: 8px; }
+.spb-dlg-phone .spb-footer > span:last-child { display: flex; flex-direction: column-reverse; gap: 6px; }
+.spb-dlg-phone .spb-footer .el-button { margin-left: 0; width: 100%; }
+.spb-dlg-phone .el-dialog__footer > span:not(.spb-footer) { display: flex; flex-direction: column; gap: 6px; }
+.spb-dlg-phone .el-dialog__footer > span:not(.spb-footer) .el-button { margin-left: 0; width: 100%; }
+.spb-dlg-phone .spb-foot-sum { float: none; line-height: 1.4; text-align: center; }
+.spb-dlg-phone .spb-picker { flex-direction: column; height: calc(100vh - 230px); }
+.spb-dlg-phone .spb-cats { flex: 0 0 auto; display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid #ebeef5; }
+.spb-dlg-phone .spb-cat { flex: 0 0 auto; border-left: 0; border-bottom: 3px solid transparent; padding: 8px 10px; white-space: nowrap; }
+.spb-dlg-phone .spb-cat.on { border-bottom-color: #409eff; }
+.spb-dlg-phone .spb-inline-tracking { max-width: none; }
+.spb-dlg-phone .spb-inline-actions { flex-wrap: wrap; }
+.spb-dlg-phone .spb-picker-bar { flex-direction: column; align-items: stretch; gap: 4px; }
+.spb-dlg-phone .el-descriptions-item__label { min-width: 96px; word-break: keep-all; }
 </style>

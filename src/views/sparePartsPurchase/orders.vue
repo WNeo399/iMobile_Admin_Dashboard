@@ -187,6 +187,7 @@
                             <div class="spp-sub">
                                 <router-link v-if="s.row.batchNo" class="spp-link"
                                     :to="{ path: '/sparePartsPurchase/batches', query: { batch: s.row.batchNo } }">{{ s.row.batchNo }}</router-link>
+                                <el-tag v-else-if="s.row.completed" size="mini" type="info" effect="plain">{{ $tp('completed by hand') }}</el-tag>
                                 <a v-if="s.row.tracking" class="spp-link" :href="dhlLink(s.row.tracking)" target="_blank"
                                     rel="noopener" :title="s.row.tracking">{{ s.row.tracking }}</a>
                             </div>
@@ -224,9 +225,10 @@
                         <el-tooltip v-if="can('spp:order:supply') && awaitsQuote(s.row)" :content="$tp('Quote')" placement="top" :disabled="!compact">
                             <el-button size="mini" type="text" icon="el-icon-price-tag" class="spp-act-quote" @click="openQuote(s.row)">{{ compact ? '' : $tp('Quote') }}</el-button>
                         </el-tooltip>
+                        <!-- icon only (user ask 2026-10-13), the words in the tooltip -->
                         <el-tooltip v-else-if="can('spp:order:supply') && (s.row.status === 'pending' || s.row.status === 'shortage')"
-                            :content="$tp('Place order')" placement="top" :disabled="!compact">
-                            <el-button size="mini" type="text" icon="el-icon-document-checked" @click="openPlace(s.row)">{{ compact ? '' : $tp('Place order') }}</el-button>
+                            :content="$tp('Place order')" placement="top">
+                            <el-button size="mini" type="text" icon="el-icon-document-checked" @click="openPlace(s.row)" />
                         </el-tooltip>
                         <!-- A parked line: the decision is the main action. -->
                         <el-tooltip v-if="canEither && s.row.status === 'toConfirm'" :content="$tp('Confirm')" placement="top" :disabled="!compact">
@@ -246,6 +248,9 @@
                                     :command="() => cancel(s.row)" icon="el-icon-circle-close" divided>{{ $tp('Cancel order') }}</el-dropdown-item>
                                 <el-dropdown-item v-if="canEither && (s.row.status === 'shortage' || s.row.status === 'cancelled')"
                                     :command="() => reopen(s.row)" icon="el-icon-refresh-left">{{ $tp('Reopen') }}</el-dropdown-item>
+                                <!-- sent and received outside the system (user ask 2026-10-13): closes as received, no batch -->
+                                <el-dropdown-item v-if="can('spp:order:receive') && ['pending', 'toConfirm', 'ordered', 'shortage'].includes(s.row.status)"
+                                    :command="() => openComplete(s.row)" icon="el-icon-circle-check" divided>{{ $tp('Mark as completed') }}</el-dropdown-item>
                             </el-dropdown-menu>
                         </el-dropdown>
                     </template>
@@ -384,6 +389,31 @@
             </span>
         </el-dialog>
 
+        <!-- ── Mark as completed (user ask 2026-10-13): a line that was sent and
+             received before the system tracked it closes as received here —
+             no batch, no Zoho PO — and shows under Received. ── -->
+        <el-dialog :visible.sync="completeVisible" :width="dlgWidth('440px')" :custom-class="mDlg" append-to-body>
+            <div slot="title" class="spp-dlg-head"><i class="el-icon-circle-check" /> {{ $tp('Mark as completed') }}</div>
+            <div v-if="completeRow" class="spp-card">
+                <div class="spp-line-name" :title="completeRow.productName">{{ completeRow.productName }}</div>
+                <div class="spp-sub">{{ completeRow.orderNo }} · SKU: {{ completeRow.sku || '—' }} · {{ $tp('Qty') }} {{ completeRow.orderQty }}<span v-if="completeRow.supplier"> · {{ completeRow.supplier }}</span></div>
+            </div>
+            <el-form label-position="top" size="small" @submit.native.prevent>
+                <el-form-item :label="$tp('Received on')">
+                    <el-date-picker v-model="completeForm.receivedAt" type="date" value-format="yyyy-MM-dd" format="yyyy-MM-dd"
+                        :clearable="false" :editable="false" style="width:100%" />
+                </el-form-item>
+                <el-form-item :label="$tp('Note') + ' (' + $tp('optional') + ')'">
+                    <el-input v-model="completeForm.note" maxlength="200" :placeholder="$tp('Optional')" clearable />
+                </el-form-item>
+                <div class="spp-hint"><i class="el-icon-info" /> {{ $tp('For a line that was sent and received outside the system: no batch and no Zoho purchase order are created — the line closes as received on its ordered quantity') }}</div>
+            </el-form>
+            <span slot="footer">
+                <el-button size="small" @click="completeVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button type="success" size="small" icon="el-icon-circle-check" :loading="completeSaving" @click="submitComplete">{{ $tp('Mark as completed') }}</el-button>
+            </span>
+        </el-dialog>
+
         <!-- ── Quote ────────────────────────────────────────────────── -->
         <el-dialog :visible.sync="quoteVisible" :width="dlgWidth('420px')" :custom-class="mDlg" append-to-body>
             <div slot="title" class="spp-dlg-head"><i class="el-icon-price-tag" /> {{ $tp('Quote') }}</div>
@@ -480,6 +510,7 @@
                     <el-descriptions-item :label="$tp('Shipped')">
                         <template v-if="detail.shippedQty != null">{{ detail.shippedQty }} · {{ fmtDay(detail.shippedAt) }}
                             <router-link v-if="detail.batchNo" class="spp-link" :to="{ path: '/sparePartsPurchase/batches', query: { batch: detail.batchNo } }">{{ detail.batchNo }}</router-link>
+                            <el-tag v-else-if="detail.completed" size="mini" type="info" effect="plain">{{ $tp('completed by hand') }}</el-tag>
                         </template>
                         <span v-else>—</span>
                     </el-descriptions-item>
@@ -568,9 +599,9 @@ import { hasPermission } from '@/utils/permission'
 import * as XLSX from 'xlsx-js-style'
 import {
     listOrders, getOrder, updateOrder, quoteOrder, placeOrder, priceOrder, shortageOrder,
-    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders, uploadOrderImage, deleteOrderImage
+    cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders, uploadOrderImage, deleteOrderImage, completeOrder
 } from '@/api/sparePartsPurchase'
-import { STATUS_LIST, STATUS_META, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink } from './shared'
+import { STATUS_LIST, STATUS_META, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink, todayYmd } from './shared'
 
 // The channels with a list of their own, pinned above the category tree and
 // left out of the tree and of "All orders" (user ask 2026-10-06).
@@ -595,7 +626,7 @@ const ACTION_LABELS = {
     created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
     cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
     toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft',
-    priced: 'Unit price set', photo: 'Photo'
+    priced: 'Unit price set', photo: 'Photo', completed: 'Marked as completed'
 }
 
 export default {
@@ -620,6 +651,11 @@ export default {
             openOnly: true,
             treeInit: false,
             // Place order — one row
+            // Mark as completed (2026-10-13)
+            completeVisible: false,
+            completeRow: null,
+            completeForm: { receivedAt: '', note: '' },
+            completeSaving: false,
             placeVisible: false,
             placeRow: null,
             placeForm: { supplier: '', unitPrice: undefined },
@@ -878,7 +914,7 @@ export default {
             const run = {
                 detail: this.openDetail, label: this.printLineLabels, quote: this.openQuote, confirm: this.confirm,
                 place: this.openPlace, shortage: this.markShortage, cancel: this.cancel, reopen: this.reopen,
-                toConfirm: this.toConfirm, price: this.promptPrice, zoho: this.openZohoCreate
+                toConfirm: this.toConfirm, price: this.promptPrice, zoho: this.openZohoCreate, complete: this.openComplete
             }[key]
             if (run) run(row)
         },
@@ -1188,6 +1224,30 @@ export default {
                 this.load()
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
+            }
+        },
+        // ── Mark as completed (user ask 2026-10-13): sent and received outside
+        // the system → closes as received, no batch, under Received ──
+        openComplete(row) {
+            this.completeRow = row
+            this.completeForm = { receivedAt: todayYmd(), note: '' }
+            this.completeVisible = true
+        },
+        async submitComplete() {
+            const row = this.completeRow
+            if (!row) return
+            this.completeSaving = true
+            try {
+                const r = await completeOrder(row._id, { receivedAt: this.completeForm.receivedAt, note: this.completeForm.note })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('{no} marked as completed — it is under Received', { no: row.orderNo }))
+                for (const w of r.warnings || []) this.$message.warning(w)
+                this.completeVisible = false
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to update the order')))
+            } finally {
+                this.completeSaving = false
             }
         },
         async reopen(row) {
