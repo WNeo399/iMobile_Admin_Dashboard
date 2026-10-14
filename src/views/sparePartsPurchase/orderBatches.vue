@@ -30,12 +30,6 @@
             <el-table-column :label="$tp('Pcs')" width="70" align="center">
                 <template slot-scope="s">{{ s.row.totalQty }}</template>
             </el-table-column>
-            <el-table-column :label="$tp('Priced')" width="96" align="center">
-                <template slot-scope="s">
-                    <span v-if="isDraft(s.row)" class="spo-dim">—</span>
-                    <span v-else :class="(s.row.pricedCount || 0) >= s.row.lineCount ? 'spo-ok' : 'spo-warn'">{{ s.row.pricedCount || 0 }} / {{ s.row.lineCount }}</span>
-                </template>
-            </el-table-column>
             <el-table-column :label="$tp('Created by')" width="150">
                 <template slot-scope="s">
                     <div>{{ s.row.createdBy || '—' }}</div>
@@ -124,8 +118,9 @@
             </span>
         </el-dialog>
 
-        <!-- ── View, and key the supplier's prices back in ──────────── -->
-        <el-dialog :visible.sync="viewVisible" width="900px" append-to-body top="4vh" @closed="cancelPriceEdit">
+        <!-- ── View (prices are no longer keyed in here — they are filled on
+             the Batches page when the parcel ships, user ask 2026-10-14) ── -->
+        <el-dialog :visible.sync="viewVisible" width="900px" append-to-body top="4vh">
             <div slot="title" class="spo-dlg-head"><i class="el-icon-tickets" />
                 <template v-if="view && isDraft(view)">{{ view.batchNo }} <el-tag size="mini" type="warning">{{ $tp('Draft') }}</el-tag>
                     <span class="spo-dim spo-dlg-sub">{{ view.supplier || $tp('no supplier yet') }} · {{ $tp('not placed yet') }}</span></template>
@@ -146,27 +141,6 @@
                     </el-table-column>
                     <el-table-column :label="$tp('Status')" width="96" align="center">
                         <template slot-scope="s"><span class="spo-status" :style="statusStyle(s.row.status)">{{ statusLabel(s.row.status) }}</span></template>
-                    </el-table-column>
-                    <!-- The supplier's price, keyed in per line: click the price,
-                         type, ✓ saves that line (Enter too), ✗ drops the edit.
-                         Save runs on click (after the input's blur commits),
-                         cancel on mousedown (before a re-render swallows it). -->
-                    <el-table-column :label="$tp('Unit Price')" width="150" align="center">
-                        <template slot-scope="s">
-                            <div v-if="priceEdit.orderId === String(s.row.orderId)" class="spo-pedit" @click.stop>
-                                <el-input-number v-model="priceEdit.value" size="mini" :min="0" :precision="2" :controls="false"
-                                    class="spo-pinput" placeholder="¥" @keyup.enter.native="priceEnter($event, s.row)" @keyup.esc.native="cancelPriceEdit" />
-                                <el-button type="text" size="mini" icon="el-icon-check" class="spo-psave" :loading="priceSaving" @click="savePriceEdit(s.row)" />
-                                <el-button type="text" size="mini" icon="el-icon-close" class="spo-pcancel" @mousedown.native.prevent="cancelPriceEdit" />
-                            </div>
-                            <div v-else-if="canPrice(s.row)" class="spo-pview" :title="$tp('Click to enter the price')" @click="startPriceEdit(s.row)">
-                                <span :class="{ 'spo-dim': shownPrice(s.row) == null }">{{ yuan(shownPrice(s.row)) }}</span><i class="el-icon-edit spo-pencil" />
-                            </div>
-                            <template v-else>{{ yuan(shownPrice(s.row)) }}</template>
-                        </template>
-                    </el-table-column>
-                    <el-table-column :label="$tp('Line total')" width="110" align="right">
-                        <template slot-scope="s">{{ yuan(lineTotal(s.row)) }}</template>
                     </el-table-column>
                     <!-- 50×40 part labels: one per ordered unit of the line. -->
                     <el-table-column :label="$tp('Label')" width="60" align="center">
@@ -236,7 +210,7 @@ import * as XLSX from 'xlsx-js-style'
 import { hasPermission } from '@/utils/permission'
 import {
     listOrderBatches, getOrderBatch, createOrderBatch, updateOrderBatch, confirmOrderBatch, discardOrderBatch,
-    priceOrderBatch, listOrders, getMeta
+    listOrders, getMeta
 } from '@/api/sparePartsPurchase'
 import { STATUS_META, CATEGORIES, QUOTE_FIRST, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
@@ -267,13 +241,10 @@ export default {
             pendingLoading: false,
             selected: {},
             creating: false,
-            // view / prices
+            // view
             viewVisible: false,
             viewLoading: false,
             view: null,
-            // one line's price being typed: { orderId, value }
-            priceEdit: { orderId: null, value: undefined },
-            priceSaving: false,
             // part labels (PDF preview)
             labelVisible: false,
             labelTitle: '',
@@ -542,11 +513,10 @@ export default {
                 this.discarding = false
             }
         },
-        // ── View / prices ──────────────────────────────────────────
+        // ── View ───────────────────────────────────────────────────
         async openView(row) {
             // a refresh of the batch already shown keeps it on screen meanwhile
             if (!this.view || this.view._id !== row._id) this.view = row
-            this.cancelPriceEdit()
             this.viewVisible = true
             this.viewLoading = true
             try {
@@ -554,61 +524,6 @@ export default {
                 if (r && r.batch) this.view = r.batch
             } catch (e) { /* the list's copy stands */ } finally {
                 this.viewLoading = false
-            }
-        },
-        // Lines already shipped keep the price they shipped with; a draft
-        // hasn't gone to the supplier yet, so no prices on it.
-        canPrice(l) {
-            return this.can('spp:order:supply') && !this.isDraft(this.view) && ['pending', 'shortage', 'ordered'].includes(l.status)
-        },
-        shownPrice(l) {
-            return l.currentPrice != null ? l.currentPrice : l.unitPrice
-        },
-        // The line total follows the price being typed.
-        lineTotal(l) {
-            const editing = this.priceEdit.orderId === String(l.orderId) && this.priceEdit.value != null
-            const p = editing ? this.priceEdit.value : this.shownPrice(l)
-            return p == null ? null : Math.round(p * (l.orderQty || 0) * 100) / 100
-        },
-        // ── Inline price editor ────────────────────────────────────
-        startPriceEdit(l) {
-            const p = this.shownPrice(l)
-            this.priceEdit = { orderId: String(l.orderId), value: p == null ? undefined : p }
-        },
-        cancelPriceEdit() {
-            this.priceEdit = { orderId: null, value: undefined }
-        },
-        // Enter: blur first so el-input-number commits, then save.
-        priceEnter(evt, l) {
-            if (evt && evt.target) evt.target.blur()
-            this.$nextTick(() => this.savePriceEdit(l))
-        },
-        async savePriceEdit(l) {
-            if (this.priceEdit.orderId !== String(l.orderId)) return
-            const v = Number(this.priceEdit.value)
-            if (this.priceEdit.value == null || this.priceEdit.value === '' || isNaN(v) || v < 0) {
-                this.$message.warning(this.$tp('Enter a unit price of 0 or more')); return
-            }
-            const price = Math.round(v * 100) / 100
-            this.priceSaving = true
-            try {
-                const r = await priceOrderBatch(this.view._id, { lines: [{ orderId: l.orderId, unitPrice: price }] })
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                if (r.skipped && r.skipped.length) {
-                    this.$message.info(this.$tp('{n} line(s) kept their shipped price', { n: r.skipped.length }))
-                } else {
-                    // the row and the list's Priced count follow without a reload
-                    const line = (this.view.lines || []).find(x => String(x.orderId) === String(l.orderId))
-                    if (line) { this.$set(line, 'unitPrice', price); this.$set(line, 'currentPrice', price) }
-                    if (r.pricedCount != null) this.$set(this.view, 'pricedCount', r.pricedCount)
-                    this.$message.success(this.$tp('Price saved'))
-                }
-                this.cancelPriceEdit()
-                this.load()
-            } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Failed to save the prices')))
-            } finally {
-                this.priceSaving = false
             }
         },
         // ── Part labels (50×40: product name + SKU barcode) ────────
@@ -689,7 +604,7 @@ export default {
             const f = this.$refs.printFrame
             try { f.contentWindow.focus(); f.contentWindow.print() } catch (e) { this.$message.error(this.$tp('Could not build the print list')) }
         },
-        // SKU, product, quantity, price (blank until quoted), note.
+        // SKU, product, quantity, note (no price — prices are filled on the Batches page).
         download(batch) {
             try {
                 const t = k => this.$tp(k)
@@ -699,12 +614,11 @@ export default {
                     ['SKU']: l.sku || '',
                     [t('Product')]: l.productName || '',
                     [t('Qty')]: l.orderQty,
-                    [t('Unit Price')]: l.unitPrice != null ? l.unitPrice : (l.currentPrice != null ? l.currentPrice : ''),
                     [t('Note')]: l.note || ''
                 }))
                 const ws = XLSX.utils.json_to_sheet(data, { origin: 'A3' })
                 XLSX.utils.sheet_add_aoa(ws, [[`${t('Order list')} ${batch.batchNo} — ${batch.supplier} — ${fmtDay(batch.createdAt)}`], []], { origin: 'A1' })
-                ws['!cols'] = [4, 12, 70, 8, 12, 30].map(w => ({ wch: w }))
+                ws['!cols'] = [4, 12, 70, 8, 30].map(w => ({ wch: w }))
                 const wb = XLSX.utils.book_new()
                 XLSX.utils.book_append_sheet(wb, ws, String(batch.supplier || 'Order').replace(/[\\/?*[\]:]/g, ' ').slice(0, 30))
                 XLSX.writeFile(wb, `${t('Order list')} ${batch.batchNo} - ${batch.supplier} - ${fmtDay(batch.createdAt)}.xlsx`)
@@ -734,13 +648,6 @@ export default {
 .spo-field-grow { flex: 1; }
 .spo-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
 .spo-hint { font-size: 12px; color: #909399; margin-bottom: 8px; i { margin-right: 3px; color: #e6a23c; } }
-/* inline price editor */
-.spo-pview { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; padding: 2px 4px; border-radius: 4px; &:hover { background: #f5f7fa; .spo-pencil { opacity: 1; } } }
-.spo-pencil { font-size: 11px; color: #409eff; opacity: 0; transition: opacity .15s; }
-.spo-pedit { display: inline-flex; align-items: center; gap: 2px; }
-.spo-pinput { width: 90px; ::v-deep .el-input__inner { padding: 0 6px; text-align: right; } }
-.spo-psave { color: #67c23a; padding: 2px; }
-.spo-pcancel { color: #909399; padding: 2px; }
 .spo-note { margin-top: 8px; font-size: 12px; }
 .label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; flex-wrap: wrap; }
 .label-orient-gap { margin-left: 12px; }

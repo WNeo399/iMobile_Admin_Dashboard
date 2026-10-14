@@ -325,12 +325,19 @@
                 <!-- the road both take -->
                 <div v-if="!isMobile" class="spp-np-steps">
                     <span class="spp-np-step is-now"><b>1</b>{{ $tp('Order it') }}</span>
-                    <i class="el-icon-arrow-right" />
-                    <span class="spp-np-step"><b>2</b>{{ $tp('Supplier quotes') }}</span>
-                    <i class="el-icon-arrow-right" />
-                    <span class="spp-np-step"><b>3</b>{{ $tp('You confirm') }}</span>
-                    <i class="el-icon-arrow-right" />
-                    <span class="spp-np-step"><b>4</b>{{ $tp('Ordered as usual') }}</span>
+                    <!-- a Special Order without "Needs a quote first" skips the quote and confirm steps -->
+                    <template v-if="!isSpecial || newForm.needsQuote">
+                        <i class="el-icon-arrow-right" />
+                        <span class="spp-np-step"><b>2</b>{{ $tp('Supplier quotes') }}</span>
+                        <i class="el-icon-arrow-right" />
+                        <span class="spp-np-step"><b>3</b>{{ $tp('You confirm') }}</span>
+                        <i class="el-icon-arrow-right" />
+                        <span class="spp-np-step"><b>4</b>{{ $tp('Ordered as usual') }}</span>
+                    </template>
+                    <template v-else>
+                        <i class="el-icon-arrow-right" />
+                        <span class="spp-np-step"><b>2</b>{{ $tp('Ordered as usual') }}</span>
+                    </template>
                 </div>
                 <el-form label-position="top" size="small" class="spp-np-form" @submit.native.prevent>
                     <div class="spp-row">
@@ -352,6 +359,11 @@
                         </el-form-item>
                         <el-form-item :label="$tp('Urgent')" class="spp-np-urgent">
                             <el-checkbox v-model="newForm.urgent" border>{{ $tp('Urgent') }}</el-checkbox>
+                        </el-form-item>
+                        <!-- ticked (the default): the supplier quotes it and iMobile confirms before it is
+                             ordered; unticked: it goes straight to Pending like any other line (2026-10-14) -->
+                        <el-form-item :label="$tp('Quote')" class="spp-np-urgent">
+                            <el-checkbox v-model="newForm.needsQuote" border>{{ $tp('Needs a quote first') }}</el-checkbox>
                         </el-form-item>
                     </div>
                     <el-form-item :label="$tp('Note')">
@@ -456,7 +468,9 @@
             <div v-loading="detailLoading">
                 <el-descriptions v-if="detail" :column="isMobile ? 1 : 2" border size="small" class="spp-detail">
                     <el-descriptions-item :label="$tp('Product')" :span="2">
-                        {{ detail.productName }}<a v-if="detail.itemId" class="spp-prod-zoho" :href="zohoLink(detail.itemId)"
+                        <!-- a Special Order's name can be corrected after creation (user ask 2026-10-14) -->
+                        <el-input v-if="nameEditable" v-model="detailForm.productName" size="mini" maxlength="200" class="spp-name-edit" />
+                        <template v-else>{{ detail.productName }}</template><a v-if="detail.itemId" class="spp-prod-zoho" :href="zohoLink(detail.itemId)"
                             target="_blank" rel="noopener" :title="$tp('Open in Zoho')"><i class="el-icon-link" /></a>
                         <span v-if="detail.sku" class="spp-sub"> · SKU {{ detail.sku }}</span>
                         <el-button v-if="canZohoCreate(detail)" size="mini" type="primary" plain icon="el-icon-upload2" class="spp-zoho-btn"
@@ -474,6 +488,10 @@
                         <el-checkbox v-if="can('spp:order:create')" v-model="detailForm.urgent">{{ $tp('Urgent') }}</el-checkbox>
                         <span v-else-if="detail.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
                         <span v-else>—</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item v-if="isSpecialDetail" :label="$tp('Quote')">
+                        <el-checkbox v-if="quoteEditable" v-model="detailForm.needsQuote">{{ $tp('Needs a quote first') }}</el-checkbox>
+                        <span v-else>{{ detail.needsQuote === false ? $tp('No quote needed') : $tp('Needs a quote first') }}</span>
                     </el-descriptions-item>
                     <el-descriptions-item label="SKU">{{ detail.sku || '—' }}</el-descriptions-item>
                     <el-descriptions-item :label="$tp('Category')">
@@ -615,7 +633,7 @@ const NEW_TYPES = [
     { category: 'New Product', icon: 'el-icon-circle-plus-outline', sub: 'A product not in Zoho yet' },
     { category: 'Special Order', icon: 'el-icon-star-off', sub: 'Ordered for someone in particular' }
 ]
-const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: '', requestedFor: '', urgent: false })
+const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: '', requestedFor: '', urgent: false, needsQuote: true })
 // The board shows every open line and the latest received ones.
 const BOARD_OPEN = 200
 const BOARD_RECEIVED = 30
@@ -691,7 +709,7 @@ export default {
             zohoOrder: null,
             detail: null,
             detailLoading: false,
-            detailForm: { note: '', orderQty: null, category: '', requestedFor: '', urgent: false },
+            detailForm: { note: '', orderQty: null, category: '', requestedFor: '', urgent: false, productName: '', needsQuote: true },
             detailSaving: false,
             // a photo uploading in the details; the list reloads on close if any changed
             photoBusy: false,
@@ -769,6 +787,14 @@ export default {
         },
         isSpecialDetail() {
             return !!this.detail && (this.detail.category === 'Special Order' || (this.editable && this.detailForm.category === 'Special Order'))
+        },
+        // a Special Order's name: correctable while the line is still open
+        nameEditable() {
+            return this.isSpecialDetail && this.can('spp:order:create') && !['received', 'cancelled'].includes(this.detail.status)
+        },
+        // whether it needs a quote first: changeable while it still waits
+        quoteEditable() {
+            return this.isSpecialDetail && this.can('spp:order:create') && ['pending', 'shortage'].includes(this.detail.status) && !this.detail.confirmed
         }
     },
     created() {
@@ -1018,7 +1044,7 @@ export default {
             if (!Number.isInteger(orderQty) || orderQty < 1) { this.$message.warning(this.$tp('Quantity must be a positive number')); return }
             const category = f.category === 'Special Order' ? 'Special Order' : 'New Product'
             const line = { productName, orderQty, category, note: (f.note || '').trim() }
-            if (category === 'Special Order') { line.requestedFor = (f.requestedFor || '').trim(); line.urgent = !!f.urgent }
+            if (category === 'Special Order') { line.requestedFor = (f.requestedFor || '').trim(); line.urgent = !!f.urgent; line.needsQuote = !!f.needsQuote }
             this.newSaving = again ? 'again' : 'close'
             try {
                 const r = await createOrders([line])
@@ -1045,7 +1071,7 @@ export default {
                     this.newAdded.unshift({ no, name: productName, qty: orderQty, category, requestedFor: line.requestedFor || '', urgent: !!line.urgent, photos: files.length - failed })
                     this.clearNewFiles()
                     // the list and who it is for stay for the next one
-                    this.newForm = { ...blankNew(category), requestedFor: f.requestedFor || '' }
+                    this.newForm = { ...blankNew(category), requestedFor: f.requestedFor || '', needsQuote: !!f.needsQuote }
                     this.$nextTick(this.focusNewName)
                 } else {
                     this.newVisible = false
@@ -1391,14 +1417,14 @@ export default {
         // ── Details ────────────────────────────────────────────────
         async openDetail(row) {
             this.detail = row
-            this.detailForm = { note: row.note || '', orderQty: row.orderQty, category: row.category || '', requestedFor: row.requestedFor || '', urgent: !!row.urgent }
+            this.detailForm = { note: row.note || '', orderQty: row.orderQty, category: row.category || '', requestedFor: row.requestedFor || '', urgent: !!row.urgent, productName: row.productName || '', needsQuote: row.needsQuote !== false }
             this.detailVisible = true
             this.detailLoading = true
             try {
                 const r = await getOrder(row._id)
                 if (r && r.order) {
                     this.detail = r.order
-                    this.detailForm = { note: r.order.note || '', orderQty: r.order.orderQty, category: r.order.category || '', requestedFor: r.order.requestedFor || '', urgent: !!r.order.urgent }
+                    this.detailForm = { note: r.order.note || '', orderQty: r.order.orderQty, category: r.order.category || '', requestedFor: r.order.requestedFor || '', urgent: !!r.order.urgent, productName: r.order.productName || '', needsQuote: r.order.needsQuote !== false }
                 }
             } catch (e) { /* the row's copy stands */ } finally {
                 this.detailLoading = false
@@ -1409,7 +1435,16 @@ export default {
             try {
                 const data = { note: this.detailForm.note }
                 if (this.editable) { data.orderQty = this.detailForm.orderQty; data.category = this.detailForm.category }
-                if (this.isSpecialDetail) { data.requestedFor = this.detailForm.requestedFor || ''; data.urgent = !!this.detailForm.urgent }
+                if (this.isSpecialDetail) {
+                    data.requestedFor = this.detailForm.requestedFor || ''
+                    data.urgent = !!this.detailForm.urgent
+                    if (this.nameEditable) {
+                        const name = (this.detailForm.productName || '').trim()
+                        if (!name) { this.$message.warning(this.$tp('Enter the product name')); return }
+                        data.productName = name
+                    }
+                    if (this.quoteEditable) data.needsQuote = !!this.detailForm.needsQuote
+                }
                 const r = await updateOrder(this.detail._id, data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(this.$tp('Saved'))
@@ -1552,6 +1587,7 @@ export default {
     b { flex-shrink: 0; color: #606266; } }
 .spp-np-added-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Special Order: who it is for / urgent; photos */
+.spp-name-edit { width: calc(100% - 36px); max-width: 480px; margin-right: 6px; }
 .spp-for { margin-left: 6px; color: #409eff; background: #ecf5ff; border-radius: 10px; padding: 0 6px; white-space: nowrap; }
 .spp-urgent { margin-left: 6px; color: #fff; background: #f56c6c; border-radius: 10px; padding: 0 6px; font-weight: 600; white-space: nowrap; }
 .spp-photos { margin-left: 6px; color: #909399; cursor: pointer; white-space: nowrap; &:hover { color: #409eff; } }

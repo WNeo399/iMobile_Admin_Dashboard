@@ -183,7 +183,8 @@
                 <div class="spb-scanlist">
                     <div class="spb-scanlist-head">
                         <b>{{ $tp('{n} line(s)', { n: createForm.lines.length }) }}</b> · {{ $tp('{n} pcs', { n: createTotal }) }}
-                        <span v-if="unmatchedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unmatchedCount }) }}</span>
+                        <span v-if="unlinkedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unlinkedCount }) }}</span>
+                        <span v-if="unmatchedCount - unlinkedCount"> · {{ $tp('{n} not in PO (new lines)', { n: unmatchedCount - unlinkedCount }) }}</span>
                     </div>
                     <div v-if="!createForm.lines.length" class="spb-scanlist-empty">{{ $tp('Scanned lines show here') }}</div>
                     <div v-for="(l, i) in createForm.lines" :key="'s-' + (l.orderId || l.sku) + '-' + i" :class="['spb-scanrow', { hit: isLastScan(l), bad: l.unmatched }]">
@@ -213,14 +214,33 @@
                         </div>
                         <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="createForm.lines.splice(i, 1)" />
                     </div>
-                    <!-- no order behind it: just the count, and a way to look for its order again -->
+                    <!-- no order behind it (user ask 2026-10-14): pick the product from the
+                         register, the supplier, the price and the count — it ships as a new line -->
                     <div v-if="l.unmatched" class="spb-lcard-grid">
-                        <div class="spb-lcard-f">
-                            <label>{{ $tp('Scanned Qty') }}</label>
-                            <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" style="width:100%" />
+                        <div class="spb-lcard-f spb-lcard-wide">
+                            <label>{{ $tp('Product') }} *</label>
+                            <el-autocomplete v-model="l.productName" :fetch-suggestions="suggestProduct" :trigger-on-focus="false" :debounce="250"
+                                highlight-first-item value-key="name" size="small" style="width:100%" popper-class="spb-sug-popper"
+                                :placeholder="$tp('Search by SKU or product name')" @select="p => linkProduct(l, p)" @input="l.itemId = null">
+                                <template slot-scope="{ item }">
+                                    <div class="spb-sug"><div class="spb-sug-name">{{ item.name }}</div><div class="spb-dim">SKU {{ item.sku || '—' }} · {{ $tp(item.suggestedCategory) }}</div></div>
+                                </template>
+                            </el-autocomplete>
                         </div>
-                        <div class="spb-lcard-f spb-lcard-btn">
-                            <el-button size="small" icon="el-icon-search" :loading="l.matching" @click="rematch(l)">{{ $tp('Find order') }}</el-button>
+                        <div class="spb-lcard-f spb-lcard-wide">
+                            <label>{{ $tp('Supplier') }} *</label>
+                            <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Select')" style="width:100%">
+                                <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
+                            </el-select>
+                        </div>
+                        <div class="spb-lcard-f">
+                            <label>{{ $tp('Unit Price') }} (¥)</label>
+                            <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" style="width:100%" :placeholder="$tp('to fill')" />
+                            <div class="spb-dim">{{ $tp('required to ship') }}</div>
+                        </div>
+                        <div class="spb-lcard-f">
+                            <label>{{ $tp('Shipped Qty') }} *</label>
+                            <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" style="width:100%" />
                         </div>
                     </div>
                     <div v-else class="spb-lcard-grid">
@@ -250,14 +270,21 @@
                 <!-- the name wraps to at most 2 lines; hover for all of it -->
                 <el-table-column :label="$tp('Product')" min-width="240">
                     <template slot-scope="s">
-                        <div class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
-                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span>
-                            <el-button v-if="s.row.unmatched" type="text" size="mini" icon="el-icon-search" class="spb-find" :loading="s.row.matching" @click="rematch(s.row)">{{ $tp('Find order') }}</el-button></div>
+                        <!-- a line with no order behind it: the product is picked from the register -->
+                        <el-autocomplete v-if="s.row.unmatched" v-model="s.row.productName" :fetch-suggestions="suggestProduct" :trigger-on-focus="false" :debounce="250"
+                            highlight-first-item value-key="name" size="mini" style="width:100%" popper-class="spb-sug-popper"
+                            :placeholder="$tp('Search by SKU or product name')" @select="p => linkProduct(s.row, p)" @input="s.row.itemId = null">
+                            <template slot-scope="{ item }">
+                                <div class="spb-sug"><div class="spb-sug-name">{{ item.name }}</div><div class="spb-dim">SKU {{ item.sku || '—' }} · {{ $tp(item.suggestedCategory) }}</div></div>
+                            </template>
+                        </el-autocomplete>
+                        <div v-else class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
+                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Supplier')" width="150" align="center">
                     <template slot-scope="s">
-                        <el-select v-if="s.row.status === 'pending'" v-model="s.row.supplier" size="mini" filterable allow-create
+                        <el-select v-if="s.row.status === 'pending' || s.row.unmatched" v-model="s.row.supplier" size="mini" filterable allow-create
                             default-first-option :placeholder="$tp('Select')" style="width:130px">
                             <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
                         </el-select>
@@ -266,7 +293,7 @@
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered')" width="110" align="center">
                     <template slot-scope="s">
-                        <el-tag v-if="s.row.unmatched" size="mini" type="danger" effect="plain">{{ unmatchedLabel(s.row) }}</el-tag>
+                        <el-tag v-if="s.row.unmatched" size="mini" :type="s.row.itemId ? 'warning' : 'danger'" effect="plain">{{ unmatchedLabel(s.row) }}</el-tag>
                         <el-tag v-else-if="s.row.status === 'pending'" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
                         <template v-else>{{ fmtDay(s.row.orderedAt) }}</template>
                     </template>
@@ -276,9 +303,8 @@
                      the line, editable on every line. -->
                 <el-table-column :label="$tp('Unit Price') + ' (¥)'" width="110" align="center">
                     <template slot-scope="s">
-                        <el-input-number v-if="!s.row.unmatched" v-model="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false" :placeholder="$tp('to fill')"
+                        <el-input-number v-model="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false" :placeholder="$tp('to fill')"
                             style="width:88px" />
-                        <span v-else class="spb-dim">—</span>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered Qty')" width="90" align="center">
@@ -298,11 +324,44 @@
                     </template>
                 </el-table-column>
             </el-table>
+            <!-- ── Special Orders (user ask 2026-10-14): their own section — picked
+                 from the open Special Order lines, or typed in here as new lines.
+                 They have no Zoho item: on the PO every one goes under the shared
+                 Special Order item with its own description, price and quantity. ── -->
+            <div class="spb-special">
+                <div class="spb-special-head">
+                    <b><i class="el-icon-star-off" /> {{ $tp('Special Order') }}</b>
+                    <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.special.length }) }}</span>
+                    <span class="spb-spacer" />
+                    <el-button size="mini" icon="el-icon-tickets" @click="openSpecialPicker">{{ $tp('Pick Special Orders') }}</el-button>
+                    <el-button size="mini" type="primary" plain icon="el-icon-plus" @click="addSpecialBlank">{{ $tp('New line') }}</el-button>
+                </div>
+                <div v-if="!createForm.special.length" class="spb-dim spb-special-empty">{{ $tp('None on this batch') }}</div>
+                <div v-else class="spb-special-lines">
+                    <div v-for="(l, i) in createForm.special" :key="l.orderId || l.key" class="spb-slrow">
+                        <div class="spb-slrow-main">
+                            <el-input v-if="l.special" v-model="l.productName" size="small" maxlength="200" :placeholder="$tp('Description of the item')" />
+                            <template v-else>
+                                <div class="spb-pname">{{ l.productName }}</div>
+                                <div class="spb-dim">{{ l.orderNo }}<span v-if="l.requestedFor"> · {{ $tp('For') }} {{ l.requestedFor }}</span> ·
+                                    <template v-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template>
+                                    · {{ $tp('Ordered Qty') }} {{ l.orderQty }}</div>
+                            </template>
+                        </div>
+                        <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option clearable :placeholder="$tp('Supplier') + ' (' + $tp('optional') + ')'" class="spb-slrow-sup">
+                            <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
+                        </el-select>
+                        <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" :placeholder="$tp('Unit Price') + ' ¥'" class="spb-slrow-num" />
+                        <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" :placeholder="$tp('Qty')" class="spb-slrow-num" />
+                        <el-button type="text" icon="el-icon-close" class="spb-del" @click="createForm.special.splice(i, 1)" />
+                    </div>
+                </div>
+            </div>
             <!-- The price sheet (user ask 2026-10-13): a draft is saved with
                  the prices left blank, the list goes to the purchase team as a
                  spreadsheet, they fill the Unit Price column and send it back,
                  and the file is uploaded here to fill the prices in. -->
-            <div v-if="createForm.lines.length" class="spb-price-tools">
+            <div v-if="allLines.length" class="spb-price-tools">
                 <el-button type="text" size="mini" icon="el-icon-download" @click="downloadPriceSheet()">{{ $tp('Download price sheet') }}</el-button>
                 <el-button type="text" size="mini" icon="el-icon-upload2" :loading="pricesUploading" @click="$refs.priceFile.click()">{{ $tp('Upload prices') }}</el-button>
                 <input ref="priceFile" type="file" accept=".xlsx,.xls,.csv" class="spb-file" @change="uploadPrices">
@@ -333,26 +392,53 @@
                 <span class="spb-sum">
                     <el-button v-if="draftId" type="text" size="small" icon="el-icon-delete" class="spb-del" :loading="discarding"
                         @click="discardDraft">{{ $tp('Discard draft') }}</el-button>
-                    <template v-if="createForm.lines.length">{{ $tp('{n} line(s)', { n: createForm.lines.length }) }} · {{ $tp('{n} pcs', { n: createTotal }) }}
+                    <template v-if="allLines.length">{{ $tp('{n} line(s)', { n: allLines.length }) }} · {{ $tp('{n} pcs', { n: createTotal }) }}
                         <!-- the money: goods from the priced lines, plus the shipping cost -->
                         <template v-if="createAmount.goods || createAmount.shipping">
                             · <b>{{ $tp('Total') }} {{ yuan(createAmount.total) }}</b>
                             <span v-if="createAmount.shipping" class="spb-dim"> ({{ $tp('goods') }} {{ yuan(createAmount.goods) }} + {{ $tp('shipping') }} {{ yuan(createAmount.shipping) }})</span>
                         </template>
                         <span v-if="createAmount.unpriced" class="spb-warn"> · {{ $tp('{n} line(s) without a price', { n: createAmount.unpriced }) }}</span>
-                        <span v-if="unmatchedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unmatchedCount }) }}</span>
+                        <span v-if="unlinkedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unlinkedCount }) }}</span>
+                        <span v-if="unmatchedCount - unlinkedCount" class="spb-dim"> · {{ $tp('{n} not in PO (new lines)', { n: unmatchedCount - unlinkedCount }) }}</span>
                     </template>
                 </span>
                 <span>
                     <el-button size="small" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
-                    <el-button size="small" icon="el-icon-document" :loading="savingDraft" :disabled="!createForm.lines.length && !createForm.tracking && !createForm.note && createForm.shippingCost == null"
+                    <el-button size="small" icon="el-icon-document" :loading="savingDraft" :disabled="!allLines.length && !createForm.tracking && !createForm.note && createForm.shippingCost == null"
                         @click="saveDraft">{{ draftId ? $tp('Save draft') : $tp('Save as draft') }}</el-button>
                     <!-- Ship waits until every line has a price (user ask 2026-10-13) and no
                          unmatched line is left; the footer text says what is missing -->
                     <el-button type="primary" size="small" icon="el-icon-truck" :loading="creating" :disabled="!canShip"
-                        @click="submitCreate">{{ $tp('Ship {n} line(s)', { n: createForm.lines.length }) }}</el-button>
+                        @click="submitCreate">{{ $tp('Ship {n} line(s)', { n: allLines.length }) }}</el-button>
                 </span>
             </div>
+        </el-dialog>
+
+        <!-- ── Pick open Special Orders (2026-10-14): the waiting Special Order
+             lines not on this batch yet; a click picks one. ── -->
+        <el-dialog :visible.sync="specialPickerVisible" width="640px" append-to-body top="6vh" :fullscreen="phone" :custom-class="dlgClass">
+            <div slot="title" class="spb-dlg-head"><i class="el-icon-star-off" /> {{ $tp('Open Special Orders') }}</div>
+            <div v-loading="specialPickerLoading" class="spb-lines spb-special-pick">
+                <div v-if="!specialPickerRows.length && !specialPickerLoading" class="spb-lines-empty">
+                    <i class="el-icon-folder-opened" />
+                    <div>{{ $tp('No waiting Special Orders') }}</div>
+                </div>
+                <div v-for="r in specialPickerRows" :key="r._id" :class="['spb-line', { on: specialPicked[r._id] }]" @click="toggleSpecialPick(r)">
+                    <i :class="specialPicked[r._id] ? 'el-icon-success spb-line-check' : 'el-icon-circle-plus-outline spb-line-plus'" />
+                    <div class="spb-line-main">
+                        <div class="spb-line-name">{{ r.productName }}</div>
+                        <div class="spb-dim">{{ r.orderNo }}<span v-if="r.requestedFor"> · {{ $tp('For') }} {{ r.requestedFor }}</span> ·
+                            <span class="spb-status spb-line-status" :style="statusStyle(r.status)">{{ statusLabel(r.status) }}</span>
+                            <span v-if="r.supplier"> · {{ r.supplier }}</span> · {{ fmtDay(r.orderedAt || r.createdAt) }}<span v-if="r.note"> · {{ r.note }}</span></div>
+                    </div>
+                    <div class="spb-line-qty">× {{ r.orderQty }}</div>
+                </div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="specialPickerVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button type="primary" size="small" :disabled="!specialPickedCount" @click="addSpecialPicked">{{ $tp('Add {n} line(s)', { n: specialPickedCount }) }}</el-button>
+            </span>
         </el-dialog>
 
         <!-- ── Pick open orders: the Order Batch picker — a category on the
@@ -625,7 +711,7 @@
 
 <script>
 import { hasPermission } from '@/utils/permission'
-import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft } from '@/api/sparePartsPurchase'
+import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft, searchProducts } from '@/api/sparePartsPurchase'
 import BarcodeScanner from './components/BarcodeScanner'
 import * as XLSX from 'xlsx-js-style'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
@@ -672,7 +758,12 @@ export default {
             lastScan: '', // the SKU just read — its line is highlighted in the camera view
             // create / draft
             createVisible: false,
-            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [] },
+            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], special: [] },
+            // the Special Order picker
+            specialPickerVisible: false,
+            specialPickerLoading: false,
+            specialPickerRows: [],
+            specialPicked: {},
             creating: false,
             draftId: null,
             savingDraft: false,
@@ -747,20 +838,35 @@ export default {
         totalAll() {
             return Object.keys(this.byStatus).reduce((t, k) => t + (this.byStatus[k] || 0), 0)
         },
+        // every line on the form: the main list and the Special Order section
+        allLines() {
+            return [...this.createForm.lines, ...this.createForm.special]
+        },
+        specialPickedCount() {
+            return Object.keys(this.specialPicked).length
+        },
+        // typed Special Order lines still without a description
+        specialIncomplete() {
+            return this.createForm.special.filter(l => l.special && !(l.productName || '').trim()).length
+        },
         createTotal() {
-            return this.createForm.lines.reduce((t, l) => t + (Number(l.qty) || 0), 0)
+            return this.allLines.reduce((t, l) => t + (Number(l.qty) || 0), 0)
         },
         // the money on the form / on the batch being viewed
         createAmount() {
-            return batchAmount(this.createForm.lines.filter(l => !l.unmatched), this.createForm.shippingCost, l => l.qty)
+            return batchAmount(this.allLines, this.createForm.shippingCost, l => l.qty)
         },
         // lines scanned with no order behind them (kept for adjustment)
         unmatchedCount() {
             return this.createForm.lines.filter(l => l.unmatched).length
         },
         // the batch can ship: lines on it, every one priced, none unmatched
+        // not-in-PO lines still without a product picked
+        unlinkedCount() {
+            return this.createForm.lines.filter(l => l.unmatched && !l.itemId).length
+        },
         canShip() {
-            return this.createForm.lines.length > 0 && !this.createAmount.unpriced && !this.unmatchedCount
+            return this.allLines.length > 0 && !this.createAmount.unpriced && !this.unlinkedCount && !this.specialIncomplete
         },
         viewAmount() {
             return this.view ? batchAmount(this.view.lines, this.view.shippingCost) : batchAmount([], 0)
@@ -872,7 +978,7 @@ export default {
         // ── Create ─────────────────────────────────────────────────
         async openCreate() {
             this.draftId = null
-            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [] }
+            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], special: [] }
             this.scan = ''
             this.createVisible = true
             this.loadSuppliers()
@@ -886,11 +992,9 @@ export default {
                 shippedAt: fmtDay(row.shippedAt) !== '—' ? fmtDay(row.shippedAt) : todayYmd(),
                 note: row.note || '',
                 shippingCost: row.shippingCost != null ? row.shippingCost : undefined,
-                lines: (row.lines || []).map(l => (l.unmatched ? this.unmatchedLine(l.sku, l, l.qty == null ? undefined : l.qty) : {
-                    orderId: l.orderId, orderNo: l.orderNo, sku: l.sku, productName: l.productName, category: l.category,
-                    status: l.status, supplier: l.supplier || '', orderedAt: l.orderedAt,
-                    unitPrice: l.unitPrice != null ? l.unitPrice : undefined, orderQty: l.orderQty, qty: l.qty == null ? undefined : l.qty
-                }))
+                // Special Orders (picked or typed) live in their own section
+                lines: (row.lines || []).filter(l => !this.isSpecialLine(l)).map(l => this.formLine(l)),
+                special: (row.lines || []).filter(l => this.isSpecialLine(l)).map(l => this.formLine(l))
             }
             this.scan = ''
             this.createVisible = true
@@ -904,9 +1008,11 @@ export default {
                 note: this.createForm.note,
                 // null (not undefined) when blank, so clearing the field on a draft clears it there too
                 shippingCost: this.createForm.shippingCost == null ? null : this.createForm.shippingCost,
-                lines: this.createForm.lines.map(l => (l.unmatched
-                    ? { unmatched: true, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, qty: l.qty }
-                    : { orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
+                lines: this.allLines.map(l => (l.special
+                    ? { special: true, key: l.key, productName: l.productName, requestedFor: l.requestedFor, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
+                    : l.unmatched
+                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
+                        : { orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
         async saveDraft() {
@@ -931,9 +1037,11 @@ export default {
         // draft's row in the list. The Order ID column is what the upload
         // matches on (SKU / Order No as fallbacks), so a renamed header or a
         // re-sorted sheet still comes back right.
-        downloadPriceSheet(row) {
-            const lines = (row ? (row.lines || []) : this.createForm.lines).filter(l => !l.unmatched)
-            if (!lines.length) { this.$message.info(this.$tp('Nothing to export')); return }
+        async downloadPriceSheet(row) {
+            const raw = row ? (row.lines || []) : this.allLines
+            if (!raw.length) { this.$message.info(this.$tp('Nothing to export')); return }
+            // the product reads as on the part labels (user ask 2026-10-14): no brand, no iPhone / iPad / MacBook / Galaxy
+            const lines = await withLabelNames(raw)
             const t = k => this.$tp(k)
             const tracking = row ? row.tracking : this.createForm.tracking
             const date = fmtDay(new Date().toISOString())
@@ -942,20 +1050,21 @@ export default {
                 '#': i + 1,
                 [t('Order No')]: l.orderNo || '',
                 'SKU': l.sku || '',
-                [t('Product')]: l.productName || '',
+                [t('Product')]: l.labelName || l.productName || '',
                 [t('Category')]: l.category ? t(l.category) : '',
                 [t('Supplier')]: l.supplier || '',
                 [t('Ordered Qty')]: l.orderQty != null ? l.orderQty : '',
                 [t('Shipped Qty')]: l.qty != null ? l.qty : '',
                 [price]: l.unitPrice != null ? l.unitPrice : '',
-                [t('Order ID')]: String(l.orderId || '')
+                [t('Order ID')]: String(l.orderId || l.key || '')
             }))
             const ws = XLSX.utils.json_to_sheet(data, { origin: 'A3' })
             XLSX.utils.sheet_add_aoa(ws, [
                 [`${t('Price sheet')} — ${tracking || t('Draft batch')} — ${date}`],
                 [t('Fill in the Unit Price column and send the file back; leave the other columns as they are')]
             ], { origin: 'A1' })
-            ws['!cols'] = [4, 12, 14, 50, 14, 14, 11, 11, 14, 26].map(w => ({ wch: w }))
+            // Order No and Order ID stay in the file for the upload to match on, but hidden (user ask 2026-10-14)
+            ws['!cols'] = [4, 12, 14, 50, 14, 14, 11, 11, 14, 26].map((w, i) => (i === 1 || i === 9 ? { wch: w, hidden: true } : { wch: w }))
             ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }]
             const head = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '409EFF' } }, alignment: { horizontal: 'center', vertical: 'center' } }
             const fillIn = { fill: { fgColor: { rgb: 'FFF2CC' } }, numFmt: '0.00' }
@@ -1006,14 +1115,14 @@ export default {
                     if (m.sku != null || m.orderId != null) { hi = r; idx = m; break }
                 }
                 if (hi < 0 || idx.price == null) throw new Error(this.$tp('The file needs a SKU (or Order ID) column and a Unit Price column'))
-                const lines = this.createForm.lines
+                const lines = this.allLines
                 const used = new Set()
                 const find = (row) => {
                     const by = (fn) => lines.find(l => !used.has(l) && fn(l))
                     const id = idx.orderId != null ? String(row[idx.orderId] || '').trim() : ''
                     const no = idx.orderNo != null ? String(row[idx.orderNo] || '').trim() : ''
                     const sku = idx.sku != null ? String(row[idx.sku] || '').trim().toLowerCase() : ''
-                    return (id && by(l => String(l.orderId) === id)) ||
+                    return (id && by(l => String(l.orderId || l.key || '') === id)) ||
                         (no && by(l => String(l.orderNo || '') === no)) ||
                         (sku && by(l => String(l.sku || '').toLowerCase() === sku)) || null
                 }
@@ -1098,11 +1207,14 @@ export default {
         // The shipped quantity is never assumed: a picked line starts empty
         // and is typed in; a scanned line counts up one per scan.
         addLine(o, qty) {
-            if (this.createForm.lines.find(l => l.orderId === o._id)) return false
-            // the newest line on top, where it is seen on a phone
-            this.createForm.lines.unshift({
+            if (this.allLines.find(l => l.orderId === o._id)) return false
+            // the newest line on top, where it is seen on a phone; a Special
+            // Order goes to its own section
+            const target = o.category === 'Special Order' ? this.createForm.special : this.createForm.lines
+            target.unshift({
                 orderId: o._id,
                 orderNo: o.orderNo,
+                requestedFor: o.requestedFor || '',
                 sku: o.sku,
                 productName: o.productName,
                 category: o.category,
@@ -1163,21 +1275,26 @@ export default {
             l.qty = Math.max(1, (Number(l.qty) || 0) + d)
         },
         unmatchedLabel(l) {
-            return l.reason === 'over' ? this.$tp('Over the ordered quantity') : this.$tp('Not on any order')
+            if (!l.itemId) return this.$tp('Not on any order — pick a product')
+            return l.reason === 'over' ? this.$tp('Over the ordered quantity') : this.$tp('Not in PO')
         },
         // the shape of a line with no order behind it (`src` = the lookup's
         // register item, or the saved draft line)
         unmatchedLine(sku, src, qty) {
             return {
-                orderId: null, unmatched: true, reason: (src && src.reason === 'over') ? 'over' : 'none', matching: false,
-                orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.classification)) || '',
-                status: 'unmatched', supplier: '', orderedAt: null, unitPrice: undefined, orderQty: null, qty
+                orderId: null, unmatched: true, key: (src && src.key) || this.newKey(), reason: (src && src.reason === 'over') ? 'over' : 'none',
+                // the product behind it (the register's item when the SKU is known, or one picked by hand)
+                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null,
+                orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.suggestedCategory || src.classification)) || '',
+                status: 'unmatched', supplier: (src && src.supplier) || '', orderedAt: null,
+                unitPrice: src && src.unitPrice != null ? src.unitPrice : undefined, orderQty: null, qty
             }
         },
-        // A scan with no order behind it (user ask 2026-10-13: "leave it as
-        // it is for future adjustment"): not thrown away — kept on the batch
-        // as an unmatched line, by SKU, for someone to remove or to match
-        // once its order exists. Nothing ships while one is on the form.
+        // A scan with no order behind it (user asks 2026-10-13/14): kept on the
+        // batch as a not-in-PO line, by SKU — linked to the register's product
+        // when the SKU is known, else one is picked by hand — with its own
+        // supplier, price and count; it ships as a new SP- line. Nothing
+        // ships while a line still has no product.
         keepUnmatched(sku, r) {
             const same = l => l.unmatched && String(l.sku || '').toLowerCase() === sku.toLowerCase()
             let line = this.createForm.lines.find(same)
@@ -1192,22 +1309,80 @@ export default {
             // heard without looking: the camera's low double tone
             if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
         },
-        // Look again for the order behind an unmatched line (one may have
-        // been raised since): on a hit the line becomes that order's line.
-        async rematch(l) {
-            this.$set(l, 'matching', true)
+        // a line of the batch with no order behind it keeps a key of its own (the price sheet's hidden id)
+        newKey() {
+            return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+        },
+        isSpecialLine(l) {
+            return !!l && (l.special === true || l.category === 'Special Order')
+        },
+        // a saved draft line back into the form's shape
+        formLine(l) {
+            if (l.unmatched) return this.unmatchedLine(l.sku, l, l.qty == null ? undefined : l.qty)
+            if (l.special) return this.specialLine(l)
+            return {
+                orderId: l.orderId, orderNo: l.orderNo, sku: l.sku, productName: l.productName, category: l.category, requestedFor: l.requestedFor || '',
+                status: l.status, supplier: l.supplier || '', orderedAt: l.orderedAt,
+                unitPrice: l.unitPrice != null ? l.unitPrice : undefined, orderQty: l.orderQty, qty: l.qty == null ? undefined : l.qty
+            }
+        },
+        // a Special Order typed straight into the batch (no order behind it yet)
+        specialLine(src) {
+            return {
+                orderId: null, special: true, key: (src && src.key) || this.newKey(), orderNo: '', sku: '', itemId: null,
+                productName: (src && src.productName) || '', category: 'Special Order', status: 'special',
+                supplier: (src && src.supplier) || '', requestedFor: (src && src.requestedFor) || '', orderedAt: null,
+                unitPrice: src && src.unitPrice != null ? src.unitPrice : undefined, orderQty: null, qty: src && src.qty != null ? src.qty : undefined
+            }
+        },
+        // ── Special Orders on the batch ──
+        openSpecialPicker() {
+            this.specialPicked = {}
+            this.specialPickerVisible = true
+            this.loadSpecialPicker()
+        },
+        async loadSpecialPicker() {
+            this.specialPickerLoading = true
             try {
-                const r = await lookupOrder(l.sku, this.createForm.lines.filter(x => x.orderId).map(x => x.orderId))
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                if (!r.match) { this.$message.info(this.$tp('Still no waiting order for {sku}', { sku: l.sku })); return }
-                const i = this.createForm.lines.indexOf(l)
-                if (i < 0) return
-                this.createForm.lines.splice(i, 1)
-                this.addLine(r.match, l.qty || 1)
-                this.$message.success(`${l.sku} → ${r.match.orderNo}`)
+                const r = await openLines()
+                const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
+                this.specialPickerRows = ((r && r.rows) || []).filter(o => o.category === 'Special Order' && !on.has(o._id))
             } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Lookup failed')))
-            } finally { this.$set(l, 'matching', false) }
+                this.specialPickerRows = []
+            } finally {
+                this.specialPickerLoading = false
+            }
+        },
+        toggleSpecialPick(r) {
+            if (this.specialPicked[r._id]) this.$delete(this.specialPicked, r._id)
+            else this.$set(this.specialPicked, r._id, r)
+        },
+        addSpecialPicked() {
+            let n = 0
+            for (const o of Object.values(this.specialPicked).reverse()) if (this.addLine(o)) n++
+            this.specialPickerVisible = false
+            if (n) this.$message.success(this.$tp('{n} line(s) added', { n }))
+        },
+        addSpecialBlank() {
+            this.createForm.special.unshift(this.specialLine(null))
+        },
+        // product search for a not-in-PO line (the register, as Add Item does)
+        async suggestProduct(q, cb) {
+            const text = (q || '').trim()
+            if (!text) { cb([]); return }
+            try {
+                const r = await searchProducts(text)
+                cb((r && r.products) || [])
+            } catch (e) { cb([]) }
+        },
+        // the picked product becomes the line's item: it ships as a new SP- line
+        linkProduct(l, p) {
+            if (!p || !p.itemId) return
+            l.itemId = p.itemId
+            l.sku = p.sku || l.sku
+            l.productName = p.name || ''
+            l.category = p.suggestedCategory || p.classification || ''
+            l.imageId = p.imageId || null
         },
         // a camera read is one scan, through the same path as the scan box;
         // reads queue behind an in-flight lookup so none is lost
@@ -1233,8 +1408,8 @@ export default {
             this.pickerLoading = true
             try {
                 const r = await openLines()
-                const on = new Set(this.createForm.lines.map(l => l.orderId))
-                this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id))
+                const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
+                this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order')
                 // land on the first category that has something to pick
                 if (!this.pickerCat || !this.pickerCatCount(this.pickerCat)) {
                     this.pickerCat = CATEGORIES.find(c => this.pickerCatCount(c)) || CATEGORIES[0]
@@ -1275,11 +1450,13 @@ export default {
             if (n) this.$message.success(this.$tp('{n} line(s) added', { n }))
         },
         async submitCreate() {
-            if (this.unmatchedCount) { this.$message.warning(this.$tp('{n} line(s) are not on any order — remove them or find their order before shipping', { n: this.unmatchedCount })); return }
+            if (this.unlinkedCount) { this.$message.warning(this.$tp('{n} line(s) are not on any order — pick a product for them or remove them before shipping', { n: this.unlinkedCount })); return }
             if (!this.createForm.zohoVendorId) { this.$message.warning(this.$tp('Select the Zoho vendor')); return }
-            for (const l of this.createForm.lines) {
+            if (this.specialIncomplete) { this.$message.warning(this.$tp('Enter a description for every Special Order line')); return }
+            for (const l of this.allLines) {
                 if (!l.qty || l.qty < 1) { this.$message.warning(this.$tp('{sku}: enter the shipped quantity', { sku: l.sku || l.productName })); return }
-                if (l.status === 'pending' && !l.supplier) { this.$message.warning(this.$tp('{sku}: pick a supplier', { sku: l.sku || l.productName })); return }
+                // a Special Order (typed or picked) may ship without a supplier (user 2026-10-14)
+                if ((l.status === 'pending' || l.unmatched) && !l.supplier && l.category !== 'Special Order') { this.$message.warning(this.$tp('{sku}: pick a supplier', { sku: l.sku || l.productName })); return }
                 if (l.unitPrice == null || l.unitPrice === '') { this.$message.warning(this.$tp('{sku}: enter the unit price', { sku: l.sku || l.productName })); return }
             }
             this.creating = true
@@ -1523,7 +1700,17 @@ export default {
 .spb-price-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; margin-top: 6px; .el-button { padding: 4px 0; } }
 .spb-price-hint { flex: 1 1 240px; word-break: normal; }
 .spb-file { display: none; }
-.spb-find { padding: 0; margin-left: 6px; }
+// the Special Order section
+.spb-special { margin-top: 12px; border: 1px dashed #dcdfe6; border-radius: 8px; padding: 8px 10px; }
+.spb-special-head { display: flex; align-items: center; gap: 8px; font-size: 13px; i { color: #e6a23c; } }
+.spb-special-empty { padding: 6px 0 2px; font-size: 12px; }
+.spb-special-lines { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.spb-slrow { display: flex; align-items: center; gap: 8px; }
+.spb-slrow-main { flex: 1; min-width: 0; font-size: 13px; }
+.spb-slrow-sup { width: 150px; flex: 0 0 150px; }
+.spb-slrow-num { width: 110px; flex: 0 0 110px; }
+.spb-special-pick { max-height: 60vh; }
+.spb-sug { line-height: 1.3; padding: 4px 0; white-space: normal; .spb-sug-name { font-size: 13px; color: #303133; } }
 .spb-lcard-btn { justify-content: flex-end; }
 // the camera view's line list
 .spb-scanlist { margin-top: 10px; max-height: 42vh; overflow: auto; border-top: 1px solid #ebeef5; }
@@ -1621,6 +1808,9 @@ export default {
 .spb-dlg-phone .spb-head-fields { flex-direction: column; gap: 8px; }
 .spb-dlg-phone .spb-field { min-width: 0; }
 .spb-dlg-phone .spb-field-date .el-date-editor, .spb-dlg-phone .spb-field-ship .el-input-number { width: 100% !important; }
+.spb-sug-popper { min-width: 360px; max-width: 560px; li { line-height: 1.3 !important; padding: 6px 12px !important; } }
+.spb-dlg-phone .spb-slrow { flex-wrap: wrap; .spb-slrow-main { flex: 1 1 100%; } .spb-slrow-sup { flex: 1 1 100%; width: auto; } .spb-slrow-num { flex: 1 1 40%; width: auto; } }
+.spb-dlg-phone .spb-special-head { flex-wrap: wrap; }
 .spb-dlg-phone .spb-scan { flex-wrap: wrap; .el-input { flex: 1 1 100%; } .el-button { flex: 1; margin-left: 0; } }
 .spb-dlg-phone .spb-footer { flex-direction: column; align-items: stretch; gap: 8px; }
 .spb-dlg-phone .spb-footer > span:last-child { display: flex; flex-direction: column-reverse; gap: 6px; }

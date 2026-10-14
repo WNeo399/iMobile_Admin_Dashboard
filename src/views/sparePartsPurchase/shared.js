@@ -28,7 +28,8 @@ export const isChannel = c => CHANNELS.includes(c)
 // in To Confirm, and once confirmed they are ordered as usual. Until then
 // they "await a quote" (the backend's awaitsQuote).
 export const QUOTE_FIRST = ['New Product', 'Special Order']
-export const awaitsQuote = r => !!r && QUOTE_FIRST.includes(r.category) && ['pending', 'shortage'].includes(r.status) && !r.confirmed
+// a Special Order raised without "Needs a quote first" (needsQuote: false) skips the quote step
+export const awaitsQuote = r => !!r && QUOTE_FIRST.includes(r.category) && ['pending', 'shortage'].includes(r.status) && !r.confirmed && r.needsQuote !== false
 // Who a Special Order is for — the usual names; another can be typed.
 export const REQUESTED_FOR = ['Shen', 'JoJo', 'Prana', 'iMobile']
 // Photos a line can carry (the backend's MAX_IMAGES).
@@ -149,19 +150,15 @@ export function packingListHtml(batch, tp) {
 // PDF from the browser: SKU, product, quantity, the unit price once quoted.
 export function orderListHtml(batch, tp) {
     const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // no prices on the order list (2026-10-14): they are filled on the Batches page when the parcel ships
     const lines = batch.lines || []
-    const price = l => (l.unitPrice != null ? l.unitPrice : l.currentPrice)
     const rowsHtml = lines.map((l, i) => `<tr>
         <td class="n">${i + 1}</td>
         <td class="c">${esc(l.sku || '—')}</td>
         <td>${esc(l.productName)}${l.note ? `<div class="sub">${esc(l.note)}</div>` : ''}</td>
         <td class="c"><b>${l.orderQty == null ? '—' : l.orderQty}</b></td>
-        <td class="r">${price(l) == null ? '' : esc(yuan(price(l)))}</td>
-        <td class="r">${price(l) == null ? '' : esc(yuan(Math.round(price(l) * (l.orderQty || 0) * 100) / 100))}</td>
     </tr>`).join('')
     const totalQty = lines.reduce((t, l) => t + (Number(l.orderQty) || 0), 0)
-    const priced = lines.filter(l => price(l) != null)
-    const totalAmount = priced.reduce((t, l) => t + (Number(l.orderQty) || 0) * (Number(price(l)) || 0), 0)
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
         <title>${esc(tp('Order list'))} ${esc(batch.batchNo)}</title>
         <style>
@@ -187,9 +184,8 @@ export function orderListHtml(batch, tp) {
         </div>
         <table><thead><tr>
             <th class="n">#</th><th class="c">SKU</th><th>${esc(tp('Product'))}</th>
-            <th class="c">${esc(tp('Qty'))}</th><th class="r">${esc(tp('Unit Price'))}</th><th class="r">${esc(tp('Line total'))}</th>
+            <th class="c">${esc(tp('Qty'))}</th>
         </tr></thead><tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td></td><td></td><td>${esc(tp('Total'))}</td><td class="c">${totalQty}</td><td></td>
-            <td class="r">${priced.length ? esc(yuan(totalAmount)) : ''}</td></tr></tfoot></table>
+        <tfoot><tr><td></td><td></td><td>${esc(tp('Total'))}</td><td class="c">${totalQty}</td></tr></tfoot></table>
         </body></html>`
 }
