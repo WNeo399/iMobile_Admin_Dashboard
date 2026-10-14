@@ -446,7 +446,7 @@ export const moduleRoutes = [
         component: (resolve) => require(["@/views/sparePartsPurchase/batches"], resolve),
         name: "SppBatches",
         meta: {
-          title: "Batches",
+          title: "Dispatch Batches",
           icon: "el-icon-truck",
           permissions: ["spp:batch:view"]
         }

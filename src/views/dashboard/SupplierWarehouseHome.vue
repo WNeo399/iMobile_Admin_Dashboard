@@ -1,13 +1,13 @@
 <template>
     <!-- Home for the Supplier Warehouse role (2026-10-13): the supplier's
          warehouse staff scan the parcels into shipment batches on their
-         phones — the Batches page and nothing else. -->
+         phones — the Dispatch Batches page and nothing else. -->
     <div class="portal-home">
         <el-card shadow="never" class="ph-card">
-            <div class="ph-title"><i class="el-icon-truck" /> {{ $tp('Batches') }}</div>
+            <div class="ph-title"><i class="el-icon-truck" /> {{ $tp('Dispatch Batches') }}</div>
             <div class="ph-text">{{ $tp('Scan the labels of each parcel into a batch and save it as a draft; the office fills in the prices and ships it') }}</div>
             <el-button type="primary" icon="el-icon-plus" @click="$router.push({ path: '/sparePartsPurchase/batches', query: { create: 1 } })">{{ $tp('Create Batch') }}</el-button>
-            <el-button icon="el-icon-truck" @click="$router.push('/sparePartsPurchase/batches')">{{ $tp('Batches') }}</el-button>
+            <el-button icon="el-icon-truck" @click="$router.push('/sparePartsPurchase/batches')">{{ $tp('Dispatch Batches') }}</el-button>
         </el-card>
     </div>
 </template>

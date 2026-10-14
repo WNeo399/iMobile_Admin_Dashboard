@@ -1369,7 +1369,9 @@ export default {
                 if (row.forCustomer === 'OSCAR') {
                     const dr = row.dispatchRef || {}
                     const rec = { faultyCodePrefix: dr.faultyCodePrefix || '' }
-                    const oline = { sku: dr.customerSku || row.sku, description: dr.customerDescription || row.productName }
+                    // the description under the label-name rule (user 2026-10-14)
+                    const [named] = await withLabelNames([row])
+                    const oline = { sku: dr.customerSku || row.sku, description: named.customerLabelName || named.labelName || row.productName }
                     if (!rec.faultyCodePrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
                     const build = () => appendOscarLabelsToDoc(null, { record: rec, line: oline }, 1)
                     this.labelBuild = build

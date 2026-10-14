@@ -7,7 +7,7 @@
             </div>
             <el-button type="primary" icon="el-icon-notebook-2" @click="$router.push('/sparePartsPurchase/orders')">{{ $tp('Purchase Order') }}</el-button>
             <el-button icon="el-icon-document-checked" @click="$router.push('/sparePartsPurchase/order-batches')">{{ $tp('Order Batches') }}</el-button>
-            <el-button icon="el-icon-truck" @click="$router.push('/sparePartsPurchase/batches')">{{ $tp('Batches') }}</el-button>
+            <el-button icon="el-icon-truck" @click="$router.push('/sparePartsPurchase/batches')">{{ $tp('Dispatch Batches') }}</el-button>
             <el-button icon="el-icon-picture-outline" @click="$router.push('/sparePartsPurchase/missing-images')">{{ $tp('Missing Images') }}</el-button>
             <!-- the supplier holds spp:product:view since 2026-10-14 -->
             <el-button icon="el-icon-mobile-phone" @click="$router.push('/sparePartsPurchase/new-products')">{{ $tp('New Products') }}</el-button>

@@ -1,7 +1,7 @@
 <template>
     <div class="spb-page app-container">
         <div class="spb-bar">
-            <span class="spb-title">{{ $tt('Batches') }}</span>
+            <span class="spb-title">{{ $tt('Dispatch Batches') }}</span>
             <span class="spb-spacer" />
             <el-radio-group v-model="statusFilter" size="mini" @change="reload">
                 <el-radio-button label="">{{ $tp('All') }} ({{ totalAll }})</el-radio-button>
@@ -1084,7 +1084,7 @@ export default {
                 lines: this.allLines.filter(l => !(l.unmatched && !l.itemId && !l.sku && !(l.productName || '').trim())).map(l => (l.special
                     ? { special: true, key: l.key, productName: l.productName, requestedFor: l.requestedFor, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
                     : l.unmatched
-                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.warranty ? 0 : l.unitPrice, qty: l.qty, warranty: !!l.warranty }
+                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.warranty ? 0 : l.unitPrice, qty: l.qty, warranty: !!l.warranty, oscarCode: l.oscarCode || '' }
                         : { orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
@@ -1293,6 +1293,7 @@ export default {
                 category: o.category,
                 status: o.status,
                 supplier: o.supplier || '',
+                forCustomer: o.forCustomer || '', oscarPrefix: (o.dispatchRef && o.dispatchRef.faultyCodePrefix) || '', customerSku: (o.dispatchRef && o.dispatchRef.customerSku) || '',
                 orderedAt: o.orderedAt,
                 unitPrice: o.unitPrice != null ? o.unitPrice : (o.quotedPrice != null ? o.quotedPrice : undefined),
                 orderQty: o.orderQty,
@@ -1306,7 +1307,8 @@ export default {
         async doScan() {
             const sku = (this.scan || '').trim()
             if (!sku) return
-            const same = l => String(l.sku || '').toLowerCase() === sku.toLowerCase()
+            // by SKU, or by Oscar's return code for a line raised for OSCAR (user 2026-10-14)
+            const same = l => this.codeMatches(l, sku)
             const open = this.createForm.lines.find(l => same(l) && (l.qty == null || l.qty < l.orderQty))
             if (open) {
                 open.qty = (open.qty || 0) + 1
@@ -1335,6 +1337,16 @@ export default {
                 this.scanning = false
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
             }
+        },
+        // the Oscar return code a line answers to: "SS-<prefix>-<customer SKU>"
+        oscarCodeOf(l) {
+            if (!l) return ''
+            if (l.oscarCode) return l.oscarCode
+            return l.oscarPrefix && l.customerSku ? `SS-${l.oscarPrefix}-${l.customerSku}` : ''
+        },
+        codeMatches(l, code) {
+            const c = String(code || '').toLowerCase()
+            return String(l.sku || '').toLowerCase() === c || (this.oscarCodeOf(l) || '').toLowerCase() === c
         },
         // the line just scanned goes to the top, where the camera view shows it
         toTop(line) {
@@ -1399,7 +1411,7 @@ export default {
             return {
                 orderId: null, unmatched: true, key: (src && src.key) || this.newKey(), reason: (src && src.reason === 'over') ? 'over' : 'none',
                 // the product behind it (the register's item when the SKU is known, or one picked by hand)
-                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null, imageUrl: (src && src.imageUrl) || '', warranty: !!(src && src.warranty),
+                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null, imageUrl: (src && src.imageUrl) || '', warranty: !!(src && src.warranty), oscarCode: (src && src.oscarCode) || '',
                 orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.suggestedCategory || src.classification)) || '',
                 status: 'unmatched', supplier: (src && src.supplier) || '', orderedAt: null,
                 unitPrice: src && src.unitPrice != null ? src.unitPrice : undefined, orderQty: null, qty
@@ -1411,16 +1423,19 @@ export default {
         // supplier, price and count; it ships as a new SP- line. Nothing
         // ships while a line still has no product.
         keepUnmatched(sku, r) {
-            const same = l => l.unmatched && String(l.sku || '').toLowerCase() === sku.toLowerCase()
+            const same = l => l.unmatched && this.codeMatches(l, sku)
             let line = this.createForm.extra.find(same)
+            const oscar = !!(r && r.oscar)
             if (line) {
                 line.qty = (line.qty || 0) + 1
                 this.toTop(line)
             } else {
-                line = this.unmatchedLine(sku, { ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none' }, 1)
+                // an Oscar return code stands for a product: the line takes the product's SKU and keeps the code for re-scans
+                const lineSku = oscar && r.item && r.item.sku ? r.item.sku : sku
+                line = this.unmatchedLine(lineSku, { ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none', oscarCode: oscar ? sku : '' }, 1)
                 this.createForm.extra.unshift(line)
             }
-            this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}`, type: 'warning', duration: 2000 })
+            this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}` + (oscar ? ' · ' + this.$tp('OSCAR code with no open purchase line') : ''), type: 'warning', duration: oscar ? 3000 : 2000 })
             // heard without looking: the camera's low double tone
             if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
         },
@@ -1442,6 +1457,7 @@ export default {
             return {
                 orderId: l.orderId, orderNo: l.orderNo, sku: l.sku, productName: l.productName, category: l.category, requestedFor: l.requestedFor || '',
                 status: l.status, supplier: l.supplier || '', orderedAt: l.orderedAt,
+                forCustomer: l.forCustomer || '', oscarPrefix: l.oscarPrefix || '', customerSku: l.customerSku || '',
                 unitPrice: l.unitPrice != null ? l.unitPrice : undefined, orderQty: l.orderQty, qty: l.qty == null ? undefined : l.qty
             }
         },
@@ -1683,15 +1699,17 @@ export default {
             }
         },
         // Label names without Device Brand / Series, looked up first.
-        // a line ordered for Oscar Mobile prints the Order Dispatch label set
+        // a line ordered for Oscar Mobile prints the Order Dispatch label set;
+        // the description follows the label-name rule (a line from withLabelNames)
         oscarArgs(l) {
-            return { record: { faultyCodePrefix: l.oscarPrefix || '' }, line: { sku: l.customerSku || l.sku, description: l.customerDescription || l.productName } }
+            return { record: { faultyCodePrefix: l.oscarPrefix || '' }, line: { sku: l.customerSku || l.sku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName } }
         },
         async printLineLabels(line) {
             if (line.forCustomer === 'OSCAR') {
                 if (!line.oscarPrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
                 this.labelOscar = true
-                this.showLabels(() => appendOscarLabelsToDoc(null, this.oscarArgs(line), 1), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — OSCAR · ' + (line.customerSku || line.sku))
+                const [named] = await withLabelNames([line])
+                this.showLabels(() => appendOscarLabelsToDoc(null, this.oscarArgs(named), 1), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — OSCAR · ' + (line.customerSku || line.sku))
                 return
             }
             this.labelOscar = false
