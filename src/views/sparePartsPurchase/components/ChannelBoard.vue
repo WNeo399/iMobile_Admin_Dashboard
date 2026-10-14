@@ -54,6 +54,7 @@
 
 <script>
 import OrderCard from './OrderCard'
+import { awaitsQuote } from '../shared'
 
 // The steps, left to right. `who` is the side that moves a card on.
 const COLUMNS = [
@@ -151,7 +152,8 @@ export default {
         // the step a line is at
         stageOf(r) {
             switch (r.status) {
-                case 'pending': return r.confirmed ? 'order' : 'quote'
+                // a line that waits for no quote (confirmed, or a Warranty line) starts at Ready to order
+                case 'pending': return awaitsQuote(r) ? 'quote' : 'order'
                 case 'toConfirm': return 'confirm'
                 case 'ordered': return 'ordered'
                 case 'shipped': return 'shipped'

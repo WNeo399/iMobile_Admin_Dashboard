@@ -49,7 +49,7 @@
                 </div>
                 <div class="ai-ctrls">
                     <el-input-number v-model="l.orderQty" :min="1" :max="99999" :precision="0" size="mini" controls-position="right" class="ai-qty" />
-                    <el-radio-group v-model="l.sea" size="mini" class="ai-chan">
+                    <el-radio-group v-if="!fixedCategory" v-model="l.sea" size="mini" class="ai-chan">
                         <el-radio-button :label="false" :title="$tp('Files under {c}', { c: $tp(l.suggestedCategory) })">空运</el-radio-button>
                         <el-radio-button :label="true">海运</el-radio-button>
                     </el-radio-group>
@@ -80,6 +80,8 @@ export default {
         visible: { type: Boolean, default: false },
         // the page is on 海运: new lines start as sea freight
         defaultSea: { type: Boolean, default: false },
+        // every line files under this category (the Warranty list, 2026-10-14) — the 空运 / 海运 choice is hidden
+        fixedCategory: { type: String, default: '' },
         mobile: { type: Boolean, default: false }
     },
     data() {
@@ -172,7 +174,7 @@ export default {
                 const payload = this.lines.map(l => ({
                     itemId: l.itemId, sku: l.sku, productName: l.name, imageId: l.imageId,
                     // 海运, or the item's own category (the server derives it from the register)
-                    category: l.sea ? '海运' : l.suggestedCategory,
+                    category: this.fixedCategory || (l.sea ? '海运' : l.suggestedCategory),
                     orderQty: Number(l.orderQty), note: (l.note || '').trim()
                 }))
                 const r = await createOrders(payload)

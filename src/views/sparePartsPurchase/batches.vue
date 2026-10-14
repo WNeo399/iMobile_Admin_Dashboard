@@ -318,6 +318,44 @@
                     </div>
                 </div>
             </div>
+            <!-- ── Warranty (user ask 2026-10-14): replacement parts claimed from the
+                 supplier — picked from the open Warranty lines, or a new line with a
+                 product chosen from the register. No charge: price 0, the PO line
+                 says "Warranty replacement". ── -->
+            <div class="spb-special spb-warranty">
+                <div class="spb-special-head">
+                    <b><i class="el-icon-umbrella" /> {{ $tp('Warranty') }}</b>
+                    <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.warranty.length }) }}</span>
+                    <span class="spb-spacer" />
+                    <el-button size="mini" icon="el-icon-tickets" @click="openSpecialPicker('Warranty')">{{ $tp('Pick Warranty lines') }}</el-button>
+                    <el-button size="mini" type="primary" plain icon="el-icon-plus" @click="addWarrantyBlank">{{ $tp('New line') }}</el-button>
+                </div>
+                <div v-if="!createForm.warranty.length" class="spb-dim spb-special-empty">{{ $tp('None on this batch') }}</div>
+                <div v-else class="spb-special-lines">
+                    <div v-for="(l, i) in createForm.warranty" :key="l.orderId || l.key" :class="['spb-slrow', { 'spb-slrow-bad': l.unmatched && !l.itemId }]">
+                        <img v-if="l.imageUrl" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
+                        <div class="spb-slrow-main">
+                            <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
+                            <div class="spb-dim spb-slrow-sub">
+                                <template v-if="l.unmatched">
+                                    <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span></span>
+                                    <span v-else class="spb-warn">{{ $tp('Not on any order — pick a product') }}</span>
+                                    <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
+                                </template>
+                                <template v-else>{{ l.orderNo }} · SKU {{ l.sku || '—' }} ·
+                                    <template v-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template>
+                                    · {{ $tp('Ordered Qty') }} {{ l.orderQty }}</template>
+                                <el-tag size="mini" type="success" class="spb-warranty-tag">{{ $tp('No charge') }}</el-tag>
+                            </div>
+                        </div>
+                        <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option clearable :placeholder="$tp('Supplier') + ' (' + $tp('optional') + ')'" class="spb-slrow-sup">
+                            <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
+                        </el-select>
+                        <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" :placeholder="$tp('Qty')" class="spb-slrow-num" />
+                        <el-button type="text" icon="el-icon-close" class="spb-del" @click="createForm.warranty.splice(i, 1)" />
+                    </div>
+                </div>
+            </div>
             <!-- ── Not in PO (user ask 2026-10-14): scans with no order behind them, in
                  their own section — each linked to a register product (automatically
                  when the SKU is known, else searched here), with supplier, price and
@@ -338,11 +376,8 @@
                             <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
                             <div class="spb-dim spb-slrow-sub">
                                 <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
-                                <el-tag v-if="l.warranty" size="mini" type="success" class="spb-warranty-tag">{{ $tp('Warranty') }}</el-tag>
                                 <span v-else class="spb-warn"><template v-if="l.sku">{{ $tp('Scanned {sku}', { sku: l.sku }) }} · </template>{{ $tp('Not in Zoho') }}</span>
                                 <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
-                                <!-- a warranty replacement ships at no charge (user 2026-10-14) -->
-                                <el-button type="text" size="mini" :icon="l.warranty ? 'el-icon-circle-check' : 'el-icon-umbrella'" :class="['spb-slrow-act', { 'spb-act-on': l.warranty }]" @click="toggleWarranty(l)">{{ $tp('Warranty') }}</el-button>
                                 <!-- a SKU Zoho does not know can become a Special Order instead -->
                                 <el-button v-if="!l.itemId" type="text" size="mini" icon="el-icon-star-off" class="spb-slrow-act" @click="toSpecial(l)">{{ $tp('Special Order') }}</el-button>
                             </div>
@@ -439,11 +474,11 @@
         <!-- ── Pick open Special Orders (2026-10-14): the waiting Special Order
              lines not on this batch yet; a click picks one. ── -->
         <el-dialog :visible.sync="specialPickerVisible" width="640px" append-to-body top="6vh" :fullscreen="phone" :custom-class="dlgClass">
-            <div slot="title" class="spb-dlg-head"><i class="el-icon-star-off" /> {{ $tp('Open Special Orders') }}</div>
+            <div slot="title" class="spb-dlg-head"><i :class="specialPickerKind === 'Warranty' ? 'el-icon-umbrella' : 'el-icon-star-off'" /> {{ $tp(specialPickerKind === 'Warranty' ? 'Open Warranty lines' : 'Open Special Orders') }}</div>
             <div v-loading="specialPickerLoading" class="spb-lines spb-special-pick">
                 <div v-if="!specialPickerRows.length && !specialPickerLoading" class="spb-lines-empty">
                     <i class="el-icon-folder-opened" />
-                    <div>{{ $tp('No waiting Special Orders') }}</div>
+                    <div>{{ $tp(specialPickerKind === 'Warranty' ? 'No waiting Warranty lines' : 'No waiting Special Orders') }}</div>
                 </div>
                 <div v-for="r in specialPickerRows" :key="r._id" :class="['spb-line', { on: specialPicked[r._id] }]" @click="toggleSpecialPick(r)">
                     <i :class="specialPicked[r._id] ? 'el-icon-success spb-line-check' : 'el-icon-circle-plus-outline spb-line-plus'" />
@@ -779,13 +814,14 @@ export default {
             lastScan: '', // the SKU just read — its line is highlighted in the camera view
             // create / draft
             createVisible: false,
-            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [] },
+            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] },
             // "Choose product" for one not-in-PO line
             productPickVisible: false,
             productPickQuery: '',
             productPickLine: null,
             // the Special Order picker
             specialPickerVisible: false,
+            specialPickerKind: 'Special Order', // or 'Warranty'
             specialPickerLoading: false,
             specialPickerRows: [],
             specialPicked: {},
@@ -851,9 +887,9 @@ export default {
             for (const r of this.pickerFiltered) (by[this.pickerCatOf(r)] = by[this.pickerCatOf(r)] || []).push(r)
             return by
         },
-        // the picker's categories: Special Orders have their own section on the batch (2026-10-14)
+        // the picker's categories: Special Orders and Warranty have their own sections on the batch (2026-10-14)
         pickerCats() {
-            return CATEGORIES.filter(c => c !== 'Special Order')
+            return CATEGORIES.filter(c => c !== 'Special Order' && c !== 'Warranty')
         },
         pickerCatLines() {
             return this.pickerByCat[this.pickerCat] || []
@@ -869,11 +905,11 @@ export default {
         },
         // every line on the form: the main list and the Special Order section
         allLines() {
-            return [...this.createForm.lines, ...this.createForm.extra, ...this.createForm.special]
+            return [...this.createForm.lines, ...this.createForm.extra, ...this.createForm.warranty, ...this.createForm.special]
         },
         // the camera view: the not-in-PO lines first (they need attention), then the order lines
         scanRows() {
-            return [...this.createForm.extra, ...this.createForm.lines]
+            return [...this.createForm.extra, ...this.createForm.lines, ...this.createForm.warranty]
         },
         specialPickedCount() {
             return Object.keys(this.specialPicked).length
@@ -896,7 +932,7 @@ export default {
         // the batch can ship: lines on it, every one priced, none unmatched
         // not-in-PO lines still without a product picked
         unlinkedCount() {
-            return this.createForm.extra.filter(l => !l.itemId).length
+            return this.createForm.extra.filter(l => !l.itemId).length + this.createForm.warranty.filter(l => l.unmatched && !l.itemId).length
         },
         canShip() {
             return this.allLines.length > 0 && !this.createAmount.unpriced && !this.unlinkedCount && !this.specialIncomplete
@@ -1011,7 +1047,7 @@ export default {
         // ── Create ─────────────────────────────────────────────────
         async openCreate() {
             this.draftId = null
-            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [] }
+            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] }
             this.scan = ''
             this.createVisible = true
             this.loadSuppliers()
@@ -1026,8 +1062,9 @@ export default {
                 note: row.note || '',
                 shippingCost: row.shippingCost != null ? row.shippingCost : undefined,
                 // Special Orders (picked or typed) live in their own section
-                lines: (row.lines || []).filter(l => !this.isSpecialLine(l) && !l.unmatched).map(l => this.formLine(l)),
-                extra: (row.lines || []).filter(l => l.unmatched).map(l => this.formLine(l)),
+                lines: (row.lines || []).filter(l => !this.isSpecialLine(l) && !this.isWarrantyLine(l) && !l.unmatched).map(l => this.formLine(l)),
+                extra: (row.lines || []).filter(l => l.unmatched && !this.isWarrantyLine(l)).map(l => this.formLine(l)),
+                warranty: (row.lines || []).filter(l => this.isWarrantyLine(l)).map(l => this.formLine(l)),
                 special: (row.lines || []).filter(l => this.isSpecialLine(l)).map(l => this.formLine(l))
             }
             this.scan = ''
@@ -1244,7 +1281,7 @@ export default {
             if (this.allLines.find(l => l.orderId === o._id)) return false
             // the newest line on top, where it is seen on a phone; a Special
             // Order goes to its own section
-            const target = o.category === 'Special Order' ? this.createForm.special : this.createForm.lines
+            const target = o.category === 'Special Order' ? this.createForm.special : o.category === 'Warranty' ? this.createForm.warranty : this.createForm.lines
             target.unshift({
                 orderId: o._id,
                 orderNo: o.orderNo,
@@ -1299,7 +1336,7 @@ export default {
         },
         // the line just scanned goes to the top, where the camera view shows it
         toTop(line) {
-            for (const arr of [this.createForm.lines, this.createForm.extra]) {
+            for (const arr of [this.createForm.lines, this.createForm.extra, this.createForm.warranty]) {
                 const i = arr.indexOf(line)
                 if (i > 0) { arr.splice(i, 1); arr.unshift(line) }
                 if (i >= 0) return
@@ -1307,7 +1344,7 @@ export default {
         },
         // a line off whichever list it sits on
         removeLine(line) {
-            for (const arr of [this.createForm.lines, this.createForm.extra, this.createForm.special]) {
+            for (const arr of [this.createForm.lines, this.createForm.extra, this.createForm.warranty, this.createForm.special]) {
                 const i = arr.indexOf(line)
                 if (i >= 0) { arr.splice(i, 1); return }
             }
@@ -1392,6 +1429,10 @@ export default {
         isSpecialLine(l) {
             return !!l && (l.special === true || l.category === 'Special Order')
         },
+        // a Warranty line: picked from the Warranty list, or a new one raised on the batch
+        isWarrantyLine(l) {
+            return !!l && (l.category === 'Warranty' || (l.unmatched === true && l.warranty === true))
+        },
         // a saved draft line back into the form's shape
         formLine(l) {
             if (l.unmatched) return this.unmatchedLine(l.sku, l, l.qty == null ? undefined : l.qty)
@@ -1412,7 +1453,8 @@ export default {
             }
         },
         // ── Special Orders on the batch ──
-        openSpecialPicker() {
+        openSpecialPicker(kind) {
+            this.specialPickerKind = kind === 'Warranty' ? 'Warranty' : 'Special Order'
             this.specialPicked = {}
             this.specialPickerVisible = true
             this.loadSpecialPicker()
@@ -1422,7 +1464,7 @@ export default {
             try {
                 const r = await openLines()
                 const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
-                this.specialPickerRows = ((r && r.rows) || []).filter(o => o.category === 'Special Order' && !on.has(o._id))
+                this.specialPickerRows = ((r && r.rows) || []).filter(o => o.category === this.specialPickerKind && !on.has(o._id))
             } catch (e) {
                 this.specialPickerRows = []
             } finally {
@@ -1441,6 +1483,12 @@ export default {
         },
         addSpecialBlank() {
             this.createForm.special.unshift(this.specialLine(null))
+        },
+        // a new warranty line: the product is chosen on the row; no charge
+        addWarrantyBlank() {
+            const l = this.unmatchedLine('', { warranty: true }, 1)
+            l.unitPrice = 0
+            this.createForm.warranty.unshift(l)
         },
         // product search for a not-in-PO line (the register, as Add Item does)
         async suggestProduct(q, cb) {
@@ -1486,7 +1534,7 @@ export default {
             try {
                 const r = await openLines()
                 const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
-                this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order')
+                this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order' && o.category !== 'Warranty')
                 // land on the first category that has something to pick
                 if (!this.pickerCat || !this.pickerCatCount(this.pickerCat)) {
                     this.pickerCat = this.pickerCats.find(c => this.pickerCatCount(c)) || this.pickerCats[0]
@@ -1533,7 +1581,7 @@ export default {
             for (const l of this.allLines) {
                 if (!l.qty || l.qty < 1) { this.$message.warning(this.$tp('{sku}: enter the shipped quantity', { sku: l.sku || l.productName })); return }
                 // a Special Order (typed or picked) may ship without a supplier (user 2026-10-14)
-                if ((l.status === 'pending' || l.unmatched) && !l.supplier && l.category !== 'Special Order') { this.$message.warning(this.$tp('{sku}: pick a supplier', { sku: l.sku || l.productName })); return }
+                if ((l.status === 'pending' || l.unmatched) && !l.supplier && l.category !== 'Special Order' && l.category !== 'Warranty' && !l.warranty) { this.$message.warning(this.$tp('{sku}: pick a supplier', { sku: l.sku || l.productName })); return }
                 if (l.unitPrice == null || l.unitPrice === '') { this.$message.warning(this.$tp('{sku}: enter the unit price', { sku: l.sku || l.productName })); return }
             }
             this.creating = true
@@ -1793,6 +1841,7 @@ export default {
 .spb-slrow-num { width: 110px; flex: 0 0 110px; }
 .spb-special-pick { max-height: 60vh; }
 .spb-extra .spb-special-head i { color: #f56c6c; }
+.spb-warranty .spb-special-head i { color: #67c23a; }
 .spb-slrow-sub { font-size: 12px; margin-top: 3px; }
 .spb-okt { color: #e6a23c; }
 .spb-slrow-bad ::v-deep .el-autocomplete .el-input__inner { border-color: #f56c6c; }

@@ -21,7 +21,7 @@ export const STATUS_META = STATUS_LIST.reduce((m, s) => ((m[s.value] = s), m), {
 // and customer special orders. The tree shows every one, even when empty.
 // IC: chips split out of Small Parts › Connector & IC (user ask 2026-10-07)
 export const CLASSIFICATIONS = ['Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'IC', 'Tools', 'Other']
-export const CHANNELS = ['海运', 'Special Order', 'New Product']
+export const CHANNELS = ['海运', 'Special Order', 'New Product', 'Warranty']
 export const CATEGORIES = [...CLASSIFICATIONS, ...CHANNELS]
 export const isChannel = c => CHANNELS.includes(c)
 // New Product and Special Order lines are quoted first: the quote parks them

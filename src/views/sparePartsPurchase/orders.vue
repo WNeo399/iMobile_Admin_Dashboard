@@ -38,8 +38,8 @@
                 </el-radio-group>
                 <!-- Add Item: Zoho items as Pending lines (not on the two pinned lists).
                      The parts supplier may add lines too, but not Special Orders. -->
-                <el-button v-if="canAdd && !isPinned" type="primary" size="small" icon="el-icon-plus" @click="addVisible = true">{{ $tp('Add Item') }}</el-button>
-                <el-button v-if="canAdd && (activeCategory !== 'Special Order' || canSpecial)" type="primary" size="small" :plain="!isPinned" :icon="isPinned ? 'el-icon-plus' : 'el-icon-circle-plus-outline'"
+                <el-button v-if="canAdd && (!isPinned || activeCategory === 'Warranty')" type="primary" size="small" icon="el-icon-plus" @click="addVisible = true">{{ $tp('Add Item') }}</el-button>
+                <el-button v-if="canAdd && (activeCategory !== 'Special Order' || canSpecial) && activeCategory !== 'Warranty'" type="primary" size="small" :plain="!isPinned" :icon="isPinned ? 'el-icon-plus' : 'el-icon-circle-plus-outline'"
                     @click="openNewProduct">{{ $tp(activeCategory === 'Special Order' ? 'New Special Order' : (isMobile && !isPinned ? 'New Product' : 'Order New Product')) }}</el-button>
                 <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
@@ -270,7 +270,7 @@
         </div>
 
         <!-- ── Add Item: Zoho items from the register → Pending lines ── -->
-        <add-item-dialog :visible.sync="addVisible" :default-sea="activeCategory === '海运'" :mobile="isMobile" @added="load" />
+        <add-item-dialog :visible.sync="addVisible" :default-sea="activeCategory === '海运'" :fixed-category="activeCategory === 'Warranty' ? 'Warranty' : ''" :mobile="isMobile" @added="load" />
 
         <!-- ── Place order (one line) ───────────────────────────────── -->
         <el-dialog :visible.sync="placeVisible" :width="dlgWidth('480px')" :custom-class="mDlg" append-to-body>
@@ -625,7 +625,9 @@ import { STATUS_LIST, STATUS_META, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaits
 // left out of the tree and of "All orders" (user ask 2026-10-06).
 const PINNED = [
     { category: 'New Product', icon: 'el-icon-circle-plus-outline' },
-    { category: 'Special Order', icon: 'el-icon-star-off' }
+    { category: 'Special Order', icon: 'el-icon-star-off' },
+    // replacement parts claimed from the supplier (2026-10-14): added with Add Item, price 0
+    { category: 'Warranty', icon: 'el-icon-umbrella' }
 ]
 const PINNED_CATS = PINNED.map(p => p.category)
 // What the Order New Product dialog can raise.
