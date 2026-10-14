@@ -34,10 +34,18 @@
                 <template slot-scope="s">
                     <el-tag v-for="o in s.row.orders" :key="String(o.id)"
                         size="mini" :type="o.type === 'manual' ? 'warning' : ''"
-                        class="ow-order-tag" effect="plain"
+                        class="ow-order-tag" effect="plain" :title="o.customerName || ''"
                         @click="goDispatch(o)">
-                        {{ o.invoiceNumber || '—' }} · {{ o.owing }}
+                        {{ o.invoiceNumber || '—' }} · {{ o.owing }}<span v-if="isOscar(o.customerName)"> · OSCAR</span>
                     </el-tag>
+                </template>
+            </el-table-column>
+            <!-- a Spare Parts Purchase line per order for what is owed (2026-10-14) -->
+            <el-table-column v-if="canRaisePo" label="PO" width="110" align="center">
+                <template slot-scope="s">
+                    <el-button size="mini" type="primary" plain icon="el-icon-shopping-cart-2" :loading="poSaving === s.row.imbSku"
+                        :disabled="!s.row.imbSku" :title="s.row.imbSku ? 'Create purchase order lines for what is owed' : 'No iMobile SKU — map it first'"
+                        @click="createPo(s.row)">Create PO</el-button>
                 </template>
             </el-table-column>
         </el-table>
@@ -46,6 +54,9 @@
 
 <script>
 import { getInflowOwingStocks } from '@/api/inflow'
+import { createOrders } from '@/api/sparePartsPurchase'
+import { hasPermission } from '@/utils/permission'
+import { isOscarCustomer } from '@/utils/dispatchItemLabelPdf'
 
 export default {
     name: 'InflowOwingStocks',
@@ -55,7 +66,15 @@ export default {
             rows: [],
             total: 0,
             totalOwing: 0,
-            search: ''
+            search: '',
+            poSaving: ''
+        }
+    },
+    computed: {
+        // may raise Spare Parts Purchase lines (iMobile staff and the parts supplier; not the front desk)
+        canRaisePo() {
+            const mine = this.$store.getters.permissions
+            return hasPermission(mine, 'spp:order:add') || hasPermission(mine, 'spp:order:create')
         }
     },
     created() {
@@ -83,6 +102,36 @@ export default {
         },
         // Jump to Order Dispatch pre-filtered on this order so the user
         // can open its dispatch dialog straight away.
+        isOscar(name) {
+            return isOscarCustomer(name)
+        },
+        // One purchase order line per order owing this SKU, each marked for
+        // its customer (OSCAR for Oscar Mobile) and keeping the line as the
+        // customer wrote it, so the labels print the Order Dispatch way.
+        async createPo(row) {
+            const lines = (row.orders || []).filter(o => o.owing > 0).map(o => ({
+                sku: row.imbSku, productName: row.description || '', orderQty: o.owing,
+                forCustomer: this.isOscar(o.customerName) ? 'OSCAR' : '',
+                dispatchRef: { recordId: String(o.id), invoiceNumber: o.invoiceNumber || '', customerName: o.customerName || '', faultyCodePrefix: o.faultyCodePrefix || '', customerSku: o.sku || '', customerDescription: o.description || '' }
+            }))
+            if (!lines.length) return
+            const detail = lines.map(l => `${l.dispatchRef.invoiceNumber || '—'} × ${l.orderQty}${l.forCustomer ? ' (' + l.forCustomer + ')' : ''}`).join(', ')
+            try {
+                await this.$confirm(`${row.imbSku} — ${row.description || ''}\n${lines.length} line${lines.length === 1 ? '' : 's'}: ${detail}`, 'Create purchase order lines', { confirmButtonText: 'Create', cancelButtonText: 'Cancel', type: 'info' })
+            } catch (e) { return }
+            this.poSaving = row.imbSku
+            try {
+                const r = await createOrders(lines)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const skipped = (r.skipped || []).map(s => s.orderNo).join(', ')
+                if (r.created) this.$message.success(`${r.created} purchase order line${r.created === 1 ? '' : 's'} created: ${(r.orderNos || []).join(', ')}`)
+                if (skipped) this.$message.info(`Already on an open purchase order line: ${skipped}`)
+            } catch (e) {
+                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || 'Failed to create the purchase order lines')
+            } finally {
+                this.poSaving = ''
+            }
+        },
         goDispatch(order) {
             this.$router.push({ path: '/inflow/orderDispatch', query: { search: order.invoiceNumber || '' } })
         }

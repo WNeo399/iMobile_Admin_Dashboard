@@ -178,6 +178,9 @@
                         @click="closeDispatch(dispatchRecord)">Close Dispatch</el-button>
                     <el-button size="mini" icon="el-icon-printer" :disabled="!remainingCount"
                         @click="openRemainingList">Print Remaining</el-button>
+                    <!-- Spare Parts Purchase lines for what is still owed (2026-10-14) -->
+                    <el-button v-if="canRaisePo" size="mini" type="primary" plain icon="el-icon-shopping-cart-2" :disabled="!remainingCount" :loading="poSaving"
+                        @click="createPoForRemaining">Create PO for Remaining</el-button>
                 </div>
 
                 <!-- Line items with live batch column (display order: scanned
@@ -251,9 +254,14 @@
                             <span :class="{ 'od-done': lineDone(li.row) }">{{ Number(li.row.dispatchedQty) || 0 }}</span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Remaining" width="90" align="right">
+                    <el-table-column label="Remaining" width="150" align="right">
                         <template slot-scope="li">
                             <span :class="{ 'od-dim': remainingOf(li.row) === 0 }">{{ remainingOf(li.row) }}</span>
+                            <!-- the purchase order lines raised for this line: number · status · qty (2026-10-14) -->
+                            <div v-for="p in poFor(li.row)" :key="p.orderNo" :class="['od-po', 'od-po-' + p.status]"
+                                :title="poTitle(p)" @click.stop="goPo(p)">
+                                <i class="el-icon-shopping-cart-2" /> {{ poStatusLabel(p.status) }} · {{ p.orderQty }}
+                            </div>
                         </template>
                     </el-table-column>
                     <el-table-column label="This Batch" width="130" align="center">
@@ -280,6 +288,15 @@
                                     ? (isOscarName(dispatchRecord.customerName) ? 'Print item ×2 + supplier card' : 'Print label')
                                     : 'No barcode on this line'"
                                 @click="printDispatchLineLabel(li.row)" />
+                        </template>
+                    </el-table-column>
+                    <!-- a Spare Parts Purchase line for this line's remaining units (2026-10-14) -->
+                    <el-table-column v-if="canRaisePo" label="PO" width="56" align="center">
+                        <template slot-scope="li">
+                            <el-button size="mini" type="text" icon="el-icon-shopping-cart-2"
+                                :disabled="remainingOf(li.row) <= 0 || !String(li.row.imbSku || '').trim()"
+                                :title="!String(li.row.imbSku || '').trim() ? 'Map the iMobile SKU first' : remainingOf(li.row) > 0 ? 'Create a purchase order line for the remaining units' : 'Nothing remaining'"
+                                @click="createPoLine(li.row)" />
                         </template>
                     </el-table-column>
                 </el-table>
@@ -612,10 +629,12 @@
 </template>
 
 <script>
-import { getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku, closeInflowDispatch, reopenInflowDispatch } from '@/api/inflow'
+import { getInflowDispatchPoLines, getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku, closeInflowDispatch, reopenInflowDispatch } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
 import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBarcodeLabelsPdf, buildOscarCardLabelsPdf } from '@/utils/dispatchItemLabelPdf'
+import { createOrders } from '@/api/sparePartsPurchase'
+import { hasPermission } from '@/utils/permission'
 
 export default {
     name: 'InflowOrderDispatch',
@@ -642,6 +661,9 @@ export default {
             scanCode: '',
             batchQty: {},
             batchSaving: false,
+            poSaving: false,
+            // the purchase order lines raised from the open record, by customer SKU
+            poLines: [],
             // Per-batch tracking-number drafts, edited on the Recorded
             // Batches tab (the number is only known once the courier label
             // exists, i.e. after the batch is recorded).
@@ -698,6 +720,11 @@ export default {
         }
     },
     computed: {
+        // may raise Spare Parts Purchase lines (iMobile staff and the parts supplier; not the front desk)
+        canRaisePo() {
+            const mine = this.$store.getters.permissions
+            return hasPermission(mine, 'spp:order:add') || hasPermission(mine, 'spp:order:create')
+        },
         // "e.g. SS-310826-6971234567890" from the first line with a barcode
         returnCodeExample() {
             const li = ((this.dispatchRecord && this.dispatchRecord.lineItems) || []).find(l => String(l.sku || '').trim())
@@ -828,6 +855,7 @@ export default {
         // ── Dispatch dialog + scan-to-batch ──────────────────────────
         openDispatch(row) {
             this.dispatchRecord = row
+            this.loadPoLines(row)
             this.returnPrefix = { value: row.faultyCodePrefix || '', saving: false, saved: false }
             this.lineOrder = this.sortedLineOrder(row.lineItems || [])
             this.dispatchTab = 'dispatch'
@@ -862,6 +890,7 @@ export default {
         },
         resetDispatch() {
             this.dispatchRecord = null
+            this.poLines = []
             this.returnPrefix = { value: '', saving: false, saved: false }
             this.titleEdit = { on: false, value: '', saving: false }
             this.lineOrder = []
@@ -1230,6 +1259,99 @@ export default {
         },
         isOscarName(name) {
             return isOscarCustomer(name)
+        },
+        // ── Spare Parts Purchase lines from this record (2026-10-14) ──
+        // The line goes under the iMobile SKU (the register names the item);
+        // it remembers whose order it serves (forCustomer — OSCAR for Oscar
+        // Mobile, whose labels then print the Order Dispatch way) and the
+        // line as the customer wrote it (barcode + description).
+        poPayload(line, qty) {
+            const rec = this.dispatchRecord || {}
+            return {
+                sku: String(line.imbSku || '').trim(),
+                productName: String(line.description || '').trim(),
+                orderQty: qty,
+                forCustomer: this.isOscarName(rec.customerName) ? 'OSCAR' : '',
+                dispatchRef: {
+                    recordId: String(rec._id || ''), invoiceNumber: rec.invoiceNumber || '', customerName: rec.customerName || '',
+                    faultyCodePrefix: rec.faultyCodePrefix || '', customerSku: line.sku || '', customerDescription: line.description || ''
+                }
+            }
+        },
+        // ── the purchase status of each line (2026-10-14) ──
+        async loadPoLines(rec) {
+            this.poLines = []
+            if (!rec || !rec._id) return
+            try {
+                const r = await getInflowDispatchPoLines(rec._id)
+                if (this.dispatchRecord && String(this.dispatchRecord._id) === String(rec._id)) this.poLines = (r && r.lines) || []
+            } catch (e) { /* the chips are a nicety */ }
+        },
+        poFor(line) {
+            const key = String(line.sku || '').trim()
+            if (!key) return []
+            return this.poLines.filter(p => String(p.customerSku || '').trim() === key)
+        },
+        poStatusLabel(s) {
+            return { pending: 'Pending', toConfirm: 'To confirm', ordered: 'Ordered', shortage: 'Shortage', shipped: 'Shipped', received: 'Received', cancelled: 'Cancelled' }[s] || s
+        },
+        poTitle(p) {
+            const bits = [`${p.orderNo} — ${this.poStatusLabel(p.status)} × ${p.orderQty}`]
+            if (p.batchNo) bits.push(`batch ${p.batchNo}`)
+            if (p.shippedQty != null) bits.push(`shipped ${p.shippedQty}`)
+            if (p.receivedQty != null) bits.push(`received ${p.receivedQty}`)
+            if (p.forCustomer) bits.push(`for ${p.forCustomer}`)
+            return bits.join(' · ') + ' — open on the Purchase Order page'
+        },
+        goPo(p) {
+            // close the dialog first, or its mask outlives the page (user 2026-10-14)
+            this.dispatchVisible = false
+            this.$nextTick(() => this.$router.push({ path: '/sparePartsPurchase/orders', query: { search: p.orderNo } }))
+        },
+        async submitPo(lines) {
+            this.poSaving = true
+            try {
+                const r = await createOrders(lines)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.loadPoLines(this.dispatchRecord)
+                const made = (r.orderNos || []).join(', ')
+                const skipped = (r.skipped || []).map(s => `${s.sku || s.customerSku} (${s.orderNo})`).join(', ')
+                if (r.created) this.$message.success(`${r.created} purchase order line${r.created === 1 ? '' : 's'} created: ${made}`)
+                if (skipped) this.$message.info(`Already on an open purchase order line: ${skipped}`)
+                if (!r.created && !skipped) this.$message.info('Nothing created')
+            } catch (e) {
+                this.$message.error((e.response && e.response.data && e.response.data.message) || e.message || 'Failed to create the purchase order line')
+            } finally {
+                this.poSaving = false
+            }
+        },
+        async createPoLine(line) {
+            const remaining = this.remainingOf(line)
+            const rec = this.dispatchRecord || {}
+            let qty
+            try {
+                const { value } = await this.$prompt(
+                    `${line.imbSku} — ${line.description || ''}${this.isOscarName(rec.customerName) ? '\nMarked for OSCAR (Oscar Mobile labels).' : ''}`,
+                    'Create purchase order line',
+                    { inputValue: String(remaining), inputPlaceholder: 'Quantity', inputPattern: /^[1-9]\d*$/, inputErrorMessage: 'Enter a whole number above 0', confirmButtonText: 'Create', cancelButtonText: 'Cancel' }
+                )
+                qty = Number(value)
+            } catch (e) { return }
+            await this.submitPo([this.poPayload(line, qty)])
+        },
+        async createPoForRemaining() {
+            const rec = this.dispatchRecord || {}
+            const lines = (rec.lineItems || []).filter(l => this.remainingOf(l) > 0 && String(l.imbSku || '').trim())
+            const unmapped = (rec.lineItems || []).filter(l => this.remainingOf(l) > 0 && !String(l.imbSku || '').trim()).length
+            if (!lines.length) { this.$message.info(unmapped ? 'The remaining lines have no iMobile SKU yet — map them first.' : 'Nothing remaining.'); return }
+            const units = lines.reduce((t, l) => t + this.remainingOf(l), 0)
+            try {
+                await this.$confirm(
+                    `Create ${lines.length} purchase order line${lines.length === 1 ? '' : 's'} (${units} units) for what is still owed on ${rec.invoiceNumber || 'this record'}?${this.isOscarName(rec.customerName) ? ' They will be marked for OSCAR.' : ''}${unmapped ? ` ${unmapped} line${unmapped === 1 ? '' : 's'} without an iMobile SKU will be left out.` : ''}`,
+                    'Create PO for Remaining', { confirmButtonText: 'Create', cancelButtonText: 'Cancel', type: 'info' }
+                )
+            } catch (e) { return }
+            await this.submitPo(lines.map(l => this.poPayload(l, this.remainingOf(l))))
         },
         // ── Rename the record title from the dialog header ────────────
         startTitleEdit() {
@@ -1856,4 +1978,12 @@ export default {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .od-sku-suggestions .sku-suggestion-sku { color: #909399; font-size: 12px; }
+/* the purchase order lines under a dispatch line's Remaining figure (2026-10-14) */
+.od-po { display: inline-block; margin-top: 3px; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 8px; cursor: pointer; white-space: nowrap; color: #606266; background: #f4f4f5; }
+.od-po:hover { filter: brightness(.95); }
+.od-po-pending, .od-po-toConfirm, .od-po-shortage { color: #e6a23c; background: #fdf6ec; }
+.od-po-ordered { color: #409eff; background: #ecf5ff; }
+.od-po-shipped { color: #8e44ad; background: #f5eefa; }
+.od-po-received { color: #67c23a; background: #f0f9eb; }
+.od-po-cancelled { color: #909399; background: #f4f4f5; text-decoration: line-through; }
 </style>

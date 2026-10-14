@@ -117,6 +117,10 @@ export function renameInflowDispatchUpload(id, data) {
 export function setInflowDispatchCustomer(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/customer`, method: 'post', data })
 }
+// The Spare Parts Purchase lines raised from a dispatch record (2026-10-14)
+export function getInflowDispatchPoLines(id) {
+  return request({ url: `/inflow/dispatch/${id}/po-lines`, method: 'get' })
+}
 // Oscar Mobile return-code prefix (supplier cards print SS-<prefix>-<barcode>)
 export function setInflowDispatchReturnCode(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/return-code`, method: 'post', data })

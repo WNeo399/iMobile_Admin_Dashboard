@@ -673,7 +673,7 @@
         <el-dialog :title="labelTitle" :visible.sync="labelVisible" :width="phone ? '96%' : '560px'" append-to-body top="5vh" @closed="cleanupLabels">
             <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
                  printer whose label stock runs the other way; remembered. -->
-            <div class="label-orient">
+            <div v-if="!labelOscar" class="label-orient">
                 <span>{{ $tp('Orientation') }}</span>
                 <el-radio-group v-model="labelOrientation" size="mini" @change="onLabelOrientation">
                     <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
@@ -772,6 +772,7 @@ import BarcodeScanner from './components/BarcodeScanner'
 import * as XLSX from 'xlsx-js-style'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
+import { appendOscarLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
 
@@ -803,6 +804,7 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
+            labelOscar: false, // the preview holds only Oscar's fixed-size labels
             labelSize: getLabelSize(),
             LABEL_SIZES,
             // a phone-width window (user ask 2026-10-13: batches are created on
@@ -1681,7 +1683,18 @@ export default {
             }
         },
         // Label names without Device Brand / Series, looked up first.
+        // a line ordered for Oscar Mobile prints the Order Dispatch label set
+        oscarArgs(l) {
+            return { record: { faultyCodePrefix: l.oscarPrefix || '' }, line: { sku: l.customerSku || l.sku, description: l.customerDescription || l.productName } }
+        },
         async printLineLabels(line) {
+            if (line.forCustomer === 'OSCAR') {
+                if (!line.oscarPrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
+                this.labelOscar = true
+                this.showLabels(() => appendOscarLabelsToDoc(null, this.oscarArgs(line), 1), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — OSCAR · ' + (line.customerSku || line.sku))
+                return
+            }
+            this.labelOscar = false
             const [named] = await withLabelNames([line])
             this.showLabels(() => buildSppLineLabelsPdf(named), sppLabelFileName(this.view, line), this.$tp('Labels') + ' — ' + (line.sku || line.productName))
         },
@@ -1689,7 +1702,16 @@ export default {
             const n = sppLabelCount(batch)
             if (!n) return
             const named = { ...batch, lines: await withLabelNames(batch.lines) }
-            this.showLabels(() => buildSppBatchLabelsPdf(named), sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
+            // Oscar's lines go on their own 100×50 pages after the ordinary labels
+            const oscar = named.lines.filter(l => l.forCustomer === 'OSCAR')
+            const rest = named.lines.filter(l => l.forCustomer !== 'OSCAR')
+            this.labelOscar = !rest.length // only Oscar pages: nothing to re-lay out
+            const build = () => {
+                let doc = rest.length ? buildSppBatchLabelsPdf({ ...named, lines: rest }) : null
+                for (const l of oscar) doc = appendOscarLabelsToDoc(doc, this.oscarArgs(l), Math.max(1, Math.floor(Number(l.shippedQty)) || 1))
+                return doc
+            }
+            this.showLabels(build, sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')
         },
         // Portrait / landscape and 60 × 40 / 50 × 40: remembered for next
         // time, preview redrawn.

@@ -327,6 +327,22 @@ export function buildOscarCardLabelsPdf({ record, batch }) {
     return pages ? doc : null
 }
 
+// Oscar's label set onto an existing jsPDF doc (or a new one when `doc` is
+// null), one set per unit: item label ×2 and, once the record carries the
+// return-code prefix, the supplier card. The Spare Parts Purchase pages
+// use it for lines ordered for Oscar Mobile (2026-10-14).
+export function appendOscarLabelsToDoc(doc, { record, line }, units = 1) {
+    const pngCache = {}
+    const hasPrefix = !!String((record && record.faultyCodePrefix) || '').trim()
+    const page = () => { if (!doc) doc = newOscarDoc(); else doc.addPage([OSCAR_W, OSCAR_H], 'landscape') }
+    for (let u = 0; u < Math.max(1, Math.floor(Number(units)) || 1); u++) {
+        page(); drawOscarItemLabel(doc, line, pngCache)
+        page(); drawOscarItemLabel(doc, line, pngCache)
+        if (hasPrefix) { page(); drawOscarCardLabel(doc, oscarReturnCode(record, line), pngCache) }
+    }
+    return doc
+}
+
 export function itemLabelFileName(record, line) {
     const clean = (s) => String(s || '').replace(/[^a-z0-9-]/gi, '').slice(0, 30)
     return `label_${clean(record && record.invoiceNumber)}_${clean((line && line.sku) || (line && line.imbSku))}.pdf`

@@ -128,6 +128,8 @@
                             <!-- Special Order: the account that raised it (user 2026-10-08) -->
                             <span v-if="specialBy(s.row)" class="spp-for" :title="$tp('Created by')"><i class="el-icon-user" /> {{ specialBy(s.row) }}</span>
                             <span v-if="s.row.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
+                            <!-- raised from InFlow for a customer's order (2026-10-14); OSCAR prints Oscar's labels -->
+                            <span v-if="s.row.forCustomer" class="spp-tag-for" :title="s.row.dispatchRef && s.row.dispatchRef.invoiceNumber ? $tp('For {c} — {no}', { c: s.row.forCustomer, no: s.row.dispatchRef.invoiceNumber }) : s.row.forCustomer">{{ s.row.forCustomer }}</span>
                             <span v-if="s.row.images && s.row.images.length" class="spp-photos" :title="$tp('Photos')" @click="openDetail(s.row)">
                                 <i class="el-icon-picture" /> {{ s.row.images.length }}</span>
                             <!-- Small screens: the supplier and order date live here instead of their own columns. -->
@@ -585,7 +587,7 @@
         <el-dialog :title="labelTitle" :visible.sync="labelVisible" :width="dlgWidth('560px')" :custom-class="mDlg" append-to-body top="5vh" @closed="cleanupLabels">
             <!-- Portrait = the same label turned 90° on a 40 × 50 page, for a
                  printer whose label stock runs the other way; remembered. -->
-            <div class="label-orient">
+            <div v-if="!labelOscar" class="label-orient">
                 <span>{{ $tp('Orientation') }}</span>
                 <el-radio-group v-model="labelOrientation" size="mini" @change="onLabelOrientation">
                     <el-radio-button label="portrait">{{ $tp('Portrait') }}</el-radio-button>
@@ -640,6 +642,7 @@ const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: 
 const BOARD_OPEN = 200
 const BOARD_RECEIVED = 30
 import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
+import { appendOscarLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
 const ACTION_LABELS = {
@@ -726,6 +729,7 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
+            labelOscar: false, // the preview holds Oscar's fixed-size labels
             labelSize: getLabelSize(),
             LABEL_SIZES,
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
@@ -800,6 +804,9 @@ export default {
         }
     },
     created() {
+        // ?search=SP-xxxxx (from Order Dispatch, 2026-10-14): the line, whatever its status
+        const q = this.$route && this.$route.query && this.$route.query.search
+        if (q) { this.search = String(q); this.openOnly = false }
         this.load()
     },
     // Coming back to the tab (kept alive by the tags bar) — e.g. from Order
@@ -817,6 +824,8 @@ export default {
         window.removeEventListener('resize', this.onResize)
     },
     activated() {
+        const q = this.$route && this.$route.query && this.$route.query.search
+        if (q && q !== this.search) { this.search = String(q); this.openOnly = false }
         this.load()
         this.$nextTick(this.fitTable)
     },
@@ -1356,6 +1365,22 @@ export default {
         async printLineLabels(row) {
             this.cleanupLabels()
             try {
+                // ordered for Oscar Mobile: the Order Dispatch label set (item ×2 + supplier card)
+                if (row.forCustomer === 'OSCAR') {
+                    const dr = row.dispatchRef || {}
+                    const rec = { faultyCodePrefix: dr.faultyCodePrefix || '' }
+                    const oline = { sku: dr.customerSku || row.sku, description: dr.customerDescription || row.productName }
+                    if (!rec.faultyCodePrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
+                    const build = () => appendOscarLabelsToDoc(null, { record: rec, line: oline }, 1)
+                    this.labelBuild = build
+                    this.labelFileName = `oscar_${String(oline.sku || row.orderNo).replace(/[^a-z0-9-]/gi, '')}.pdf`
+                    this.labelUrl = build().output('bloburl') + '#toolbar=0'
+                    this.labelTitle = this.$tp('Labels') + ' — OSCAR · ' + (oline.sku || row.productName)
+                    this.labelOscar = true
+                    this.labelVisible = true
+                    return
+                }
+                this.labelOscar = false
                 const [line] = await withLabelNames([row])
                 const build = () => buildSppLineLabelsPdf(line, 1)
                 this.labelBuild = build
@@ -1620,6 +1645,7 @@ export default {
     border-radius: 50%; background: #f56c6c; color: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
 .spp-photo-add-box { width: 72px; height: 72px; border: 1px dashed #c0ccda; border-radius: 6px; display: flex; align-items: center; justify-content: center;
     color: #8c939d; font-size: 20px; background: #fbfdff; &:hover { border-color: #409eff; color: #409eff; } }
+.spp-tag-for { display: inline-block; vertical-align: middle; margin-left: 4px; color: #fff; background: #409eff; border-radius: 8px; padding: 0 5px; font-size: 10px; line-height: 15px; height: 15px; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
 .spp-tag-quote { display: inline-flex; align-items: center; gap: 2px; color: #e6a23c; background: #fdf6ec; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
 .spp-act-quote { color: #e6a23c; }
 .spp-tag-ok { display: inline-flex; align-items: center; gap: 2px; color: #67c23a; background: #f0f9eb; border-radius: 10px; padding: 0 6px; font-size: 11px; white-space: nowrap; }

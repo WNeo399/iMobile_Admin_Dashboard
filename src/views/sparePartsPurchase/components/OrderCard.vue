@@ -88,7 +88,7 @@ export default {
         },
         awaits() { return awaitsQuote(this.row) },
         price() { return this.row.unitPrice != null ? this.row.unitPrice : this.row.quotedPrice },
-        idLine() { const r = this.row; return [r.sku ? 'SKU ' + r.sku : '', r.category ? this.$tp(r.category) : '', r.supplier].filter(Boolean).join(' · ') },
+        idLine() { const r = this.row; return [r.forCustomer ? this.$tp('For {c}', { c: r.forCustomer }) : '', r.sku ? 'SKU ' + r.sku : '', r.category ? this.$tp(r.category) : '', r.supplier].filter(Boolean).join(' · ') },
         statusLabel() { const m = STATUS_META[this.row.status]; return m ? this.$tp(m.label) : this.row.status },
         statusStyle() { const m = STATUS_META[this.row.status]; return m ? { color: m.color, background: m.bg } : {} },
         // the step that moves the line on — the table's rules
