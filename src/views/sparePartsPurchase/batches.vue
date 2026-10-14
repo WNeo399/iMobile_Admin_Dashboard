@@ -186,8 +186,8 @@
                         <span v-if="unlinkedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unlinkedCount }) }}</span>
                         <span v-if="unmatchedCount - unlinkedCount"> · {{ $tp('{n} not in PO (new lines)', { n: unmatchedCount - unlinkedCount }) }}</span>
                     </div>
-                    <div v-if="!createForm.lines.length" class="spb-scanlist-empty">{{ $tp('Scanned lines show here') }}</div>
-                    <div v-for="(l, i) in createForm.lines" :key="'s-' + (l.orderId || l.sku) + '-' + i" :class="['spb-scanrow', { hit: isLastScan(l), bad: l.unmatched }]">
+                    <div v-if="!scanRows.length" class="spb-scanlist-empty">{{ $tp('Scanned lines show here') }}</div>
+                    <div v-for="(l, i) in scanRows" :key="'s-' + (l.orderId || l.key || l.sku) + '-' + i" :class="['spb-scanrow', { hit: isLastScan(l), bad: l.unmatched }]">
                         <div class="spb-scanrow-main">
                             <div class="spb-pname">{{ l.productName || l.sku }}</div>
                             <div class="spb-dim">{{ l.sku || '—' }}<template v-if="l.unmatched"> · <span class="spb-warn">{{ unmatchedLabel(l) }}</span></template><template v-else> · {{ $tp('ordered {n}', { n: l.orderQty }) }}</template></div>
@@ -197,7 +197,7 @@
                             <b>{{ l.qty == null ? '—' : l.qty }}</b>
                             <el-button size="mini" icon="el-icon-plus" circle @click="bumpQty(l, 1)" />
                         </div>
-                        <el-button type="text" icon="el-icon-close" class="spb-del spb-scanrow-del" @click="createForm.lines.splice(i, 1)" />
+                        <el-button type="text" icon="el-icon-close" class="spb-del spb-scanrow-del" @click="removeLine(l)" />
                     </div>
                 </div>
             </barcode-scanner>
@@ -209,41 +209,11 @@
                         <div class="spb-lcard-main">
                             <div class="spb-pname">{{ l.productName || l.sku }}</div>
                             <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> ·
-                                <span v-if="l.unmatched" class="spb-warn">{{ unmatchedLabel(l) }}</span>
-                                <template v-else-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template></div>
+                                <template v-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template></div>
                         </div>
                         <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="createForm.lines.splice(i, 1)" />
                     </div>
-                    <!-- no order behind it (user ask 2026-10-14): pick the product from the
-                         register, the supplier, the price and the count — it ships as a new line -->
-                    <div v-if="l.unmatched" class="spb-lcard-grid">
-                        <div class="spb-lcard-f spb-lcard-wide">
-                            <label>{{ $tp('Product') }} *</label>
-                            <el-autocomplete v-model="l.productName" :fetch-suggestions="suggestProduct" :trigger-on-focus="false" :debounce="250"
-                                highlight-first-item value-key="name" size="small" style="width:100%" popper-class="spb-sug-popper"
-                                :placeholder="$tp('Search by SKU or product name')" @select="p => linkProduct(l, p)" @input="l.itemId = null">
-                                <template slot-scope="{ item }">
-                                    <div class="spb-sug"><div class="spb-sug-name">{{ item.name }}</div><div class="spb-dim">SKU {{ item.sku || '—' }} · {{ $tp(item.suggestedCategory) }}</div></div>
-                                </template>
-                            </el-autocomplete>
-                        </div>
-                        <div class="spb-lcard-f spb-lcard-wide">
-                            <label>{{ $tp('Supplier') }} *</label>
-                            <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Select')" style="width:100%">
-                                <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
-                            </el-select>
-                        </div>
-                        <div class="spb-lcard-f">
-                            <label>{{ $tp('Unit Price') }} (¥)</label>
-                            <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" style="width:100%" :placeholder="$tp('to fill')" />
-                            <div class="spb-dim">{{ $tp('required to ship') }}</div>
-                        </div>
-                        <div class="spb-lcard-f">
-                            <label>{{ $tp('Shipped Qty') }} *</label>
-                            <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" style="width:100%" />
-                        </div>
-                    </div>
-                    <div v-else class="spb-lcard-grid">
+                    <div class="spb-lcard-grid">
                         <div v-if="l.status === 'pending'" class="spb-lcard-f spb-lcard-wide">
                             <label>{{ $tp('Supplier') }} *</label>
                             <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Select')" style="width:100%">
@@ -270,21 +240,13 @@
                 <!-- the name wraps to at most 2 lines; hover for all of it -->
                 <el-table-column :label="$tp('Product')" min-width="240">
                     <template slot-scope="s">
-                        <!-- a line with no order behind it: the product is picked from the register -->
-                        <el-autocomplete v-if="s.row.unmatched" v-model="s.row.productName" :fetch-suggestions="suggestProduct" :trigger-on-focus="false" :debounce="250"
-                            highlight-first-item value-key="name" size="mini" style="width:100%" popper-class="spb-sug-popper"
-                            :placeholder="$tp('Search by SKU or product name')" @select="p => linkProduct(s.row, p)" @input="s.row.itemId = null">
-                            <template slot-scope="{ item }">
-                                <div class="spb-sug"><div class="spb-sug-name">{{ item.name }}</div><div class="spb-dim">SKU {{ item.sku || '—' }} · {{ $tp(item.suggestedCategory) }}</div></div>
-                            </template>
-                        </el-autocomplete>
-                        <div v-else class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
+                        <div class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
                         <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Supplier')" width="150" align="center">
                     <template slot-scope="s">
-                        <el-select v-if="s.row.status === 'pending' || s.row.unmatched" v-model="s.row.supplier" size="mini" filterable allow-create
+                        <el-select v-if="s.row.status === 'pending'" v-model="s.row.supplier" size="mini" filterable allow-create
                             default-first-option :placeholder="$tp('Select')" style="width:130px">
                             <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
                         </el-select>
@@ -293,8 +255,7 @@
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered')" width="110" align="center">
                     <template slot-scope="s">
-                        <el-tag v-if="s.row.unmatched" size="mini" :type="s.row.itemId ? 'warning' : 'danger'" effect="plain">{{ unmatchedLabel(s.row) }}</el-tag>
-                        <el-tag v-else-if="s.row.status === 'pending'" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
+                        <el-tag v-if="s.row.status === 'pending'" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
                         <template v-else>{{ fmtDay(s.row.orderedAt) }}</template>
                     </template>
                 </el-table-column>
@@ -308,12 +269,12 @@
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered Qty')" width="90" align="center">
-                    <template slot-scope="s">{{ s.row.unmatched ? '—' : s.row.orderQty }}</template>
+                    <template slot-scope="s">{{ s.row.orderQty }}</template>
                 </el-table-column>
                 <el-table-column :label="$tp('Shipped Qty')" width="120" align="center">
                     <template slot-scope="s">
                         <el-input-number v-model="s.row.qty" size="mini" :min="1" :controls="false" style="width:76px"
-                            :placeholder="s.row.orderQty == null ? '' : String(s.row.orderQty)" :class="{ 'spb-short': s.row.qty != null && s.row.qty < s.row.orderQty }" />
+                            :placeholder="String(s.row.orderQty)" :class="{ 'spb-short': s.row.qty != null && s.row.qty < s.row.orderQty }" />
                         <div v-if="s.row.qty != null && s.row.qty < s.row.orderQty" class="spb-short-note">{{ $tp('short {n} — the rest becomes a new line', { n: s.row.orderQty - s.row.qty }) }}</div>
                         <div v-else-if="s.row.qty == null" class="spb-dim">{{ $tp('type or scan') }}</div>
                     </template>
@@ -324,6 +285,42 @@
                     </template>
                 </el-table-column>
             </el-table>
+            <!-- ── Not in PO (user ask 2026-10-14): scans with no order behind them, in
+                 their own section — each linked to a register product (automatically
+                 when the SKU is known, else searched here), with supplier, price and
+                 count; every one ships as a new SP- line. "New line" starts one by hand. ── -->
+            <!-- shown only while a scanned line has no order (user 2026-10-14) -->
+            <div v-if="createForm.extra.length" class="spb-special spb-extra">
+                <div class="spb-special-head">
+                    <b><i class="el-icon-warning-outline" /> {{ $tp('Not in PO') }}</b>
+                    <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.extra.length }) }}<span v-if="unlinkedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unlinkedCount }) }}</span></span>
+                    <span class="spb-spacer" />
+                    <el-button size="mini" type="primary" plain icon="el-icon-plus" @click="addExtraBlank">{{ $tp('New line') }}</el-button>
+                </div>
+                <div v-if="!createForm.extra.length" class="spb-dim spb-special-empty">{{ $tp('Scanned items with no order behind them land here') }}</div>
+                <div v-else class="spb-special-lines">
+                    <div v-for="(l, i) in createForm.extra" :key="l.key" :class="['spb-slrow', { 'spb-slrow-bad': !l.itemId }]">
+                        <img v-if="l.imageUrl" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
+                        <div class="spb-slrow-main">
+                            <!-- the product as text; "Choose product" beside the label opens the search for this line -->
+                            <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
+                            <div class="spb-dim spb-slrow-sub">
+                                <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
+                                <span v-else class="spb-warn"><template v-if="l.sku">{{ $tp('Scanned {sku}', { sku: l.sku }) }} · </template>{{ $tp('Not in Zoho') }}</span>
+                                <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
+                                <!-- a SKU Zoho does not know can become a Special Order instead -->
+                                <el-button v-if="!l.itemId" type="text" size="mini" icon="el-icon-star-off" class="spb-slrow-act" @click="toSpecial(l)">{{ $tp('Mark as Special Order') }}</el-button>
+                            </div>
+                        </div>
+                        <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Supplier')" class="spb-slrow-sup">
+                            <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
+                        </el-select>
+                        <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" :placeholder="$tp('Unit Price') + ' ¥'" class="spb-slrow-num" />
+                        <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" :placeholder="$tp('Qty')" class="spb-slrow-num" />
+                        <el-button type="text" icon="el-icon-close" class="spb-del" @click="createForm.extra.splice(i, 1)" />
+                    </div>
+                </div>
+            </div>
             <!-- ── Special Orders (user ask 2026-10-14): their own section — picked
                  from the open Special Order lines, or typed in here as new lines.
                  They have no Zoho item: on the PO every one goes under the shared
@@ -415,6 +412,28 @@
             </div>
         </el-dialog>
 
+        <!-- ── Choose product (2026-10-14): the register search for one not-in-PO
+             line; the pick links the line (it takes the item's SKU). ── -->
+        <el-dialog :visible.sync="productPickVisible" width="560px" append-to-body top="12vh" :fullscreen="phone" :custom-class="dlgClass">
+            <div slot="title" class="spb-dlg-head"><i class="el-icon-search" /> {{ $tp('Choose product') }}</div>
+            <div v-if="productPickLine && productPickLine.sku" class="spb-dim spb-pick-for">{{ $tp('Scanned {sku}', { sku: productPickLine.sku }) }}<template v-if="productPickLine.productName"> · {{ productPickLine.productName }}</template></div>
+            <el-autocomplete ref="productPickInput" v-model="productPickQuery" :fetch-suggestions="suggestProduct" :trigger-on-focus="false" :debounce="250"
+                highlight-first-item value-key="name" size="small" style="width:100%" popper-class="spb-sug-popper" clearable
+                :placeholder="$tp('Search by SKU or product name')" @select="pickProductFor">
+                <template slot-scope="{ item }">
+                    <div class="spb-sug">
+                        <img v-if="item.imageUrl" :src="item.imageUrl" class="spb-sug-img" alt="" loading="lazy">
+                        <div v-else class="spb-sug-img spb-sug-none"><i class="el-icon-picture-outline" /></div>
+                        <div class="spb-sug-main">
+                            <div class="spb-sug-name">{{ item.name }}</div>
+                            <div class="spb-dim">SKU {{ item.sku || '—' }} · {{ $tp(item.suggestedCategory) }}<span v-if="item.available != null"> · {{ $tp('Stock') }} {{ item.available }}</span></div>
+                        </div>
+                    </div>
+                </template>
+            </el-autocomplete>
+            <span slot="footer"><el-button size="small" @click="productPickVisible = false">{{ $tp('Cancel') }}</el-button></span>
+        </el-dialog>
+
         <!-- ── Pick open Special Orders (2026-10-14): the waiting Special Order
              lines not on this batch yet; a click picks one. ── -->
         <el-dialog :visible.sync="specialPickerVisible" width="640px" append-to-body top="6vh" :fullscreen="phone" :custom-class="dlgClass">
@@ -458,7 +477,7 @@
             </div>
             <div v-loading="pickerLoading" class="spb-picker">
                 <div class="spb-cats">
-                    <div v-for="c in CATEGORIES" :key="c" :class="['spb-cat', { on: pickerCat === c, empty: !pickerCatCount(c) }]"
+                    <div v-for="c in pickerCats" :key="c" :class="['spb-cat', { on: pickerCat === c, empty: !pickerCatCount(c) }]"
                         @click="pickerCat = c">
                         <span class="spb-cat-name">{{ $tp(c) }}</span>
                         <span v-if="pickedInCat(c)" class="spb-cat-sel"><i class="el-icon-check" />{{ pickedInCat(c) }}</span>
@@ -758,7 +777,11 @@ export default {
             lastScan: '', // the SKU just read — its line is highlighted in the camera view
             // create / draft
             createVisible: false,
-            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], special: [] },
+            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [] },
+            // "Choose product" for one not-in-PO line
+            productPickVisible: false,
+            productPickQuery: '',
+            productPickLine: null,
             // the Special Order picker
             specialPickerVisible: false,
             specialPickerLoading: false,
@@ -826,6 +849,10 @@ export default {
             for (const r of this.pickerFiltered) (by[this.pickerCatOf(r)] = by[this.pickerCatOf(r)] || []).push(r)
             return by
         },
+        // the picker's categories: Special Orders have their own section on the batch (2026-10-14)
+        pickerCats() {
+            return CATEGORIES.filter(c => c !== 'Special Order')
+        },
         pickerCatLines() {
             return this.pickerByCat[this.pickerCat] || []
         },
@@ -840,7 +867,11 @@ export default {
         },
         // every line on the form: the main list and the Special Order section
         allLines() {
-            return [...this.createForm.lines, ...this.createForm.special]
+            return [...this.createForm.lines, ...this.createForm.extra, ...this.createForm.special]
+        },
+        // the camera view: the not-in-PO lines first (they need attention), then the order lines
+        scanRows() {
+            return [...this.createForm.extra, ...this.createForm.lines]
         },
         specialPickedCount() {
             return Object.keys(this.specialPicked).length
@@ -858,12 +889,12 @@ export default {
         },
         // lines scanned with no order behind them (kept for adjustment)
         unmatchedCount() {
-            return this.createForm.lines.filter(l => l.unmatched).length
+            return this.createForm.extra.length
         },
         // the batch can ship: lines on it, every one priced, none unmatched
         // not-in-PO lines still without a product picked
         unlinkedCount() {
-            return this.createForm.lines.filter(l => l.unmatched && !l.itemId).length
+            return this.createForm.extra.filter(l => !l.itemId).length
         },
         canShip() {
             return this.allLines.length > 0 && !this.createAmount.unpriced && !this.unlinkedCount && !this.specialIncomplete
@@ -978,7 +1009,7 @@ export default {
         // ── Create ─────────────────────────────────────────────────
         async openCreate() {
             this.draftId = null
-            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], special: [] }
+            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [] }
             this.scan = ''
             this.createVisible = true
             this.loadSuppliers()
@@ -993,7 +1024,8 @@ export default {
                 note: row.note || '',
                 shippingCost: row.shippingCost != null ? row.shippingCost : undefined,
                 // Special Orders (picked or typed) live in their own section
-                lines: (row.lines || []).filter(l => !this.isSpecialLine(l)).map(l => this.formLine(l)),
+                lines: (row.lines || []).filter(l => !this.isSpecialLine(l) && !l.unmatched).map(l => this.formLine(l)),
+                extra: (row.lines || []).filter(l => l.unmatched).map(l => this.formLine(l)),
                 special: (row.lines || []).filter(l => this.isSpecialLine(l)).map(l => this.formLine(l))
             }
             this.scan = ''
@@ -1008,7 +1040,7 @@ export default {
                 note: this.createForm.note,
                 // null (not undefined) when blank, so clearing the field on a draft clears it there too
                 shippingCost: this.createForm.shippingCost == null ? null : this.createForm.shippingCost,
-                lines: this.allLines.map(l => (l.special
+                lines: this.allLines.filter(l => !(l.unmatched && !l.itemId && !l.sku && !(l.productName || '').trim())).map(l => (l.special
                     ? { special: true, key: l.key, productName: l.productName, requestedFor: l.requestedFor, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
                     : l.unmatched
                         ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
@@ -1265,8 +1297,44 @@ export default {
         },
         // the line just scanned goes to the top, where the camera view shows it
         toTop(line) {
-            const i = this.createForm.lines.indexOf(line)
-            if (i > 0) { this.createForm.lines.splice(i, 1); this.createForm.lines.unshift(line) }
+            for (const arr of [this.createForm.lines, this.createForm.extra]) {
+                const i = arr.indexOf(line)
+                if (i > 0) { arr.splice(i, 1); arr.unshift(line) }
+                if (i >= 0) return
+            }
+        },
+        // a line off whichever list it sits on
+        removeLine(line) {
+            for (const arr of [this.createForm.lines, this.createForm.extra, this.createForm.special]) {
+                const i = arr.indexOf(line)
+                if (i >= 0) { arr.splice(i, 1); return }
+            }
+        },
+        // the register search for one not-in-PO line
+        openProductPick(l) {
+            this.productPickLine = l
+            this.productPickQuery = ''
+            this.productPickVisible = true
+            this.$nextTick(() => { const i = this.$refs.productPickInput; if (i && i.focus) i.focus() })
+        },
+        pickProductFor(p) {
+            const l = this.productPickLine
+            if (!l || !p || !p.itemId) return
+            this.linkProduct(l, p)
+            this.productPickVisible = false
+            this.$message.success(`${p.sku ? p.sku + ' · ' : ''}${p.name || ''}`)
+        },
+        // a scanned SKU Zoho does not know: the line becomes a typed Special Order instead
+        toSpecial(l) {
+            const i = this.createForm.extra.indexOf(l)
+            if (i < 0) return
+            this.createForm.extra.splice(i, 1)
+            this.createForm.special.unshift(this.specialLine({ key: l.key, productName: (l.productName || '').trim() || l.sku || '', supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }))
+            this.$message.success(this.$tp('Moved to Special Order'))
+        },
+        // a not-in-PO line started by hand: the product is searched on the row
+        addExtraBlank() {
+            this.createForm.extra.unshift(this.unmatchedLine('', null, 1))
         },
         isLastScan(l) {
             return !!this.lastScan && String(l.sku || '').toLowerCase() === this.lastScan.toLowerCase()
@@ -1284,7 +1352,7 @@ export default {
             return {
                 orderId: null, unmatched: true, key: (src && src.key) || this.newKey(), reason: (src && src.reason === 'over') ? 'over' : 'none',
                 // the product behind it (the register's item when the SKU is known, or one picked by hand)
-                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null,
+                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null, imageUrl: (src && src.imageUrl) || '',
                 orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.suggestedCategory || src.classification)) || '',
                 status: 'unmatched', supplier: (src && src.supplier) || '', orderedAt: null,
                 unitPrice: src && src.unitPrice != null ? src.unitPrice : undefined, orderQty: null, qty
@@ -1297,13 +1365,13 @@ export default {
         // ships while a line still has no product.
         keepUnmatched(sku, r) {
             const same = l => l.unmatched && String(l.sku || '').toLowerCase() === sku.toLowerCase()
-            let line = this.createForm.lines.find(same)
+            let line = this.createForm.extra.find(same)
             if (line) {
                 line.qty = (line.qty || 0) + 1
                 this.toTop(line)
             } else {
                 line = this.unmatchedLine(sku, { ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none' }, 1)
-                this.createForm.lines.unshift(line)
+                this.createForm.extra.unshift(line)
             }
             this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}`, type: 'warning', duration: 2000 })
             // heard without looking: the camera's low double tone
@@ -1383,6 +1451,7 @@ export default {
             l.productName = p.name || ''
             l.category = p.suggestedCategory || p.classification || ''
             l.imageId = p.imageId || null
+            l.imageUrl = p.imageUrl || ''
         },
         // a camera read is one scan, through the same path as the scan box;
         // reads queue behind an in-flight lookup so none is lost
@@ -1412,7 +1481,7 @@ export default {
                 this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order')
                 // land on the first category that has something to pick
                 if (!this.pickerCat || !this.pickerCatCount(this.pickerCat)) {
-                    this.pickerCat = CATEGORIES.find(c => this.pickerCatCount(c)) || CATEGORIES[0]
+                    this.pickerCat = this.pickerCats.find(c => this.pickerCatCount(c)) || this.pickerCats[0]
                 }
             } catch (e) {
                 this.pickerRows = []
@@ -1705,12 +1774,23 @@ export default {
 .spb-special-head { display: flex; align-items: center; gap: 8px; font-size: 13px; i { color: #e6a23c; } }
 .spb-special-empty { padding: 6px 0 2px; font-size: 12px; }
 .spb-special-lines { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.spb-slrow { display: flex; align-items: center; gap: 8px; }
+.spb-slrow { display: flex; align-items: flex-start; gap: 8px; }
+.spb-slrow .spb-del { margin-top: 6px; }
+.spb-slrow-act { padding: 0; margin-left: 8px; }
+.spb-pick-for { margin-bottom: 8px; font-size: 12px; }
 .spb-slrow-main { flex: 1; min-width: 0; font-size: 13px; }
 .spb-slrow-sup { width: 150px; flex: 0 0 150px; }
 .spb-slrow-num { width: 110px; flex: 0 0 110px; }
 .spb-special-pick { max-height: 60vh; }
-.spb-sug { line-height: 1.3; padding: 4px 0; white-space: normal; .spb-sug-name { font-size: 13px; color: #303133; } }
+.spb-extra .spb-special-head i { color: #f56c6c; }
+.spb-slrow-sub { font-size: 12px; margin-top: 3px; }
+.spb-okt { color: #e6a23c; }
+.spb-slrow-bad ::v-deep .el-autocomplete .el-input__inner { border-color: #f56c6c; }
+.spb-sug { display: flex; align-items: center; gap: 8px; line-height: 1.3; padding: 4px 0; white-space: normal; .spb-sug-name { font-size: 13px; color: #303133; } }
+.spb-sug-img { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 4px; object-fit: contain; background: #f5f7fa; }
+.spb-sug-none { display: flex; align-items: center; justify-content: center; color: #c0c4cc; }
+.spb-sug-main { flex: 1; min-width: 0; }
+.spb-slrow-img { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 4px; object-fit: contain; background: #f5f7fa; border: 1px solid #ebeef5; }
 .spb-lcard-btn { justify-content: flex-end; }
 // the camera view's line list
 .spb-scanlist { margin-top: 10px; max-height: 42vh; overflow: auto; border-top: 1px solid #ebeef5; }
