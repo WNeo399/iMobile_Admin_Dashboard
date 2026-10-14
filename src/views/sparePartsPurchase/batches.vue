@@ -285,42 +285,6 @@
                     </template>
                 </el-table-column>
             </el-table>
-            <!-- ── Not in PO (user ask 2026-10-14): scans with no order behind them, in
-                 their own section — each linked to a register product (automatically
-                 when the SKU is known, else searched here), with supplier, price and
-                 count; every one ships as a new SP- line. "New line" starts one by hand. ── -->
-            <!-- shown only while a scanned line has no order (user 2026-10-14) -->
-            <div v-if="createForm.extra.length" class="spb-special spb-extra">
-                <div class="spb-special-head">
-                    <b><i class="el-icon-warning-outline" /> {{ $tp('Not in PO') }}</b>
-                    <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.extra.length }) }}<span v-if="unlinkedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unlinkedCount }) }}</span></span>
-                    <span class="spb-spacer" />
-                    <el-button size="mini" type="primary" plain icon="el-icon-plus" @click="addExtraBlank">{{ $tp('New line') }}</el-button>
-                </div>
-                <div v-if="!createForm.extra.length" class="spb-dim spb-special-empty">{{ $tp('Scanned items with no order behind them land here') }}</div>
-                <div v-else class="spb-special-lines">
-                    <div v-for="(l, i) in createForm.extra" :key="l.key" :class="['spb-slrow', { 'spb-slrow-bad': !l.itemId }]">
-                        <img v-if="l.imageUrl" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
-                        <div class="spb-slrow-main">
-                            <!-- the product as text; "Choose product" beside the label opens the search for this line -->
-                            <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
-                            <div class="spb-dim spb-slrow-sub">
-                                <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
-                                <span v-else class="spb-warn"><template v-if="l.sku">{{ $tp('Scanned {sku}', { sku: l.sku }) }} · </template>{{ $tp('Not in Zoho') }}</span>
-                                <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
-                                <!-- a SKU Zoho does not know can become a Special Order instead -->
-                                <el-button v-if="!l.itemId" type="text" size="mini" icon="el-icon-star-off" class="spb-slrow-act" @click="toSpecial(l)">{{ $tp('Mark as Special Order') }}</el-button>
-                            </div>
-                        </div>
-                        <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Supplier')" class="spb-slrow-sup">
-                            <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
-                        </el-select>
-                        <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" :placeholder="$tp('Unit Price') + ' ¥'" class="spb-slrow-num" />
-                        <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" :placeholder="$tp('Qty')" class="spb-slrow-num" />
-                        <el-button type="text" icon="el-icon-close" class="spb-del" @click="createForm.extra.splice(i, 1)" />
-                    </div>
-                </div>
-            </div>
             <!-- ── Special Orders (user ask 2026-10-14): their own section — picked
                  from the open Special Order lines, or typed in here as new lines.
                  They have no Zoho item: on the PO every one goes under the shared
@@ -351,6 +315,44 @@
                         <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" :placeholder="$tp('Unit Price') + ' ¥'" class="spb-slrow-num" />
                         <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" :placeholder="$tp('Qty')" class="spb-slrow-num" />
                         <el-button type="text" icon="el-icon-close" class="spb-del" @click="createForm.special.splice(i, 1)" />
+                    </div>
+                </div>
+            </div>
+            <!-- ── Not in PO (user ask 2026-10-14): scans with no order behind them, in
+                 their own section — each linked to a register product (automatically
+                 when the SKU is known, else searched here), with supplier, price and
+                 count; every one ships as a new SP- line. "New line" starts one by hand. ── -->
+            <div class="spb-special spb-extra">
+                <div class="spb-special-head">
+                    <b><i class="el-icon-warning-outline" /> {{ $tp('Not in PO') }}</b>
+                    <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.extra.length }) }}<span v-if="unlinkedCount" class="spb-warn"> · {{ $tp('{n} not on any order', { n: unlinkedCount }) }}</span></span>
+                    <span class="spb-spacer" />
+                    <el-button size="mini" type="primary" plain icon="el-icon-plus" @click="addExtraBlank">{{ $tp('New line') }}</el-button>
+                </div>
+                <div v-if="!createForm.extra.length" class="spb-dim spb-special-empty">{{ $tp('Scanned items with no order behind them land here') }}</div>
+                <div v-else class="spb-special-lines">
+                    <div v-for="(l, i) in createForm.extra" :key="l.key" :class="['spb-slrow', { 'spb-slrow-bad': !l.itemId }]">
+                        <img v-if="l.imageUrl" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
+                        <div class="spb-slrow-main">
+                            <!-- the product as text; "Choose product" beside the label opens the search for this line -->
+                            <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
+                            <div class="spb-dim spb-slrow-sub">
+                                <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
+                                <el-tag v-if="l.warranty" size="mini" type="success" class="spb-warranty-tag">{{ $tp('Warranty') }}</el-tag>
+                                <span v-else class="spb-warn"><template v-if="l.sku">{{ $tp('Scanned {sku}', { sku: l.sku }) }} · </template>{{ $tp('Not in Zoho') }}</span>
+                                <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
+                                <!-- a warranty replacement ships at no charge (user 2026-10-14) -->
+                                <el-button type="text" size="mini" :icon="l.warranty ? 'el-icon-circle-check' : 'el-icon-umbrella'" :class="['spb-slrow-act', { 'spb-act-on': l.warranty }]" @click="toggleWarranty(l)">{{ $tp('Warranty') }}</el-button>
+                                <!-- a SKU Zoho does not know can become a Special Order instead -->
+                                <el-button v-if="!l.itemId" type="text" size="mini" icon="el-icon-star-off" class="spb-slrow-act" @click="toSpecial(l)">{{ $tp('Special Order') }}</el-button>
+                            </div>
+                        </div>
+                        <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Supplier')" class="spb-slrow-sup">
+                            <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
+                        </el-select>
+                        <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" :disabled="l.warranty" :placeholder="$tp('Unit Price') + ' ¥'" class="spb-slrow-num" />
+                        <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" :placeholder="$tp('Qty')" class="spb-slrow-num" />
+                        <el-button type="text" icon="el-icon-close" class="spb-del" @click="createForm.extra.splice(i, 1)" />
                     </div>
                 </div>
             </div>
@@ -547,7 +549,7 @@
                     <div v-for="(l, i) in view.lines" :key="i" class="spb-lcard">
                         <div class="spb-lcard-head">
                             <div class="spb-lcard-main">
-                                <div class="spb-pname">{{ i + 1 }}. {{ l.productName }}</div>
+                                <div class="spb-pname">{{ i + 1 }}. {{ l.productName }} <el-tag v-if="l.warranty" size="mini" type="success">{{ $tp('Warranty') }}</el-tag></div>
                                 <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span><span v-if="l.supplier"> · {{ l.supplier }}</span></div>
                             </div>
                             <el-button type="text" icon="el-icon-printer" class="spb-lcard-del" :title="$tp('Print {n} label(s)', { n: Math.max(1, Math.floor(Number(l.shippedQty)) || 0) })" @click="printLineLabels(l)" />
@@ -565,7 +567,7 @@
                     <!-- the name wraps to at most 2 lines (user ask 2026-10-05); hover for all of it -->
                     <el-table-column :label="$tp('Product')" min-width="260">
                         <template slot-scope="s">
-                            <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }}</div>
+                            <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }} <el-tag v-if="s.row.warranty" size="mini" type="success">{{ $tp('Warranty') }}</el-tag></div>
                             <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
                         </template>
                     </el-table-column>
@@ -1043,7 +1045,7 @@ export default {
                 lines: this.allLines.filter(l => !(l.unmatched && !l.itemId && !l.sku && !(l.productName || '').trim())).map(l => (l.special
                     ? { special: true, key: l.key, productName: l.productName, requestedFor: l.requestedFor, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
                     : l.unmatched
-                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
+                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.warranty ? 0 : l.unitPrice, qty: l.qty, warranty: !!l.warranty }
                         : { orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
@@ -1324,6 +1326,12 @@ export default {
             this.productPickVisible = false
             this.$message.success(`${p.sku ? p.sku + ' · ' : ''}${p.name || ''}`)
         },
+        // a warranty replacement: no charge — the price locks at 0
+        toggleWarranty(l) {
+            l.warranty = !l.warranty
+            if (l.warranty) l.unitPrice = 0
+            else if (l.unitPrice === 0) l.unitPrice = undefined
+        },
         // a scanned SKU Zoho does not know: the line becomes a typed Special Order instead
         toSpecial(l) {
             const i = this.createForm.extra.indexOf(l)
@@ -1352,7 +1360,7 @@ export default {
             return {
                 orderId: null, unmatched: true, key: (src && src.key) || this.newKey(), reason: (src && src.reason === 'over') ? 'over' : 'none',
                 // the product behind it (the register's item when the SKU is known, or one picked by hand)
-                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null, imageUrl: (src && src.imageUrl) || '',
+                itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null, imageUrl: (src && src.imageUrl) || '', warranty: !!(src && src.warranty),
                 orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.suggestedCategory || src.classification)) || '',
                 status: 'unmatched', supplier: (src && src.supplier) || '', orderedAt: null,
                 unitPrice: src && src.unitPrice != null ? src.unitPrice : undefined, orderQty: null, qty
@@ -1778,6 +1786,8 @@ export default {
 .spb-slrow .spb-del { margin-top: 6px; }
 .spb-slrow-act { padding: 0; margin-left: 8px; }
 .spb-pick-for { margin-bottom: 8px; font-size: 12px; }
+.spb-warranty-tag { margin-left: 6px; }
+.spb-act-on { color: #67c23a; }
 .spb-slrow-main { flex: 1; min-width: 0; font-size: 13px; }
 .spb-slrow-sup { width: 150px; flex: 0 0 150px; }
 .spb-slrow-num { width: 110px; flex: 0 0 110px; }
