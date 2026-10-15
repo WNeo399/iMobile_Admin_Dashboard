@@ -1198,6 +1198,7 @@ export default {
     'Remainder of a short shipment': '少发订单的剩余部分',
     // purchase categories = the register classifications + two channels
     'Screen': '屏幕',
+    'MacBook Screen': 'MacBook 屏幕',
     'Housing': '总成',
     'Middle Frame': '中框',
     'BackCover': '后盖',

@@ -20,7 +20,7 @@ export const STATUS_META = STATUS_LIST.reduce((m, s) => ((m[s.value] = s), m), {
 // server on create) or one of two channels kept apart — sea-freight orders
 // and customer special orders. The tree shows every one, even when empty.
 // IC: chips split out of Small Parts › Connector & IC (user ask 2026-10-07)
-export const CLASSIFICATIONS = ['Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'IC', 'Tools', 'Other']
+export const CLASSIFICATIONS = ['Screen', 'MacBook Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'IC', 'Tools', 'Other']
 export const CHANNELS = ['海运', 'Special Order', 'New Product', 'Warranty']
 export const CATEGORIES = [...CLASSIFICATIONS, ...CHANNELS]
 export const isChannel = c => CHANNELS.includes(c)
