@@ -2265,6 +2265,12 @@ export default {
         isAdmin() {
             return ((this.$store.getters.roles) || []).includes('admin')
         },
+        // Who may review an unrepairable case's reason (mirrors the backend's
+        // UNREPAIRABLE_REVIEW_ROLES): the admin-side roles.
+        canReviewUnrepairable() {
+            const roles = (this.$store.getters.roles) || []
+            return roles.some(r => SQT_ADMIN_SIDE_ROLES.includes(r))
+        },
         // The shop-group filter is for the two admin-side roles — NOT the
         // shop-scoped ones (their scope already is their shops).
         canFilterGroups() {
@@ -2497,10 +2503,10 @@ export default {
                     a.push({ label: 'Mark Collected', icon: 'el-icon-finished', click: () => this.handleMarkCollected(row) })
                     break
                 case 'unrepairable':
-                    // Review replaced Mark BER (2026-09-10) — ADMIN only, and
-                    // role-gated rather than permission-gated because
-                    // TechElite's sqt:*:* would match any sqt permission.
-                    if (this.isAdmin) {
+                    // Review replaced Mark BER (2026-09-10) — the admin-side
+                    // roles (admin, iMobile Front Desk, TechElite Admin since
+                    // 2026-10-15); role-gated so shop roles never see it.
+                    if (this.canReviewUnrepairable) {
                         a.push({ label: 'Review Reason', icon: 'el-icon-view', click: () => this.handleReviewUnrepairable(row) })
                     }
                     break
