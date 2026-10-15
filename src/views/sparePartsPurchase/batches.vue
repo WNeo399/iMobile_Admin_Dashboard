@@ -1648,7 +1648,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.view = { ...this.view, tracking: data.tracking, note: data.note }
                 this.viewEdit = { tracking: data.tracking, note: data.note }
-                this.$message.success(this.$tp('Saved'))
+                this.sayZohoReference(r)
                 this.load()
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to save')))
@@ -1777,7 +1777,7 @@ export default {
             try {
                 const r = await updateBatch(this.editRow._id, this.editForm)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('Saved'))
+                this.sayZohoReference(r)
                 this.editVisible = false
                 this.load()
                 if (this.view && this.view._id === this.editRow._id) {
@@ -1788,6 +1788,19 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to save')))
             } finally {
                 this.editSaving = false
+            }
+        },
+        // Saved — and, when the tracking changed on a batch with a Zoho PO,
+        // whether the PO's Reference# followed (user 2026-10-15).
+        sayZohoReference(r) {
+            const z = r && r.zohoReference
+            if (!z) { this.$message.success(this.$tp('Saved')); return }
+            if (z.failed && z.failed.length) {
+                this.$message({ type: 'warning', duration: 6000, message: this.$tp('Saved — the Zoho PO Reference# was not updated: {msg}', { msg: z.failed.map(f => `${f.number}: ${f.message}`).join('; ') }) })
+            } else if (z.updated && z.updated.length) {
+                this.$message.success(this.$tp('Saved · Zoho PO Reference# set to {ref} ({pos})', { ref: z.reference, pos: z.updated.join(', ') }))
+            } else {
+                this.$message.success(this.$tp('Saved'))
             }
         },
         // ── Receive ────────────────────────────────────────────────

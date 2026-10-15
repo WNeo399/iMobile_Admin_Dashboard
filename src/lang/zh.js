@@ -1466,6 +1466,8 @@ export default {
     'None yet': '还没有',
     'text not written': '文字未撰写',
     '{n} drafts': '{n} 个草稿',
+    'Saved — the Zoho PO Reference# was not updated: {msg}': '已保存 — Zoho 采购单 Reference# 未能更新：{msg}',
+    'Saved · Zoho PO Reference# set to {ref} ({pos})': '已保存 · Zoho 采购单 Reference# 已设为 {ref}（{pos}）',
     'Blackbelt\'s report has no model — type it': 'Blackbelt 报告中没有机型 — 请输入',
     '{code} — Blackbelt found it but its report has no model, type the model': '{code} — Blackbelt 有记录但报告中没有机型，请输入机型',
     '— every device in this batch comes from this supplier': '— 本批次所有设备均来自该供应商',
