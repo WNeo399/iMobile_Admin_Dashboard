@@ -706,6 +706,12 @@
                 <el-form-item :label="$tp('Note')">
                     <el-input v-model="editForm.note" maxlength="200" clearable />
                 </el-form-item>
+                <!-- the shipping cost, while shipped and not yet received (2026-10-15): goes onto the Zoho PO's shipping line -->
+                <el-form-item v-if="editRow && editRow.status === 'shipped'" :label="$tp('Shipping cost') + ' (¥)'">
+                    <el-input-number v-model="editForm.shippingCost" size="small" :min="0" :precision="2" :controls="false"
+                        :placeholder="$tp('Optional')" style="width:100%" />
+                    <div class="spb-dim spb-edit-hint">{{ editRow.zoho && editRow.zoho.pos && editRow.zoho.pos.length ? $tp('Updates the shipping fee line on the Zoho purchase order') : $tp('No Zoho purchase order on this batch yet') }}</div>
+                </el-form-item>
             </el-form>
             <span slot="footer">
                 <el-button size="small" @click="editVisible = false">{{ $tp('Cancel') }}</el-button>
@@ -1769,19 +1775,22 @@ export default {
         // ── Edit ───────────────────────────────────────────────────
         openEdit(row) {
             this.editRow = row
-            this.editForm = { tracking: row.tracking || '', shippedAt: fmtDay(row.shippedAt), note: row.note || '' }
+            this.editForm = { tracking: row.tracking || '', shippedAt: fmtDay(row.shippedAt), note: row.note || '', shippingCost: row.shippingCost != null ? row.shippingCost : undefined }
             this.editVisible = true
         },
         async submitEdit() {
             this.editSaving = true
             try {
-                const r = await updateBatch(this.editRow._id, this.editForm)
+                // the shipping cost only rides along while the batch is shipped (not received)
+                const data = { tracking: this.editForm.tracking, shippedAt: this.editForm.shippedAt, note: this.editForm.note }
+                if (this.editRow.status === 'shipped') data.shippingCost = this.editForm.shippingCost == null ? null : this.editForm.shippingCost
+                const r = await updateBatch(this.editRow._id, data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.sayZohoReference(r)
                 this.editVisible = false
                 this.load()
                 if (this.view && this.view._id === this.editRow._id) {
-                    this.view = { ...this.view, ...this.editForm, shippedAt: this.editForm.shippedAt }
+                    this.view = { ...this.view, ...data, shippedAt: this.editForm.shippedAt, ...(data.shippingCost !== undefined ? { shippingCost: data.shippingCost } : {}) }
                     this.viewEdit = { tracking: this.editForm.tracking, note: this.editForm.note }
                 }
             } catch (e) {
@@ -1794,14 +1803,23 @@ export default {
         // whether the PO's Reference# followed (user 2026-10-15).
         sayZohoReference(r) {
             const z = r && r.zohoReference
-            if (!z) { this.$message.success(this.$tp('Saved')); return }
-            if (z.failed && z.failed.length) {
-                this.$message({ type: 'warning', duration: 6000, message: this.$tp('Saved — the Zoho PO Reference# was not updated: {msg}', { msg: z.failed.map(f => `${f.number}: ${f.message}`).join('; ') }) })
-            } else if (z.updated && z.updated.length) {
-                this.$message.success(this.$tp('Saved · Zoho PO Reference# set to {ref} ({pos})', { ref: z.reference, pos: z.updated.join(', ') }))
-            } else {
-                this.$message.success(this.$tp('Saved'))
+            const s = r && r.zohoShipping
+            const notes = []
+            let warn = false
+            if (z) {
+                if (z.failed && z.failed.length) { warn = true; notes.push(this.$tp('the Zoho PO Reference# was not updated: {msg}', { msg: z.failed.map(f => `${f.number}: ${f.message}`).join('; ') })) }
+                else if (z.updated && z.updated.length) notes.push(this.$tp('Zoho PO Reference# set to {ref} ({pos})', { ref: z.reference, pos: z.updated.join(', ') }))
             }
+            if (s) {
+                const changed = (s.updated || []).filter(u => !u.unchanged)
+                if (s.failed && s.failed.length) { warn = true; notes.push(this.$tp('the Zoho PO shipping fee was not updated: {msg}', { msg: s.failed.map(f => `${f.number}: ${f.message}`).join('; ') })) }
+                else if (changed.length) notes.push(s.shippingCost > 0 ? this.$tp('Zoho PO shipping fee set to ¥{n} ({pos})', { n: s.shippingCost, pos: changed.map(u => u.number).join(', ') }) : this.$tp('Zoho PO shipping fee removed ({pos})', { pos: changed.map(u => u.number).join(', ') }))
+                if (s.skipped && s.skipped.length) notes.push(this.$tp('no shipping line on {pos} (not a CNY vendor)', { pos: s.skipped.map(k => k.number).join(', ') }))
+            }
+            if (!notes.length) { this.$message.success(this.$tp('Saved')); return }
+            const message = this.$tp('Saved') + (warn ? ' — ' : ' · ') + notes.join(' · ')
+            if (warn) this.$message({ type: 'warning', duration: 7000, message })
+            else this.$message({ type: 'success', duration: 5000, message })
         },
         // ── Receive ────────────────────────────────────────────────
         openReceive(batch) {
@@ -1887,6 +1905,7 @@ export default {
 .spb-slrow .spb-del { margin-top: 6px; }
 .spb-slrow-act { padding: 0; margin-left: 8px; }
 .spb-pick-for { margin-bottom: 8px; font-size: 12px; }
+.spb-edit-hint { font-size: 12px; line-height: 1.4; margin-top: 4px; }
 .spb-warranty-tag { margin-left: 6px; }
 .spb-act-on { color: #67c23a; }
 .spb-slrow-main { flex: 1; min-width: 0; font-size: 13px; }
