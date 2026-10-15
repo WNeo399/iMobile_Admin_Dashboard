@@ -251,7 +251,7 @@
                                 <el-dropdown-item v-if="canEither && (s.row.status === 'shortage' || s.row.status === 'cancelled')"
                                     :command="() => reopen(s.row)" icon="el-icon-refresh-left">{{ $tp('Reopen') }}</el-dropdown-item>
                                 <!-- sent and received outside the system (user ask 2026-10-13): closes as received, no batch -->
-                                <el-dropdown-item v-if="can('spp:order:receive') && ['pending', 'toConfirm', 'ordered', 'shortage'].includes(s.row.status)"
+                                <el-dropdown-item v-if="(can('spp:order:receive') || can('spp:order:complete')) && ['pending', 'toConfirm', 'ordered', 'shortage'].includes(s.row.status)"
                                     :command="() => openComplete(s.row)" icon="el-icon-circle-check" divided>{{ $tp('Mark as completed') }}</el-dropdown-item>
                             </el-dropdown-menu>
                         </el-dropdown>

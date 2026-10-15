@@ -640,6 +640,13 @@
                             <a class="spb-link" :href="dhlLink(viewEdit.tracking)" target="_blank" rel="noopener" :title="$tp('Track on DHL')"><i class="el-icon-position" /></a>
                         </template>
                     </el-input>
+                    <!-- the shipping cost, while shipped and not yet received (2026-10-15):
+                         saved onto the Zoho PO's shipping line as well -->
+                    <div v-if="view.status === 'shipped'" class="spb-inline-ship">
+                        <span class="spb-inline-label">{{ $tp('Shipping cost') }} (¥)</span>
+                        <el-input-number v-model="viewEdit.shippingCost" size="small" :min="0" :precision="2" :controls="false"
+                            :disabled="!canEditView()" :placeholder="$tp('Optional')" />
+                    </div>
                     <el-input v-model="viewEdit.note" type="textarea" :rows="2" resize="none" maxlength="500" show-word-limit
                         :disabled="!canEditView()" :placeholder="$tp('Note')" />
                     <div v-if="canEditView()" class="spb-inline-actions">
@@ -710,7 +717,6 @@
                 <el-form-item v-if="editRow && editRow.status === 'shipped'" :label="$tp('Shipping cost') + ' (¥)'">
                     <el-input-number v-model="editForm.shippingCost" size="small" :min="0" :precision="2" :controls="false"
                         :placeholder="$tp('Optional')" style="width:100%" />
-                    <div class="spb-dim spb-edit-hint">{{ editRow.zoho && editRow.zoho.pos && editRow.zoho.pos.length ? $tp('Updates the shipping fee line on the Zoho purchase order') : $tp('No Zoho purchase order on this batch yet') }}</div>
                 </el-form-item>
             </el-form>
             <span slot="footer">
@@ -853,7 +859,7 @@ export default {
             // view / edit / receive
             viewVisible: false,
             // tracking / note edited inline in the view dialog
-            viewEdit: { tracking: '', note: '' },
+            viewEdit: { tracking: '', note: '', shippingCost: undefined },
             viewSaving: false,
             view: null,
             editVisible: false,
@@ -1631,7 +1637,7 @@ export default {
         // ── View / print ───────────────────────────────────────────
         openView(row) {
             this.view = row
-            this.viewEdit = { tracking: row.tracking || '', note: row.note || '' }
+            this.viewEdit = { tracking: row.tracking || '', note: row.note || '', shippingCost: row.shippingCost != null ? row.shippingCost : undefined }
             this.viewVisible = true
         },
         // ── Tracking / note, inline in the view dialog ─────────────
@@ -1639,10 +1645,13 @@ export default {
             return !!this.view && this.can('spp:batch:manage') && this.view.status !== 'cancelled'
         },
         viewDirty() {
-            return !!this.view && (this.viewEdit.tracking.trim() !== (this.view.tracking || '') || this.viewEdit.note.trim() !== (this.view.note || ''))
+            if (!this.view) return false
+            const num = (v) => (v == null || v === '' ? null : Number(v))
+            return this.viewEdit.tracking.trim() !== (this.view.tracking || '') || this.viewEdit.note.trim() !== (this.view.note || '') ||
+                (this.view.status === 'shipped' && num(this.viewEdit.shippingCost) !== num(this.view.shippingCost))
         },
         resetViewEdit() {
-            this.viewEdit = { tracking: this.view.tracking || '', note: this.view.note || '' }
+            this.viewEdit = { tracking: this.view.tracking || '', note: this.view.note || '', shippingCost: this.view.shippingCost != null ? this.view.shippingCost : undefined }
         },
         async saveViewEdit() {
             if (!this.view) return
@@ -1650,10 +1659,12 @@ export default {
             try {
                 const data = { tracking: this.viewEdit.tracking.trim(), note: this.viewEdit.note.trim() }
                 if (this.view.shippedAt) data.shippedAt = fmtDay(this.view.shippedAt)
+                // the shipping cost only while shipped (not received) — the backend refuses it otherwise
+                if (this.view.status === 'shipped') data.shippingCost = this.viewEdit.shippingCost == null || this.viewEdit.shippingCost === '' ? null : this.viewEdit.shippingCost
                 const r = await updateBatch(this.view._id, data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.view = { ...this.view, tracking: data.tracking, note: data.note }
-                this.viewEdit = { tracking: data.tracking, note: data.note }
+                this.view = { ...this.view, tracking: data.tracking, note: data.note, ...(data.shippingCost !== undefined ? { shippingCost: data.shippingCost } : {}) }
+                this.viewEdit = { tracking: data.tracking, note: data.note, shippingCost: data.shippingCost == null ? undefined : data.shippingCost }
                 this.sayZohoReference(r)
                 this.load()
             } catch (e) {
@@ -1791,7 +1802,7 @@ export default {
                 this.load()
                 if (this.view && this.view._id === this.editRow._id) {
                     this.view = { ...this.view, ...data, shippedAt: this.editForm.shippedAt, ...(data.shippingCost !== undefined ? { shippingCost: data.shippingCost } : {}) }
-                    this.viewEdit = { tracking: this.editForm.tracking, note: this.editForm.note }
+                    this.viewEdit = { tracking: this.editForm.tracking, note: this.editForm.note, shippingCost: data.shippingCost == null ? undefined : data.shippingCost }
                 }
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to save')))
@@ -1883,6 +1894,9 @@ export default {
 .spb-below { margin-top: 10px; }
 .spb-inline { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .spb-inline-tracking { max-width: 440px; }
+.spb-inline-ship { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.spb-inline-ship .el-input-number { width: 150px; }
+.spb-inline-label { color: #606266; }
 .spb-inline-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .spb-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
 .label-orient { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #909399; flex-wrap: wrap; }
