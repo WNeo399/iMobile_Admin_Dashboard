@@ -15,6 +15,9 @@
                     <el-button type="text" class="sb-link" @click="openDetail(s.row)">{{ s.row.batchNo }}</el-button>
                 </template>
             </el-table-column>
+            <el-table-column v-if="isSupplier" :label="$tp('Supplier')" min-width="120" show-overflow-tooltip>
+                <template slot-scope="s">{{ (s.row.supplier && s.row.supplier.name) || '—' }}</template>
+            </el-table-column>
             <el-table-column v-if="!isSupplier" :label="$tp('Stock Source')" min-width="120" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.stockSource || '—' }}</template>
             </el-table-column>
@@ -67,6 +70,15 @@
         <el-dialog :title="editing ? $tp('Edit {batch}', { batch: editing.batchNo }) : $tp('New Supply Batch')"
             :visible.sync="createVisible" :width="isSupplier ? '880px' : '820px'" top="6vh" :close-on-click-modal="false">
             <div class="sb-form">
+                <!-- One supplier for the whole batch (user 2026-10-15): every
+                     device aboard — now or added later — is set to it. -->
+                <div v-if="isSupplier" class="sb-field">
+                    <label>{{ $tp('Supplier') }} <span class="sb-dim">{{ $tp('— every device in this batch comes from this supplier') }}</span></label>
+                    <el-select v-model="form.supplierId" size="small" clearable filterable
+                        :placeholder="$tp('Pick a supplier — or leave blank to set it per line')" class="sb-sup-sel" @change="applyBatchSupplier">
+                        <el-option v-for="sp in mySuppliers" :key="sp._id" :label="sp.name" :value="sp._id" />
+                    </el-select>
+                </div>
                 <div class="sb-field">
                     <label>{{ $tp('Add devices') }} <span class="sb-dim">{{ $tp('— search your In Stock devices by IMEI / serial / model') }}</span></label>
                     <div class="sb-scan-row">
@@ -140,6 +152,16 @@
                                     <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
                                 </el-select>
                             </div>
+                            <!-- No model on the unit — Blackbelt's report had none, scanned in
+                                 or picked off the register (2026-10-15): the model is typed and,
+                                 for a register unit, written onto it as the batch is saved -->
+                            <div v-else-if="s.row.modelMissing && !s.row.bbChecking" class="sb-line-edit">
+                                <el-input :value="s.row.modelDraft" size="mini" :placeholder="$tp('Model *')" class="sble-model"
+                                    :title="$tp('Blackbelt\'s report has no model — type it')"
+                                    @input="v => s.row.modelDraft = v"
+                                    @change="commitModel(s.row)" />
+                                <span class="sb-dim">{{ [s.row.storage, s.row.color].filter(Boolean).join(' · ') }}</span>
+                            </div>
                             <template v-else>
                                 {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                             </template>
@@ -174,10 +196,11 @@
                         </template>
                     </el-table-column>
                     <!-- Which of the supplier's OWN suppliers the unit came
-                         from — shown and settable per line. -->
+                         from — shown and settable per line, unless the batch
+                         has its supplier (then every line follows it). -->
                     <el-table-column v-if="isSupplier" :label="$tp('Supplier')" width="118">
                         <template slot-scope="s">
-                            <el-select v-if="!s.row.__group" v-model="s.row.supplierId" size="mini"
+                            <el-select v-if="!s.row.__group" v-model="s.row.supplierId" size="mini" :disabled="!!form.supplierId"
                                 clearable filterable placeholder="—" class="sb-full">
                                 <el-option v-for="sp in mySuppliers" :key="sp._id" :label="sp.name" :value="sp._id" />
                             </el-select>
@@ -270,6 +293,10 @@
                     <div v-if="detail.status === 'Cancelled'" class="sb-meta-row">
                         <label>{{ $tp('Cancelled') }}</label>
                         <div>{{ formatDateTime(detail.cancelledAt) }} <span v-if="detail.cancelledBy" class="sb-dim">· {{ detail.cancelledBy }}</span></div>
+                    </div>
+                    <div v-if="detail.supplier && detail.supplier.name" class="sb-meta-row">
+                        <label>{{ $tp('Supplier') }}</label>
+                        <div>{{ detail.supplier.name }}</div>
                     </div>
                     <div v-if="detail.tracking" class="sb-meta-row">
                         <label>{{ $tp('Tracking') }}</label>
@@ -374,7 +401,7 @@ export default {
             createVisible: false,
             creating: false,
             editing: null,
-            form: { notes: '', tracking: '', lines: [] },
+            form: { notes: '', tracking: '', supplierId: '', lines: [] },
             // Model groups folded shut, per dialog, by name.
             collapsedFormGroups: {},
             collapsedDetailGroups: {},
@@ -490,7 +517,7 @@ export default {
         openCreate() {
             this.editing = null
             this.crCurrency = 'AUD'
-            this.form = { notes: '', tracking: '', lines: [] }
+            this.form = { notes: '', tracking: '', supplierId: '', lines: [] }
             this.collapsedFormGroups = {}
             this.pickerSearch = ''
             this.pickerResults = []
@@ -556,16 +583,19 @@ export default {
             this.form = {
                 notes: batch.notes || '',
                 tracking: batch.tracking || '',
+                supplierId: (batch.supplier && String(batch.supplier.id)) || '',
                 lines: (batch.lines || []).map(l => {
                     const supplierId = (l.supplier && String(l.supplier.id)) || ''
                     // A supplier is served their own charge as `price`
                     // (never our cost) — reading costPrice here made every
                     // priced line look unpriced.
                     const figure = this.isSupplier ? l.price : l.costPrice
+                    const model = String(l.model || '').trim()
                     return {
                         deviceId: String(l.deviceId),
                         imei: l.imei,
-                        model: l.model || '',
+                        model,
+                        modelDraft: model, origModel: model, modelMissing: !model,
                         color: l.color || '',
                         storage: l.storage || '',
                         grade: l.grade || '',
@@ -628,6 +658,12 @@ export default {
             const i = this.form.lines.findIndex(l => l.imei === row.imei)
             if (i >= 0) this.form.lines.splice(i, 1)
         },
+        // The batch's supplier, onto every line aboard (user 2026-10-15);
+        // clearing it leaves the lines as they are, editable per line again.
+        applyBatchSupplier(v) {
+            if (!v) return
+            for (const l of this.form.lines) l.supplierId = v
+        },
         // ── downloads — the same grouped list, on paper or in a sheet ─
         downloadPdf() {
             try {
@@ -689,10 +725,11 @@ export default {
                 costPrice: undefined,
                 currency: 'AUD',
                 costMissing: false,
-                supplierId: '',
+                supplierId: this.form.supplierId || '',
                 origSupplierId: '',
                 bbChecking: true,
                 bbFound: false,
+                modelMissing: false, // Blackbelt found it, report has no model → typed
                 bb: {}
             }
             this.form.lines.push(line)
@@ -728,6 +765,8 @@ export default {
                     blackbeltStatus: (r && r.blackbeltStatus) || ''
                 }
                 line.bbFound = !!(r && r.found)
+                line.modelMissing = line.bbFound && !String(line.model || '').trim()
+                if (line.modelMissing) this.$message.warning(this.$tp('{code} — Blackbelt found it but its report has no model, type the model', { code }))
             } catch (e) {
                 // Lookup failing is not fatal — the line stays editable.
             } finally {
@@ -741,10 +780,13 @@ export default {
             if (this.isPicked(d)) return
             this.unfoldFor(d)
             const supplierId = (d.supplier && String(d.supplier.id)) || ''
+            const model = String(d.model || '').trim()
             this.form.lines.push({
                 deviceId: String(d._id),
                 imei: d.imei,
-                model: d.model || '',
+                model,
+                // no model on the register (Blackbelt's report had none): typed here, saved onto the unit
+                modelDraft: model, origModel: model, modelMissing: !model,
                 color: d.color || '',
                 storage: d.storage || '',
                 grade: d.grade || '',
@@ -754,7 +796,8 @@ export default {
                 // (written back to the device on save).
                 costMissing: d.costPrice == null,
                 origCost: d.costPrice == null ? undefined : d.costPrice,
-                supplierId,
+                // the batch's supplier wins over the unit's current one
+                supplierId: this.form.supplierId || supplierId,
                 origSupplierId: supplierId
             })
         },
@@ -766,7 +809,7 @@ export default {
             }
             // A model typed but never blurred still counts.
             for (const l of this.form.lines) {
-                if (l.isNew && !String(l.model || '').trim() && String(l.modelDraft || '').trim()) {
+                if ((l.isNew || l.modelMissing) && !String(l.model || '').trim() && String(l.modelDraft || '').trim()) {
                     this.commitModel(l)
                 }
             }
@@ -815,12 +858,15 @@ export default {
                             u.currency = l.currency
                         }
                         if (l.supplierId !== l.origSupplierId) u.supplierId = l.supplierId
+                        // a model typed for a unit that had none
+                        if (l.modelMissing && String(l.model || '').trim() && l.model !== l.origModel) u.model = String(l.model).trim()
                         return u
                     })
-                    .filter(u => u.costPrice !== undefined || u.supplierId !== undefined)
+                    .filter(u => u.costPrice !== undefined || u.supplierId !== undefined || u.model !== undefined)
                 const payload = {
                     notes: this.form.notes,
                     tracking: this.form.tracking,
+                    ...(this.isSupplier ? { supplierId: this.form.supplierId || '' } : {}),
                     deviceIds: this.form.lines.map(l => l.deviceId),
                     deviceUpdates
                 }
@@ -935,6 +981,7 @@ export default {
 .sb-scan-row { display: flex; align-items: center; gap: 8px; }
 .sb-scan-input { flex: 1; min-width: 0; }
 .sb-cur-label { font-size: 12px; color: #909399; white-space: nowrap; }
+.sb-sup-sel { width: 100%; max-width: 360px; }
 .sb-full { width: 100%; }
 .sb-group { font-size: 12px; font-weight: 700; color: #303133; white-space: nowrap; }
 .sb-group-recv { color: #67c23a; font-weight: 600; }

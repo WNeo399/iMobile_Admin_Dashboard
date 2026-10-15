@@ -75,8 +75,12 @@
                     <div class="rs-serial">{{ s.row.serialNumber || '—' }}</div>
                 </template>
             </el-table-column>
-            <el-table-column prop="model" :label="$tp('Model')" min-width="170" show-overflow-tooltip>
-                <template slot-scope="s">{{ s.row.model || '—' }}</template>
+            <el-table-column prop="model" :label="$tp('Model')" min-width="170">
+                <template slot-scope="s">
+                    <div class="rs-model" :title="s.row.model || ''">{{ s.row.model || '—' }}</div>
+                    <!-- the device's note, under the model (user 2026-10-15) -->
+                    <div v-if="s.row.note" class="rs-note" :title="s.row.note">{{ s.row.note }}</div>
+                </template>
             </el-table-column>
             <el-table-column prop="color" :label="$tp('Colour')" min-width="110" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.color || '—' }}</template>
@@ -231,6 +235,12 @@
                                     default-first-option :placeholder="$tp('Storage')" class="bae-small">
                                     <el-option v-for="o in storageOptions" :key="o" :label="o" :value="o" />
                                 </el-select>
+                            </div>
+                            <!-- Blackbelt found it but its report has no model (2026-10-15) -->
+                            <div v-else-if="s.row.modelMissing && !s.row.bbChecking" class="rs-ba-edit">
+                                <el-input :value="s.row.model" size="mini" :placeholder="$tp('Model *')" class="bae-model"
+                                    :title="$tp('Blackbelt\'s report has no model — type it')" @input="v => s.row.model = v" />
+                                <span class="rs-dim">{{ [s.row.storage, s.row.color].filter(Boolean).join(' · ') }}</span>
                             </div>
                             <template v-else>
                                 {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
@@ -512,7 +522,7 @@
                         <!-- Without a Blackbelt report these are typed in the
                              Details form below instead of shown here. -->
                         <template v-if="!canEditIdentity">
-                            <div class="rs-ident-cell"><span>{{ $tp('Model') }}</span><b>{{ identModel || '—' }}</b></div>
+                            <div v-if="!canEditModel" class="rs-ident-cell"><span>{{ $tp('Model') }}</span><b>{{ identModel || '—' }}</b></div>
                             <div class="rs-ident-cell"><span>{{ $tp('Colour') }}</span><b>{{ form.color || '—' }}</b></div>
                             <div class="rs-ident-cell"><span>{{ $tp('Storage') }}</span><b>{{ form.storage || '—' }}</b></div>
                         </template>
@@ -543,13 +553,16 @@
                 <el-form label-width="120px" size="small" class="rs-form" @submit.native.prevent>
                     <!-- Blackbelt owns the identity when it has a report on the
                          unit; without one these are entered by hand. -->
+                    <!-- The model alone is typed when Blackbelt has the
+                         report but left the model out of it (2026-10-15). -->
+                    <el-form-item v-if="canEditModel" :label="$tp('Model')">
+                        <!-- Model keeps the casing it is typed in, so a
+                             hand-entered unit reads like a Blackbelt one
+                             ("iPhone 13") and groups with it. -->
+                        <el-input v-model="form.model" :placeholder="$tp('e.g. iPhone 13')" />
+                        <div v-if="!canEditIdentity" class="rs-dim rs-model-hint">{{ $tp('Blackbelt\'s report has no model — type it') }}</div>
+                    </el-form-item>
                     <template v-if="canEditIdentity">
-                        <el-form-item :label="$tp('Model')">
-                            <!-- Model keeps the casing it is typed in, so a
-                                 hand-entered unit reads like a Blackbelt one
-                                 ("iPhone 13") and groups with it. -->
-                            <el-input v-model="form.model" :placeholder="$tp('e.g. iPhone 13')" />
-                        </el-form-item>
                         <el-form-item :label="$tp('Colour')">
                             <el-input :value="form.color" :placeholder="$tp('e.g. BLACK')"
                                 @input="v => form.color = upper(v)" />
@@ -766,6 +779,9 @@ export default {
             // bulk-add list, form.supplierId to a single add.
             mySuppliers: [],
             mySuppliersLoaded: false,
+            // The add / edit dialog may type the model although Blackbelt has
+            // the report (its report had no model) — set on open / lookup.
+            modelUnlocked: false,
             // View dialog: the device's supplier pick (phone supplier only).
             viewSupplierId: '',
             supplierSaving: false,
@@ -837,6 +853,12 @@ export default {
         // gets model / colour / storage typed in by hand.
         canEditIdentity() {
             return this.editRow ? !this.editRow.blackbeltReportId : !this.form.blackbeltChecked
+        },
+        // The model alone is also typed when Blackbelt's report left it
+        // blank (2026-10-15) — decided when the dialog opens / the lookup
+        // answers (modelUnlocked), so typing doesn't lock it again.
+        canEditModel() {
+            return this.canEditIdentity || this.modelUnlocked
         },
         // Fixed scale, plus whatever an older record happens to carry so
         // editing it doesn't silently reassign the grade.
@@ -1015,6 +1037,7 @@ export default {
                 costPrice: undefined,
                 bbChecking: true,
                 bbFound: false,
+                modelMissing: false, // Blackbelt found it, report has no model → typed
                 err: '',
                 bb: {}
             }
@@ -1046,7 +1069,9 @@ export default {
                     blackbeltStatus: (r && r.blackbeltStatus) || ''
                 }
                 row.bbFound = !!(r && r.found)
-                if (row.bbFound) this.baSay('ok', code + ' — ' + (d.model || this.$tp('report found')))
+                row.modelMissing = row.bbFound && !String(row.model || '').trim()
+                if (row.modelMissing) this.baSay('warn', this.$tp('{code} — Blackbelt found it but its report has no model, type the model', { code }))
+                else if (row.bbFound) this.baSay('ok', code + ' — ' + (d.model || this.$tp('report found')))
                 else this.baSay('warn', this.$tp('{code} — no Blackbelt report, enter the details', { code }))
             } catch (e) {
                 this.baSay('error', this.$tp('Lookup failed for {code} — details can be typed in', { code }))
@@ -1309,6 +1334,8 @@ export default {
             // resolved rather than asking the user to look it up again.
             this.lookupState = row ? 'ok' : 'idle'
             this.lookupMessage = ''
+            // a recorded unit with a Blackbelt report but no model: the model may be typed
+            this.modelUnlocked = !!(row && row.blackbeltReportId && !String(row.model || '').trim())
             this.editVisible = true
             if (!row) {
                 this.loadMySuppliers()
@@ -1387,6 +1414,8 @@ export default {
                     this.lookupState = 'ok'
                     // A Blackbelt report IS the check — tick it off.
                     if (r.blackbeltChecked) this.form.blackbeltChecked = true
+                    // found, but the report carries no model: let it be typed
+                    this.modelUnlocked = !!(r.found && !String(this.form.model || '').trim())
                 }
             } catch (e) {
                 this.lookupState = 'error'
@@ -1658,6 +1687,7 @@ export default {
 .rs-ident-cell { display: flex; flex-direction: column; line-height: 1.4; min-width: 0; }
 .rs-ident-supsel { width: 100%; max-width: 170px; margin-top: 2px; }
 .rs-ident-cell span { font-size: 11px; color: #909399; }
+.rs-model-hint { font-size: 12px; line-height: 1.4; margin-top: 2px; }
 .rs-ident-cell b { font-size: 13px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-ident-warn { font-size: 12px; color: #E6A23C; margin-bottom: 8px; line-height: 1.5; }
 .rs-ident-ok { font-size: 12px; color: #67C23A; margin-bottom: 8px; line-height: 1.5; }
@@ -1736,4 +1766,7 @@ export default {
 .rs-done-no { font-size: 22px; font-weight: 700; color: #303133; }
 .rs-done-txt { margin-top: 4px; font-size: 14px; color: #303133; }
 .rs-done-dim { margin-top: 6px; font-size: 12px; color: #909399; }
+/* the model with the device's note under it (2026-10-15) */
+.rs-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-note { font-size: 12px; color: #909399; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
