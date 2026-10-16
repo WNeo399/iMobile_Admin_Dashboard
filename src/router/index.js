@@ -241,6 +241,20 @@ export const moduleRoutes = [
         }
       },
       {
+        // Spare parts with no product image in Zoho, from the register's
+        // imageId (null = no image); per-row upload to Zoho. Moved here from
+        // Spare Parts Purchase (2026-10-16); still gated spp:image:view /
+        // zoho:stock:view — the same accounts as listing:*:*.
+        path: "missing-images",
+        component: (resolve) => require(["@/views/zohoInventory/missingImages"], resolve),
+        name: "MissingImages",
+        meta: {
+          title: "Missing Images",
+          icon: "el-icon-picture-outline",
+          permissions: ["spp:image:view", "zoho:stock:view"]
+        }
+      },
+      {
         // The spare parts browser widget (moved here from iMobile Website
         // 2026-10-16): what it holds, its embed code and a preview. The
         // data is the stock register — nothing to manage.
@@ -363,12 +377,12 @@ export const moduleRoutes = [
         }
       },
       {
-        // Missing Images moved to Spare Parts Purchase (2026-09-28); the old
-        // address still lands there. Staff only: any permitted child — even a
-        // hidden one — keeps this group on the sidebar, and the parts
-        // supplier never had this address.
+        // Missing Images moved to Spare Parts Purchase (2026-09-28), then to
+        // iMobile Listing (2026-10-16); the old address still lands there.
+        // Staff only: any permitted child — even a hidden one — keeps this
+        // group on the sidebar, and the parts supplier never had this address.
         path: "/zohoInventory/missingImages",
-        redirect: "/sparePartsPurchase/missing-images",
+        redirect: "/listing/missing-images",
         hidden: true,
         meta: { permissions: ["zoho:stock:view"] }
       },
@@ -505,18 +519,12 @@ export const moduleRoutes = [
         }
       },
       {
-        // Spare parts with no product image in Zoho, from the register's
-        // imageId (null = no image); per-row upload to Zoho. iMobile staff
-        // and the parts supplier (spp:image:view) — moved here from iMobile
-        // Spare Parts on 2026-09-28.
+        // Missing Images moved on to iMobile Listing (2026-10-16); the old
+        // address still lands there.
         path: "missing-images",
-        component: (resolve) => require(["@/views/zohoInventory/missingImages"], resolve),
-        name: "MissingImages",
-        meta: {
-          title: "Missing Images",
-          icon: "el-icon-picture-outline",
-          permissions: ["spp:image:view", "zoho:stock:view"]
-        }
+        redirect: "/listing/missing-images",
+        hidden: true,
+        meta: { permissions: ["spp:image:view", "zoho:stock:view"] }
       }
     ]
   },

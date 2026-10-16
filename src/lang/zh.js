@@ -1530,6 +1530,7 @@ export default {
     'mixed': '不同',
     '{n} PO lines': '{n} 条采购行',
     '{n} more waiting line(s) of the same SKU joined their rows': '同 SKU 另有 {n} 条待发采购行已并入',
+    'save the draft to keep them': '保存草稿后生效',
     'Air — every line except 海运': '空运——除海运外的所有采购行',
     'Sea — the 海运 lines only': '海运——只含海运采购行',
     "{sku} is waiting on a {other} line ({no}) — it can't go on this {kind} batch": '{sku} 在{other}采购行（{no}）上等待——不能放进这个{kind}批次',

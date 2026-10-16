@@ -1196,6 +1196,36 @@ export default {
             this.scan = ''
             this.createVisible = true
             this.loadSuppliers()
+            this.joinWaitingLines(row._id)
+        },
+        // A draft saved before its SKU's rows were grouped (or before another
+        // PO line of the SKU was placed) holds only some of a row's waiting
+        // lines (user 2026-10-16: 13360 showed 20, not 20 + 50). The others
+        // join their rows as a scan or a pick brings them; the row's count is
+        // spread over them again, oldest first, and a joined line without a
+        // price takes the row's.
+        async joinWaitingLines(draftId) {
+            let r
+            try { r = await openLines(undefined, this.createForm.freight) } catch (e) { return }
+            // the dialog was closed or another draft opened meanwhile
+            if (!this.createVisible || this.draftId !== draftId) return
+            const keys = new Set(this.lineGroups.filter(g => g.sku).map(g => g.key))
+            const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
+            const join = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order' && o.category !== 'Warranty' && keys.has(this.groupKey(this.toLine(o))))
+            if (!join.length) return
+            const before = {}
+            for (const g of this.lineGroups) if (keys.has(g.key)) before[g.key] = { qty: g.qty, price: g.unitPrice }
+            for (const o of join) {
+                const line = this.toLine(o)
+                const was = before[this.groupKey(line)]
+                if (line.unitPrice == null && was && was.price != null) line.unitPrice = was.price
+                this.createForm.lines.push(line)
+            }
+            const touched = new Set(join.map(o => this.groupKey(this.toLine(o))))
+            for (const g of this.lineGroups) {
+                if (touched.has(g.key) && before[g.key] && before[g.key].qty != null) this.setGroupQty(g, before[g.key].qty)
+            }
+            this.$message({ type: 'info', duration: 5000, message: this.$tp('{n} more waiting line(s) of the same SKU joined their rows', { n: join.length }) + ' — ' + this.$tp('save the draft to keep them') })
         },
         // `ship`: only the order lines the count reaches go (the rest stay
         // open); a draft keeps them all, so its rows come back whole
