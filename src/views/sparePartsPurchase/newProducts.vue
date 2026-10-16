@@ -400,7 +400,7 @@ import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import { hasPermission } from '@/utils/permission'
 import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { createCategory } from '@/api/website'
-import { zohoLink } from './shared'
+import { zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter } from './shared'
 
 // the order the classifications are shown in after the needed parts
 const CLASS_ORDER = ['Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'IC', 'Tools', 'Accessory', 'Other']
@@ -415,8 +415,6 @@ const PRICE_LISTS = [
 const blankPrices = () => ({ platinum: undefined, vip: undefined, svip: undefined, wholesale: undefined })
 // photos on a new item — as on Missing Images (types / 7 MB: ImagePicker)
 const MAX_PHOTOS = 10
-// the Category picker: any level can be picked, the value is the id
-const CATEGORY_PROPS = { checkStrictly: true, emitPath: false, value: 'id', label: 'label', children: 'children' }
 // a brand's own short name in the store's category names ("MOTO G57")
 const BRAND_SHORT = { Motorola: ['moto'] }
 // the category list is read again after this long
@@ -629,17 +627,11 @@ export default {
         // which one prices the item: the part's own (from the server), or
         // the service-pack one when the quality / name says "Service Pack"
         priceFamily() {
-            const sp = /service pack/i
-            if (sp.test(this.createForm.quality || '') || sp.test(this.createForm.name || '')) return 'service-pack'
-            return (this.createPart && this.createPart.priceFamily) || 'other'
+            return priceFamilyOf({ quality: this.createForm.quality, name: this.createForm.name, family: this.createPart && this.createPart.priceFamily })
         },
         // the four lists for the typed cost (null without a cost)
         formulaPrices() {
-            const cost = Number(this.createForm.cost)
-            const f = this.priceFormulas[this.priceFamily]
-            if (!(cost > 0) || !f) return null
-            const at = ([add, times]) => Math.round((cost + add) * times * 100) / 100
-            return { platinum: at(f.platinum), vip: at(f.vip), svip: at(f.svip), wholesale: at(f.wholesale) }
+            return formulaPricesFor(this.createForm.cost, this.priceFormulas[this.priceFamily])
         },
         // some list differs from the formula (or is blank)
         formulaOff() {
@@ -647,31 +639,16 @@ export default {
         },
         // ── the store category ──
         categoryById() {
-            const map = {}
-            for (const c of this.categories) map[c.id] = c
-            return map
+            return categoryIndex(this.categories)
         },
         // the categories that can be picked: shown on the store — a hidden
         // one is left out with everything under it
         pickableCategories() {
-            const shown = c => {
-                for (let x = c, n = 0; x && n < 20; x = this.categoryById[x.parentId], n++) if (!x.visible) return false
-                return true
-            }
-            return this.categories.filter(shown)
+            return pickableOf(this.categories, this.categoryById)
         },
         // those as a tree for the picker (by the store's own order)
         categoryTree() {
-            const kids = {}
-            const sorted = [...this.pickableCategories].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
-            for (const c of sorted) (kids[c.parentId] = kids[c.parentId] || []).push(c)
-            const build = (parentId, seen) => (kids[parentId] || []).filter(c => !seen.has(c.id)).map(c => {
-                const node = { id: c.id, label: c.name }
-                const below = build(c.id, new Set([...seen, c.id]))
-                if (below.length) node.children = below
-                return node
-            })
-            return build('-1', new Set())
+            return categoryTreeOf(this.pickableCategories)
         },
         // may make store categories (the Categories page's right) — "Create a new one" in the link dialog
         canManageCategories() {
@@ -910,9 +887,7 @@ export default {
             }
         },
         // typing in the picker searches the whole path, any case
-        categoryFilter(node, keyword) {
-            return String(node.text || '').toLowerCase().includes(String(keyword || '').toLowerCase())
-        },
+        categoryFilter,
         // The category named after a model: names compared without the brand
         // ("Motorola" / "MOTO"), case or punctuation — "MOTO G57" for Moto G57;
         // the model's own name before its other names (Moto X40 → Edge 40 Pro).
@@ -951,9 +926,7 @@ export default {
         },
         // a category's path ("MORE › MOTO › MOTO G Series › MOTO G96") from the list
         categoryPath(id) {
-            const names = []
-            for (let c = this.categoryById[id], n = 0; c && n < 12; c = this.categoryById[c.parentId], n++) names.unshift(c.name)
-            return names.join(' › ')
+            return categoryPathIn(this.categoryById, id)
         },
         // a model's linked category as a path: the live list when it's here, else the one saved with the link
         categoryPathOf(row) {

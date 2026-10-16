@@ -84,7 +84,64 @@ export function batchAmount(lines, shippingCost, qtyOf = l => l.shippedQty) {
     return { goods: r2(goods), shipping: r2(shipping), total: r2(goods + shipping), unpriced }
 }
 
-export const dhlLink = t => `https://www.dhl.com/au-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encodeURIComponent(t)}`
+// ── Creating a Zoho item (New Products, and "Create in Zoho" on the Purchase
+// Order page) — 2026-10-16 ──
+// The pricing formula comes from the server (utils/priceRules PRICE_FORMULAS):
+// per family, per list, [added to the cost, multiplier].
+// The four lists for a cost (null without a cost or a formula).
+export function formulaPricesFor(cost, f) {
+    const c = Number(cost)
+    if (!(c > 0) || !f) return null
+    const at = ([add, times]) => Math.round((c + add) * times * 100) / 100
+    return { platinum: at(f.platinum), vip: at(f.vip), svip: at(f.svip), wholesale: at(f.wholesale) }
+}
+// Which formula prices an item — the server's priceRuleFamily: "Service Pack"
+// in the quality or name; else the classification's family; a part the
+// classification calls "other" is still a major part when its name says
+// screen / LCD / digitizer / housing / back cover / battery.
+export function priceFamilyOf({ quality, name, family }) {
+    const sp = /service pack/i
+    if (sp.test(quality || '') || sp.test(name || '')) return 'service-pack'
+    if (family && family !== 'other') return family
+    if (/housing|back ?cover|backcover|lcd|digitizer|\bscreen\b|battery/i.test(name || '')) return 'major-part'
+    return family || 'other'
+}
+// The store categories (Zoho Commerce, flat from the server) as the pickers
+// show them: hidden ones left out with everything under them, as a tree in
+// the store's own order for an el-cascader (CATEGORY_PROPS).
+export const CATEGORY_PROPS = { checkStrictly: true, emitPath: false, value: 'id', label: 'label', children: 'children' }
+export function categoryIndex(list) {
+    const map = {}
+    for (const c of list || []) map[c.id] = c
+    return map
+}
+export function pickableCategories(list, byId = categoryIndex(list)) {
+    return (list || []).filter(c => {
+        for (let x = c, n = 0; x && n < 20; x = byId[x.parentId], n++) if (!x.visible) return false
+        return true
+    })
+}
+export function categoryTreeOf(pickable) {
+    const kids = {}
+    for (const c of [...pickable].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))) (kids[c.parentId] = kids[c.parentId] || []).push(c)
+    const build = (parentId, seen) => (kids[parentId] || []).filter(c => !seen.has(c.id)).map(c => {
+        const node = { id: c.id, label: c.name }
+        const below = build(c.id, new Set([...seen, c.id]))
+        if (below.length) node.children = below
+        return node
+    })
+    return build('-1', new Set())
+}
+// "MORE › MOTO › MOTO G Series › MOTO G96"
+export function categoryPathIn(byId, id) {
+    const names = []
+    for (let c = byId[id], n = 0; c && n < 12; c = byId[c.parentId], n++) names.unshift(c.name)
+    return names.join(' › ')
+}
+// typing in a category picker searches the whole path, any case
+export const categoryFilter = (node, keyword) => String(node.text || '').toLowerCase().includes(String(keyword || '').toLowerCase())
+
+export const dhlLink = t =>`https://www.dhl.com/au-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encodeURIComponent(t)}`
 export const zohoLink = id => `https://inventory.zoho.com/app/746138234#/inventory/items/${id}`
 export const zohoPoLink = id => `https://inventory.zoho.com/app/746138234#/purchaseorders/${id}`
 

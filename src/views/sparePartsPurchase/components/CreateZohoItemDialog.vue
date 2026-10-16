@@ -48,11 +48,28 @@
                         </el-select>
                     </el-form-item>
                 </div>
+                <!-- the store category (2026-10-16): the New Products link of the
+                     first picked compatible model, or one picked here -->
+                <el-form-item>
+                    <span slot="label">{{ $tp('Category') }} <span class="czi-req">*</span>
+                        <el-tooltip :content="$tp('The online store category the item is filed under (Zoho Commerce — the same tree as Zoho Inventory).')" placement="top">
+                            <i class="el-icon-info czi-help" /></el-tooltip></span>
+                    <div class="czi-cat">
+                        <el-cascader v-model="form.categoryId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                            filterable clearable :placeholder="categoriesLoading && !categories.length ? $tp('Loading the categories…') : $tp('Pick the category')"
+                            class="czi-cat-pick" @change="categoryTouched = true" />
+                        <el-tooltip :content="$tp('Read the categories again from Zoho (after adding one on the Categories page)')" placement="top">
+                            <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
+                        </el-tooltip>
+                    </div>
+                    <div v-if="categoryFromLink" class="czi-hint"><i class="el-icon-collection-tag" /> {{ $tp('From the New Products link of {model}', { model: linkedModel.model }) }}</div>
+                    <div v-else-if="!form.categoryId && form.compatibleModels.length && !linkedModel" class="czi-hint">{{ $tp('None of the picked models is linked to a store category on New Products — pick one') }}</div>
+                </el-form-item>
 
                 <div class="czi-sec">{{ $tp('Zoho fields') }}</div>
                 <div class="czi-row">
                     <el-form-item :label="$tp('Classification')" class="czi-col" required>
-                        <el-select v-model="form.classification" filterable :placeholder="$tp('Pick one')" style="width:100%" @change="form.subClassification = ''">
+                        <el-select v-model="form.classification" filterable :placeholder="$tp('Pick one')" style="width:100%" @change="onClassification">
                             <el-option v-for="c in options.classifications" :key="c.value" :label="classLabel(c.value)" :value="c.value" />
                         </el-select>
                     </el-form-item>
@@ -94,17 +111,32 @@
                 <div class="czi-sec">{{ $tp('Prices') }}
                     <el-tooltip :content="$tp('The price lists are written to Zoho after the item is made; blank ones stay unset.')" placement="top">
                         <i class="el-icon-info czi-help" /></el-tooltip></div>
-                <div class="czi-prices">
+                <!-- the cost (Zoho's purchase price) beside the selling price; the
+                     four lists below are worked out from it with the formula -->
+                <div class="czi-cost">
+                    <div class="czi-price">
+                        <span class="czi-price-label">{{ $tp('Cost price') }} <span class="czi-req">*</span>
+                            <el-tooltip :content="$tp('Goes to Zoho as the purchase price. The four price lists are worked out from it with the pricing formula — they can still be changed.')" placement="top">
+                                <i class="el-icon-info czi-help" /></el-tooltip></span>
+                        <el-input-number v-model="form.cost" size="small" :min="0" :precision="2" :controls="false" class="czi-money"
+                            :placeholder="$tp('Required')" style="width:100%" @change="applyFormula(true)" />
+                    </div>
                     <div class="czi-price">
                         <span class="czi-price-label">{{ $tp('Selling price') }}
                             <el-tooltip :content="$tp('9999.99 is the usual placeholder until the price is set.')" placement="top">
                                 <i class="el-icon-info czi-help" /></el-tooltip></span>
                         <el-input-number v-model="form.rate" size="small" :min="0" :precision="2" :controls="false" class="czi-money" style="width:100%" />
                     </div>
+                    <el-button v-if="formulaOff" type="text" size="mini" icon="el-icon-refresh" class="czi-formula" @click="applyFormula(true)">{{ $tp('Use the formula prices') }}</el-button>
+                </div>
+                <div class="czi-prices">
                     <div v-for="p in options.priceLists" :key="p.key" class="czi-price">
                         <span class="czi-price-label">{{ p.label }}</span>
                         <el-input-number v-model="form.prices[p.key]" size="small" :min="0" :precision="2" :controls="false"
                             :placeholder="$tp('Not set')" class="czi-money" style="width:100%" />
+                        <!-- changed from (or blank against) the formula: its price, click to use it -->
+                        <span v-if="formulaPrices && offFormula(p.key)" class="czi-ref-price" :title="$tp('Use the formula price')"
+                            @click="form.prices[p.key] = formulaPrices[p.key]">{{ $tp('Formula') }} ${{ formulaPrices[p.key].toFixed(2) }}</span>
                     </div>
                 </div>
                 <div v-for="w in priceWarnings" :key="w" class="czi-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
@@ -127,11 +159,13 @@
 
 <script>
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
-import { getZohoItemOptions, createZohoItemForOrder, nextNewProductSku } from '@/api/sparePartsPurchase'
-import { zohoLink } from '../shared'
+import { getZohoItemOptions, getZohoItemCategories, createZohoItemForOrder, nextNewProductSku } from '@/api/sparePartsPurchase'
+import { zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryFilter } from '../shared'
 
 const CLASS_LABELS = { BackCover: 'Back Cover' }
 const blankPrices = () => ({ platinum: undefined, vip: undefined, svip: undefined, wholesale: undefined })
+// the category list is read again after this long
+const CATEGORIES_TTL = 10 * 60 * 1000
 
 export default {
     name: 'CreateZohoItemDialog',
@@ -143,11 +177,21 @@ export default {
     },
     data() {
         return {
-            options: { classifications: [], brands: [], qualities: [], priceLists: [], placeholderRate: 9999.99 },
+            options: { classifications: [], brands: [], qualities: [], priceLists: [], placeholderRate: 9999.99, priceFormulas: {}, priceFamilies: {} },
             optionsLoaded: false,
             optionsLoading: false,
             brandSeries: [],
             brandModels: [],
+            // the brand's New Products models' store categories, by the register's model names (lower case)
+            modelCategories: {},
+            // the store categories (Zoho Commerce, flat) and whether one was picked by hand
+            categories: [],
+            categoriesAt: 0,
+            categoriesLoading: false,
+            categoryTouched: false,
+            CATEGORY_PROPS,
+            // the prices the formula last filled in (a list still showing them is "untouched")
+            lastAuto: null,
             brandSeq: 0,
             brandLoading: false,
             form: this.blankForm(),
@@ -181,6 +225,35 @@ export default {
             const c = this.options.classifications.find(x => x.value === this.form.classification)
             return c ? c.subs : []
         },
+        // ── the pricing formula (the server's, as on New Products) ──
+        priceFamily() {
+            return priceFamilyOf({ quality: this.form.quality, name: this.form.name, family: (this.options.priceFamilies || {})[this.form.classification] })
+        },
+        formulaPrices() {
+            return formulaPricesFor(this.form.cost, (this.options.priceFormulas || {})[this.priceFamily])
+        },
+        // some list differs from the formula (or is blank)
+        formulaOff() {
+            return !!this.formulaPrices && this.options.priceLists.some(p => this.offFormula(p.key))
+        },
+        // ── the store category ──
+        categoryById() {
+            return categoryIndex(this.categories)
+        },
+        categoryTree() {
+            return categoryTreeOf(pickableOf(this.categories, this.categoryById))
+        },
+        // the first picked compatible model that New Products links to a store category
+        linkedModel() {
+            for (const m of this.form.compatibleModels || []) {
+                const x = this.modelCategories[String(m).toLowerCase()]
+                if (x) return x
+            }
+            return null
+        },
+        categoryFromLink() {
+            return !this.categoryTouched && !!this.linkedModel && this.form.categoryId === this.linkedModel.categoryId
+        },
         // the typed price lists against the tier order (advisory, as on Price
         // Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum)
         priceWarnings() {
@@ -192,6 +265,9 @@ export default {
             rule('svip', 'vip', 'SVIP', 'VIP')
             rule('wholesale', 'vip', 'Wholesale', 'VIP')
             if (!has('vip')) { rule('svip', 'platinum', 'SVIP', 'Platinum'); rule('wholesale', 'platinum', 'Wholesale', 'Platinum') }
+            // a list under the cost loses money
+            const cost = Number(this.form.cost)
+            if (cost > 0) for (const pl of this.options.priceLists) if (has(pl.key) && Number(p[pl.key]) < cost) out.push(this.$tp('{a} is below the cost', { a: pl.label }))
             return out
         },
         summary() {
@@ -199,18 +275,27 @@ export default {
             const sku = String(this.form.sku || '').trim()
             bits.push(sku ? this.$tp('SKU {sku}', { sku }) : (this.skuLoading ? this.$tp('Finding the next free SKU…') : this.$tp('No SKU yet')))
             if (this.files.length) bits.push(this.$tp('{n} photo(s)', { n: this.files.length }))
+            const cost = Number(this.form.cost)
+            if (cost > 0) bits.push(this.$tp('Cost {cost}', { cost: '$' + cost.toFixed(2) }))
             const prices = Object.values(this.form.prices || {}).filter(v => v != null && v !== '').length
             if (prices) bits.push(this.$tp('{n} price list(s)', { n: prices }))
+            const cat = this.categoryById[this.form.categoryId]
+            if (cat) bits.push(cat.name)
             return bits.join(' · ')
         }
     },
     watch: {
-        visible(v) { if (v) this.start() }
+        visible(v) { if (v) this.start() },
+        // the category follows the picked models' New Products link until one is picked by hand
+        linkedModel(x) {
+            if (!this.categoryTouched) this.form.categoryId = x ? x.categoryId : ''
+        }
     },
     methods: {
         blankForm() {
-            return { name: '', sku: '', quality: '', rate: 9999.99, prices: blankPrices(), classification: '', subClassification: '', deviceBrand: '', deviceSeries: [], compatibleModels: [] }
+            return { name: '', sku: '', quality: '', cost: undefined, categoryId: '', rate: 9999.99, prices: blankPrices(), classification: '', subClassification: '', deviceBrand: '', deviceSeries: [], compatibleModels: [] }
         },
+        categoryFilter,
         classLabel(c) { return this.$tp(CLASS_LABELS[c] || c) },
         msg(e, fallback) {
             return (e && e.response && e.response.data && e.response.data.message) || (e && e.message) || fallback
@@ -222,12 +307,53 @@ export default {
             this.appliedQuality = ''
             this.brandSeries = []
             this.brandModels = []
+            this.modelCategories = {}
+            this.categoryTouched = false
+            this.lastAuto = null
             const o = this.order || {}
             this.form = { ...this.blankForm(), rate: this.options.placeholderRate }
             this.files = (o.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
             this.loadSku()
+            if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) this.loadCategories()
             await this.loadOptions()
             this.form.rate = this.options.placeholderRate
+        },
+        async loadCategories(refresh) {
+            if (this.categoriesLoading) return
+            this.categoriesLoading = true
+            try {
+                const r = await getZohoItemCategories(refresh)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.categories = r.categories || []
+                this.categoriesAt = Date.now()
+            } catch (e) {
+                this.$message.warning(this.msg(e, this.$tp('Could not read the categories from Zoho Commerce')))
+            } finally {
+                this.categoriesLoading = false
+            }
+        },
+        // ── the pricing formula ──
+        // a list that isn't the formula's price (blank counts)
+        offFormula(key) {
+            const v = this.form.prices[key]
+            return v == null || v === '' || Math.abs(Number(v) - this.formulaPrices[key]) > 0.004
+        },
+        // Fill the four lists from the formula: always when asked (the cost
+        // typed, the button), otherwise only while no list was changed by hand
+        // since the formula last filled them.
+        applyFormula(force) {
+            const f = this.formulaPrices
+            if (!f) return
+            const p = this.form.prices || {}
+            const untouched = Object.keys(f).every(k => p[k] == null || p[k] === '' || (this.lastAuto && Number(p[k]) === this.lastAuto[k]))
+            if (!force && !untouched) return
+            this.form.prices = { ...f }
+            this.lastAuto = { ...f }
+        },
+        // another classification: its sub list starts again, and it may price with another formula
+        onClassification() {
+            this.form.subClassification = ''
+            this.applyFormula(false)
         },
         async loadOptions() {
             if (this.optionsLoaded) return
@@ -235,7 +361,10 @@ export default {
             try {
                 const r = await getZohoItemOptions({})
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.options = { classifications: r.classifications || [], brands: r.brands || [], qualities: r.qualities || [], priceLists: r.priceLists || [], placeholderRate: r.placeholderRate }
+                this.options = {
+                    classifications: r.classifications || [], brands: r.brands || [], qualities: r.qualities || [], priceLists: r.priceLists || [], placeholderRate: r.placeholderRate,
+                    priceFormulas: r.priceFormulas || {}, priceFamilies: r.priceFamilies || {}
+                }
                 this.optionsLoaded = true
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Could not load the Zoho field lists')))
@@ -249,6 +378,7 @@ export default {
             this.form.compatibleModels = []
             this.brandSeries = []
             this.brandModels = []
+            this.modelCategories = {}
             if (brand) this.loadBrand(brand)
         },
         async loadBrand(brand) {
@@ -259,6 +389,7 @@ export default {
                 if (seq !== this.brandSeq) return
                 this.brandSeries = r.series || []
                 this.brandModels = r.models || []
+                this.modelCategories = r.modelCategories || {}
             } catch (e) { /* the lists stay empty; typing still works */ } finally {
                 if (seq === this.brandSeq) this.brandLoading = false
             }
@@ -275,6 +406,8 @@ export default {
         onQuality(q) {
             this.form.name = this.withQuality(this.form.name, q || '')
             this.appliedQuality = q || ''
+            // "Service Pack" prices with its own formula: follow it unless a list was changed by hand
+            this.applyFormula(false)
         },
         // the name with the quality as its last [tag] — a trailing tag that is a
         // quality (the list's, or the one put on last) is swapped; an empty name
@@ -318,9 +451,12 @@ export default {
             if (name !== typed) f.name = name
             if (!f.classification) { this.$message.warning(this.$tp('Pick a classification')); return }
             if (!/^\d{4,6}$/.test(String(f.sku || '').trim())) { this.$message.warning(this.$tp('SKU must be a number')); return }
+            if (!(Number(f.cost) > 0)) { this.$message.warning(this.$tp('Enter the cost price')); return }
+            if (!f.categoryId) { this.$message.warning(this.$tp('Pick the store category')); return }
             const data = new FormData()
             const fields = {
                 name, sku: String(f.sku).trim(), quality: f.quality || '', rate: f.rate == null ? '' : f.rate,
+                cost: f.cost, categoryId: f.categoryId,
                 classification: f.classification, subClassification: f.subClassification || '', deviceBrand: f.deviceBrand || '',
                 deviceSeries: JSON.stringify(f.deviceSeries || []), compatibleModels: JSON.stringify(f.compatibleModels || []),
                 prices: JSON.stringify(Object.fromEntries(Object.entries(f.prices || {}).filter(([, v]) => v != null && v !== '')))
@@ -340,6 +476,9 @@ export default {
                 if (priceErrors.length) {
                     const names = priceErrors.map(k => (this.options.priceLists.find(p => p.key === k) || { label: k }).label).join(', ')
                     this.$message.warning(this.$tp('{sku} created, but these prices did not save: {lists} — set them on Price Monitoring', { sku: r.item.sku, lists: names }))
+                }
+                if (r.category && r.category.error) {
+                    this.$message.warning(this.$tp('{sku} created, but the category did not save: {error} — file it on the Categories page', { sku: r.item.sku, error: r.category.error }))
                 }
                 const h = this.$createElement
                 this.$notify({
@@ -377,7 +516,16 @@ export default {
 .czi-ref { margin-bottom: 6px; padding: 6px 10px; border-radius: 4px; background: #f5f7fa; border: 1px dashed #dcdfe6; font-size: 12px; color: #303133; line-height: 1.5; word-break: break-word; }
 .czi-ref-label { margin-right: 8px; padding: 0 6px; border-radius: 9px; font-size: 11px; color: #909399; background: #fff; border: 1px solid #e4e7ed; }
 .czi-name ::v-deep .el-textarea__inner { padding-bottom: 18px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; }
-.czi-prices { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+/* cost + selling price, then the four lists — one 4-column grid (2026-10-16, as on New Products) */
+.czi-cost { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: end; margin-bottom: 10px; }
+.czi-formula { grid-column: span 2; justify-self: start; padding: 0 0 8px; }
+.czi-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.czi-ref-price { font-size: 11px; line-height: 16px; color: #409eff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; &:hover { text-decoration: underline; } }
+.czi-req { color: #f56c6c; font-weight: normal; }
+/* the store category */
+.czi-cat { display: flex; gap: 6px; }
+.czi-cat-pick { flex: 1; min-width: 0; }
+.czi-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #409eff; } }
 .czi-price { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .czi-price-label { font-size: 12px; color: #606266; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* a $ in front of a price (el-input-number has no prefix slot) */
@@ -391,7 +539,7 @@ export default {
     .czi-form { grid-template-columns: 1fr; }
     .czi-side { border-left: 0; padding-left: 0; }
     .czi-row { flex-direction: column; gap: 0; }
-    .czi-prices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .czi-prices, .czi-cost { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
 

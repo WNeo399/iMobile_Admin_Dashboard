@@ -157,6 +157,10 @@ export function newProductModelItems(id) {
 export function getZohoItemOptions(params) {
   return request({ url: `${BASE}/zoho-item/options`, method: 'get', params })
 }
+// the store categories (Zoho Commerce) for its Category picker
+export function getZohoItemCategories(refresh) {
+  return request({ url: `${BASE}/zoho-item/categories`, method: 'get', params: refresh ? { refresh: 1 } : {}, timeout: 60000 })
+}
 export function createZohoItemForOrder(id, data) {
   return request({ url: `${BASE}/orders/${id}/zoho-item`, method: 'post', data, timeout: 120000 })
 }
