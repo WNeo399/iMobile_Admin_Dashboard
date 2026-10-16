@@ -194,7 +194,8 @@ export const moduleRoutes = [
     // iMobile Listing (user ask 2026-10-16): getting products onto the online
     // store — the store's categories, the new device models to stock parts
     // for, and the parts listing widget. Right below iMobile Website. Admin,
-    // iMobile Warehouse and iMobile Purchase (listing:*:*).
+    // iMobile Admin, iMobile Warehouse, iMobile Purchase and Parts Supplier
+    // (listing:*:*).
     path: "/listing",
     component: Layout,
     redirect: "noRedirect",

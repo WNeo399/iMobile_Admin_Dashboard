@@ -54,6 +54,8 @@
                     <el-button slot="reference" size="small" icon="el-icon-edit-outline">{{ $tp('Drafts') }} <b class="spn-dl-n">{{ drafts.length }}</b></el-button>
                 </el-popover>
                 <template v-if="model && canCreate">
+                    <!-- any product beyond the needed parts (a lens, a SIM tray, a tool …) -->
+                    <el-button type="primary" plain size="small" icon="el-icon-plus" :title="$tp('Create any other product for this model in Zoho')" @click="openCreateOther(model)">{{ $tp('Add product') }}</el-button>
                     <el-button size="small" icon="el-icon-edit" @click="openModel(model)">{{ $tp('Edit model') }}</el-button>
                     <el-button size="small" icon="el-icon-close" :title="$tp('Hide this model')" @click="hideModel(model)">{{ $tp('Hide') }}</el-button>
                 </template>
@@ -90,6 +92,9 @@
                                      red while the model has none -->
                                 <el-button v-if="g.required && canCreate" :type="g.items.length ? 'primary' : 'danger'" :plain="!!g.items.length"
                                     size="mini" icon="el-icon-plus" @click="openCreate(model, g.part)">{{ $tp('Create') }}</el-button>
+                                <!-- another of this classification (picked in the dialog, can be changed) -->
+                                <el-button v-else-if="canCreate && classificationValues.includes(g.classification)" plain size="mini" icon="el-icon-plus"
+                                    @click="openCreateOther(model, g.classification)">{{ $tp('Create') }}</el-button>
                             </div>
                             <div v-if="!g.items.length && !partDrafts(g).length" class="spn-none">{{ $tp('No {part} for this model yet', { part: $tp(g.label) }) }}</div>
                             <!-- drafts for this part — not in Zoho yet -->
@@ -185,7 +190,7 @@
 
         <!-- ── Create one Zoho item ──────────────────────────────────── -->
         <el-dialog :visible.sync="createVisible" :width="createNarrow ? '96%' : '860px'" top="5vh" append-to-body
-            :close-on-click-modal="false" custom-class="spn-create-dlg" @closed="clearCreateFiles">
+            :close-on-click-modal="false" custom-class="spn-create-dlg" @opened="onCreateOpened" @closed="clearCreateFiles">
             <!-- what is being made: the model, the part and its Zoho fields -->
             <div slot="title" class="spn-ct">
                 <div class="spn-ct-title"><i class="el-icon-plus" /> {{ $tp('Create in Zoho Inventory') }}
@@ -194,8 +199,8 @@
                     <b>{{ createRow.compatibleModel }}</b>
                     <span v-if="createPart" class="spn-ct-part">{{ $tp(createPart.label) }}</span>
                     <span v-if="createDefaults" class="spn-dim">
-                        {{ $tp('Classification') }}: {{ createDefaults.classification }}<template v-if="createDefaults.subClassification"> / {{ createDefaults.subClassification }}</template>
-                        · {{ $tp('Device Brand') }}: {{ createDefaults.deviceBrand }}
+                        <template v-if="createClass.classification">{{ $tp('Classification') }}: {{ createClass.classification }}<template v-if="createClass.subClassification"> / {{ createClass.subClassification }}</template> · </template>
+                        {{ $tp('Device Brand') }}: {{ createDefaults.deviceBrand }}
                         <template v-if="createSeries"> · {{ $tp('Device Series') }}: {{ createSeries }}</template>
                     </span>
                 </div>
@@ -207,9 +212,27 @@
                     <div class="spn-sec">{{ $tp('Item') }}</div>
                     <el-form-item :label="$tp('Item name')">
                         <!-- long names (models, codes, quality) read whole; Enter doesn't break the line -->
-                        <el-input v-model="createForm.name" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" resize="none"
+                        <el-input ref="nameInput" v-model="createForm.name" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" resize="none"
                             maxlength="200" show-word-limit class="spn-name" @keydown.native.enter.prevent />
                     </el-form-item>
+                    <!-- any other product: its Zoho classification (sets the qualities and the price formula) -->
+                    <div v-if="isOther" class="spn-row">
+                        <el-form-item class="spn-col">
+                            <span slot="label">{{ $tp('Classification') }} <span class="spn-req">*</span></span>
+                            <el-select v-model="createForm.classification" filterable :placeholder="$tp('Pick the classification')" style="width:100%" @change="onClassification">
+                                <el-option v-for="c in classifications" :key="c.value" :label="classLabel(c.value)" :value="c.value" />
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item class="spn-col">
+                            <span slot="label">{{ $tp('Sub Classification') }}
+                                <el-tooltip :content="$tp('The ones Zoho items of this classification use; a new one can be typed.')" placement="top">
+                                    <i class="el-icon-info spn-help" /></el-tooltip></span>
+                            <el-select v-model="createForm.subClassification" filterable allow-create clearable default-first-option
+                                :disabled="!createForm.classification" :placeholder="$tp('None')" style="width:100%">
+                                <el-option v-for="s in subOptions" :key="s" :label="s" :value="s" />
+                            </el-select>
+                        </el-form-item>
+                    </div>
                     <div class="spn-row">
                         <el-form-item class="spn-col">
                             <span slot="label">{{ $tp('SKU') }}
@@ -409,6 +432,10 @@ import { zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryInde
 // the order the classifications are shown in after the needed parts
 const CLASS_ORDER = ['Screen', 'Housing', 'Middle Frame', 'BackCover', 'Battery', 'Small Parts', 'IC', 'Tools', 'Accessory', 'Other']
 const CLASS_LABELS = { BackCover: 'Back Cover', '': 'Unclassified' }
+// any product beyond the brand's needed parts: its classification is picked
+// in the dialog (part "other" on the server)
+const OTHER = 'other'
+const otherPart = () => ({ key: OTHER, label: 'Other product', classification: '', subClassification: '', priceFamily: null })
 // the four price lists, as Price Monitoring names them
 const PRICE_LISTS = [
     { list: 'platinum', label: 'Platinum' },
@@ -434,6 +461,10 @@ export default {
             qualities: [],
             // { classification: [qualities] } from iMobile Listing → Qualities
             qualitiesByClass: {},
+            // any other product: Zoho's classifications [{ value, subs: [{ value }] }]
+            // and the price formula each takes
+            classifications: [],
+            priceFamilies: {},
             rows: [],
             // the picked tree node: { type: brand | series | model, brand, series, modelId }
             sel: { type: '', brand: '', series: '', modelId: '' },
@@ -461,7 +492,7 @@ export default {
             MAX_PHOTOS,
             skuSeq: 0,
             placeholderRate: 9999.99,
-            createForm: { name: '', sku: '', quality: '', rate: undefined, cost: undefined, compatibleModels: [], prices: blankPrices() },
+            createForm: { name: '', sku: '', quality: '', rate: undefined, cost: undefined, compatibleModels: [], prices: blankPrices(), classification: '', subClassification: '' },
             // linking a model to its store category
             linkVisible: false,
             linkRow: null,
@@ -543,21 +574,30 @@ export default {
             return this.partsOf(this.model.brand).filter(p => keys.includes(p.key))
         },
         // the picked model's items: the needed parts first (always shown,
-        // empty or not), then the other classifications
+        // empty or not), then the other classifications; the model's drafts
+        // go with the group they will land in
         groups() {
             if (!this.model) return []
-            const needed = this.partsOf(this.model.brand).map(p => ({ key: 'p:' + p.key, label: p.label, required: true, part: p, items: [] }))
+            const parts = this.partsOf(this.model.brand)
+            const needed = parts.map(p => ({ key: 'p:' + p.key, label: p.label, required: true, part: p, classification: p.classification, items: [], drafts: [] }))
             const byKey = {}
             needed.forEach(g => { byKey[g.key] = g })
             const others = []
-            for (const it of this.items) {
-                const key = it.part ? 'p:' + it.part : 'c:' + (it.classification || '')
+            const groupOf = (key, c) => {
                 if (!byKey[key]) {
-                    const c = it.classification || ''
-                    byKey[key] = { key, label: CLASS_LABELS[c] || c, required: false, items: [], order: CLASS_ORDER.indexOf(c) < 0 ? 99 : CLASS_ORDER.indexOf(c) }
+                    byKey[key] = { key, label: CLASS_LABELS[c] || c, required: false, classification: c, items: [], drafts: [], order: CLASS_ORDER.indexOf(c) < 0 ? 99 : CLASS_ORDER.indexOf(c) }
                     others.push(byKey[key])
                 }
-                byKey[key].items.push(it)
+                return byKey[key]
+            }
+            for (const it of this.items) {
+                groupOf(it.part ? 'p:' + it.part : 'c:' + (it.classification || ''), it.classification || '').items.push(it)
+            }
+            for (const d of this.draftsByModel[this.model._id] || []) {
+                // an other-product draft of a needed part's classification counts as that part (as the server does)
+                const p = d.part === OTHER ? parts.find(x => x.classification === d.classification && (!x.subClassification || x.subClassification === d.subClassification)) : parts.find(x => x.key === d.part)
+                if (!p && d.part !== OTHER) continue
+                groupOf(p ? 'p:' + p.key : 'c:' + (d.classification || ''), d.classification || '').drafts.push(d)
             }
             others.sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
             const byName = (a, b) => (a.subClassification || '').localeCompare(b.subClassification || '') || a.name.localeCompare(b.name)
@@ -629,9 +669,27 @@ export default {
             if (this.createRow && this.createRow.categoryId) bits.push(this.createRow.categoryName || this.categoryPathOf(this.createRow))
             return bits.join(' · ')
         },
-        // the part's classification's qualities (iMobile Listing → Qualities), or null
+        // ── any other product ──
+        isOther() {
+            return !!this.createPart && this.createPart.key === OTHER
+        },
+        classificationValues() {
+            return this.classifications.map(c => c.value)
+        },
+        // the item's classification: the needed part's, or the one picked
+        createClass() {
+            if (!this.createPart) return { classification: '', subClassification: '' }
+            if (!this.isOther) return { classification: this.createPart.classification, subClassification: this.createPart.subClassification }
+            return { classification: this.createForm.classification || '', subClassification: String(this.createForm.subClassification || '').trim() }
+        },
+        // the picked classification's sub classifications in use, most used first
+        subOptions() {
+            const c = this.classifications.find(x => x.value === this.createForm.classification)
+            return c ? c.subs.map(s => s.value) : []
+        },
+        // the item's classification's qualities (iMobile Listing → Qualities), or null
         qualityListed() {
-            const list = this.createPart && this.qualitiesByClass[this.createPart.classification]
+            const list = this.createClass.classification && this.qualitiesByClass[this.createClass.classification]
             return list && list.length ? list : null
         },
         // the Quality dropdown: that list, else every quality in use
@@ -642,7 +700,8 @@ export default {
         // which one prices the item: the part's own (from the server), or
         // the service-pack one when the quality / name says "Service Pack"
         priceFamily() {
-            return priceFamilyOf({ quality: this.createForm.quality, name: this.createForm.name, family: this.createPart && this.createPart.priceFamily })
+            const family = this.isOther ? this.priceFamilies[this.createForm.classification] : this.createPart && this.createPart.priceFamily
+            return priceFamilyOf({ quality: this.createForm.quality, name: this.createForm.name, family })
         },
         // the four lists for the typed cost (null without a cost)
         formulaPrices() {
@@ -763,6 +822,8 @@ export default {
                 this.brands = r.brands || []
                 this.qualities = r.qualities || []
                 this.qualitiesByClass = r.qualitiesByClass || {}
+                this.classifications = r.classifications || []
+                this.priceFamilies = r.priceFamilies || {}
                 if (r.placeholderRate != null) this.placeholderRate = r.placeholderRate
                 this.priceFormulas = r.priceFormulas || {}
                 this.rows = r.rows || []
@@ -860,11 +921,42 @@ export default {
                 rate: this.placeholderRate,
                 cost: undefined,
                 compatibleModels: [row.compatibleModel].filter(Boolean),
-                prices: blankPrices()
+                prices: blankPrices(),
+                // any other product only
+                classification: '',
+                subClassification: ''
             }
             this.lastAuto = null
             this.createVisible = true
             this.loadNextSku()
+        },
+        // Any other product for the model: the same dialog, the name started
+        // ("MOTO G96 (XT…) Compatible "), the classification picked there —
+        // given when opened from that classification's box.
+        openCreateOther(row, classification) {
+            this.openCreate(row, otherPart())
+            this.createForm.classification = this.classificationValues.includes(classification) ? classification : ''
+        },
+        // a new other product: the cursor at the end of the name, to type what it is
+        onCreateOpened() {
+            if (!this.isOther || this.createDraftId) return
+            const el = this.$refs.nameInput && this.$refs.nameInput.$refs.textarea
+            if (!el) return
+            el.focus()
+            el.setSelectionRange(el.value.length, el.value.length)
+        },
+        classLabel(c) {
+            return this.$tp(CLASS_LABELS[c] || c)
+        },
+        // another classification: its own sub classifications and qualities —
+        // a sub or quality that isn't one of them is cleared; the prices
+        // follow its formula unless changed by hand
+        onClassification() {
+            if (this.createForm.subClassification && !this.subOptions.includes(this.createForm.subClassification)) this.createForm.subClassification = ''
+            if (this.createForm.quality && this.qualityListed && !this.qualityListed.includes(this.createForm.quality)) {
+                this.createForm.quality = ''
+                this.onQuality('')
+            } else this.applyFormula(false)
         },
         // ── the pricing formula ──
         // a list that isn't the formula's price (blank counts)
@@ -1024,6 +1116,12 @@ export default {
         checkCreate() {
             const warn = text => { this.$message.warning(this.$tp(text)); return false }
             if (!this.createForm.name || this.createForm.name.trim().length < 5) return warn('Enter the item name')
+            if (this.isOther) {
+                if (!this.createForm.classification) return warn('Pick the classification')
+                const start = String(((this.createRow && this.createRow.defaultNames) || {})[OTHER] || '').trim().toLowerCase()
+                if (start && this.createForm.name.trim().toLowerCase() === start) return warn('Type what the product is after the model')
+                if (/[[\]]/.test(this.createForm.subClassification || '')) return warn('Sub classification can\'t contain [ or ]')
+            }
             if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) return warn('SKU must be a number')
             if (!this.createForm.compatibleModels.length) return warn('Pick every model this part fits')
             if (!(Number(this.createForm.cost) > 0)) return warn('Enter the cost price')
@@ -1125,10 +1223,13 @@ export default {
         },
         // ── Drafts ─────────────────────────────────────────────────
         partDrafts(g) {
-            if (!g.required || !this.model) return []
-            return (this.draftsByModel[this.model._id] || []).filter(d => d.part === g.part.key)
+            return g.drafts || []
         },
         partLabel(d) {
+            if (d.part === OTHER) {
+                if (!d.classification) return this.$tp('Other product')
+                return this.classLabel(d.classification) + (d.subClassification ? ' / ' + d.subClassification : '')
+            }
             const p = this.partsOf(d.brand).find(x => x.key === d.part)
             return p ? this.$tp(p.label) : d.part
         },
@@ -1152,7 +1253,9 @@ export default {
                 cost: this.createForm.cost == null ? null : this.createForm.cost,
                 compatibleModels: this.createForm.compatibleModels,
                 // only the lists given
-                prices: Object.fromEntries(Object.entries(this.createForm.prices || {}).filter(([, v]) => v != null && v !== ''))
+                prices: Object.fromEntries(Object.entries(this.createForm.prices || {}).filter(([, v]) => v != null && v !== '')),
+                // any other product: the classification picked
+                ...(this.isOther ? { classification: this.createClass.classification, subClassification: this.createClass.subClassification } : {})
             }
         },
         // Save the dialog as a draft (new or the one open). The photos go as
@@ -1201,7 +1304,7 @@ export default {
                 return
             }
             const row = this.rows.find(x => x._id === d.modelId)
-            const part = row && this.partsOf(row.brand).find(p => p.key === d.part)
+            const part = row && (d.part === OTHER ? otherPart() : this.partsOf(row.brand).find(p => p.key === d.part))
             if (!row || !part) { this.$message.error(this.$tp('Could not open the draft')); return }
             this.openCreate(row, part)
             this.createDraftId = d._id
@@ -1213,7 +1316,9 @@ export default {
                 rate: d.rate != null ? d.rate : this.placeholderRate,
                 cost: d.cost != null ? d.cost : undefined,
                 compatibleModels: (d.compatibleModels && d.compatibleModels.length) ? d.compatibleModels : [row.compatibleModel].filter(Boolean),
-                prices: { ...blankPrices(), ...(d.prices || {}) }
+                prices: { ...blankPrices(), ...(d.prices || {}) },
+                classification: d.classification || '',
+                subClassification: d.subClassification || ''
             }
             // the saved prices stand; a quality change re-prices them only while they are the formula's
             this.lastAuto = this.formulaPrices && !this.formulaOff ? { ...this.formulaPrices } : null
