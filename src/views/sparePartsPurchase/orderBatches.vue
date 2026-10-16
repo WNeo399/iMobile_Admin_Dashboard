@@ -77,30 +77,31 @@
                     <el-input v-model="createForm.note" size="small" maxlength="200" :placeholder="$tp('Optional')" clearable />
                 </div>
             </div>
+            <!-- search every category's lines (user ask 2026-10-16) -->
+            <el-input v-model="pickSearch" size="small" clearable prefix-icon="el-icon-search" class="spo-pick-search"
+                :placeholder="$tp('Search name, SKU, SP- number or note')" />
             <div v-loading="pendingLoading" class="spo-picker">
-                <!-- Every category: its pending count (red), and how many are picked in it. -->
+                <!-- The categories with something to pick (2026-10-16: none shown at 0):
+                     the lines that can go on this batch (matching the search), and how many are picked. -->
                 <div class="spo-cats">
-                    <div v-for="c in CATEGORIES" :key="c" :class="['spo-cat', { on: pick.category === c, empty: !catCount(c) }]"
-                        @click="pick.category = c">
+                    <div v-for="c in visibleCats" :key="c" :class="['spo-cat', { on: pick.category === c }]" @click="pick.category = c">
                         <span class="spo-cat-name">{{ $tp(c) }}</span>
                         <span v-if="selectedInCat(c)" class="spo-cat-sel"><i class="el-icon-check" />{{ selectedInCat(c) }}</span>
-                        <span :class="['spo-cat-n', { 'is-zero': !catCount(c) }]">{{ catCount(c) }}</span>
+                        <span class="spo-cat-n">{{ catCount(c) }}</span>
                     </div>
                 </div>
-                <!-- The category's pending lines, by item name. -->
+                <!-- The category's lines, by item name — those already in another draft are left out. -->
                 <div class="spo-lines">
-                    <div v-if="!catLines.length" class="spo-lines-empty">
+                    <div v-if="!catLines.length && !pendingLoading" class="spo-lines-empty">
                         <i class="el-icon-folder-opened" />
-                        <div>{{ $tp('No pending lines in this category') }}</div>
+                        <div>{{ pickSearch.trim() ? $tp('Nothing matches "{q}"', { q: pickSearch.trim() }) : $tp('No pending lines to order') }}</div>
                     </div>
-                    <!-- a line in someone else's draft can't be picked twice -->
-                    <div v-for="r in catLines" :key="r._id" :class="['spo-line', { on: selected[r._id], taken: takenBy(r) }]" @click="toggleLine(r)">
-                        <i :class="selected[r._id] ? 'el-icon-success spo-line-check' : takenBy(r) ? 'el-icon-lock spo-line-lock' : 'el-icon-circle-plus-outline spo-line-plus'" />
+                    <div v-for="r in catLines" :key="r._id" :class="['spo-line', { on: selected[r._id] }]" @click="toggleLine(r)">
+                        <i :class="selected[r._id] ? 'el-icon-success spo-line-check' : 'el-icon-circle-plus-outline spo-line-plus'" />
                         <div class="spo-line-main">
                             <div class="spo-line-name">{{ r.productName }}</div>
-                            <div class="spo-dim">SKU: {{ r.sku || '—' }} · {{ fmtDay(r.createdAt) }}<span v-if="r.status === 'shortage'"
-                                    class="spo-line-short"> · {{ statusLabel(r.status) }}</span><span v-if="r.note"> · {{ r.note }}</span><span v-if="takenBy(r)"
-                                    class="spo-line-taken"> · {{ $tp('In another draft ({by})', { by: takenBy(r) }) }}</span></div>
+                            <div class="spo-dim">SKU: {{ r.sku || '—' }} · {{ r.orderNo }} · {{ fmtDay(r.createdAt) }}<span v-if="r.status === 'shortage'"
+                                    class="spo-line-short"> · {{ statusLabel(r.status) }}</span><span v-if="r.note"> · {{ r.note }}</span></div>
                         </div>
                         <div class="spo-line-qty">× {{ r.orderQty }}</div>
                     </div>
@@ -236,6 +237,8 @@ export default {
             discarding: false,
             createForm: { supplier: '', note: '' },
             pick: { category: '' },
+            // the picker's search (every category)
+            pickSearch: '',
             // every pending / shortage line, and the ones picked (by id)
             pending: [],
             pendingLoading: false,
@@ -259,6 +262,12 @@ export default {
             printHtml: ''
         }
     },
+    watch: {
+        // a search (or the other drafts arriving) can empty the shown category: go to the first with lines
+        visibleCats(cats) {
+            if (cats.length && !cats.includes(this.pick.category)) this.pick.category = cats[0]
+        }
+    },
     created() {
         this.load().then(() => {
             if (this.$route.query.create) this.openCreate()
@@ -269,11 +278,23 @@ export default {
         this.load()
     },
     computed: {
-        // The side menu's buckets: pending lines per category.
+        // The lines that can go on this batch: pending / shortage, not in
+        // another draft (2026-10-16: left out, not shown locked), matching the
+        // search (name, SKU, SP- number, note, supplier).
+        available() {
+            const q = this.pickSearch.trim().toLowerCase()
+            return this.pending.filter(r => !this.takenBy(r) &&
+                (!q || [r.productName, r.sku, r.orderNo, r.note, r.supplier].some(v => String(v || '').toLowerCase().includes(q))))
+        },
+        // The side menu's buckets: those lines per category.
         pendingByCat() {
             const by = {}
-            for (const r of this.pending) (by[this.catOf(r)] = by[this.catOf(r)] || []).push(r)
+            for (const r of this.available) (by[this.catOf(r)] = by[this.catOf(r)] || []).push(r)
             return by
+        },
+        // the categories with something to pick (none at 0)
+        visibleCats() {
+            return CATEGORIES.filter(c => this.catCount(c))
         },
         // A category's pending lines by item name (user ask 2026-10-05) —
         // A→Z, numbers in order ("iPhone 9" before "iPhone 11"); the same
@@ -336,6 +357,7 @@ export default {
             this.draftId = null
             this.createForm = { supplier: '', note: '' }
             this.pick = { category: '' }
+            this.pickSearch = ''
             this.selected = {}
             this.createVisible = true
             this.loadPending()
@@ -346,6 +368,7 @@ export default {
             this.draftId = batch._id
             this.createForm = { supplier: batch.supplier || '', note: batch.note || '' }
             this.pick = { category: '' }
+            this.pickSearch = ''
             this.selected = {}
             this.viewVisible = false
             this.createVisible = true
@@ -654,6 +677,7 @@ export default {
 .spo-label-frame { width: 100%; height: 56vh; border: 1px solid #ebeef5; background: #fff; }
 .spo-print-frame { width: 100%; height: 62vh; border: 1px solid #ebeef5; background: #fff; }
 /* Create: category side menu + the category's lines */
+.spo-pick-search { margin-bottom: 8px; }
 .spo-picker { display: flex; height: 440px; border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden; }
 .spo-cats { flex: 0 0 200px; border-right: 1px solid #ebeef5; background: #fafafa; overflow: auto; }
 .spo-cat {
@@ -693,7 +717,4 @@ export default {
 .spo-del { color: #f56c6c; margin-right: 8px; }
 .spo-del-row { color: #f56c6c; }
 .spo-foot-left { float: left; }
-.spo-line.taken { cursor: not-allowed; opacity: .55; &:hover { background: transparent; } }
-.spo-line-lock { color: #c0c4cc; font-size: 16px; }
-.spo-line-taken { color: #e6a23c; }
 </style>

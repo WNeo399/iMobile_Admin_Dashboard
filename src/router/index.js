@@ -215,6 +215,18 @@ export const moduleRoutes = [
         }
       },
       {
+        // The qualities each classification of part comes in (2026-10-16):
+        // the create dialogs offer only the item's classification's ones.
+        path: "qualities",
+        component: (resolve) => require(["@/views/website/qualities"], resolve),
+        name: "ListingQualities",
+        meta: {
+          title: "Qualities",
+          icon: "el-icon-medal",
+          permissions: ["listing:quality:view"]
+        }
+      },
+      {
         // New Products (2026-10-06, moved here from Spare Parts Purchase
         // 2026-10-16): the device models we want parts for, whether Zoho
         // already has each part type, and creating the missing items.

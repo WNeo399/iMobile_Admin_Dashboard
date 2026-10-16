@@ -76,7 +76,8 @@
                     <el-table v-loading="productsLoading" :data="products" size="small" border class="ct-table"
                         :empty-text="productsLoading ? ' ' : 'No products filed directly under this category'" @selection-change="r => picked = r">
                         <el-table-column v-if="canManage" type="selection" width="40" />
-                        <el-table-column label="" width="56" align="center">
+                        <!-- room for the 36px thumb (a cell pads 10px a side; an overflow shows "…") -->
+                        <el-table-column label="" width="60" align="center" class-name="ct-thumb-col">
                             <template slot-scope="s">
                                 <el-image v-if="s.row.imageUrl" :src="s.row.imageUrl" fit="contain" class="ct-thumb" lazy>
                                     <i slot="error" class="el-icon-picture-outline ct-dim" />
@@ -105,7 +106,7 @@
                         </el-table-column>
                         <el-table-column v-if="canManage" label="" width="90" align="center">
                             <template slot-scope="s">
-                                <el-button type="text" size="mini" icon="el-icon-sort" @click="openMove([s.row])">Move…</el-button>
+                                <el-button type="text" size="mini" icon="el-icon-sort" @click="openMove([s.row])">Move</el-button>
                             </template>
                         </el-table-column>
                     </el-table>
@@ -488,7 +489,9 @@ export default {
 .ct-d-meta code { background: #f4f4f5; padding: 0 4px; border-radius: 3px; }
 .ct-p-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .ct-p-title { font-weight: 600; font-size: 13px; color: #303133; }
-.ct-thumb { width: 36px; height: 36px; }
+.ct-thumb { width: 36px; height: 36px; vertical-align: middle; }
+/* the thumb column: tighter padding, and never the "…" Element puts on an overflowing cell */
+.ct-table ::v-deep .ct-thumb-col .cell { padding: 0 6px; text-overflow: clip; line-height: 0; }
 .ct-pname { line-height: 1.35; }
 .ct-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .ct-full { width: 100%; }

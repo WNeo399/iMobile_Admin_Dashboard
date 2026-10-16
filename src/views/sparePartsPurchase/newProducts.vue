@@ -219,11 +219,15 @@
                             <el-input v-model="createForm.sku" :placeholder="skuLoading ? $tp('Finding the next free SKU…') : ''"
                                 :suffix-icon="skuLoading ? 'el-icon-loading' : ''" />
                         </el-form-item>
-                        <el-form-item :label="$tp('Quality')" class="spn-col">
-                            <!-- the register's qualities, most used first; a new one can be typed -->
-                            <el-select v-model="createForm.quality" clearable filterable allow-create default-first-option
+                        <el-form-item class="spn-col">
+                            <span slot="label">{{ $tp('Quality') }}
+                                <el-tooltip :content="qualityListed ? $tp('The qualities this classification comes in (iMobile Listing → Qualities).') : $tp('Every quality in use — this classification has no list on iMobile Listing → Qualities yet.')" placement="top">
+                                    <i class="el-icon-info spn-help" /></el-tooltip></span>
+                            <!-- the part's classification's qualities (iMobile Listing → Qualities);
+                                 with no list there: the register's, most used first, and a new one can be typed -->
+                            <el-select v-model="createForm.quality" clearable filterable :allow-create="!qualityListed" default-first-option
                                 :placeholder="$tp('None')" style="width:100%" @change="onQuality">
-                                <el-option v-for="q in qualities.filter(Boolean)" :key="q" :label="q" :value="q" />
+                                <el-option v-for="q in qualityOptions" :key="q" :label="q" :value="q" />
                             </el-select>
                         </el-form-item>
                     </div>
@@ -428,6 +432,8 @@ export default {
             loading: false,
             brands: [],
             qualities: [],
+            // { classification: [qualities] } from iMobile Listing → Qualities
+            qualitiesByClass: {},
             rows: [],
             // the picked tree node: { type: brand | series | model, brand, series, modelId }
             sel: { type: '', brand: '', series: '', modelId: '' },
@@ -623,6 +629,15 @@ export default {
             if (this.createRow && this.createRow.categoryId) bits.push(this.createRow.categoryName || this.categoryPathOf(this.createRow))
             return bits.join(' · ')
         },
+        // the part's classification's qualities (iMobile Listing → Qualities), or null
+        qualityListed() {
+            const list = this.createPart && this.qualitiesByClass[this.createPart.classification]
+            return list && list.length ? list : null
+        },
+        // the Quality dropdown: that list, else every quality in use
+        qualityOptions() {
+            return this.qualityListed || this.qualities.filter(Boolean)
+        },
         // ── the pricing formula ──
         // which one prices the item: the part's own (from the server), or
         // the service-pack one when the quality / name says "Service Pack"
@@ -747,6 +762,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.brands = r.brands || []
                 this.qualities = r.qualities || []
+                this.qualitiesByClass = r.qualitiesByClass || {}
                 if (r.placeholderRate != null) this.placeholderRate = r.placeholderRate
                 this.priceFormulas = r.priceFormulas || {}
                 this.rows = r.rows || []

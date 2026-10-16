@@ -9,7 +9,7 @@
         series, models — typed values allowed). Brand › Series › Model is a
         hierarchy: series after a brand, models after a series (user 2026-10-08).
     -->
-    <el-dialog :visible="visible" :width="narrow ? '96%' : '880px'" top="5vh" append-to-body :close-on-click-modal="false"
+    <el-dialog :visible="visible" :width="narrow ? '96%' : '960px'" top="5vh" append-to-body :close-on-click-modal="false"
         custom-class="czi-dlg" @update:visible="v => $emit('update:visible', v)" @closed="clearFiles">
         <div slot="title" class="czi-head">
             <div class="czi-title"><i class="el-icon-upload2" /> {{ $tp('Create in Zoho Inventory') }}</div>
@@ -40,11 +40,15 @@
                         <el-input v-model="form.sku" :placeholder="skuLoading ? $tp('Finding the next free SKU…') : ''"
                             :suffix-icon="skuLoading ? 'el-icon-loading' : ''" />
                     </el-form-item>
-                    <el-form-item :label="$tp('Quality')" class="czi-col">
-                        <!-- the register's qualities, most used first; a new one can be typed -->
-                        <el-select v-model="form.quality" clearable filterable allow-create default-first-option
+                    <el-form-item class="czi-col">
+                        <span slot="label">{{ $tp('Quality') }}
+                            <el-tooltip :content="qualityListed ? $tp('The qualities this classification comes in (iMobile Listing → Qualities).') : $tp('Every quality in use — pick a classification with a list on iMobile Listing → Qualities to narrow it down.')" placement="top">
+                                <i class="el-icon-info czi-help" /></el-tooltip></span>
+                        <!-- the picked classification's qualities (iMobile Listing → Qualities);
+                             with no list there: the register's, most used first, and a new one can be typed -->
+                        <el-select v-model="form.quality" clearable filterable :allow-create="!qualityListed" default-first-option
                             :placeholder="$tp('None')" style="width:100%" @change="onQuality">
-                            <el-option v-for="q in options.qualities" :key="q" :label="q" :value="q" />
+                            <el-option v-for="q in qualityOptions" :key="q" :label="q" :value="q" />
                         </el-select>
                     </el-form-item>
                 </div>
@@ -66,6 +70,42 @@
                     <div v-else-if="!form.categoryId && form.compatibleModels.length && !linkedModel" class="czi-hint">{{ $tp('None of the picked models is linked to a store category on New Products — pick one') }}</div>
                 </el-form-item>
 
+                <div class="czi-sec">{{ $tp('Prices') }}
+                    <el-tooltip :content="$tp('The price lists are written to Zoho after the item is made; blank ones stay unset.')" placement="top">
+                        <i class="el-icon-info czi-help" /></el-tooltip></div>
+                <!-- the cost (Zoho's purchase price) beside the selling price; the
+                     four lists below are worked out from it with the formula -->
+                <div class="czi-cost">
+                    <div class="czi-price">
+                        <span class="czi-price-label">{{ $tp('Cost price') }} <span class="czi-req">*</span>
+                            <el-tooltip :content="$tp('Goes to Zoho as the purchase price. The four price lists are worked out from it with the pricing formula — they can still be changed.')" placement="top">
+                                <i class="el-icon-info czi-help" /></el-tooltip></span>
+                        <el-input-number v-model="form.cost" size="small" :min="0" :precision="2" :controls="false" class="czi-money"
+                            :placeholder="$tp('Required')" style="width:100%" @change="applyFormula(true)" />
+                    </div>
+                    <div class="czi-price">
+                        <span class="czi-price-label">{{ $tp('Selling price') }}
+                            <el-tooltip :content="$tp('9999.99 is the usual placeholder until the price is set.')" placement="top">
+                                <i class="el-icon-info czi-help" /></el-tooltip></span>
+                        <el-input-number v-model="form.rate" size="small" :min="0" :precision="2" :controls="false" class="czi-money" style="width:100%" />
+                    </div>
+                    <el-button v-if="formulaOff" type="text" size="mini" icon="el-icon-refresh" class="czi-formula" @click="applyFormula(true)">{{ $tp('Use the formula prices') }}</el-button>
+                </div>
+                <div class="czi-prices">
+                    <div v-for="p in options.priceLists" :key="p.key" class="czi-price">
+                        <span class="czi-price-label">{{ p.label }}</span>
+                        <el-input-number v-model="form.prices[p.key]" size="small" :min="0" :precision="2" :controls="false"
+                            :placeholder="$tp('Not set')" class="czi-money" style="width:100%" />
+                        <!-- changed from (or blank against) the formula: its price, click to use it -->
+                        <span v-if="formulaPrices && offFormula(p.key)" class="czi-ref-price" :title="$tp('Use the formula price')"
+                            @click="form.prices[p.key] = formulaPrices[p.key]">{{ $tp('Formula') }} ${{ formulaPrices[p.key].toFixed(2) }}</span>
+                    </div>
+                </div>
+                <div v-for="w in priceWarnings" :key="w" class="czi-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
+            </div>
+
+            <!-- right (user ask 2026-10-16): the Zoho fields, then the photos -->
+            <div class="czi-side">
                 <div class="czi-sec">{{ $tp('Zoho fields') }}</div>
                 <div class="czi-row">
                     <el-form-item :label="$tp('Classification')" class="czi-col" required>
@@ -108,42 +148,7 @@
                     </el-select>
                 </el-form-item>
 
-                <div class="czi-sec">{{ $tp('Prices') }}
-                    <el-tooltip :content="$tp('The price lists are written to Zoho after the item is made; blank ones stay unset.')" placement="top">
-                        <i class="el-icon-info czi-help" /></el-tooltip></div>
-                <!-- the cost (Zoho's purchase price) beside the selling price; the
-                     four lists below are worked out from it with the formula -->
-                <div class="czi-cost">
-                    <div class="czi-price">
-                        <span class="czi-price-label">{{ $tp('Cost price') }} <span class="czi-req">*</span>
-                            <el-tooltip :content="$tp('Goes to Zoho as the purchase price. The four price lists are worked out from it with the pricing formula — they can still be changed.')" placement="top">
-                                <i class="el-icon-info czi-help" /></el-tooltip></span>
-                        <el-input-number v-model="form.cost" size="small" :min="0" :precision="2" :controls="false" class="czi-money"
-                            :placeholder="$tp('Required')" style="width:100%" @change="applyFormula(true)" />
-                    </div>
-                    <div class="czi-price">
-                        <span class="czi-price-label">{{ $tp('Selling price') }}
-                            <el-tooltip :content="$tp('9999.99 is the usual placeholder until the price is set.')" placement="top">
-                                <i class="el-icon-info czi-help" /></el-tooltip></span>
-                        <el-input-number v-model="form.rate" size="small" :min="0" :precision="2" :controls="false" class="czi-money" style="width:100%" />
-                    </div>
-                    <el-button v-if="formulaOff" type="text" size="mini" icon="el-icon-refresh" class="czi-formula" @click="applyFormula(true)">{{ $tp('Use the formula prices') }}</el-button>
-                </div>
-                <div class="czi-prices">
-                    <div v-for="p in options.priceLists" :key="p.key" class="czi-price">
-                        <span class="czi-price-label">{{ p.label }}</span>
-                        <el-input-number v-model="form.prices[p.key]" size="small" :min="0" :precision="2" :controls="false"
-                            :placeholder="$tp('Not set')" class="czi-money" style="width:100%" />
-                        <!-- changed from (or blank against) the formula: its price, click to use it -->
-                        <span v-if="formulaPrices && offFormula(p.key)" class="czi-ref-price" :title="$tp('Use the formula price')"
-                            @click="form.prices[p.key] = formulaPrices[p.key]">{{ $tp('Formula') }} ${{ formulaPrices[p.key].toFixed(2) }}</span>
-                    </div>
-                </div>
-                <div v-for="w in priceWarnings" :key="w" class="czi-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
-            </div>
-
-            <!-- the line's photos to start with; the first becomes the main image -->
-            <div class="czi-side">
+                <!-- the line's photos to start with; the first becomes the main image -->
                 <div class="czi-sec">{{ $tp('Photos') }}<span v-if="files.length" class="czi-n">{{ files.length }}</span></div>
                 <image-picker ref="picker" v-model="files" :max="10" :disabled="creating" compact />
             </div>
@@ -177,7 +182,7 @@ export default {
     },
     data() {
         return {
-            options: { classifications: [], brands: [], qualities: [], priceLists: [], placeholderRate: 9999.99, priceFormulas: {}, priceFamilies: {} },
+            options: { classifications: [], brands: [], qualities: [], priceLists: [], placeholderRate: 9999.99, priceFormulas: {}, priceFamilies: {}, qualitiesByClass: {} },
             optionsLoaded: false,
             optionsLoading: false,
             brandSeries: [],
@@ -224,6 +229,15 @@ export default {
         subOptions() {
             const c = this.options.classifications.find(x => x.value === this.form.classification)
             return c ? c.subs : []
+        },
+        // the picked classification's qualities (iMobile Listing → Qualities), or null
+        qualityListed() {
+            const list = (this.options.qualitiesByClass || {})[this.form.classification]
+            return list && list.length ? list : null
+        },
+        // the Quality dropdown: that list, else every quality in use
+        qualityOptions() {
+            return this.qualityListed || this.options.qualities
         },
         // ── the pricing formula (the server's, as on New Products) ──
         priceFamily() {
@@ -315,6 +329,8 @@ export default {
             this.files = (o.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
             this.loadSku()
             if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) this.loadCategories()
+            // the lists stay for the visit, but the qualities may have been changed meanwhile on iMobile Listing → Qualities
+            if (this.optionsLoaded) getZohoItemOptions({}).then(r => { if (r && r.qualitiesByClass) this.options.qualitiesByClass = r.qualitiesByClass }).catch(() => {})
             await this.loadOptions()
             this.form.rate = this.options.placeholderRate
         },
@@ -350,9 +366,15 @@ export default {
             this.form.prices = { ...f }
             this.lastAuto = { ...f }
         },
-        // another classification: its sub list starts again, and it may price with another formula
+        // another classification: its sub list starts again, a quality it doesn't
+        // come in is cleared (its [tag] off the name), and it may price with another formula
         onClassification() {
             this.form.subClassification = ''
+            const list = this.qualityListed
+            if (this.form.quality && list && !list.includes(this.form.quality)) {
+                this.form.quality = ''
+                this.onQuality('')
+            }
             this.applyFormula(false)
         },
         async loadOptions() {
@@ -363,7 +385,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.options = {
                     classifications: r.classifications || [], brands: r.brands || [], qualities: r.qualities || [], priceLists: r.priceLists || [], placeholderRate: r.placeholderRate,
-                    priceFormulas: r.priceFormulas || {}, priceFamilies: r.priceFamilies || {}
+                    priceFormulas: r.priceFormulas || {}, priceFamilies: r.priceFamilies || {}, qualitiesByClass: r.qualitiesByClass || {}
                 }
                 this.optionsLoaded = true
             } catch (e) {
@@ -503,7 +525,8 @@ export default {
 .czi-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; font-size: 13px; color: #303133; }
 .czi-tag { padding: 0 8px; border-radius: 10px; font-size: 12px; color: #409eff; background: #ecf5ff; border: 1px solid #d9ecff; }
 .czi-dim { font-size: 12px; color: #909399; }
-.czi-form { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0 20px; }
+/* left: item, category, prices · right: the Zoho fields, then the photos (2026-10-16) */
+.czi-form { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0 20px; }
 .czi-side { border-left: 1px solid #ebeef5; padding-left: 20px; min-width: 0; }
 .czi-sec { display: flex; align-items: center; gap: 4px; margin: 2px 0 8px; font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .4px; }
 .czi-sec:not(:first-child) { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }

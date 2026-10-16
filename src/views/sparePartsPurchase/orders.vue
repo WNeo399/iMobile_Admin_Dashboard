@@ -2,11 +2,14 @@
     <div class="spp-page">
         <!-- Category tree: every line files under one purchase category; the
              count is the lines still to arrive. -->
+        <!-- 空运 / 海运: one open at a time (user ask 2026-10-16); the open one is
+             remembered, since the tree is rebuilt whenever the counts reload -->
         <tree-panel v-show="!isMobile" ref="treeRef" :tree-data="treeData" :title="$tp('Purchase Orders')" title-icon-class="el-icon-box"
-            node-key="id" :default-expand-all="true" :show-search="false" @node-click="onNodeClick" @collapsed-change="onTreeToggle">
+            node-key="id" accordion :default-expanded-keys="expandedKeys" :show-search="false" @node-click="onNodeClick"
+            @node-expand="onTreeExpand" @collapsed-change="onTreeToggle">
             <!-- New Product and Special Order are their own lists, pinned above
                  the tree (like Stock Monitoring's Dashboard / 海运) and kept out
-                 of the tree and of "All orders". The count is the pending lines. -->
+                 of the tree and of 空运 / 海运. The count is the pending lines. -->
             <template #top>
                 <div v-for="p in PINNED" :key="p.category" :class="['spp-pin', { on: activeCategory === p.category }]" @click="openPin(p.category)">
                     <i :class="p.icon" /> <span class="spp-pin-label">{{ catLabel(p.category) }}</span>
@@ -15,7 +18,7 @@
             </template>
             <template #node="{ data }">
                 <span class="spp-node">
-                    <i :class="data.id === 'root' ? 'el-icon-notebook-2' : 'el-icon-document'" class="spp-node-icon" />
+                    <i :class="data.id === 'root' ? 'el-icon-position' : data.id === 'sea' ? 'el-icon-ship' : 'el-icon-document'" class="spp-node-icon" />
                     <span class="spp-node-label" :title="data.label">{{ data.label }}</span>
                     <span v-if="data.count != null" :class="['spp-node-count', { 'is-zero': !data.count }]" :title="$tp('Pending')">{{ data.count }}</span>
                 </span>
@@ -45,18 +48,22 @@
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
             </div>
 
-            <!-- phone: the tree is hidden, the lists are a strip (pending counts) -->
+            <!-- phone: the tree is hidden, the lists are a strip (pending counts):
+                 the pinned lists, then 空运 and its tabs, then 海运 and its tabs -->
             <div v-if="isMobile" ref="mlists" class="spp-mlists">
-                <span :class="['spp-mchip', { on: !activeCategory }]" @click="pickList('')">{{ $tp('All orders') }}<b v-if="treeData[0].count">{{ treeData[0].count }}</b></span>
                 <span v-for="p in PINNED" :key="p.category" :class="['spp-mchip', 'is-pin', { on: activeCategory === p.category }]" @click="pickList(p.category)">
                     <i :class="p.icon" />{{ catLabel(p.category) }}<b v-if="pendingOf(p.category)">{{ pendingOf(p.category) }}</b></span>
-                <span class="spp-mchip-sep" />
-                <span v-for="c in treeData[0].children" :key="c.id" :class="['spp-mchip', { on: activeCategory === c.id }]" @click="pickList(c.id)">
-                    {{ c.label }}<b v-if="c.count">{{ c.count }}</b></span>
+                <template v-for="root in treeData">
+                    <span :key="'sep-' + root.id" class="spp-mchip-sep" />
+                    <span :key="root.id" :class="['spp-mchip', 'is-root', { on: isNodeOn(root.id) }]" @click="pickList(root.id === 'root' ? '' : root.id)">
+                        <i :class="root.id === 'sea' ? 'el-icon-ship' : 'el-icon-position'" />{{ root.label }}<b v-if="root.count">{{ root.count }}</b></span>
+                    <span v-for="c in root.children" :key="c.id" :class="['spp-mchip', { on: isNodeOn(c.id) }]" @click="pickList(c.id)">
+                        {{ c.label }}<b v-if="c.count">{{ c.count }}</b></span>
+                </template>
             </div>
 
             <div v-if="!isMobile" class="spp-header">
-                <div class="spp-h-title">{{ activeCategory ? catLabel(activeCategory) : $tp('All orders') }}</div>
+                <div class="spp-h-title">{{ listTitle }}</div>
                 <div v-if="boardMode" class="spp-h-sub">{{ $tp('Supplier quotes → iMobile confirms → supplier orders and ships → iMobile receives') }}
                     <span v-if="boardCapped" class="spp-warn"> · {{ $tp('Showing the oldest {n} open lines', { n: 200 }) }}</span></div>
             </div>
@@ -624,7 +631,7 @@ import {
 import { STATUS_LIST, STATUS_META, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink, todayYmd } from './shared'
 
 // The channels with a list of their own, pinned above the category tree and
-// left out of the tree and of "All orders" (user ask 2026-10-06).
+// left out of the tree and of 空运 / 海运 (user ask 2026-10-06).
 const PINNED = [
     { category: 'New Product', icon: 'el-icon-circle-plus-outline' },
     { category: 'Special Order', icon: 'el-icon-star-off' },
@@ -632,6 +639,10 @@ const PINNED = [
     { category: 'Warranty', icon: 'el-icon-umbrella' }
 ]
 const PINNED_CATS = PINNED.map(p => p.category)
+// The tree's two parents (user ask 2026-10-16): 空运 — every category but the
+// pinned ones and 海运 — and 海运, with the same tabs by its lines' item category.
+const SEA = '海运'
+const AIR_LABEL = '空运'
 // What the Order New Product dialog can raise.
 const NEW_TYPES = [
     { category: 'New Product', icon: 'el-icon-circle-plus-outline', sub: 'A product not in Zoho yet' },
@@ -665,9 +676,15 @@ export default {
             loading: false,
             byStatus: {},
             byCategory: {},
+            // 海运's lines by their item's category (its tabs' counts)
+            bySeaCategory: {},
             categories: [],
             suppliers: [],
             activeCategory: '',
+            // a tab under 海运 (activeCategory is then 海运)
+            activeSeaCat: '',
+            // the open parent in the tree: 'root' (空运) or 'sea' (海运)
+            expandedRoot: 'root',
             activeStatus: '',
             activeSupplier: '',
             search: '',
@@ -748,15 +765,30 @@ export default {
         loading(v) { if (!v) this.$nextTick(this.fitTable) }
     },
     computed: {
+        // Two parents (2026-10-16): 空运 — every category, even empty, but the
+        // pinned channels and 海运 — and 海运 with the same tabs, its lines by
+        // their item's category. The count is the lines still waiting to be
+        // placed (pending), in red.
         treeData() {
-            // Every category, even empty — the count is the lines still
-            // waiting to be placed (pending), in red.
-            // (the pinned channels are not in it)
-            const cats = (this.categories.length ? this.categories : CATEGORIES).filter(c => !PINNED_CATS.includes(c))
-            const pending = cat => (this.byCategory[cat] && this.byCategory[cat].pending) || 0
-            const children = cats.map(cat => ({ id: cat, label: this.catLabel(cat), count: pending(cat) }))
-            const total = Object.keys(this.byCategory).filter(c => !PINNED_CATS.includes(c)).reduce((sum, cat) => sum + pending(cat), 0)
-            return [{ id: 'root', label: this.$tp('All orders'), count: total, children }]
+            const cats = (this.categories.length ? this.categories : CATEGORIES).filter(c => !PINNED_CATS.includes(c) && c !== SEA)
+            const pending = (by, cat) => (by[cat] && by[cat].pending) || 0
+            const air = cats.map(cat => ({ id: cat, label: this.catLabel(cat), count: pending(this.byCategory, cat) }))
+            const airTotal = Object.keys(this.byCategory).filter(c => !PINNED_CATS.includes(c) && c !== SEA).reduce((sum, cat) => sum + pending(this.byCategory, cat), 0)
+            const sea = cats.map(cat => ({ id: 'sea:' + cat, label: this.catLabel(cat), count: pending(this.bySeaCategory, cat) }))
+            return [
+                { id: 'root', label: AIR_LABEL, count: airTotal, children: air },
+                { id: 'sea', label: SEA, count: pending(this.byCategory, SEA), children: sea }
+            ]
+        },
+        // the tree opens this parent (a cached array: the tree reacts to a new one)
+        expandedKeys() {
+            return [this.expandedRoot]
+        },
+        // what the list shows: 空运 (all of it, or a tab), 海运 (all of it, or a tab), or a pinned list
+        listTitle() {
+            if (!this.activeCategory) return AIR_LABEL
+            if (this.activeCategory === SEA) return this.activeSeaCat ? `${SEA} › ${this.catLabel(this.activeSeaCat)}` : SEA
+            return this.catLabel(this.activeCategory)
         },
         canEither() {
             return this.can('spp:order:create') || this.can('spp:order:supply')
@@ -884,6 +916,13 @@ export default {
             return (e && (e.message || (e.response && e.response.data && e.response.data.message))) || fallback
         },
         // ── Loading ────────────────────────────────────────────────
+        // The tree's pick as the list's filter: 空运 = every category but the
+        // pinned ones and 海运; a 空运 tab = its category; 海运, or one of its
+        // tabs (its lines of that item category); a pinned list.
+        listFilter() {
+            if (!this.activeCategory) return { excludeCategory: [...PINNED_CATS, SEA].join(',') }
+            return { category: this.activeCategory, seaCategory: this.activeCategory === SEA && this.activeSeaCat ? this.activeSeaCat : undefined }
+        },
         async load() {
             if (this.boardMode) return this.loadBoard()
             this.loading = true
@@ -891,8 +930,7 @@ export default {
                 const r = await listOrders({
                     page: this.page,
                     pageSize: this.pageSize,
-                    category: this.activeCategory || undefined,
-                    excludeCategory: this.activeCategory ? undefined : PINNED_CATS.join(','),
+                    ...this.listFilter(),
                     status: this.activeStatus || undefined,
                     supplier: this.activeSupplier || undefined,
                     open: (!this.activeStatus && this.openOnly) ? 1 : undefined,
@@ -903,6 +941,7 @@ export default {
                 this.total = r.total || 0
                 this.byStatus = r.byStatus || {}
                 this.byCategory = r.byCategory || {}
+                this.bySeaCategory = r.bySeaCategory || {}
                 this.categories = r.categories || []
                 this.suppliers = r.suppliers || []
                 if (!this.treeInit) {
@@ -934,6 +973,7 @@ export default {
                 this.boardCapped = (open.total || 0) > (open.rows || []).length
                 this.byStatus = open.byStatus || {}
                 this.byCategory = open.byCategory || {}
+                this.bySeaCategory = open.bySeaCategory || {}
                 this.categories = open.categories || []
                 this.suppliers = open.suppliers || []
                 this.treeInit = true
@@ -970,26 +1010,43 @@ export default {
             this.openOnly = true
             this.reload()
         },
+        // 'root' = 空运, 'sea' = 海运, 'sea:<category>' = a tab under 海运, else a tab under 空运
         onNodeClick(data) {
-            this.activeCategory = data.id === 'root' ? '' : data.id
+            const id = data.id
+            this.activeSeaCat = String(id).startsWith('sea:') ? String(id).slice(4) : ''
+            this.activeCategory = id === 'root' ? '' : (id === 'sea' || this.activeSeaCat) ? SEA : id
+            this.expandedRoot = this.activeCategory === SEA ? 'sea' : 'root'
             this.reload()
+        },
+        // a parent opened by its arrow: remember it (the tree closes the other one)
+        onTreeExpand(data) {
+            if (data && (data.id === 'root' || data.id === 'sea')) this.expandedRoot = data.id
         },
         // A pinned channel: its own list; the tree shows nothing selected.
         openPin(category) {
             this.activeCategory = category
+            this.activeSeaCat = ''
             if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey(null)
             this.reload()
         },
         pendingOf(category) {
             return (this.byCategory[category] && this.byCategory[category].pending) || 0
         },
+        // the tree node the list shows ('root' 空运, 'sea' 海运, 'sea:<cat>', or a 空运 tab)
+        isNodeOn(id) {
+            if (id === 'root') return !this.activeCategory
+            if (id === 'sea') return this.activeCategory === SEA && !this.activeSeaCat
+            if (String(id).startsWith('sea:')) return this.activeCategory === SEA && this.activeSeaCat === String(id).slice(4)
+            return this.activeCategory === id
+        },
         onPage(p) { this.page = p; this.load() },
-        // phone: a chip in the list strip (the tree's job on a big screen)
-        pickList(cat) {
-            if (PINNED_CATS.includes(cat)) this.openPin(cat)
+        // phone: a chip in the list strip (the tree's job on a big screen) — a
+        // pinned list, or a tree node's id ('' = 空运)
+        pickList(id) {
+            if (PINNED_CATS.includes(id)) this.openPin(id)
             else {
-                this.onNodeClick({ id: cat || 'root' })
-                if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey(cat || 'root')
+                this.onNodeClick({ id: id || 'root' })
+                if (this.$refs.treeRef && this.$refs.treeRef.setCurrentKey) this.$refs.treeRef.setCurrentKey(id || 'root')
             }
             this.$nextTick(() => {
                 const el = this.$refs.mlists && this.$refs.mlists.querySelector('.spp-mchip.on')
@@ -1121,8 +1178,7 @@ export default {
             this.exporting = true
             try {
                 const base = {
-                    category: this.activeCategory || undefined,
-                    excludeCategory: this.activeCategory ? undefined : PINNED_CATS.join(','),
+                    ...this.listFilter(),
                     status: this.activeStatus || undefined,
                     supplier: this.activeSupplier || undefined,
                     open: (!this.activeStatus && this.openOnly) ? 1 : undefined,
@@ -1158,7 +1214,7 @@ export default {
                 const ws = XLSX.utils.json_to_sheet(data)
                 ws['!cols'] = [10, 10, 60, 14, 6, 10, 12, 10, 16, 10, 10, 16, 10, 30].map(w => ({ wch: w }))
                 const wb = XLSX.utils.book_new()
-                const sheet = (this.activeCategory ? this.catLabel(this.activeCategory) : t('All orders')).replace(/[\\/?*[\]:]/g, ' ').slice(0, 30)
+                const sheet = this.listTitle.replace(/[\\/?*[\]:›]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 30)
                 XLSX.utils.book_append_sheet(wb, ws, sheet)
                 XLSX.writeFile(wb, `${t('Purchase Orders')} - ${sheet} - ${fmtDay(new Date().toISOString())}.xlsx`)
             } catch (e) {
@@ -1664,6 +1720,8 @@ export default {
     &.is-pin { font-weight: 600; }
     &.on { color: #409eff; border-color: #409eff; background: #ecf5ff; i { color: #409eff; } } }
 .spp-mchip-sep { flex: 0 0 1px; background: #e4e7ed; margin: 5px 2px; }
+/* 空运 / 海运 themselves (their tabs follow) */
+.spp-mchip.is-root { font-weight: 600; }
 .spp-mcards { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px 0 10px; -webkit-overflow-scrolling: touch; }
 .spp-mempty { display: block; text-align: center; padding: 40px 0; }
 .spp-f-toggle { flex-shrink: 0; }

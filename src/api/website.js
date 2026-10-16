@@ -114,3 +114,11 @@ export function searchCategoryProducts(q) {
 export function moveProductsToCategory(productIds, categoryId) {
   return request({ url: '/website/categories/products/move', method: 'post', data: { productIds, categoryId }, timeout: 180000 })
 }
+
+// iMobile Listing → Qualities: the qualities each classification comes in
+export function listQualities() {
+  return request({ url: '/website/qualities', method: 'get' })
+}
+export function saveQualities(classification, qualities) {
+  return request({ url: `/website/qualities/${encodeURIComponent(classification)}`, method: 'put', data: { qualities } })
+}
