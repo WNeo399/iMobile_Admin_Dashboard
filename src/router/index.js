@@ -177,18 +177,6 @@ export const moduleRoutes = [
         }
       },
       {
-        // The spare parts browser widget: what it holds, its embed code and
-        // a preview. The data is the stock register — nothing to manage.
-        path: "spareParts",
-        component: (resolve) => require(["@/views/website/spareParts"], resolve),
-        name: "WebsiteSpareParts",
-        meta: {
-          title: "Listing Widget",
-          icon: "el-icon-mobile-phone",
-          permissions: ["web:parts:view"]
-        }
-      },
-      {
         // Email campaigns through Zoho Campaigns: drafts (mostly from the
         // agent API), preview, test send, send, then the summary report.
         path: "campaigns",
@@ -198,6 +186,58 @@ export const moduleRoutes = [
           title: "Campaign",
           icon: "el-icon-message",
           permissions: ["web:campaign:view"]
+        }
+      }
+    ]
+  },
+  {
+    // iMobile Listing (user ask 2026-10-16): getting products onto the online
+    // store — the store's categories, the new device models to stock parts
+    // for, and the parts listing widget. Right below iMobile Website. Admin,
+    // iMobile Warehouse and iMobile Purchase (listing:*:*).
+    path: "/listing",
+    component: Layout,
+    redirect: "noRedirect",
+    alwaysShow: true,
+    meta: { title: "iMobile Listing", icon: "el-icon-goods" },
+    children: [
+      {
+        // The online store's category tree through Zoho Commerce (shared
+        // with Zoho Inventory): create / edit categories, see a category's
+        // products, move products into it.
+        path: "categories",
+        component: (resolve) => require(["@/views/website/categories"], resolve),
+        name: "ListingCategories",
+        meta: {
+          title: "Categories",
+          icon: "el-icon-menu",
+          permissions: ["listing:category:view"]
+        }
+      },
+      {
+        // New Products (2026-10-06, moved here from Spare Parts Purchase
+        // 2026-10-16): the device models we want parts for, whether Zoho
+        // already has each part type, and creating the missing items.
+        path: "new-products",
+        component: (resolve) => require(["@/views/sparePartsPurchase/newProducts"], resolve),
+        name: "SppNewProducts",
+        meta: {
+          title: "New Products",
+          icon: "el-icon-mobile-phone",
+          permissions: ["listing:product:view"]
+        }
+      },
+      {
+        // The spare parts browser widget (moved here from iMobile Website
+        // 2026-10-16): what it holds, its embed code and a preview. The
+        // data is the stock register — nothing to manage.
+        path: "widget",
+        component: (resolve) => require(["@/views/website/spareParts"], resolve),
+        name: "WebsiteSpareParts",
+        meta: {
+          title: "Listing Widget",
+          icon: "el-icon-data-board",
+          permissions: ["listing:widget:view"]
         }
       }
     ]
@@ -463,21 +503,6 @@ export const moduleRoutes = [
           title: "Missing Images",
           icon: "el-icon-picture-outline",
           permissions: ["spp:image:view", "zoho:stock:view"]
-        }
-      },
-      {
-        // New Products (user ask 2026-10-06): the device models we want
-        // parts for (Skyline's Motorola list first), whether Zoho already
-        // has each part type, and creating the missing items in Zoho.
-        // spp:product:* sits inside spp:*:*, so the staff roles have it and
-        // the parts supplier does not.
-        path: "new-products",
-        component: (resolve) => require(["@/views/sparePartsPurchase/newProducts"], resolve),
-        name: "SppNewProducts",
-        meta: {
-          title: "New Products",
-          icon: "el-icon-mobile-phone",
-          permissions: ["spp:product:view"]
         }
       }
     ]

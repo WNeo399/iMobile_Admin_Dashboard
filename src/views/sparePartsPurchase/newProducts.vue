@@ -215,21 +215,51 @@
                             </el-select>
                         </el-form-item>
                     </div>
+                    <el-form-item>
+                        <span slot="label">{{ $tp('Category') }} <span class="spn-req">*</span>
+                            <el-tooltip :content="$tp('The online store category the item is filed under (Zoho Commerce — the same tree as Zoho Inventory).')" placement="top">
+                                <i class="el-icon-info spn-help" /></el-tooltip></span>
+                        <div class="spn-cat">
+                            <!-- any level can be picked; typing searches the whole path -->
+                            <el-cascader v-model="createForm.categoryId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                                filterable clearable :placeholder="categoriesLoading && !categories.length ? $tp('Loading the categories…') : $tp('Pick the category')"
+                                class="spn-cat-pick" />
+                            <el-tooltip :content="$tp('Read the categories again from Zoho (after adding one on the Categories page)')" placement="top">
+                                <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
+                            </el-tooltip>
+                        </div>
+                        <div v-if="categorySuggested" class="spn-cat-hint"><i class="el-icon-magic-stick" /> {{ $tp('Picked from the model name — change it if needed') }}</div>
+                        <div v-else-if="!createForm.categoryId && categories.length && !suggestedCategoryId" class="spn-cat-hint">{{ $tp('No category is named after this model — pick one, or add it on the Categories page') }}</div>
+                    </el-form-item>
 
                     <div class="spn-sec">{{ $tp('Prices') }}
                         <el-tooltip :content="$tp('The price lists are written to Zoho after the item is made; blank ones stay unset.')" placement="top">
                             <i class="el-icon-info spn-help" /></el-tooltip></div>
-                    <div class="spn-prices">
+                    <!-- the cost: Zoho's purchase price, and what the four lists are worked out from -->
+                    <div class="spn-cost">
+                        <div class="spn-price">
+                            <span class="spn-price-label">{{ $tp('Cost price') }} <span class="spn-req">*</span>
+                                <el-tooltip :content="$tp('Goes to Zoho as the purchase price. The four price lists are worked out from it with the pricing formula — they can still be changed.')" placement="top">
+                                    <i class="el-icon-info spn-help" /></el-tooltip></span>
+                            <el-input-number v-model="createForm.cost" size="small" :min="0" :precision="2" :controls="false" class="spn-money"
+                                :placeholder="$tp('Required')" style="width:100%" @change="onCost" />
+                        </div>
                         <div class="spn-price">
                             <span class="spn-price-label">{{ $tp('Selling price') }}
                                 <el-tooltip :content="$tp('9999.99 is the usual placeholder until the price is set.')" placement="top">
                                     <i class="el-icon-info spn-help" /></el-tooltip></span>
                             <el-input-number v-model="createForm.rate" size="small" :min="0" :precision="2" :controls="false" class="spn-money" style="width:100%" />
                         </div>
+                        <el-button v-if="formulaOff" type="text" size="mini" icon="el-icon-refresh" class="spn-formula" @click="applyFormula(true)">{{ $tp('Use the formula prices') }}</el-button>
+                    </div>
+                    <div class="spn-prices">
                         <div v-for="p in PRICE_LISTS" :key="p.list" class="spn-price">
                             <span class="spn-price-label">{{ p.label }}</span>
                             <el-input-number v-model="createForm.prices[p.list]" size="small" :min="0" :precision="2" :controls="false" class="spn-money"
                                 :placeholder="$tp('Not set')" style="width:100%" />
+                            <!-- changed from (or blank against) the formula: its price, click to use it -->
+                            <span v-if="formulaPrices && offFormula(p.list)" class="spn-ref" :title="$tp('Use the formula price')"
+                                @click="createForm.prices[p.list] = formulaPrices[p.list]">{{ $tp('Formula') }} ${{ formulaPrices[p.list].toFixed(2) }}</span>
                         </div>
                     </div>
                     <div v-for="w in priceWarnings" :key="w" class="spn-price-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
@@ -311,7 +341,7 @@ import TreePanel from '@/components/TreePanel'
 import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import { hasPermission } from '@/utils/permission'
-import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, nextNewProductSku, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
+import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { zohoLink } from './shared'
 
 // the order the classifications are shown in after the needed parts
@@ -327,6 +357,12 @@ const PRICE_LISTS = [
 const blankPrices = () => ({ platinum: undefined, vip: undefined, svip: undefined, wholesale: undefined })
 // photos on a new item — as on Missing Images (types / 7 MB: ImagePicker)
 const MAX_PHOTOS = 10
+// the Category picker: any level can be picked, the value is the id
+const CATEGORY_PROPS = { checkStrictly: true, emitPath: false, value: 'id', label: 'label', children: 'children' }
+// a brand's own short name in the store's category names ("MOTO G57")
+const BRAND_SHORT = { Motorola: ['moto'] }
+// the category list is read again after this long
+const CATEGORIES_TTL = 10 * 60 * 1000
 
 export default {
     name: 'SppNewProducts',
@@ -363,8 +399,17 @@ export default {
             MAX_PHOTOS,
             skuSeq: 0,
             placeholderRate: 9999.99,
-            createForm: { name: '', sku: '', quality: '', rate: undefined, compatibleModels: [], prices: blankPrices() },
+            createForm: { name: '', sku: '', quality: '', rate: undefined, cost: undefined, categoryId: '', compatibleModels: [], prices: blankPrices() },
             PRICE_LISTS,
+            // the pricing formula from the server (utils/priceRules PRICE_FORMULAS),
+            // and the prices it last filled in (a list still showing them is "untouched")
+            priceFormulas: {},
+            lastAuto: null,
+            // the store categories (Zoho Commerce), flat as the server sends them
+            categories: [],
+            categoriesAt: 0,
+            categoriesLoading: false,
+            CATEGORY_PROPS,
             creating: false,
             // add / edit model dialog
             modelVisible: false,
@@ -374,7 +419,7 @@ export default {
     },
     computed: {
         canCreate() {
-            return this.can('spp:product:create')
+            return this.can('listing:product:create') // iMobile Listing since 2026-10-16
         },
         // the open drafts by model
         draftsByModel() {
@@ -510,9 +555,68 @@ export default {
             const sku = String(this.createForm.sku || '').trim()
             bits.push(sku ? this.$tp('SKU {sku}', { sku }) : (this.skuLoading ? this.$tp('Finding the next free SKU…') : this.$tp('No SKU yet')))
             if (this.createFiles.length) bits.push(this.$tp('{n} photo(s)', { n: this.createFiles.length }))
+            const cost = Number(this.createForm.cost)
+            if (cost > 0) bits.push(this.$tp('Cost {cost}', { cost: '$' + cost.toFixed(2) }))
             const prices = Object.values(this.createForm.prices || {}).filter(v => v != null && v !== '').length
             if (prices) bits.push(this.$tp('{n} price list(s)', { n: prices }))
+            const cat = this.categoryById[this.createForm.categoryId]
+            if (cat) bits.push(cat.name)
             return bits.join(' · ')
+        },
+        // ── the pricing formula ──
+        // which one prices the item: the part's own (from the server), or
+        // the service-pack one when the quality / name says "Service Pack"
+        priceFamily() {
+            const sp = /service pack/i
+            if (sp.test(this.createForm.quality || '') || sp.test(this.createForm.name || '')) return 'service-pack'
+            return (this.createPart && this.createPart.priceFamily) || 'other'
+        },
+        // the four lists for the typed cost (null without a cost)
+        formulaPrices() {
+            const cost = Number(this.createForm.cost)
+            const f = this.priceFormulas[this.priceFamily]
+            if (!(cost > 0) || !f) return null
+            const at = ([add, times]) => Math.round((cost + add) * times * 100) / 100
+            return { platinum: at(f.platinum), vip: at(f.vip), svip: at(f.svip), wholesale: at(f.wholesale) }
+        },
+        // some list differs from the formula (or is blank)
+        formulaOff() {
+            return !!this.formulaPrices && PRICE_LISTS.some(p => this.offFormula(p.list))
+        },
+        // ── the store category ──
+        categoryById() {
+            const map = {}
+            for (const c of this.categories) map[c.id] = c
+            return map
+        },
+        // the categories that can be picked: shown on the store — a hidden
+        // one is left out with everything under it
+        pickableCategories() {
+            const shown = c => {
+                for (let x = c, n = 0; x && n < 20; x = this.categoryById[x.parentId], n++) if (!x.visible) return false
+                return true
+            }
+            return this.categories.filter(shown)
+        },
+        // those as a tree for the picker (by the store's own order)
+        categoryTree() {
+            const kids = {}
+            const sorted = [...this.pickableCategories].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+            for (const c of sorted) (kids[c.parentId] = kids[c.parentId] || []).push(c)
+            const build = (parentId, seen) => (kids[parentId] || []).filter(c => !seen.has(c.id)).map(c => {
+                const node = { id: c.id, label: c.name }
+                const below = build(c.id, new Set([...seen, c.id]))
+                if (below.length) node.children = below
+                return node
+            })
+            return build('-1', new Set())
+        },
+        // the category named after the dialog's model ("MOTO G57" for Moto G57)
+        suggestedCategoryId() {
+            return this.createRow ? this.suggestCategoryFor(this.createRow) : ''
+        },
+        categorySuggested() {
+            return !!this.createForm.categoryId && this.createForm.categoryId === this.suggestedCategoryId
         },
         // the typed price lists against the tier order (advisory, as on Price
         // Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum; SVIP vs Wholesale free)
@@ -525,6 +629,9 @@ export default {
             rule('svip', 'vip', 'SVIP', 'VIP')
             rule('wholesale', 'vip', 'Wholesale', 'VIP')
             if (!has('vip')) { rule('svip', 'platinum', 'SVIP', 'Platinum'); rule('wholesale', 'platinum', 'Wholesale', 'Platinum') }
+            // a list under the cost loses money
+            const cost = Number(this.createForm.cost)
+            if (cost > 0) for (const { list, label } of PRICE_LISTS) if (has(list) && Number(p[list]) < cost) out.push(this.$tp('{a} is below the cost', { a: label }))
             return out
         },
         // the brand's models, for the create dialog's Compatible Model picker
@@ -601,6 +708,7 @@ export default {
                 this.brands = r.brands || []
                 this.qualities = r.qualities || []
                 if (r.placeholderRate != null) this.placeholderRate = r.placeholderRate
+                this.priceFormulas = r.priceFormulas || {}
                 this.rows = r.rows || []
                 this.drafts = r.drafts || []
                 // the first brand to start with; a hidden model falls back to its series
@@ -694,11 +802,106 @@ export default {
                 sku: '',
                 quality: '',
                 rate: this.placeholderRate,
+                cost: undefined,
+                categoryId: '',
                 compatibleModels: [row.compatibleModel].filter(Boolean),
                 prices: blankPrices()
             }
+            this.lastAuto = null
             this.createVisible = true
             this.loadNextSku()
+            // the model's own category, once the list is here
+            if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) this.loadCategories()
+            else this.suggestIfEmpty()
+        },
+        // ── the pricing formula ──
+        // a list that isn't the formula's price (blank counts)
+        offFormula(list) {
+            const v = this.createForm.prices[list]
+            return v == null || v === '' || Math.abs(Number(v) - this.formulaPrices[list]) > 0.004
+        },
+        // Fill the four lists from the formula: always when asked (`force` —
+        // the cost was typed, the button), otherwise only while no list was
+        // changed by hand since the formula last filled them.
+        applyFormula(force) {
+            const f = this.formulaPrices
+            if (!f) return
+            const p = this.createForm.prices || {}
+            const untouched = PRICE_LISTS.every(({ list }) => p[list] == null || p[list] === '' || (this.lastAuto && Number(p[list]) === this.lastAuto[list]))
+            if (!force && !untouched) return
+            this.createForm.prices = { ...f }
+            this.lastAuto = { ...f }
+        },
+        onCost() {
+            this.applyFormula(true)
+        },
+        // ── the store category ──
+        async loadCategories(refresh) {
+            if (this.categoriesLoading) return
+            this.categoriesLoading = true
+            try {
+                const r = await newProductCategories(refresh)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.categories = r.categories || []
+                this.categoriesAt = Date.now()
+                this.suggestIfEmpty()
+            } catch (e) {
+                this.$message.warning(this.msg(e, this.$tp('Could not read the categories from Zoho Commerce')))
+            } finally {
+                this.categoriesLoading = false
+            }
+        },
+        // typing in the picker searches the whole path, any case
+        categoryFilter(node, keyword) {
+            return String(node.text || '').toLowerCase().includes(String(keyword || '').toLowerCase())
+        },
+        // The category named after a model: names compared without the brand
+        // ("Motorola" / "MOTO"), case or punctuation — "MOTO G57" for Moto G57.
+        // Several with that name: the one under the brand's branch, then the
+        // one with products; still several → none.
+        suggestCategoryFor(row) {
+            if (!row || !this.categories.length) return ''
+            const brand = this.brands.find(b => b.value === row.brand) || {}
+            const words = [...new Set([row.brand, brand.deviceBrand, brand.label, ...(BRAND_SHORT[row.brand] || [])].filter(Boolean).map(w => String(w).toLowerCase()))]
+                .sort((a, b) => b.length - a.length)
+            const norm = s => {
+                let x = ` ${String(s || '').toLowerCase()} `
+                for (const w of words) x = x.split(w).join(' ')
+                return x.replace(/[^a-z0-9]+/g, '')
+            }
+            const targets = new Set([row.model, row.compatibleModel, ...(row.aliases || [])].map(norm).filter(Boolean))
+            let hits = this.pickableCategories.filter(c => targets.has(norm(c.name)))
+            if (hits.length > 1) {
+                const underBrand = hits.filter(c => {
+                    for (let p = this.categoryById[c.parentId]; p; p = this.categoryById[p.parentId]) {
+                        if (words.some(w => p.name.toLowerCase().includes(w))) return true
+                    }
+                    return false
+                })
+                if (underBrand.length) hits = underBrand
+                if (hits.length > 1) hits = hits.filter(c => c.hasProducts)
+            }
+            return hits.length === 1 ? hits[0].id : ''
+        },
+        // a category the picker offers (anything goes until the list is here)
+        categoryPickable(id) {
+            return !this.categories.length || this.pickableCategories.some(c => c.id === id)
+        },
+        // No category yet (or a draft's that is hidden now) → the model's own.
+        suggestIfEmpty() {
+            if (!this.createVisible || !this.createRow) return
+            if (this.createForm.categoryId && this.categoryPickable(this.createForm.categoryId)) return
+            this.createForm.categoryId = this.suggestedCategoryId || ''
+        },
+        // what Create item needs (a draft can be saved without)
+        checkCreate() {
+            const warn = text => { this.$message.warning(this.$tp(text)); return false }
+            if (!this.createForm.name || this.createForm.name.trim().length < 5) return warn('Enter the item name')
+            if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) return warn('SKU must be a number')
+            if (!this.createForm.compatibleModels.length) return warn('Pick every model this part fits')
+            if (!(Number(this.createForm.cost) > 0)) return warn('Enter the cost price')
+            if (!this.createForm.categoryId || !this.categoryPickable(this.createForm.categoryId)) return warn('Pick the category to file the item under')
+            return true
         },
         async loadNextSku() {
             const seq = ++this.skuSeq
@@ -731,6 +934,8 @@ export default {
         onQuality(q) {
             this.createForm.name = this.withQuality(this.createForm.name, q || '')
             this.appliedQuality = q || ''
+            // "Service Pack" prices with its own formula: follow it unless a list was changed by hand
+            this.applyFormula(false)
         },
         // a screenshot pasted into the form goes to the picker (same checks)
         onCreatePaste(e) {
@@ -747,19 +952,10 @@ export default {
         async submitCreate() {
             if (!this.createRow || !this.createPart) return
             if (this.createDraftId) return this.submitDraft()
-            if (!this.createForm.name || this.createForm.name.trim().length < 5) { this.$message.warning(this.$tp('Enter the item name')); return }
-            if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) { this.$message.warning(this.$tp('SKU must be a number')); return }
-            if (!this.createForm.compatibleModels.length) { this.$message.warning(this.$tp('Pick every model this part fits')); return }
+            if (!this.checkCreate()) return
             this.creating = true
             try {
-                const fields = {
-                    modelId: this.createRow._id, part: this.createPart.key,
-                    // one line in Zoho: a pasted line break becomes a space
-                    name: this.createForm.name.replace(/[\r\n]+/g, ' ').trim(), sku: String(this.createForm.sku).trim(), quality: this.createForm.quality || '',
-                    rate: this.createForm.rate, compatibleModels: this.createForm.compatibleModels,
-                    // only the lists given
-                    prices: Object.fromEntries(Object.entries(this.createForm.prices || {}).filter(([, v]) => v != null && v !== ''))
-                }
+                const fields = this.createFields()
                 // with photos: one multipart request (the item, then its photos)
                 const files = this.createFiles.map(x => x.file)
                 let data = fields
@@ -787,6 +983,9 @@ export default {
             if (priceErrors.length) {
                 const names = priceErrors.map(k => (PRICE_LISTS.find(p => p.list === k) || { label: k }).label).join(', ')
                 this.$message.warning(this.$tp('{sku} created, but these prices did not save: {lists} — set them on Price Monitoring', { sku: r.item.sku, lists: names }))
+            }
+            if (r.category && r.category.error) {
+                this.$message.warning(this.$tp('{sku} created, but the category did not save: {error} — file it on the Categories page', { sku: r.item.sku, error: r.category.error }))
             }
             const h = this.$createElement
             this.$notify({
@@ -819,9 +1018,13 @@ export default {
         createFields() {
             return {
                 modelId: this.createRow._id, part: this.createPart.key,
+                // one line in Zoho: a pasted line break becomes a space
                 name: String(this.createForm.name || '').replace(/[\r\n]+/g, ' ').trim(), sku: String(this.createForm.sku || '').trim(),
                 quality: this.createForm.quality || '', rate: this.createForm.rate,
+                // the cost (Zoho's purchase price) and the store category
+                cost: this.createForm.cost == null ? null : this.createForm.cost, categoryId: this.createForm.categoryId || '',
                 compatibleModels: this.createForm.compatibleModels,
+                // only the lists given
                 prices: Object.fromEntries(Object.entries(this.createForm.prices || {}).filter(([, v]) => v != null && v !== ''))
             }
         },
@@ -881,18 +1084,21 @@ export default {
                 sku: d.sku || '',
                 quality: d.quality || '',
                 rate: d.rate != null ? d.rate : this.placeholderRate,
+                cost: d.cost != null ? d.cost : undefined,
+                categoryId: d.categoryId || '',
                 compatibleModels: (d.compatibleModels && d.compatibleModels.length) ? d.compatibleModels : [row.compatibleModel].filter(Boolean),
                 prices: { ...blankPrices(), ...(d.prices || {}) }
             }
+            // the saved prices stand; a quality change re-prices them only while they are the formula's
+            this.lastAuto = this.formulaPrices && !this.formulaOff ? { ...this.formulaPrices } : null
+            this.suggestIfEmpty()
             this.createFiles = (d.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
             // a SKU saved with the draft stands; none → the next free one, as for a new item
             if (d.sku) { this.skuSeq++; this.skuLoading = false } else this.loadNextSku()
         },
         // Submit a draft: save what the dialog has, then create from it.
         async submitDraft() {
-            if (!this.createForm.name || this.createForm.name.trim().length < 5) { this.$message.warning(this.$tp('Enter the item name')); return }
-            if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) { this.$message.warning(this.$tp('SKU must be a number')); return }
-            if (!this.createForm.compatibleModels.length) { this.$message.warning(this.$tp('Pick every model this part fits')); return }
+            if (!this.checkCreate()) return
             const saved = await this.saveDraft({ keepOpen: true })
             if (!saved) return
             this.creating = true
@@ -1069,13 +1275,23 @@ export default {
 .spn-cf ::v-deep .el-form-item__label { padding-bottom: 2px; line-height: 22px; }
 .spn-fits-item { margin-bottom: 0 !important; }
 .spn-name ::v-deep .el-textarea__inner { padding-bottom: 18px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; /* as the inputs */ }
-.spn-prices { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.spn-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .spn-price { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .spn-price-label { font-size: 12px; color: #606266; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* a $ in front of a price (el-input-number has no prefix slot) */
 .spn-money::before { content: "$"; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); z-index: 1; font-size: 12px; color: #909399; pointer-events: none; }
 .spn-money ::v-deep .el-input__inner { padding-left: 20px; text-align: left; }
 .spn-price-warn { margin-top: 4px; font-size: 12px; color: #e6a23c; line-height: 1.6; i { margin-right: 2px; } }
+/* the cost (the four lists are priced from it) */
+.spn-req { color: #f56c6c; font-weight: normal; }
+/* cost + selling price on the same columns as the four lists below */
+.spn-cost { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: end; margin-bottom: 10px; }
+.spn-formula { grid-column: span 2; justify-self: start; padding: 0 0 8px; }
+.spn-ref { font-size: 11px; line-height: 16px; color: #409eff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; &:hover { text-decoration: underline; } }
+/* the store category */
+.spn-cat { display: flex; gap: 6px; }
+.spn-cat-pick { flex: 1; min-width: 0; }
+.spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } }
 .spn-cfoot { display: flex; align-items: center; gap: 8px; }
 .spn-cfoot-sum { flex: 1; min-width: 0; text-align: left; font-size: 12px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spn-cfoot .el-button + .el-button { margin-left: 0; }
@@ -1083,8 +1299,9 @@ export default {
 .spn-col { flex: 1; }
 @media (max-width: 899px) {
     .spn-cf { grid-template-columns: 1fr; }
-    .spn-cf-side { border-left: 0; padding-left: 0; }
-    .spn-prices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .spn-cf-side { border-left: 0; padding-left: 0; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }
+    .spn-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .spn-cost { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 767px) {
     .spn-main { padding: 8px 10px 4px; }

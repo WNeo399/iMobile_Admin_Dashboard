@@ -98,12 +98,13 @@ export function deleteOrderImage(id, imageId) {
   return request({ url: `${BASE}/orders/${id}/images/${imageId}`, method: 'delete' })
 }
 // Scan-to-batch: the oldest waiting line for a SKU, skipping `exclude` ids.
-export function lookupOrder(sku, exclude) {
-  return request({ url: `${BASE}/orders/lookup`, method: 'get', params: { sku, exclude: (exclude || []).join(',') } })
+// `freight` ('sea' | 'air'): only lines a batch of that kind takes
+export function lookupOrder(sku, exclude, freight) {
+  return request({ url: `${BASE}/orders/lookup`, method: 'get', params: { sku, exclude: (exclude || []).join(','), freight } })
 }
 // The ordered / pending lines waiting to ship (the batch picker).
-export function openLines(search) {
-  return request({ url: `${BASE}/orders/open-lines`, method: 'get', params: { search } })
+export function openLines(search, freight) {
+  return request({ url: `${BASE}/orders/open-lines`, method: 'get', params: { search, freight } })
 }
 // Live parts from the stock register, by name or SKU.
 export function searchProducts(q) {
@@ -177,8 +178,12 @@ export function deleteNewProductDraft(id) {
 export function nextNewProductSku() {
   return request({ url: `${BASE}/new-products/next-sku`, method: 'get', timeout: 30000 })
 }
-// { modelId, part, name, sku, quality, rate, compatibleModels } → one Zoho Inventory
-// item; a FormData with "images" also uploads its photos
+// the store categories (Zoho Commerce) a new item can be filed under
+export function newProductCategories(refresh) {
+  return request({ url: `${BASE}/new-products/categories`, method: 'get', params: refresh ? { refresh: 1 } : {}, timeout: 60000 })
+}
+// { modelId, part, cost, categoryId, name, sku, quality, rate, prices, compatibleModels }
+// → one Zoho Inventory item; a FormData with "images" also uploads its photos
 export function createNewProductItem(data) {
   return request({ url: `${BASE}/new-products/items`, method: 'post', data, timeout: 120000 })
 }

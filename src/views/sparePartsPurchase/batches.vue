@@ -11,7 +11,7 @@
             </el-radio-group>
             <el-input v-model="search" size="small" clearable prefix-icon="el-icon-search" class="spb-search"
                 :placeholder="$tp('Batch no, tracking, SKU, product…')" @keyup.enter.native="reload" @clear="reload" />
-            <el-button v-if="can('spp:batch:create')" type="primary" size="small" icon="el-icon-truck" @click="openCreate">{{ $tp('Create Batch') }}</el-button>
+            <el-button v-if="can('spp:batch:create')" type="primary" size="small" icon="el-icon-truck" @click="freightVisible = true">{{ $tp('Create Batch') }}</el-button>
             <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
 
@@ -22,6 +22,7 @@
                 <div class="spb-card-head">
                     <el-tag v-if="r.status === 'draft'" size="mini" type="warning" class="spb-draft-tag" @click="openDraft(r)">{{ $tp('Draft') }}</el-tag>
                     <el-button v-else type="text" class="spb-no" @click="openView(r)">{{ r.batchNo }}</el-button>
+                    <i :class="['spb-freight-ico', freightOf(r), freightIcon(r)]" :title="freightLabel(r)" />
                     <el-tag size="mini" :type="batchTag(r.status)" effect="plain">{{ batchLabel(r.status) }}</el-tag>
                     <span class="spb-spacer" />
                     <span class="spb-dim">{{ fmtDay(r.shippedAt) }}</span>
@@ -49,10 +50,12 @@
             </div>
         </div>
         <el-table v-else v-loading="loading" :data="rows" size="mini" border :empty-text="$tp('No batches yet')">
-            <el-table-column :label="$tp('Batch')" width="110">
+            <el-table-column :label="$tp('Batch')" width="120">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.status === 'draft'" size="mini" type="warning" class="spb-draft-tag" @click="openDraft(s.row)">{{ $tp('Draft') }}</el-tag>
                     <el-button v-else type="text" class="spb-no" @click="openView(s.row)">{{ s.row.batchNo }}</el-button>
+                    <!-- 海运 / 空运 as an icon (2026-10-16; older batches were all air) -->
+                    <i :class="['spb-freight-ico', freightOf(s.row), freightIcon(s.row)]" :title="freightLabel(s.row)" />
                 </template>
             </el-table-column>
             <el-table-column :label="$tp('Shipped')" width="110" align="center">
@@ -144,12 +147,33 @@
                 :total="total" :page-size="pageSize" :page-sizes="[10, 20, 50]" :current-page="page" @current-change="onPage" @size-change="onSize" />
         </div>
 
+        <!-- ── 海运 or 空运 first (user ask 2026-10-16): a batch takes only its
+             own kind of line — 海运 the 海运 lines, 空运 every other one. ── -->
+        <el-dialog :visible.sync="freightVisible" :width="phone ? '92%' : '420px'" append-to-body top="20vh" custom-class="spb-dlg spb-freight-dlg"
+            @closed="!createVisible && clearQuery()">
+            <div slot="title" class="spb-dlg-head"><i class="el-icon-truck" /> {{ $tp('Create Batch') }}</div>
+            <div class="spb-freight-ask">{{ $tp('How does this batch ship?') }}</div>
+            <div class="spb-freight-pick">
+                <div class="spb-freight-opt air" @click="chooseFreight('air')">
+                    <i class="el-icon-position" />
+                    <b>空运</b>
+                    <span>{{ $tp('Air — every line except 海运') }}</span>
+                </div>
+                <div class="spb-freight-opt sea" @click="chooseFreight('sea')">
+                    <i class="el-icon-ship" />
+                    <b>海运</b>
+                    <span>{{ $tp('Sea — the 海运 lines only') }}</span>
+                </div>
+            </div>
+        </el-dialog>
+
         <!-- ── Create batch ─────────────────────────────────────────── -->
         <!-- Scan a SKU to pull its oldest waiting line, or pick lines from
              the open list. The shipped qty defaults to the ordered qty; a
              smaller number is a short shipment and still closes the line. -->
         <el-dialog :visible.sync="createVisible" width="960px" append-to-body top="5vh" :fullscreen="phone" :custom-class="dlgClass" @closed="onCreateClosed">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-truck" /> {{ draftId ? $tp('Draft batch') : $tp('Create Batch') }}
+                <span :class="['spb-freight', createForm.freight]">{{ createForm.freight === 'sea' ? '海运' : '空运' }}</span>
                 <span v-if="draftId" class="spb-dim spb-dlg-sub">{{ $tp('saved, not shipped') }}</span></div>
             <div class="spb-head-fields">
                 <!-- The Zoho Inventory PO for the whole batch is booked to this vendor. -->
@@ -189,7 +213,7 @@
                     <div v-if="!scanRows.length" class="spb-scanlist-empty">{{ $tp('Scanned lines show here') }}</div>
                     <div v-for="(l, i) in scanRows" :key="'s-' + (l.orderId || l.key || l.sku) + '-' + i" :class="['spb-scanrow', { hit: isLastScan(l), bad: l.unmatched }]">
                         <div class="spb-scanrow-main">
-                            <div class="spb-pname">{{ l.productName || l.sku }}</div>
+                            <div class="spb-pname">{{ l.productName || l.sku }} <span v-if="l.forCustomer" class="spb-for">{{ l.forCustomer }}</span></div>
                             <div class="spb-dim">{{ l.sku || '—' }}<template v-if="l.unmatched"> · <span class="spb-warn">{{ unmatchedLabel(l) }}</span></template><template v-else> · {{ $tp('ordered {n}', { n: l.orderQty }) }}</template></div>
                         </div>
                         <div class="spb-scanrow-qty">
@@ -201,87 +225,101 @@
                     </div>
                 </div>
             </barcode-scanner>
-            <!-- phones: a card per line — the fields that need typing (supplier, price, qty) big enough to tap -->
+            <!-- One row per SKU and destination (user ask 2026-10-16): every
+                 waiting PO line of the SKU for iMobile together (OSCAR's apart),
+                 their ordered quantities side by side; the shipped count fills
+                 the oldest line first — a line it doesn't reach stays open, the
+                 one it ends in ships short (the rest becomes a new line). -->
+            <!-- phones: a card per row — the fields that need typing (supplier, price, qty) big enough to tap -->
             <div v-if="phone" class="spb-line-cards">
-                <div v-if="!createForm.lines.length" class="spb-cards-empty">{{ $tp('Scan a SKU or pick orders to start the batch') }}</div>
-                <div v-for="(l, i) in createForm.lines" :key="l.orderId + '-' + i" class="spb-lcard">
+                <div v-if="!lineGroups.length" class="spb-cards-empty">{{ $tp('Scan a SKU or pick orders to start the batch') }}</div>
+                <div v-for="g in lineGroups" :key="g.key" class="spb-lcard">
                     <div class="spb-lcard-head">
                         <div class="spb-lcard-main">
-                            <div class="spb-pname">{{ l.productName || l.sku }}</div>
-                            <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> ·
-                                <template v-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template></div>
+                            <div class="spb-pname">{{ g.productName || g.sku }} <span v-if="g.forCustomer" class="spb-for">{{ g.forCustomer }}</span></div>
+                            <div class="spb-dim">SKU: {{ g.sku || '—' }}<span v-if="g.category"> · {{ $tp(g.category) }}</span> · {{ groupOrderedText(g) }}</div>
                         </div>
-                        <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="createForm.lines.splice(i, 1)" />
+                        <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="removeLine(g)" />
                     </div>
                     <div class="spb-lcard-grid">
-                        <div v-if="l.status === 'pending'" class="spb-lcard-f spb-lcard-wide">
+                        <div v-if="g.pending" class="spb-lcard-f spb-lcard-wide">
                             <label>{{ $tp('Supplier') }} *</label>
-                            <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Select')" style="width:100%">
+                            <el-select :value="g.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Select')" style="width:100%"
+                                @change="v => setGroupSupplier(g, v)">
                                 <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
                             </el-select>
                         </div>
                         <div class="spb-lcard-f">
                             <label>{{ $tp('Unit Price') }} (¥)</label>
-                            <el-input-number v-model="l.unitPrice" size="small" :min="0" :precision="2" :controls="false" style="width:100%"
-                                :placeholder="$tp('to fill')" />
+                            <el-input-number :value="g.unitPrice" size="small" :min="0" :precision="2" :controls="false" style="width:100%"
+                                :placeholder="g.mixedPrice ? $tp('mixed') : $tp('to fill')" @change="v => setGroupPrice(g, v)" />
                             <div class="spb-dim">{{ $tp('required to ship') }}</div>
                         </div>
                         <div class="spb-lcard-f">
                             <label>{{ $tp('Shipped Qty') }} *</label>
-                            <el-input-number v-model="l.qty" size="small" :min="1" :controls="false" style="width:100%" :placeholder="String(l.orderQty)"
-                                :class="{ 'spb-short': l.qty != null && l.qty < l.orderQty }" />
-                            <div class="spb-dim">{{ $tp('Ordered Qty') }}: {{ l.orderQty }}</div>
+                            <el-input-number :value="g.qty" size="small" :min="1" :controls="false" style="width:100%" :placeholder="String(g.orderQty)"
+                                :class="{ 'spb-short': g.qty != null && g.qty < g.orderQty }" @change="v => setGroupQty(g, v)" />
+                            <div class="spb-dim">{{ $tp('Ordered Qty') }}: {{ orderQtyText(g) }}</div>
                         </div>
                     </div>
-                    <div v-if="l.qty != null && l.qty < l.orderQty" class="spb-short-note">{{ $tp('short {n} — the rest becomes a new line', { n: l.orderQty - l.qty }) }}</div>
+                    <div v-for="n in allocationNotes(g)" :key="n.k" :class="n.cls">{{ n.text }}</div>
                 </div>
             </div>
-            <el-table v-else :data="createForm.lines" size="mini" border max-height="380" :empty-text="$tp('Scan a SKU or pick orders to start the batch')">
+            <el-table v-else :data="lineGroups" row-key="key" size="mini" border max-height="380" :empty-text="$tp('Scan a SKU or pick orders to start the batch')">
                 <!-- the name wraps to at most 2 lines; hover for all of it -->
                 <el-table-column :label="$tp('Product')" min-width="240">
                     <template slot-scope="s">
                         <div class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
-                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
+                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span>
+                            <span v-if="s.row.forCustomer" class="spb-for">{{ s.row.forCustomer }}</span></div>
+                        <div v-if="s.row.lines.length > 1" class="spb-dim">{{ s.row.lines.map(l => l.orderNo).join(' · ') }}</div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Supplier')" width="150" align="center">
                     <template slot-scope="s">
-                        <el-select v-if="s.row.status === 'pending'" v-model="s.row.supplier" size="mini" filterable allow-create
-                            default-first-option :placeholder="$tp('Select')" style="width:130px">
+                        <el-select v-if="s.row.pending" :value="s.row.supplier" size="mini" filterable allow-create
+                            default-first-option :placeholder="$tp('Select')" style="width:130px" @change="v => setGroupSupplier(s.row, v)">
                             <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
                         </el-select>
-                        <template v-else>{{ s.row.supplier || '—' }}</template>
+                        <template v-else>{{ s.row.supplierText || '—' }}</template>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Ordered')" width="110" align="center">
                     <template slot-scope="s">
-                        <el-tag v-if="s.row.status === 'pending'" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
-                        <template v-else>{{ fmtDay(s.row.orderedAt) }}</template>
+                        <el-tag v-if="s.row.allPending" size="mini" type="warning">{{ $tp('Pending') }}</el-tag>
+                        <template v-else>{{ fmtDay(s.row.orderedAt) }}<div v-if="s.row.pending" class="spb-dim">+ {{ $tp('Pending') }}</div></template>
                     </template>
                 </el-table-column>
                 <!-- Wanted to ship, not to save a draft (the purchase team can
                      fill the prices in on the downloaded sheet): prefilled from
-                     the line, editable on every line. -->
+                     the lines, editable — one price for the row's lines. -->
                 <el-table-column :label="$tp('Unit Price') + ' (¥)'" width="110" align="center">
                     <template slot-scope="s">
-                        <el-input-number v-model="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false" :placeholder="$tp('to fill')"
-                            style="width:88px" />
+                        <el-input-number :value="s.row.unitPrice" size="mini" :min="0" :precision="2" :controls="false"
+                            :placeholder="s.row.mixedPrice ? $tp('mixed') : $tp('to fill')" style="width:88px" @change="v => setGroupPrice(s.row, v)" />
                     </template>
                 </el-table-column>
-                <el-table-column :label="$tp('Ordered Qty')" width="90" align="center">
-                    <template slot-scope="s">{{ s.row.orderQty }}</template>
+                <!-- every waiting line's quantity: "10 + 20 + 30" over "= 60" -->
+                <el-table-column :label="$tp('Ordered Qty')" width="110" align="center">
+                    <template slot-scope="s">
+                        <template v-if="s.row.lines.length > 1">
+                            <div>{{ s.row.lines.map(l => l.orderQty).join(' + ') }}</div>
+                            <div class="spb-dim">= {{ s.row.orderQty }}</div>
+                        </template>
+                        <template v-else>{{ s.row.orderQty }}</template>
+                    </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Shipped Qty')" width="120" align="center">
                     <template slot-scope="s">
-                        <el-input-number v-model="s.row.qty" size="mini" :min="1" :controls="false" style="width:76px"
-                            :placeholder="String(s.row.orderQty)" :class="{ 'spb-short': s.row.qty != null && s.row.qty < s.row.orderQty }" />
-                        <div v-if="s.row.qty != null && s.row.qty < s.row.orderQty" class="spb-short-note">{{ $tp('short {n} — the rest becomes a new line', { n: s.row.orderQty - s.row.qty }) }}</div>
-                        <div v-else-if="s.row.qty == null" class="spb-dim">{{ $tp('type or scan') }}</div>
+                        <el-input-number :value="s.row.qty" size="mini" :min="1" :controls="false" style="width:76px"
+                            :placeholder="String(s.row.orderQty)" :class="{ 'spb-short': s.row.qty != null && s.row.qty < s.row.orderQty }" @change="v => setGroupQty(s.row, v)" />
+                        <div v-for="n in allocationNotes(s.row)" :key="n.k" :class="n.cls">{{ n.text }}</div>
+                        <div v-if="s.row.qty == null" class="spb-dim">{{ $tp('type or scan') }}</div>
                     </template>
                 </el-table-column>
                 <el-table-column width="40" align="center">
                     <template slot-scope="s">
-                        <el-button type="text" size="mini" icon="el-icon-close" class="spb-del" @click="createForm.lines.splice(s.$index, 1)" />
+                        <el-button type="text" size="mini" icon="el-icon-close" class="spb-del" @click="removeLine(s.row)" />
                     </template>
                 </el-table-column>
             </el-table>
@@ -289,7 +327,7 @@
                  from the open Special Order lines, or typed in here as new lines.
                  They have no Zoho item: on the PO every one goes under the shared
                  Special Order item with its own description, price and quantity. ── -->
-            <div class="spb-special">
+            <div v-if="!isSea" class="spb-special">
                 <div class="spb-special-head">
                     <b><i class="el-icon-star-off" /> {{ $tp('Special Order') }}</b>
                     <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.special.length }) }}</span>
@@ -322,7 +360,7 @@
                  supplier — picked from the open Warranty lines, or a new line with a
                  product chosen from the register. No charge: price 0, the PO line
                  says "Warranty replacement". ── -->
-            <div class="spb-special spb-warranty">
+            <div v-if="!isSea" class="spb-special spb-warranty">
                 <div class="spb-special-head">
                     <b><i class="el-icon-umbrella" /> {{ $tp('Warranty') }}</b>
                     <span class="spb-dim">{{ $tp('{n} line(s)', { n: createForm.warranty.length }) }}</span>
@@ -378,8 +416,8 @@
                                 <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
                                 <span v-else class="spb-warn"><template v-if="l.sku">{{ $tp('Scanned {sku}', { sku: l.sku }) }} · </template>{{ $tp('Not in Zoho') }}</span>
                                 <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
-                                <!-- a SKU Zoho does not know can become a Special Order instead -->
-                                <el-button v-if="!l.itemId" type="text" size="mini" icon="el-icon-star-off" class="spb-slrow-act" @click="toSpecial(l)">{{ $tp('Special Order') }}</el-button>
+                                <!-- a SKU Zoho does not know can become a Special Order instead (空运 only) -->
+                                <el-button v-if="!l.itemId && !isSea" type="text" size="mini" icon="el-icon-star-off" class="spb-slrow-act" @click="toSpecial(l)">{{ $tp('Special Order') }}</el-button>
                             </div>
                         </div>
                         <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option :placeholder="$tp('Supplier')" class="spb-slrow-sup">
@@ -444,7 +482,7 @@
                     <!-- Ship waits until every line has a price (user ask 2026-10-13) and no
                          unmatched line is left; the footer text says what is missing -->
                     <el-button type="primary" size="small" icon="el-icon-truck" :loading="creating" :disabled="!canShip"
-                        @click="submitCreate">{{ $tp('Ship {n} line(s)', { n: allLines.length }) }}</el-button>
+                        @click="submitCreate">{{ $tp('Ship {n} line(s)', { n: shipLines.length }) }}</el-button>
                 </span>
             </div>
         </el-dialog>
@@ -549,6 +587,7 @@
         <!-- ── View batch ───────────────────────────────────────────── -->
         <el-dialog :visible.sync="viewVisible" width="900px" append-to-body top="5vh" :fullscreen="phone" :custom-class="dlgClass">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-tickets" /> {{ view ? view.batchNo : '' }}
+                <span v-if="view" :class="['spb-freight', freightOf(view)]">{{ freightLabel(view) }}</span>
                 <el-tag v-if="view" size="mini" :type="batchTag(view.status)" effect="plain" class="spb-dlg-tag">{{ batchLabel(view.status) }}</el-tag>
             </div>
             <div v-if="view">
@@ -790,6 +829,13 @@ import { appendOscarLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
 // Supplier filter value for lines that have no supplier yet.
 const NO_SUPPLIER = '__none__'
+// the sea-freight category: a 海运 batch takes only its lines, a 空运 batch everything else
+const SEA = '海运'
+// Oldest PO line first, as the server's scan lookup orders them: ordered
+// before pending, then by order date, then by SP- number (creation order).
+const seqOf = no => Number(String(no || '').replace(/\D/g, '')) || 0
+const oldestFirst = (a, b) => (a.status === 'pending' ? 1 : 0) - (b.status === 'pending' ? 1 : 0) ||
+    (new Date(a.orderedAt || a.createdAt || 0) - new Date(b.orderedAt || b.createdAt || 0)) || seqOf(a.orderNo) - seqOf(b.orderNo)
 
 export default {
     name: 'SppBatches',
@@ -826,9 +872,10 @@ export default {
             hasCamera: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
             cameraVisible: false,
             lastScan: '', // the SKU just read — its line is highlighted in the camera view
-            // create / draft
+            // create / draft — 海运 (sea) or 空运 (air) is chosen first
+            freightVisible: false,
             createVisible: false,
-            createForm: { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] },
+            createForm: { freight: 'air', zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] },
             // "Choose product" for one not-in-PO line
             productPickVisible: false,
             productPickQuery: '',
@@ -901,9 +948,15 @@ export default {
             for (const r of this.pickerFiltered) (by[this.pickerCatOf(r)] = by[this.pickerCatOf(r)] || []).push(r)
             return by
         },
-        // the picker's categories: Special Orders and Warranty have their own sections on the batch (2026-10-14)
+        // the batch being built ships by sea (海运)
+        isSea() {
+            return this.createForm.freight === 'sea'
+        },
+        // the picker's categories: a 海运 batch takes only 海运; a 空运 one every
+        // other category but Special Orders and Warranty (their own sections, 2026-10-14)
         pickerCats() {
-            return CATEGORIES.filter(c => c !== 'Special Order' && c !== 'Warranty')
+            if (this.isSea) return [SEA]
+            return CATEGORIES.filter(c => c !== SEA && c !== 'Special Order' && c !== 'Warranty')
         },
         pickerCatLines() {
             return this.pickerByCat[this.pickerCat] || []
@@ -921,9 +974,47 @@ export default {
         allLines() {
             return [...this.createForm.lines, ...this.createForm.extra, ...this.createForm.warranty, ...this.createForm.special]
         },
-        // the camera view: the not-in-PO lines first (they need attention), then the order lines
+        // The order lines as the form shows them (user ask 2026-10-16): one
+        // row per SKU and destination — iMobile's own lines together, a line
+        // raised for a customer (OSCAR) apart, by its return code — the lines
+        // oldest first; the row's count is spread over them in that order.
+        lineGroups() {
+            const order = []
+            const by = {}
+            for (const l of this.createForm.lines) {
+                const k = this.groupKey(l)
+                if (!by[k]) { by[k] = []; order.push(k) }
+                by[k].push(l)
+            }
+            return order.map(key => {
+                const lines = [...by[key]].sort(oldestFirst)
+                const first = lines[0]
+                const counted = lines.filter(l => l.qty != null && l.qty !== '')
+                const pend = lines.filter(l => l.status === 'pending')
+                const prices = [...new Set(lines.map(l => (l.unitPrice == null || l.unitPrice === '' ? null : Number(l.unitPrice))))]
+                const ordered = lines.filter(l => l.status !== 'pending' && l.orderedAt)
+                return {
+                    isGroup: true, key, lines,
+                    sku: first.sku, productName: first.productName, category: first.category, forCustomer: first.forCustomer || '',
+                    orderQty: lines.reduce((t, l) => t + (Number(l.orderQty) || 0), 0),
+                    qty: counted.length ? counted.reduce((t, l) => t + (Number(l.qty) || 0), 0) : undefined,
+                    pending: pend.length > 0,
+                    allPending: pend.length === lines.length,
+                    supplier: pend.length ? pend[0].supplier : '',
+                    supplierText: [...new Set(lines.map(l => l.supplier).filter(Boolean))].join(', '),
+                    unitPrice: prices.length === 1 && prices[0] != null ? prices[0] : undefined,
+                    mixedPrice: prices.length > 1,
+                    orderedAt: ordered.length ? ordered[0].orderedAt : null
+                }
+            })
+        },
+        // what ships: the order lines the count reaches, and every line of the other sections
+        shipLines() {
+            return [...this.createForm.lines.filter(l => Number(l.qty) > 0), ...this.createForm.extra, ...this.createForm.warranty, ...this.createForm.special]
+        },
+        // the camera view: the not-in-PO lines first (they need attention), then the order rows
         scanRows() {
-            return [...this.createForm.extra, ...this.createForm.lines, ...this.createForm.warranty]
+            return [...this.createForm.extra, ...this.lineGroups, ...this.createForm.warranty]
         },
         specialPickedCount() {
             return Object.keys(this.specialPicked).length
@@ -935,9 +1026,9 @@ export default {
         createTotal() {
             return this.allLines.reduce((t, l) => t + (Number(l.qty) || 0), 0)
         },
-        // the money on the form / on the batch being viewed
+        // the money on the form (the lines that ship) / on the batch being viewed
         createAmount() {
-            return batchAmount(this.allLines, this.createForm.shippingCost, l => l.qty)
+            return batchAmount(this.shipLines, this.createForm.shippingCost, l => l.qty)
         },
         // lines scanned with no order behind them (kept for adjustment)
         unmatchedCount() {
@@ -949,7 +1040,7 @@ export default {
             return this.createForm.extra.filter(l => !l.itemId).length + this.createForm.warranty.filter(l => l.unmatched && !l.itemId).length
         },
         canShip() {
-            return this.allLines.length > 0 && !this.createAmount.unpriced && !this.unlinkedCount && !this.specialIncomplete
+            return this.shipLines.length > 0 && !this.createAmount.unpriced && !this.unlinkedCount && !this.specialIncomplete
         },
         viewAmount() {
             return this.view ? batchAmount(this.view.lines, this.view.shippingCost) : batchAmount([], 0)
@@ -984,6 +1075,17 @@ export default {
         batchTag(v) {
             const m = BATCH_STATUS[v]
             return m ? m.type : 'info'
+        },
+        // 海运 (sea) or 空运 (air) — batches from before 2026-10-16 carry none: they were all air
+        freightOf(b) {
+            return b && b.freight === 'sea' ? 'sea' : 'air'
+        },
+        freightLabel(b) {
+            return this.freightOf(b) === 'sea' ? SEA : '空运'
+        },
+        // the list shows the kind as an icon (user 2026-10-16): a ship / a plane
+        freightIcon(b) {
+            return this.freightOf(b) === 'sea' ? 'el-icon-ship' : 'el-icon-position'
         },
         statusLabel(v) {
             const m = STATUS_META[v]
@@ -1052,16 +1154,25 @@ export default {
         fromQuery() {
             const q = this.$route.query || {}
             if (q.batch) this.openByNo(String(q.batch))
-            // (never over a form still open from before — that would wipe it)
-            else if (q.create && !this.createVisible) this.openCreate()
+            // (never over a form still open from before — that would wipe it);
+            // ?create=sea|air opens that kind straight away, else 海运 / 空运 is asked first
+            else if (q.create && !this.createVisible) {
+                if (q.create === 'sea' || q.create === 'air') this.openCreate(q.create)
+                else this.freightVisible = true
+            }
         },
         clearQuery() {
             if (Object.keys(this.$route.query || {}).length) this.$router.replace({ query: {} }).catch(() => {})
         },
         // ── Create ─────────────────────────────────────────────────
-        async openCreate() {
+        // 海运 or 空运 picked: the batch form for that kind
+        chooseFreight(freight) {
+            this.freightVisible = false
+            this.openCreate(freight)
+        },
+        async openCreate(freight) {
             this.draftId = null
-            this.createForm = { zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] }
+            this.createForm = { freight: freight === 'sea' ? 'sea' : 'air', zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] }
             this.scan = ''
             this.createVisible = true
             this.loadSuppliers()
@@ -1070,6 +1181,7 @@ export default {
         openDraft(row) {
             this.draftId = row._id
             this.createForm = {
+                freight: this.freightOf(row),
                 zohoVendorId: row.zohoVendorId || '',
                 tracking: row.tracking || '',
                 shippedAt: fmtDay(row.shippedAt) !== '—' ? fmtDay(row.shippedAt) : todayYmd(),
@@ -1085,15 +1197,19 @@ export default {
             this.createVisible = true
             this.loadSuppliers()
         },
-        batchPayload() {
+        // `ship`: only the order lines the count reaches go (the rest stay
+        // open); a draft keeps them all, so its rows come back whole
+        batchPayload(ship) {
+            const lines = ship ? this.shipLines : this.allLines
             return {
+                freight: this.createForm.freight,
                 zohoVendorId: this.createForm.zohoVendorId,
                 tracking: this.createForm.tracking,
                 shippedAt: this.createForm.shippedAt,
                 note: this.createForm.note,
                 // null (not undefined) when blank, so clearing the field on a draft clears it there too
                 shippingCost: this.createForm.shippingCost == null ? null : this.createForm.shippingCost,
-                lines: this.allLines.filter(l => !(l.unmatched && !l.itemId && !l.sku && !(l.productName || '').trim())).map(l => (l.special
+                lines: lines.filter(l => !(l.unmatched && !l.itemId && !l.sku && !(l.productName || '').trim())).map(l => (l.special
                     ? { special: true, key: l.key, productName: l.productName, requestedFor: l.requestedFor, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
                     : l.unmatched
                         ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.warranty ? 0 : l.unitPrice, qty: l.qty, warranty: !!l.warranty, oscarCode: l.oscarCode || '' }
@@ -1296,7 +1412,12 @@ export default {
             // the newest line on top, where it is seen on a phone; a Special
             // Order goes to its own section
             const target = o.category === 'Special Order' ? this.createForm.special : o.category === 'Warranty' ? this.createForm.warranty : this.createForm.lines
-            target.unshift({
+            target.unshift(this.toLine(o, qty))
+            return true
+        },
+        // a waiting PO line (as the server lists it) in the form's shape
+        toLine(o, qty) {
+            return {
                 orderId: o._id,
                 orderNo: o.orderNo,
                 requestedFor: o.requestedFor || '',
@@ -1307,40 +1428,102 @@ export default {
                 supplier: o.supplier || '',
                 forCustomer: o.forCustomer || '', oscarPrefix: (o.dispatchRef && o.dispatchRef.faultyCodePrefix) || '', customerSku: (o.dispatchRef && o.dispatchRef.customerSku) || '',
                 orderedAt: o.orderedAt,
+                createdAt: o.createdAt,
                 unitPrice: o.unitPrice != null ? o.unitPrice : (o.quotedPrice != null ? o.quotedPrice : undefined),
                 orderQty: o.orderQty,
                 qty: qty == null ? undefined : qty
-            })
-            return true
+            }
         },
-        // One scan = one unit. It fills the SKU's line already on the batch
-        // (oldest first); once that line is full the next waiting order for
-        // the SKU is pulled on with a count of 1.
+        // ── One row per SKU and destination (2026-10-16) ──
+        // The row a line belongs to: its SKU for iMobile; a line raised for a
+        // customer (OSCAR) by its return code — never with iMobile's.
+        groupKey(l) {
+            if (!l.sku) return 'id:' + (l.orderId || l.key)
+            const dest = l.forCustomer ? `${l.forCustomer}|${this.oscarCodeOf(l)}` : ''
+            return `${String(l.sku).toLowerCase()}|${dest}`.toLowerCase()
+        },
+        // The row's count, spread over its lines oldest first: each line takes
+        // up to its ordered quantity, the newest one any excess; a line the
+        // count doesn't reach is left without one (it stays open).
+        setGroupQty(g, v) {
+            let left = v == null || v === '' ? null : Math.max(0, Math.round(Number(v)))
+            g.lines.forEach((l, i) => {
+                if (left == null) { l.qty = undefined; return }
+                const take = i === g.lines.length - 1 ? left : Math.min(left, Number(l.orderQty) || 0)
+                l.qty = take > 0 ? take : undefined
+                left -= take
+            })
+        },
+        // a pending line's supplier / the price: one for the row's lines
+        setGroupSupplier(g, v) {
+            for (const l of g.lines) if (l.status === 'pending') l.supplier = v
+        },
+        setGroupPrice(g, v) {
+            for (const l of g.lines) l.unitPrice = v == null ? undefined : v
+        },
+        // "10 + 20 + 30 = 60" (one line: its quantity)
+        orderQtyText(g) {
+            return g.lines.length > 1 ? `${g.lines.map(l => l.orderQty).join(' + ')} = ${g.orderQty}` : String(g.orderQty)
+        },
+        groupOrderedText(g) {
+            if (g.allPending) return this.$tp('Pending')
+            return `${this.$tp('Ordered')} ${fmtDay(g.orderedAt)}` + (g.pending ? ` + ${this.$tp('Pending')}` : '')
+        },
+        // Under the count: a single line shipped short says so; a row of
+        // several lines shows no per-line note (user 2026-10-16)
+        allocationNotes(g) {
+            if (g.qty == null || g.lines.length !== 1) return []
+            const l = g.lines[0]
+            return l.qty != null && l.qty < l.orderQty
+                ? [{ k: l.orderId, cls: 'spb-short-note', text: this.$tp('short {n} — the rest becomes a new line', { n: l.orderQty - l.qty }) }]
+                : []
+        },
+        // the batch's row for a scanned code: an Oscar return code → its OSCAR
+        // row; a SKU → iMobile's row first, else a customer row of that SKU
+        groupForCode(code) {
+            const c = String(code || '').toLowerCase()
+            if (/^ss-\d+-.+$/.test(c)) return this.lineGroups.find(g => g.lines.some(l => (this.oscarCodeOf(l) || '').toLowerCase() === c)) || null
+            const same = this.lineGroups.filter(g => String(g.sku || '').toLowerCase() === c)
+            return same.find(g => !g.forCustomer) || same[0] || null
+        },
+        // One scan = one unit, counted on the scanned SKU's row (its lines
+        // fill oldest first). The first scan of a SKU brings in every waiting
+        // line of its row (2026-10-16); once the row is full a newer line is
+        // looked up, else the scan is kept as not in PO (over).
         async doScan() {
             const sku = (this.scan || '').trim()
             if (!sku) return
-            // by SKU, or by Oscar's return code for a line raised for OSCAR (user 2026-10-14)
-            const same = l => this.codeMatches(l, sku)
-            const open = this.createForm.lines.find(l => same(l) && (l.qty == null || l.qty < l.orderQty))
-            if (open) {
-                open.qty = (open.qty || 0) + 1
-                this.toTop(open)
-                this.lastScan = sku
-                this.$message({ message: `${sku} · ${open.qty} / ${open.orderQty}`, type: 'success', duration: 1200 })
+            // by SKU (iMobile's row), or by Oscar's return code for a line raised for OSCAR (user 2026-10-14)
+            const oscarCode = /^SS-\d+-.+$/i.test(sku)
+            const g = this.groupForCode(sku)
+            const room = x => !!x && (x.qty || 0) < x.orderQty
+            if (room(g) && (!g.forCustomer || oscarCode)) {
+                this.countScan(g, sku)
                 this.scan = ''
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
                 return
             }
             this.scanning = true
             try {
-                const r = await lookupOrder(sku, this.createForm.lines.map(l => l.orderId))
+                const r = await lookupOrder(sku, this.createForm.lines.map(l => l.orderId), this.createForm.freight)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.lastScan = sku
-                if (!r.match) {
-                    this.keepUnmatched(sku, r)
+                if (r.match) {
+                    // the matched line and the other waiting lines of its row come in together
+                    const key = this.groupKey(this.toLine(r.match))
+                    const rows = (r.all || [r.match]).filter(o => this.groupKey(this.toLine(o)) === key)
+                    if (!rows.some(o => o._id === r.match._id)) rows.push(r.match)
+                    rows.forEach(o => this.addLine(o))
+                    this.countScan(this.lineGroups.find(x => x.key === key), sku)
+                } else if (room(g)) {
+                    // only a customer's row of this SKU has room left: count it there
+                    this.countScan(g, sku)
+                } else if (r.otherFreight) {
+                    // waiting only on the other kind of batch: not added (it would count twice as not in PO)
+                    this.$message({ type: 'error', duration: 4000, message: this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku, other: r.otherFreight.label, no: r.otherFreight.orderNo, kind: this.isSea ? SEA : '空运' }) })
+                    if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
                 } else {
-                    this.addLine(r.match, 1)
-                    this.$message({ message: `${sku} · 1 / ${r.match.orderQty}` + (r.remaining ? ` · ${this.$tp('{n} more waiting order(s)', { n: r.remaining })}` : ''), type: 'success', duration: 1500 })
+                    this.keepUnmatched(sku, r)
                 }
                 this.scan = ''
             } catch (e) {
@@ -1349,6 +1532,16 @@ export default {
                 this.scanning = false
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
             }
+        },
+        // one unit onto a row: its count + 1, spread oldest first; the row goes to the top
+        countScan(g, code) {
+            if (!g) return
+            const n = (g.qty || 0) + 1
+            this.setGroupQty(g, n)
+            this.toTop(g.lines[0])
+            this.lastScan = code
+            const lines = g.lines.length > 1 ? ` · ${this.$tp('{n} PO lines', { n: g.lines.length })}` : ''
+            this.$message({ message: `${code} · ${n} / ${g.orderQty}${lines}`, type: 'success', duration: 1300 })
         },
         // the Oscar return code a line answers to: "SS-<prefix>-<customer SKU>"
         oscarCodeOf(l) {
@@ -1361,15 +1554,27 @@ export default {
             return String(l.sku || '').toLowerCase() === c || (this.oscarCodeOf(l) || '').toLowerCase() === c
         },
         // the line just scanned goes to the top, where the camera view shows it
+        // (an order line takes the rest of its row along)
         toTop(line) {
-            for (const arr of [this.createForm.lines, this.createForm.extra, this.createForm.warranty]) {
+            if (!line) return
+            if (this.createForm.lines.includes(line)) {
+                const key = this.groupKey(line)
+                const mine = this.createForm.lines.filter(l => this.groupKey(l) === key)
+                this.createForm.lines = [...mine, ...this.createForm.lines.filter(l => this.groupKey(l) !== key)]
+                return
+            }
+            for (const arr of [this.createForm.extra, this.createForm.warranty]) {
                 const i = arr.indexOf(line)
                 if (i > 0) { arr.splice(i, 1); arr.unshift(line) }
                 if (i >= 0) return
             }
         },
-        // a line off whichever list it sits on
+        // a line (or an order row: all its lines) off whichever list it sits on
         removeLine(line) {
+            if (line && line.isGroup) {
+                this.createForm.lines = this.createForm.lines.filter(l => !line.lines.includes(l))
+                return
+            }
             for (const arr of [this.createForm.lines, this.createForm.extra, this.createForm.warranty, this.createForm.special]) {
                 const i = arr.indexOf(line)
                 if (i >= 0) { arr.splice(i, 1); return }
@@ -1408,9 +1613,12 @@ export default {
             this.createForm.extra.unshift(this.unmatchedLine('', null, 1))
         },
         isLastScan(l) {
-            return !!this.lastScan && String(l.sku || '').toLowerCase() === this.lastScan.toLowerCase()
+            if (!this.lastScan) return false
+            if (l.isGroup) return l.lines.some(x => this.codeMatches(x, this.lastScan))
+            return String(l.sku || '').toLowerCase() === this.lastScan.toLowerCase()
         },
         bumpQty(l, d) {
+            if (l.isGroup) { this.setGroupQty(l, Math.max(1, (Number(l.qty) || 0) + d)); return }
             l.qty = Math.max(1, (Number(l.qty) || 0) + d)
         },
         unmatchedLabel(l) {
@@ -1445,6 +1653,7 @@ export default {
                 // an Oscar return code stands for a product: the line takes the product's SKU and keeps the code for re-scans
                 const lineSku = oscar && r.item && r.item.sku ? r.item.sku : sku
                 line = this.unmatchedLine(lineSku, { ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none', oscarCode: oscar ? sku : '' }, 1)
+                if (this.isSea) line.category = SEA // it ships as a 海运 line
                 this.createForm.extra.unshift(line)
             }
             this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}` + (oscar ? ' · ' + this.$tp('OSCAR code with no open purchase line') : ''), type: 'warning', duration: oscar ? 3000 : 2000 })
@@ -1535,7 +1744,8 @@ export default {
             l.itemId = p.itemId
             l.sku = p.sku || l.sku
             l.productName = p.name || ''
-            l.category = p.suggestedCategory || p.classification || ''
+            // on a 海运 batch it ships as a 海运 line
+            l.category = this.isSea && !l.warranty ? SEA : (p.suggestedCategory || p.classification || '')
             l.imageId = p.imageId || null
             l.imageUrl = p.imageUrl || ''
         },
@@ -1562,7 +1772,8 @@ export default {
         async loadPicker() {
             this.pickerLoading = true
             try {
-                const r = await openLines()
+                // only the lines this kind of batch takes (海运 / everything else)
+                const r = await openLines(undefined, this.createForm.freight)
                 const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
                 this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order' && o.category !== 'Warranty')
                 // land on the first category that has something to pick
@@ -1591,24 +1802,33 @@ export default {
         // else move to the first one that does.
         onPickerSupplier() {
             if (!this.pickerCatCount(this.pickerCat)) {
-                this.pickerCat = CATEGORIES.find(c => this.pickerCatCount(c)) || this.pickerCat
+                this.pickerCat = this.pickerCats.find(c => this.pickerCatCount(c)) || this.pickerCat
             }
         },
         togglePick(r) {
             if (this.pickerPicked[r._id]) this.$delete(this.pickerPicked, r._id)
             else this.$set(this.pickerPicked, r._id, r)
         },
+        // the picks, and the other waiting lines of their rows (same SKU and
+        // destination, 2026-10-16) — the row's count decides which ship
         addPicked() {
+            const picked = Object.values(this.pickerPicked)
+            const keys = new Set(picked.map(o => this.groupKey(this.toLine(o))))
+            const along = this.pickerRows.filter(o => !this.pickerPicked[o._id] && keys.has(this.groupKey(this.toLine(o))))
             let n = 0
-            for (const o of Object.values(this.pickerPicked).reverse()) if (this.addLine(o)) n++
+            for (const o of [...picked, ...along].reverse()) if (this.addLine(o)) n++
             this.pickerVisible = false
-            if (n) this.$message.success(this.$tp('{n} line(s) added', { n }))
+            if (n) this.$message.success(this.$tp('{n} line(s) added', { n }) + (along.length ? ` · ${this.$tp('{n} more waiting line(s) of the same SKU joined their rows', { n: along.length })}` : ''))
         },
         async submitCreate() {
             if (this.unlinkedCount) { this.$message.warning(this.$tp('{n} line(s) are not on any order — pick a product for them or remove them before shipping', { n: this.unlinkedCount })); return }
             if (!this.createForm.zohoVendorId) { this.$message.warning(this.$tp('Select the Zoho vendor')); return }
             if (this.specialIncomplete) { this.$message.warning(this.$tp('Enter a description for every Special Order line')); return }
-            for (const l of this.allLines) {
+            // every order row needs a count (it may reach only some of its lines)
+            for (const g of this.lineGroups) {
+                if (!g.qty || g.qty < 1) { this.$message.warning(this.$tp('{sku}: enter the shipped quantity', { sku: g.sku || g.productName })); return }
+            }
+            for (const l of this.shipLines) {
                 if (!l.qty || l.qty < 1) { this.$message.warning(this.$tp('{sku}: enter the shipped quantity', { sku: l.sku || l.productName })); return }
                 // a Special Order (typed or picked) may ship without a supplier (user 2026-10-14)
                 if ((l.status === 'pending' || l.unmatched) && !l.supplier && l.category !== 'Special Order' && l.category !== 'Warranty' && !l.warranty) { this.$message.warning(this.$tp('{sku}: pick a supplier', { sku: l.sku || l.productName })); return }
@@ -1617,8 +1837,8 @@ export default {
             this.creating = true
             try {
                 const r = this.draftId
-                    ? await shipBatchDraft(this.draftId, this.batchPayload())
-                    : await createBatch(this.batchPayload())
+                    ? await shipBatchDraft(this.draftId, this.batchPayload(true))
+                    : await createBatch(this.batchPayload(true))
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(this.$tp('{no} created with {n} line(s)', { no: r.batch.batchNo, n: r.batch.lineCount }))
                 if (r.remainders && r.remainders.length) {
@@ -1907,6 +2127,8 @@ export default {
 /* Short while counting: yellow, like a short shipped figure — not an error. */
 .spb-short ::v-deep .el-input__inner { color: #e6a23c; border-color: #e6a23c; }
 .spb-short-note { font-size: 11px; color: #e6a23c; }
+/* the destination of a row raised for a customer (OSCAR), 2026-10-16 */
+.spb-for { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 16px; font-weight: 600; color: #fff; background: #409eff; vertical-align: middle; }
 .spb-price-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; margin-top: 6px; .el-button { padding: 4px 0; } }
 .spb-price-hint { flex: 1 1 240px; word-break: normal; }
 .spb-file { display: none; }
@@ -1948,6 +2170,20 @@ export default {
 .spb-scanrow-del { padding: 0; font-size: 16px; }
 .spb-zpo { line-height: 1.4; white-space: nowrap; }
 .spb-draft-tag { cursor: pointer; }
+/* 海运 / 空运 (2026-10-16) */
+.spb-freight { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px; font-weight: 600; vertical-align: middle;
+    &.sea { color: #0e7490; background: #e0f2fe; }
+    &.air { color: #b45309; background: #fef3c7; } }
+.spb-freight-ico { margin-left: 6px; font-size: 15px; vertical-align: middle; cursor: default;
+    &.sea { color: #0e7490; }
+    &.air { color: #d97706; } }
+.spb-freight-ask { margin-bottom: 12px; color: #606266; font-size: 13px; }
+.spb-freight-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.spb-freight-opt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 10px; border: 1px solid #dcdfe6; border-radius: 8px; cursor: pointer; text-align: center;
+    i { font-size: 28px; } b { font-size: 18px; color: #303133; } span { font-size: 12px; color: #909399; line-height: 1.4; }
+    &.air i { color: #d97706; } &.sea i { color: #0e7490; }
+    &.air:hover { border-color: #f59e0b; background: #fffbeb; }
+    &.sea:hover { border-color: #0891b2; background: #ecfeff; } }
 .spb-dlg-sub { margin-left: 8px; font-weight: 400; }
 .spb-zpo-inline { margin-right: 12px; }
 .spb-qty-full { color: #67c23a; }

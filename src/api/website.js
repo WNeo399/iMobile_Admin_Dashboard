@@ -92,3 +92,25 @@ export function campaignReport(id, refresh) {
 export function campaignRecipients(id, action, page) {
   return request({ url: `/website/campaigns/${id}/recipients`, method: 'get', params: { action, page }, timeout: 60000 })
 }
+
+// Categories — the online store's category tree through Zoho Commerce
+// (backend routes/websiteRoutes/categories; 2026-10-16)
+export function listCategories(refresh) {
+  return request({ url: '/website/categories', method: 'get', params: refresh ? { refresh: 1 } : {}, timeout: 60000 })
+}
+export function createCategory(data) {
+  return request({ url: '/website/categories', method: 'post', data, timeout: 60000 })
+}
+export function updateCategory(id, data) {
+  return request({ url: `/website/categories/${id}`, method: 'put', data, timeout: 60000 })
+}
+export function getCategoryProducts(id, page) {
+  return request({ url: `/website/categories/${id}/products`, method: 'get', params: { page }, timeout: 60000 })
+}
+export function searchCategoryProducts(q) {
+  return request({ url: '/website/categories/products/search', method: 'get', params: { q }, timeout: 60000 })
+}
+// one Zoho update per product — up to 50 at a time, so allow the time
+export function moveProductsToCategory(productIds, categoryId) {
+  return request({ url: '/website/categories/products/move', method: 'post', data: { productIds, categoryId }, timeout: 180000 })
+}

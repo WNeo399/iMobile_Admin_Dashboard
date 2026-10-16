@@ -9,15 +9,22 @@
             <el-button icon="el-icon-document-checked" @click="$router.push('/sparePartsPurchase/order-batches')">{{ $tp('Order Batches') }}</el-button>
             <el-button icon="el-icon-truck" @click="$router.push('/sparePartsPurchase/batches')">{{ $tp('Dispatch Batches') }}</el-button>
             <el-button icon="el-icon-picture-outline" @click="$router.push('/sparePartsPurchase/missing-images')">{{ $tp('Missing Images') }}</el-button>
-            <!-- the supplier holds spp:product:view since 2026-10-14 -->
-            <el-button icon="el-icon-mobile-phone" @click="$router.push('/sparePartsPurchase/new-products')">{{ $tp('New Products') }}</el-button>
+            <!-- New Products moved under iMobile Listing (2026-10-16): only for an account that can open it -->
+            <el-button v-if="canNewProducts" icon="el-icon-mobile-phone" @click="$router.push('/listing/new-products')">{{ $tp('New Products') }}</el-button>
         </el-card>
     </div>
 </template>
 
 <script>
+import { hasPermission } from '@/utils/permission'
+
 export default {
-    name: 'PartsSupplierHome'
+    name: 'PartsSupplierHome',
+    computed: {
+        canNewProducts() {
+            return hasPermission(this.$store.getters.permissions, 'listing:product:view')
+        }
+    }
 }
 </script>
 
