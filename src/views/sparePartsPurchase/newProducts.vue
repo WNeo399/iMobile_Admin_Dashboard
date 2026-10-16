@@ -65,6 +65,15 @@
                 <!-- ── a model: its items by classification ─────────────── -->
                 <template v-if="model">
                     <div v-if="model.note" class="spn-note"><i class="el-icon-info" /> {{ model.note }}</div>
+                    <!-- the model's store category: every item created for it goes there -->
+                    <div :class="['spn-catline', { 'is-unlinked': !model.categoryId }]">
+                        <i class="el-icon-collection-tag" />
+                        <span class="spn-catline-label">{{ $tp('Store category') }}:</span>
+                        <span v-if="model.categoryId" class="spn-cat-path" :title="categoryPathOf(model)">{{ categoryPathOf(model) }}</span>
+                        <span v-else class="spn-catline-none">{{ $tp('Not linked yet — items can be created once it is') }}</span>
+                        <el-button v-if="canCreate" type="text" size="mini" :icon="model.categoryId ? 'el-icon-edit' : 'el-icon-link'" @click="openLink(model)">
+                            {{ model.categoryId ? $tp('Change') : $tp('Link a category') }}</el-button>
+                    </div>
                     <el-alert v-if="modelMissing.length" type="warning" show-icon :closable="false" class="spn-alert"
                         :title="$tp('Missing: {parts}', { parts: modelMissing.map(p => $tp(p.label)).join(', ') })"
                         :description="$tp('Every {brand} model needs a {parts}.', { brand: model.brand, parts: neededText(model.brand) })" />
@@ -159,6 +168,9 @@
                             </div>
                             <div class="spn-tile-sub" :title="(r.codes || []).join(' / ')">{{ (r.codes || []).join(' / ') || '—' }}
                                 <span v-if="(draftsByModel[r._id] || []).length" class="spn-draft-tag">{{ $tp('{n} draft(s)', { n: draftsByModel[r._id].length }) }}</span></div>
+                            <!-- its store category, or that it has none yet -->
+                            <div :class="['spn-tile-cat', { 'is-unlinked': !r.categoryId }]" :title="r.categoryId ? categoryPathOf(r) : ''">
+                                <i class="el-icon-collection-tag" /> {{ r.categoryId ? (r.categoryName || categoryPathOf(r)) : $tp('No store category') }}</div>
                             <div class="spn-tile-parts">
                                 <span v-for="p in nodeParts" :key="p.key" :class="['spn-part', (r.have[p.key] || []).length ? 'ok' : 'miss']">
                                     <i :class="(r.have[p.key] || []).length ? 'el-icon-check' : 'el-icon-close'" /> {{ $tp(p.label) }}
@@ -217,19 +229,18 @@
                     </div>
                     <el-form-item>
                         <span slot="label">{{ $tp('Category') }} <span class="spn-req">*</span>
-                            <el-tooltip :content="$tp('The online store category the item is filed under (Zoho Commerce — the same tree as Zoho Inventory).')" placement="top">
+                            <el-tooltip :content="$tp('The store category the model is linked to — every item created for it is filed there.')" placement="top">
                                 <i class="el-icon-info spn-help" /></el-tooltip></span>
-                        <div class="spn-cat">
-                            <!-- any level can be picked; typing searches the whole path -->
-                            <el-cascader v-model="createForm.categoryId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
-                                filterable clearable :placeholder="categoriesLoading && !categories.length ? $tp('Loading the categories…') : $tp('Pick the category')"
-                                class="spn-cat-pick" />
-                            <el-tooltip :content="$tp('Read the categories again from Zoho (after adding one on the Categories page)')" placement="top">
-                                <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
-                            </el-tooltip>
+                        <!-- the model's link (2026-10-16), not picked per item; a model
+                             without one is linked here first -->
+                        <div v-if="createRow && createRow.categoryId" class="spn-cat-linked">
+                            <i class="el-icon-collection-tag" /><span class="spn-cat-path" :title="categoryPathOf(createRow)">{{ categoryPathOf(createRow) }}</span>
+                            <el-button v-if="canCreate" type="text" size="mini" icon="el-icon-edit" @click="openLink(createRow)">{{ $tp('Change') }}</el-button>
                         </div>
-                        <div v-if="categorySuggested" class="spn-cat-hint"><i class="el-icon-magic-stick" /> {{ $tp('Picked from the model name — change it if needed') }}</div>
-                        <div v-else-if="!createForm.categoryId && categories.length && !suggestedCategoryId" class="spn-cat-hint">{{ $tp('No category is named after this model — pick one, or add it on the Categories page') }}</div>
+                        <div v-else class="spn-cat-unlinked">
+                            <span><i class="el-icon-warning" /> {{ $tp('{model} is not linked to a store category yet', { model: createRow ? createRow.model : '' }) }}</span>
+                            <el-button type="primary" plain size="mini" icon="el-icon-link" @click="openLink(createRow)">{{ $tp('Link a category') }}</el-button>
+                        </div>
                     </el-form-item>
 
                     <div class="spn-sec">{{ $tp('Prices') }}
@@ -291,7 +302,53 @@
                 <el-button size="small" :disabled="creating || draftSaving" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                 <!-- kept here, not in Zoho: open it again later to change or submit -->
                 <el-button size="small" icon="el-icon-document" :loading="draftSaving" :disabled="creating" @click="saveDraft()">{{ $tp('Save draft') }}</el-button>
-                <el-button type="primary" size="small" icon="el-icon-check" :loading="creating" :disabled="draftSaving || (skuLoading && !createForm.sku)" @click="submitCreate">{{ $tp('Create item') }}</el-button>
+                <!-- a model without a store category creates nothing until it is linked -->
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="creating" :disabled="draftSaving || (skuLoading && !createForm.sku) || !(createRow && createRow.categoryId)"
+                    @click="submitCreate">{{ $tp('Create item') }}</el-button>
+            </div>
+        </el-dialog>
+
+        <!-- ── Link a model to its store category (user ask 2026-10-16) ──
+             an existing category, or a new one made here under a parent;
+             every item created for the model is filed there. -->
+        <el-dialog :visible.sync="linkVisible" :width="createNarrow ? '96%' : '600px'" append-to-body top="12vh" :close-on-click-modal="false">
+            <div slot="title" class="spn-dlg-head"><i class="el-icon-collection-tag" /> {{ $tp('Store category for {model}', { model: linkRow ? (linkRow.compatibleModel || linkRow.model) : '' }) }}</div>
+            <div class="spn-link-text">{{ $tp('Every item created for this model is filed under this category.') }}</div>
+            <el-radio-group v-if="canManageCategories" v-model="linkForm.mode" size="small" class="spn-link-mode">
+                <el-radio-button label="pick">{{ $tp('Pick an existing one') }}</el-radio-button>
+                <el-radio-button label="new">{{ $tp('Create a new one') }}</el-radio-button>
+            </el-radio-group>
+            <div v-loading="categoriesLoading && !categories.length">
+                <template v-if="linkForm.mode === 'pick'">
+                    <div class="spn-cat">
+                        <!-- any level can be picked; typing searches the whole path -->
+                        <el-cascader v-model="linkForm.categoryId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                            filterable clearable :placeholder="$tp('Pick the category')" class="spn-cat-pick" />
+                        <el-tooltip :content="$tp('Read the categories again from Zoho (after adding one on the Categories page)')" placement="top">
+                            <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
+                        </el-tooltip>
+                    </div>
+                    <!-- one with the model's name, if there is: a click picks it -->
+                    <div v-if="linkSuggestion && linkSuggestion !== linkForm.categoryId" class="spn-cat-hint">
+                        {{ $tp('Same name as the model') }}: <el-button type="text" size="mini" @click="linkForm.categoryId = linkSuggestion">{{ categoryPath(linkSuggestion) }}</el-button></div>
+                </template>
+                <el-form v-else label-position="top" size="small" class="spn-link-new" @submit.native.prevent>
+                    <el-form-item :label="$tp('Name')">
+                        <el-input v-model="linkForm.name" maxlength="200" />
+                    </el-form-item>
+                    <el-form-item :label="$tp('Under')">
+                        <el-cascader v-model="linkForm.parentId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                            filterable clearable :placeholder="$tp('Pick the parent category')" style="width:100%" />
+                    </el-form-item>
+                    <div class="spn-cat-hint">{{ $tp('Visible on the store; not added to the site menu.') }}</div>
+                </el-form>
+            </div>
+            <div slot="footer" class="spn-cfoot">
+                <el-button v-if="linkRow && linkRow.categoryId" type="text" size="small" icon="el-icon-close" class="spn-dl-del" :disabled="linkSaving" @click="saveLink(true)">{{ $tp('Unlink') }}</el-button>
+                <span class="spn-cfoot-sum" />
+                <el-button size="small" :disabled="linkSaving" @click="linkVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button type="primary" size="small" :icon="linkForm.mode === 'new' ? 'el-icon-plus' : 'el-icon-link'" :loading="linkSaving" @click="saveLink(false)">
+                    {{ linkForm.mode === 'new' ? $tp('Create & link') : $tp('Link') }}</el-button>
             </div>
         </el-dialog>
 
@@ -342,6 +399,7 @@ import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import { hasPermission } from '@/utils/permission'
 import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
+import { createCategory } from '@/api/website'
 import { zohoLink } from './shared'
 
 // the order the classifications are shown in after the needed parts
@@ -399,7 +457,12 @@ export default {
             MAX_PHOTOS,
             skuSeq: 0,
             placeholderRate: 9999.99,
-            createForm: { name: '', sku: '', quality: '', rate: undefined, cost: undefined, categoryId: '', compatibleModels: [], prices: blankPrices() },
+            createForm: { name: '', sku: '', quality: '', rate: undefined, cost: undefined, compatibleModels: [], prices: blankPrices() },
+            // linking a model to its store category
+            linkVisible: false,
+            linkRow: null,
+            linkForm: { mode: 'pick', categoryId: '', name: '', parentId: '' },
+            linkSaving: false,
             PRICE_LISTS,
             // the pricing formula from the server (utils/priceRules PRICE_FORMULAS),
             // and the prices it last filled in (a list still showing them is "untouched")
@@ -559,8 +622,7 @@ export default {
             if (cost > 0) bits.push(this.$tp('Cost {cost}', { cost: '$' + cost.toFixed(2) }))
             const prices = Object.values(this.createForm.prices || {}).filter(v => v != null && v !== '').length
             if (prices) bits.push(this.$tp('{n} price list(s)', { n: prices }))
-            const cat = this.categoryById[this.createForm.categoryId]
-            if (cat) bits.push(cat.name)
+            if (this.createRow && this.createRow.categoryId) bits.push(this.createRow.categoryName || this.categoryPathOf(this.createRow))
             return bits.join(' · ')
         },
         // ── the pricing formula ──
@@ -611,12 +673,13 @@ export default {
             })
             return build('-1', new Set())
         },
-        // the category named after the dialog's model ("MOTO G57" for Moto G57)
-        suggestedCategoryId() {
-            return this.createRow ? this.suggestCategoryFor(this.createRow) : ''
+        // may make store categories (the Categories page's right) — "Create a new one" in the link dialog
+        canManageCategories() {
+            return this.can('listing:category:manage')
         },
-        categorySuggested() {
-            return !!this.createForm.categoryId && this.createForm.categoryId === this.suggestedCategoryId
+        // in the link dialog: a category with the model's own name, offered as a one-click pick
+        linkSuggestion() {
+            return this.linkRow ? this.suggestCategoryFor(this.linkRow) : ''
         },
         // the typed price lists against the tier order (advisory, as on Price
         // Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum; SVIP vs Wholesale free)
@@ -803,16 +866,12 @@ export default {
                 quality: '',
                 rate: this.placeholderRate,
                 cost: undefined,
-                categoryId: '',
                 compatibleModels: [row.compatibleModel].filter(Boolean),
                 prices: blankPrices()
             }
             this.lastAuto = null
             this.createVisible = true
             this.loadNextSku()
-            // the model's own category, once the list is here
-            if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) this.loadCategories()
-            else this.suggestIfEmpty()
         },
         // ── the pricing formula ──
         // a list that isn't the formula's price (blank counts)
@@ -844,7 +903,6 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.categories = r.categories || []
                 this.categoriesAt = Date.now()
-                this.suggestIfEmpty()
             } catch (e) {
                 this.$message.warning(this.msg(e, this.$tp('Could not read the categories from Zoho Commerce')))
             } finally {
@@ -856,7 +914,8 @@ export default {
             return String(node.text || '').toLowerCase().includes(String(keyword || '').toLowerCase())
         },
         // The category named after a model: names compared without the brand
-        // ("Motorola" / "MOTO"), case or punctuation — "MOTO G57" for Moto G57.
+        // ("Motorola" / "MOTO"), case or punctuation — "MOTO G57" for Moto G57;
+        // the model's own name before its other names (Moto X40 → Edge 40 Pro).
         // Several with that name: the one under the brand's branch, then the
         // one with products; still several → none.
         suggestCategoryFor(row) {
@@ -869,8 +928,15 @@ export default {
                 for (const w of words) x = x.split(w).join(' ')
                 return x.replace(/[^a-z0-9]+/g, '')
             }
-            const targets = new Set([row.model, row.compatibleModel, ...(row.aliases || [])].map(norm).filter(Boolean))
-            let hits = this.pickableCategories.filter(c => targets.has(norm(c.name)))
+            // a category named for several models ("Razr Plus (2024) / Razr 50 Ultra") counts for each
+            const keysOf = c => String(c.name || '').split('/').map(norm).filter(Boolean)
+            const match = names => {
+                const t = new Set(names.map(norm).filter(Boolean))
+                return this.pickableCategories.filter(c => keysOf(c).some(k => t.has(k)))
+            }
+            // the model's own name first; its other names (China / US names) only when that finds none
+            let hits = match([row.model, row.compatibleModel])
+            if (!hits.length) hits = match(row.aliases || [])
             if (hits.length > 1) {
                 const underBrand = hits.filter(c => {
                     for (let p = this.categoryById[c.parentId]; p; p = this.categoryById[p.parentId]) {
@@ -883,15 +949,87 @@ export default {
             }
             return hits.length === 1 ? hits[0].id : ''
         },
-        // a category the picker offers (anything goes until the list is here)
-        categoryPickable(id) {
-            return !this.categories.length || this.pickableCategories.some(c => c.id === id)
+        // a category's path ("MORE › MOTO › MOTO G Series › MOTO G96") from the list
+        categoryPath(id) {
+            const names = []
+            for (let c = this.categoryById[id], n = 0; c && n < 12; c = this.categoryById[c.parentId], n++) names.unshift(c.name)
+            return names.join(' › ')
         },
-        // No category yet (or a draft's that is hidden now) → the model's own.
-        suggestIfEmpty() {
-            if (!this.createVisible || !this.createRow) return
-            if (this.createForm.categoryId && this.categoryPickable(this.createForm.categoryId)) return
-            this.createForm.categoryId = this.suggestedCategoryId || ''
+        // a model's linked category as a path: the live list when it's here, else the one saved with the link
+        categoryPathOf(row) {
+            if (!row || !row.categoryId) return ''
+            return (this.categoryById[row.categoryId] && this.categoryPath(row.categoryId)) || row.categoryPath || row.categoryName || row.categoryId
+        },
+        // ── Link a model to its store category (2026-10-16) ──
+        // A new category's name in the tree's own style: Motorola's
+        // "MOTO G96" / "Edge 70 Pro" / "ThinkPhone"; other brands the model.
+        newCategoryName(row) {
+            const m = String(row.model || '').trim()
+            if (row.brand !== 'Motorola') return m
+            if (/^(edge|thinkphone)\b/i.test(m)) return m
+            return 'MOTO ' + m.replace(/^moto\s+/i, '')
+        },
+        // where a new category goes: where the series' other models' categories
+        // are, else the brand's, else beside the category with the model's name
+        newCategoryParent(row) {
+            const count = list => {
+                const n = {}
+                for (const r of list) {
+                    const c = r.categoryId && this.categoryById[r.categoryId]
+                    if (c) n[c.parentId] = (n[c.parentId] || 0) + 1
+                }
+                return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || ''
+            }
+            const others = this.rows.filter(r => r._id !== row._id && r.brand === row.brand)
+            const same = this.categoryById[this.suggestCategoryFor(row)]
+            return count(others.filter(r => (r.series || 'Other') === (row.series || 'Other'))) || count(others) || (same ? same.parentId : '')
+        },
+        async openLink(row) {
+            if (!row) return
+            this.linkRow = row
+            this.linkForm = { mode: 'pick', categoryId: row.categoryId || '', name: this.newCategoryName(row), parentId: '' }
+            this.createNarrow = window.innerWidth < 900
+            this.linkVisible = true
+            if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) await this.loadCategories()
+            if (this.linkVisible && this.linkRow === row) this.linkForm.parentId = this.newCategoryParent(row)
+        },
+        // Link (or unlink) the model; "Create a new one" makes the category
+        // first (visible, not in the site menu). The model's row takes the link.
+        async saveLink(unlink) {
+            const row = this.linkRow
+            if (!row || this.linkSaving) return
+            let categoryId = ''
+            if (!unlink) {
+                if (this.linkForm.mode === 'new') {
+                    if (!(this.linkForm.name || '').trim()) { this.$message.warning(this.$tp('Enter the category name')); return }
+                    if (!this.linkForm.parentId) { this.$message.warning(this.$tp('Pick the parent category')); return }
+                } else if (!this.linkForm.categoryId) { this.$message.warning(this.$tp('Pick the category')); return }
+            }
+            this.linkSaving = true
+            try {
+                if (!unlink && this.linkForm.mode === 'new') {
+                    const c = await createCategory({ name: this.linkForm.name.trim(), parentId: this.linkForm.parentId, visible: true, showInMenu: false })
+                    if (!c || c.success === false || !c.category) throw new Error((c && c.message) || 'Failed')
+                    categoryId = c.category.id
+                    this.$message.success(this.$tp('{name} created', { name: c.category.name }))
+                    await this.loadCategories(true)
+                } else if (!unlink) categoryId = this.linkForm.categoryId
+                const r = await updateNewProductModel(row._id, { categoryId })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const m = r.model || {}
+                // the row everywhere on the page (tree, tiles, the open create dialog)
+                for (const x of this.rows.filter(x => x._id === row._id).concat(row)) {
+                    this.$set(x, 'categoryId', m.categoryId || null)
+                    this.$set(x, 'categoryName', m.categoryName || null)
+                    this.$set(x, 'categoryPath', m.categoryPath || null)
+                }
+                this.$message.success(unlink ? this.$tp('Unlinked') : this.$tp('{model} → {path}', { model: row.model, path: m.categoryPath || this.categoryPath(categoryId) }))
+                this.linkVisible = false
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Could not link the category')))
+            } finally {
+                this.linkSaving = false
+            }
         },
         // what Create item needs (a draft can be saved without)
         checkCreate() {
@@ -900,7 +1038,7 @@ export default {
             if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) return warn('SKU must be a number')
             if (!this.createForm.compatibleModels.length) return warn('Pick every model this part fits')
             if (!(Number(this.createForm.cost) > 0)) return warn('Enter the cost price')
-            if (!this.createForm.categoryId || !this.categoryPickable(this.createForm.categoryId)) return warn('Pick the category to file the item under')
+            if (!this.createRow || !this.createRow.categoryId) return warn('Link the model to a store category first')
             return true
         },
         async loadNextSku() {
@@ -1021,8 +1159,8 @@ export default {
                 // one line in Zoho: a pasted line break becomes a space
                 name: String(this.createForm.name || '').replace(/[\r\n]+/g, ' ').trim(), sku: String(this.createForm.sku || '').trim(),
                 quality: this.createForm.quality || '', rate: this.createForm.rate,
-                // the cost (Zoho's purchase price) and the store category
-                cost: this.createForm.cost == null ? null : this.createForm.cost, categoryId: this.createForm.categoryId || '',
+                // the cost (Zoho's purchase price); the store category is the model's link (server side)
+                cost: this.createForm.cost == null ? null : this.createForm.cost,
                 compatibleModels: this.createForm.compatibleModels,
                 // only the lists given
                 prices: Object.fromEntries(Object.entries(this.createForm.prices || {}).filter(([, v]) => v != null && v !== ''))
@@ -1085,13 +1223,11 @@ export default {
                 quality: d.quality || '',
                 rate: d.rate != null ? d.rate : this.placeholderRate,
                 cost: d.cost != null ? d.cost : undefined,
-                categoryId: d.categoryId || '',
                 compatibleModels: (d.compatibleModels && d.compatibleModels.length) ? d.compatibleModels : [row.compatibleModel].filter(Boolean),
                 prices: { ...blankPrices(), ...(d.prices || {}) }
             }
             // the saved prices stand; a quality change re-prices them only while they are the formula's
             this.lastAuto = this.formulaPrices && !this.formulaOff ? { ...this.formulaPrices } : null
-            this.suggestIfEmpty()
             this.createFiles = (d.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
             // a SKU saved with the draft stands; none → the next free one, as for a new item
             if (d.sku) { this.skuSeq++; this.skuLoading = false } else this.loadNextSku()
@@ -1291,7 +1427,22 @@ export default {
 /* the store category */
 .spn-cat { display: flex; gap: 6px; }
 .spn-cat-pick { flex: 1; min-width: 0; }
-.spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } }
+.spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } .el-button { padding: 0; } }
+/* the model's linked store category (2026-10-16): on the model, its tile, the create dialog */
+.spn-cat-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; }
+.spn-catline { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; color: #606266;
+    i { color: #409eff; } .el-button { padding: 0; }
+    &.is-unlinked { color: #e6a23c; i { color: #e6a23c; } } }
+.spn-catline-label { white-space: nowrap; }
+.spn-catline-none { color: #e6a23c; }
+.spn-tile-cat { font-size: 11px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    i { color: #409eff; } &.is-unlinked { color: #e6a23c; i { color: #e6a23c; } } }
+.spn-cat-linked { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 32px; border: 1px solid #dcdfe6; border-radius: 4px; background: #f5f7fa; font-size: 13px;
+    i { color: #409eff; } .spn-cat-path { flex: 1; } }
+.spn-cat-unlinked { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding: 6px 10px; border: 1px dashed #f5c36b; border-radius: 4px; background: #fdf6ec; font-size: 12px; color: #b26b00; }
+.spn-link-text { margin-bottom: 10px; font-size: 13px; color: #606266; }
+.spn-link-mode { margin-bottom: 12px; }
+.spn-link-new ::v-deep .el-form-item { margin-bottom: 10px; }
 .spn-cfoot { display: flex; align-items: center; gap: 8px; }
 .spn-cfoot-sum { flex: 1; min-width: 0; text-align: left; font-size: 12px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spn-cfoot .el-button + .el-button { margin-left: 0; }

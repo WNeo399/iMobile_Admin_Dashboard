@@ -155,12 +155,28 @@ export function buildTransferPdf(t) {
     return doc
 }
 
+// The transfer as a spreadsheet: the record's details, then a row per device
+// with its cost price as it stood when moved (user ask 2026-10-16), and the
+// total cost per currency in the details.
 export function buildTransferWorkbook(t) {
     const font = { name: 'Arial', sz: 10 }
-    const head = ['#', 'IMEI / Serial', 'Brand', 'Model', 'Storage', 'Colour', 'Grade', 'Stock source', 'From', 'To']
-    const rows = (t.lines || []).map((l, i) => [i + 1, idOf(l), l.brand || '', l.model || '', l.storage || '', l.color || '', l.grade || '', l.stockSource || '', l.from || '', t.to || ''])
+    const lines = t.lines || []
+    const head = ['#', 'IMEI / Serial', 'Brand', 'Model', 'Storage', 'Colour', 'Grade', 'Stock source', 'Cost price', 'Currency', 'From', 'To']
+    const COST_COL = head.indexOf('Cost price')
+    const rows = lines.map((l, i) => [i + 1, idOf(l), l.brand || '', l.model || '', l.storage || '', l.color || '', l.grade || '', l.stockSource || '',
+        l.costPrice == null || l.costPrice === '' ? '' : Number(l.costPrice), l.costPrice == null || l.costPrice === '' ? '' : (l.currency || 'AUD'), l.from || '', t.to || ''])
+    // the total cost, per currency ("AUD 12,345.00 · HKD 3,120.00"), and how many have none
+    const sums = {}
+    let noCost = 0
+    for (const l of lines) {
+        if (l.costPrice == null || l.costPrice === '' || !isFinite(Number(l.costPrice))) { noCost++; continue }
+        const cur = l.currency || 'AUD'
+        sums[cur] = (sums[cur] || 0) + Number(l.costPrice)
+    }
+    const money = n => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const total = Object.keys(sums).map(c => `${c} ${money(sums[c])}`).join(' · ') + (noCost ? `${Object.keys(sums).length ? ' · ' : ''}${noCost} without a cost` : '')
     const info = [
-        ['Transfer', t.transferNo || ''], ['To', t.to || ''], ['Devices', (t.lines || []).length],
+        ['Transfer', t.transferNo || ''], ['To', t.to || ''], ['Devices', lines.length], ['Total cost', total || '—'],
         ['Created', fmtDate(t.createdAt, true)], ['By', t.createdBy || ''], ['Note', t.note || ''], []
     ]
     const ws = XLSX.utils.aoa_to_sheet([...info, head, ...rows])
@@ -172,9 +188,11 @@ export function buildTransferWorkbook(t) {
             if (!cell) continue
             const bold = R === headRow || (R < headRow && C === 0)
             cell.s = { font: { ...font, bold }, ...(R === headRow ? { fill: { fgColor: { rgb: 'DDEBF7' } } } : {}) }
+            // the cost as a number with cents, right-aligned
+            if (R > headRow && C === COST_COL && typeof cell.v === 'number') { cell.z = '#,##0.00'; cell.s.alignment = { horizontal: 'right' } }
         }
     }
-    ws['!cols'] = [4, 18, 10, 40, 9, 12, 7, 12, 18, 18].map(wch => ({ wch }))
+    ws['!cols'] = [4, 18, 10, 40, 9, 12, 7, 12, 11, 9, 18, 18].map(wch => ({ wch }))
     ws['!freeze'] = { xSplit: 0, ySplit: headRow + 1 }
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Transfer')
