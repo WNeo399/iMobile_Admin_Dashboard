@@ -108,7 +108,7 @@
 
                 <div class="sd-filters">
                     <el-input v-model="queryParams.search" size="small" clearable class="sd-search"
-                        placeholder="SKU or product name" prefix-icon="el-icon-search"
+                        :placeholder="isAccessories ? 'SKU or product name' : 'SKU, name or model'" prefix-icon="el-icon-search"
                         @keyup.enter.native="handleQuery" @clear="handleQuery" />
                     <el-select v-if="isAccessories" v-model="queryParams.category" size="small" clearable filterable
                         placeholder="Category" class="sd-sel-wide" @change="handleQuery">
@@ -121,6 +121,22 @@
                         @change="handleQuery">
                         <el-option v-for="o in subOptions" :key="o.value" :label="o.label" :value="o.value" />
                     </el-select>
+                    <!-- 海运 only (user ask 2026-10-19: 1000+ parts, hard to
+                         find one): brand, series / model, type and quality,
+                         each option counted over the list as narrowed so far -->
+                    <template v-if="isSeaView">
+                        <!-- one picker (user 2026-10-19): Brand → Series → Model;
+                             tick a whole brand, a series or single models (any of them matches) -->
+                        <el-cascader v-model="sea.pick" :options="seaPickOptions" :props="SEA_PICK_PROPS" size="small" clearable filterable
+                            collapse-tags :show-all-levels="false" placeholder="Brand / Series / Model" class="sd-sel-pick" popper-class="sd-pick-popper"
+                            @change="handleQuery" />
+                        <el-select v-model="sea.type" size="small" clearable filterable placeholder="Type" class="sd-sel" @change="handleQuery">
+                            <el-option v-for="o in seaTypeOptions" :key="o.value" :label="`${o.label} (${o.count})`" :value="o.value" />
+                        </el-select>
+                        <el-select v-model="sea.quality" size="small" clearable filterable placeholder="Quality" class="sd-sel" @change="handleQuery">
+                            <el-option v-for="o in seaQualityOptions" :key="o.value" :label="`${o.label} (${o.count})`" :value="o.value" />
+                        </el-select>
+                    </template>
                     <el-button size="mini" type="primary" icon="el-icon-search" @click="handleQuery">Search</el-button>
                     <el-button size="mini" icon="el-icon-refresh" @click="resetQuery">Reset</el-button>
                 </div>
@@ -342,6 +358,37 @@ import StockDashboard from "./stockDashboard.vue"
 // How the card head says the parts table's sort.
 const PARTS_SORT_LABELS = { sku: 'SKU', location: 'shelf', available: 'stock', openPoQty: 'quantity on order', daysSinceSale: 'days since last sale' }
 
+// ── the 海运 view's filters (user ask 2026-10-19) ──
+// a field left empty in Zoho, as a pickable value
+const NONE = '__none__'
+const blankSeaFilters = () => ({ pick: [], type: '', quality: '' })
+const CLASS_LABELS = { BackCover: 'Back Cover', [NONE]: 'Not set' }
+// a row's Device Series ("S Series; Note Series" is both)
+const seriesOf = (r) => {
+    const s = String(r.deviceSeries || '').split(';').map(x => x.trim()).filter(Boolean)
+    return s.length ? s : [NONE]
+}
+// [{ value, label, count }] of the values `valuesOf(row)` gives, most rows first
+function countOptions(rows, valuesOf, labelOf = v => v) {
+    const n = new Map()
+    for (const r of rows) for (const v of new Set(valuesOf(r))) n.set(v, (n.get(v) || 0) + 1)
+    return [...n.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+        .map(([value, count]) => ({ value, label: value === NONE ? 'Not set' : labelOf(value), count }))
+}
+// the search box: every word somewhere in the SKU, the name or a compatible
+// model. A bare number is a whole number there ("fold 7" — not the 7 inside
+// SKU 21847) unless it is long enough to be (part of) a SKU.
+function matchesWords(item, q) {
+    const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean)
+    if (!words.length) return true
+    const sku = String(item.sku || '').toLowerCase()
+    const text = [item.productName, ...(item.compatibleModels || [])].join(' ').toLowerCase()
+    return words.every(w => {
+        if (/^\d+$/.test(w)) return (w.length >= 4 && sku.includes(w)) || new RegExp(`(^|[^0-9.])${w}([^0-9.]|$)`).test(text)
+        return sku.includes(w) || text.includes(w)
+    })
+}
+
 export default {
     name: "StockMonitoring",
     components: { TreePanel, ProductDetailDialog, CollectionFormDialog, StockDashboard, CollectionGroupDialog, ProductThumb, StockItemsTable },
@@ -422,6 +469,11 @@ export default {
             multipleSelection: [],
             // a bulk 海运 add in flight
             seaBusy: false,
+            // the 海运 view's own filters (user ask 2026-10-19): one Brand →
+            // Series → Model pick (cascader paths — [brand], [brand, series]
+            // or [brand, series, model]), Classification and Quality; NONE = not set
+            sea: blankSeaFilters(),
+            SEA_PICK_PROPS: { multiple: true, checkStrictly: true },
         }
     },
     computed: {
@@ -445,6 +497,44 @@ export default {
         // count over, so their numbers follow the filters live.
         baseFilteredList() {
             return this.productList.filter(i => this.matchesBaseFilters(i))
+        },
+        // ── the 海运 filters' options, each counted over the list as the
+        // OTHER filters narrow it (so a pick never empties its own list) ──
+        // Brand → Series → Model: brands and series by how many parts, models in natural order
+        seaPickOptions() {
+            if (!this.isSeaView) return []
+            const brands = new Map()
+            for (const r of this.seaRows('pick')) {
+                const b = brands.get(r.deviceBrand || NONE) || { n: 0, series: new Map() }
+                b.n++
+                for (const s of seriesOf(r)) {
+                    const g = b.series.get(s) || { n: 0, models: new Map() }
+                    g.n++
+                    for (const m of r.compatibleModels || []) g.models.set(m, (g.models.get(m) || 0) + 1)
+                    b.series.set(s, g)
+                }
+                brands.set(r.deviceBrand || NONE, b)
+            }
+            const byCount = (a, b) => b[1].n - a[1].n || String(a[0]).localeCompare(String(b[0]))
+            return [...brands.entries()].sort(byCount).map(([brand, b]) => ({
+                value: brand,
+                label: `${brand === NONE ? 'No brand' : brand} (${b.n})`,
+                children: [...b.series.entries()].sort(byCount).map(([s, g]) => ({
+                    value: s,
+                    label: `${s === NONE ? 'No series' : s} (${g.n})`,
+                    // a series with no models listed is picked whole
+                    ...(g.models.size ? {
+                        children: [...g.models.entries()].sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))
+                            .map(([m, n]) => ({ value: m, label: `${m} (${n})` }))
+                    } : {})
+                }))
+            }))
+        },
+        seaTypeOptions() {
+            return this.isSeaView ? countOptions(this.seaRows('type'), r => [r.classification || NONE], v => CLASS_LABELS[v] || v) : []
+        },
+        seaQualityOptions() {
+            return this.isSeaView ? countOptions(this.seaRows('quality'), r => [r.quality || NONE]) : []
         },
         zeroStockCount() {
             return this.baseFilteredList.filter(i => Number(i.stock) <= 0).length
@@ -1331,6 +1421,29 @@ export default {
         // numbers follow the filters while each tile's own count ignores
         // the tile selection (you can still read the other buckets).
         matchesBaseFilters(item) {
+            return this.matchesListFilters(item) && (!this.isSeaView || this.matchesSea(item))
+        },
+        // The 海运 filters — all of them, or all but `except` (an option list
+        // counts over the rows the OTHER filters leave)
+        matchesSea(item, except) {
+            const f = this.sea
+            if (except !== 'type' && f.type && (item.classification || NONE) !== f.type) return false
+            if (except !== 'quality' && f.quality && (item.quality || NONE) !== f.quality) return false
+            if (except !== 'pick' && f.pick.length) {
+                // a whole brand ([brand]), a series ([brand, series]) or one model ([brand, series, model]) — any of them
+                const brand = item.deviceBrand || NONE
+                const series = seriesOf(item)
+                const models = item.compatibleModels || []
+                const hit = p => p[0] === brand && (p.length < 2 || series.includes(p[1])) && (p.length < 3 || models.includes(p[2]))
+                if (!f.pick.some(hit)) return false
+            }
+            return true
+        },
+        seaRows(except) {
+            return this.productList.filter(i => this.matchesListFilters(i) && this.matchesSea(i, except))
+        },
+        // the page's own filters (search, category, branch child, hidden)
+        matchesListFilters(item) {
             // Manually hidden items are out of every count and view on this
             // page; the review toggle flips to showing ONLY them.
             if (this.showHidden ? !item.hidden : item.hidden) return false
@@ -1345,11 +1458,9 @@ export default {
                 .toLowerCase()
                 .includes(String(productName).toLowerCase())
 
-            // The single search box — SKU or name.
-            const q = String(search || '').toLowerCase()
-            const matchSearch = !q ||
-                String(item.sku || '').toLowerCase().includes(q) ||
-                String(item.productName || '').toLowerCase().includes(q)
+            // The single search box — every word in the SKU, the name or a
+            // compatible model ("fold 7 screen"; 2026-10-19, was one phrase in SKU / name)
+            const matchSearch = matchesWords(item, search)
 
             const matchCategory = !category || item.category === category
 
@@ -1402,6 +1513,7 @@ export default {
             this.currentPath = ['海运']
             this.currentCollection = this.seaFreightId
             this.subOptions = []
+            this.sea = blankSeaFilters()
             this.queryParams = {
                 pageNum: 1, pageSize: 20, sku: undefined, productName: undefined,
                 search: '', category: '', quick: '', subCol: ''
@@ -1527,6 +1639,7 @@ export default {
                 quick: '',
                 subCol: ''
             }
+            this.sea = blankSeaFilters()
             this.handlePagination()
         }
     }
@@ -1627,6 +1740,15 @@ export default {
 
 .sd-sel-wide {
     width: 260px;
+}
+
+/* the 海运 filters */
+.sd-sel {
+    width: 170px;
+}
+
+.sd-sel-pick {
+    width: 340px;
 }
 
 .sd-tiles {
@@ -2031,4 +2153,10 @@ export default {
 .el-icon-arrow-down {
     font-size: 12px;
 }
+</style>
+
+<style>
+/* the 海运 Series / Model cascader's panel (teleported to body): taller and wider, as on Browse Items */
+.sd-pick-popper .el-cascader-menu__wrap { height: 340px; }
+.sd-pick-popper .el-cascader-menu { min-width: 220px; }
 </style>
