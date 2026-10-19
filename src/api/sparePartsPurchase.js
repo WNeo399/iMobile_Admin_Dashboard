@@ -147,6 +147,10 @@ export function addNewProductModel(data) {
 export function updateNewProductModel(id, data) {
   return request({ url: `${BASE}/new-products/models/${id}`, method: 'put', data })
 }
+// Add Model's Model list: the models Zoho has parts for in a brand + series, not on the page yet
+export function newProductModelOptions(brand, series) {
+  return request({ url: `${BASE}/new-products/model-options`, method: 'get', params: { brand, series } })
+}
 // one model's items, every classification ({ model, items, missing })
 export function newProductModelItems(id) {
   return request({ url: `${BASE}/new-products/models/${id}/items`, method: 'get' })

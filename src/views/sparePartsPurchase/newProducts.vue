@@ -380,40 +380,95 @@
         </el-dialog>
 
         <!-- ── Add / edit a model ────────────────────────────────────── -->
-        <el-dialog :visible.sync="modelVisible" width="560px" append-to-body>
+        <!-- user 2026-10-19: any brand, the series picked from the brand's
+             list, the store category linked here; no Compatible Model / Other
+             names (the brand's rule fills the Compatible Model) -->
+        <el-dialog :visible.sync="modelVisible" :width="createNarrow ? '96%' : '600px'" append-to-body :close-on-click-modal="false">
             <div slot="title" class="spn-dlg-head"><i class="el-icon-mobile-phone" /> {{ modelForm._id ? $tp('Edit model') : $tp('Add model') }}</div>
             <el-form label-position="top" size="small" @submit.native.prevent>
                 <div class="spn-row">
-                    <el-form-item :label="$tp('Brand')" class="spn-col">
-                        <el-select v-model="modelForm.brand" :disabled="!!modelForm._id" style="width:100%">
+                    <el-form-item class="spn-col">
+                        <span slot="label">{{ $tp('Brand') }} <span class="spn-req">*</span></span>
+                        <el-select v-model="modelForm.brand" :disabled="!!modelForm._id" filterable :placeholder="$tp('Pick the brand')" style="width:100%" @change="onModelBrand">
                             <el-option v-for="b in brands" :key="b.value" :label="b.label" :value="b.value" />
                         </el-select>
                     </el-form-item>
-                    <el-form-item :label="$tp('Series')" class="spn-col">
-                        <el-input v-model="modelForm.series" :placeholder="$tp('e.g. G, Edge, Razr')" />
+                    <el-form-item class="spn-col">
+                        <span slot="label">{{ $tp('Series') }} <span class="spn-req">*</span></span>
+                        <!-- the brand's series (this page's, then Zoho's Device Series); a new one can be typed -->
+                        <el-select v-model="modelForm.series" filterable allow-create default-first-option :disabled="!modelForm.brand"
+                            :placeholder="modelForm.brand ? $tp('Pick or type a series') : $tp('Pick the brand first')" style="width:100%" @change="onModelSeries">
+                            <el-option v-for="s in modelBrandSeries" :key="s" :label="s" :value="s" />
+                        </el-select>
                     </el-form-item>
                 </div>
-                <el-form-item :label="$tp('Model')">
-                    <el-input v-model="modelForm.model" :placeholder="$tp('e.g. Moto G96')" />
-                </el-form-item>
-                <el-form-item :label="$tp('Compatible Model')">
-                    <el-input v-model="modelForm.compatibleModel" :placeholder="$tp('Leave blank for the brand + model')" />
-                </el-form-item>
                 <div class="spn-row">
-                    <el-form-item :label="$tp('Model codes')" class="spn-col">
-                        <el-input v-model="modelForm.codes" :placeholder="$tp('XT…, comma separated')" />
+                    <el-form-item class="spn-col">
+                        <span slot="label">{{ $tp('Model') }} <span class="spn-req">*</span>
+                            <el-tooltip :content="$tp('The models Zoho already has parts for in this series (not on this page yet) — or type a new one.')" placement="top">
+                                <i class="el-icon-info spn-help" /></el-tooltip></span>
+                        <!-- user 2026-10-19: picked from what Zoho has in the series, or typed new -->
+                        <el-select v-model="modelForm.pick" filterable allow-create default-first-option clearable :loading="zohoModelsLoading"
+                            :placeholder="modelForm.series ? (modelBrand.modelHint || $tp('Pick or type the model')) : $tp('Pick the series first')"
+                            :no-data-text="$tp('Type the model name')" popper-class="spn-model-pop" style="width:100%" @change="onModelPick">
+                            <el-option v-for="o in zohoModels" :key="o.compatibleModel" :label="o.model + (o.codes.length ? ' (' + o.codes.join(' / ') + ')' : '')" :value="o.compatibleModel">
+                                <span>{{ o.model }}</span><span v-if="o.codes.length" class="spn-dim"> ({{ o.codes.join(' / ') }})</span>
+                                <span class="spn-opt-meta">{{ $tp('{n} part(s) in Zoho', { n: o.items }) }}</span>
+                            </el-option>
+                        </el-select>
                     </el-form-item>
-                    <el-form-item :label="$tp('Other names')" class="spn-col">
-                        <el-input v-model="modelForm.aliases" :placeholder="$tp('comma separated')" />
-                        <div class="spn-dim">{{ $tp('Other names the same phone goes by — items filed under them count too.') }}</div>
+                    <el-form-item :label="$tp('Model codes')" class="spn-col">
+                        <el-input v-model="modelForm.codes" :placeholder="modelBrand.codesHint ? $tp('{hint}, comma separated', { hint: modelBrand.codesHint }) : $tp('comma separated')" @input="modelForm.cm = ''" />
                     </el-form-item>
                 </div>
+
+                <!-- the store category every item of the model is filed under -->
+                <el-form-item>
+                    <span slot="label">{{ $tp('Store category') }} <span v-if="!modelForm._id" class="spn-req">*</span>
+                        <el-tooltip :content="$tp('Every item created for this model is filed under this category.')" placement="top">
+                            <i class="el-icon-info spn-help" /></el-tooltip></span>
+                    <el-radio-group v-if="canManageCategories" v-model="modelForm.catMode" size="mini" class="spn-link-mode" @change="onModelCatMode">
+                        <el-radio-button label="pick">{{ $tp('Pick an existing one') }}</el-radio-button>
+                        <el-radio-button label="new">{{ $tp('Create a new one') }}</el-radio-button>
+                    </el-radio-group>
+                    <div v-loading="categoriesLoading && !categories.length">
+                        <template v-if="modelForm.catMode === 'pick'">
+                            <div class="spn-cat">
+                                <el-cascader v-model="modelForm.categoryId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                                    filterable clearable :placeholder="$tp('Pick the category')" class="spn-cat-pick" />
+                                <el-tooltip :content="$tp('Read the categories again from Zoho (after adding one on the Categories page)')" placement="top">
+                                    <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
+                                </el-tooltip>
+                            </div>
+                            <!-- one with the model's name, if there is: a click picks it -->
+                            <div v-if="!modelForm.partsCategory && modelCatSuggestion && modelCatSuggestion !== modelForm.categoryId" class="spn-cat-hint">
+                                {{ $tp('Same name as the model') }}: <el-button type="text" size="mini" @click="modelForm.categoryId = modelCatSuggestion">{{ categoryPath(modelCatSuggestion) }}</el-button></div>
+                            <div v-else-if="!modelForm.partsCategory && !modelForm.categoryId && !modelForm._id && canManageCategories && modelForm.model.trim()" class="spn-cat-hint">
+                                {{ $tp('No category with the model\'s name yet') }} — <el-button type="text" size="mini" @click="modelForm.catMode = 'new'; onModelCatMode('new')">{{ $tp('Create a new one') }}</el-button></div>
+                        </template>
+                        <div v-else class="spn-row">
+                            <el-input v-model="modelForm.catName" maxlength="200" class="spn-col" :placeholder="$tp('Name')" @input="modelForm.catNameTouched = true" />
+                            <el-cascader v-model="modelForm.catParentId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                                filterable clearable :placeholder="$tp('Under')" class="spn-col" @change="modelForm.catParentTouched = true" />
+                        </div>
+                        <div v-if="modelForm.catMode === 'new'" class="spn-cat-hint">{{ $tp('Visible on the store; not added to the site menu.') }}</div>
+                        <!-- the model picked from Zoho's list: where its parts already are (linking never moves them) -->
+                        <template v-if="modelForm.partsCategory">
+                            <div v-if="!partsElsewhere()" class="spn-cat-hint"><i class="el-icon-success" />
+                                {{ $tp('{n} of its {total} parts in Zoho are in this category already.', { n: modelForm.partsCategory.parts, total: modelForm.partsCategory.total }) }}</div>
+                            <div v-else class="spn-cat-warn"><i class="el-icon-warning" />
+                                {{ $tp('{n} of its parts in Zoho are in {path} and stay there — only items created from this page go to the category above.', { n: modelForm.partsCategory.parts, path: partsCategoryPath() }) }}
+                                <el-button type="text" size="mini" @click="modelForm.catMode = 'pick'; modelForm.categoryId = modelForm.partsCategory.id">{{ $tp('Use that one') }}</el-button></div>
+                        </template>
+                    </div>
+                </el-form-item>
+
                 <el-form-item :label="$tp('Note')">
                     <el-input v-model="modelForm.note" maxlength="200" />
                 </el-form-item>
             </el-form>
             <span slot="footer">
-                <el-button size="small" @click="modelVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button size="small" :disabled="modelSaving" @click="modelVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button type="primary" size="small" icon="el-icon-check" :loading="modelSaving" @click="submitModel">{{ $tp('Save') }}</el-button>
             </span>
         </el-dialog>
@@ -425,7 +480,7 @@ import TreePanel from '@/components/TreePanel'
 import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import { hasPermission } from '@/utils/permission'
-import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
+import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { createCategory } from '@/api/website'
 import { zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter } from './shared'
 
@@ -436,6 +491,16 @@ const CLASS_LABELS = { BackCover: 'Back Cover', '': 'Unclassified' }
 // in the dialog (part "other" on the server)
 const OTHER = 'other'
 const otherPart = () => ({ key: OTHER, label: 'Other product', classification: '', subClassification: '', priceFamily: null })
+// the Add / Edit Model dialog: the model, and its store category — an
+// existing one (pick) or one made here (new: name + parent; the *Touched
+// flags stop the suggestions overwriting what was typed / picked)
+// `pick` is the Model list's value (a Zoho Compatible Model, or the typed
+// name); `cm` the Compatible Model picked from Zoho, sent on save
+// `partsCategory`: where the picked model's parts already sit in Zoho
+// ({ id, name, parts, total }) — linked by default, a warning if another is chosen
+const blankModelForm = () => ({ _id: null, brand: '', series: '', model: '', pick: '', cm: '', codes: '', note: '', catMode: 'pick', categoryId: '', catName: '', catParentId: '', catNameTouched: false, catParentTouched: false, linkedId: '', partsCategory: null })
+// names compared without case, spaces or punctuation
+const looseName = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 // the four price lists, as Price Monitoring names them
 const PRICE_LISTS = [
     { list: 'platinum', label: 'Platinum' },
@@ -511,7 +576,11 @@ export default {
             creating: false,
             // add / edit model dialog
             modelVisible: false,
-            modelForm: { _id: null, brand: 'Motorola', series: '', model: '', compatibleModel: '', codes: '', aliases: '', note: '' },
+            modelForm: blankModelForm(),
+            // the Model list: what Zoho has in the picked brand + series
+            zohoModels: [],
+            zohoModelsLoading: false,
+            zohoModelsSeq: 0,
             modelSaving: false
         }
     },
@@ -731,6 +800,23 @@ export default {
         // in the link dialog: a category with the model's own name, offered as a one-click pick
         linkSuggestion() {
             return this.linkRow ? this.suggestCategoryFor(this.linkRow) : ''
+        },
+        // ── the Add / Edit Model dialog ──
+        modelBrand() {
+            return this.brands.find(b => b.value === this.modelForm.brand) || {}
+        },
+        // the brand's series: this page's, then Zoho's Device Series (from the server)
+        modelBrandSeries() {
+            const list = this.modelBrand.series || []
+            return this.modelForm.series && !list.includes(this.modelForm.series) ? [this.modelForm.series, ...list] : list
+        },
+        // the model as the dialog has it, shaped like a row (for the category suggestions)
+        modelDraft() {
+            const f = this.modelForm
+            return { _id: f._id, brand: f.brand, series: f.series, model: f.model.trim(), codes: String(f.codes || '').split(',').map(s => s.trim()).filter(Boolean), aliases: [] }
+        },
+        modelCatSuggestion() {
+            return this.modelDraft.model ? this.suggestCategoryFor(this.modelDraft) : ''
         },
         // the typed price lists against the tier order (advisory, as on Price
         // Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum; SVIP vs Wholesale free)
@@ -1004,7 +1090,7 @@ export default {
         suggestCategoryFor(row) {
             if (!row || !this.categories.length) return ''
             const brand = this.brands.find(b => b.value === row.brand) || {}
-            const words = [...new Set([row.brand, brand.deviceBrand, brand.label, ...(BRAND_SHORT[row.brand] || [])].filter(Boolean).map(w => String(w).toLowerCase()))]
+            const words = [...new Set([row.brand, brand.deviceBrand, brand.label, ...(brand.words || []), ...(BRAND_SHORT[row.brand] || [])].filter(Boolean).map(w => String(w).toLowerCase()))]
                 .sort((a, b) => b.length - a.length)
             const norm = s => {
                 let x = ` ${String(s || '').toLowerCase()} `
@@ -1046,9 +1132,23 @@ export default {
         // "MOTO G96" / "Edge 70 Pro" / "ThinkPhone"; other brands the model.
         newCategoryName(row) {
             const m = String(row.model || '').trim()
-            if (row.brand !== 'Motorola') return m
-            if (/^(edge|thinkphone)\b/i.test(m)) return m
-            return 'MOTO ' + m.replace(/^moto\s+/i, '')
+            if (row.brand === 'Motorola') {
+                if (/^(edge|thinkphone)\b/i.test(m)) return m
+                return 'MOTO ' + m.replace(/^moto\s+/i, '')
+            }
+            // the other brands, the store's way: "Galaxy Z Fold 8", "Google Pixel 11", "iPhone 17 Pro", "Xiaomi …"
+            const brand = this.brands.find(b => b.value === row.brand) || {}
+            let short = m
+            for (let again = true; again;) {
+                again = false
+                for (const w of brand.words || []) {
+                    const rx = new RegExp(`^${w}\\s+`, 'i')
+                    if (rx.test(short)) { short = short.replace(rx, ''); again = true }
+                }
+            }
+            // a Realme / OnePlus under OPPO keeps its own name
+            if (row.brand === 'OPPO' && /^(realme|oneplus)\b/i.test(short)) return short
+            return (brand.categoryPrefix || '') + short
         },
         // where a new category goes: where the series' other models' categories
         // are, else the brand's, else beside the category with the model's name
@@ -1063,7 +1163,22 @@ export default {
             }
             const others = this.rows.filter(r => r._id !== row._id && r.brand === row.brand)
             const same = this.categoryById[this.suggestCategoryFor(row)]
-            return count(others.filter(r => (r.series || 'Other') === (row.series || 'Other'))) || count(others) || (same ? same.parentId : '')
+            return count(others.filter(r => (r.series || 'Other') === (row.series || 'Other'))) || count(others) || (same ? same.parentId : '') || this.brandRootCategory(row.brand, row.series)
+        },
+        // For a brand's first models: its own branch at the top of the store
+        // ("SAMSUNG", "GOOGLE", "Apple" …) — the folder there named for the
+        // series when there is one ("Fold Series" → "Galaxy Z (Fold / Flip)",
+        // "S Series" → "Galaxy S", "Reno Series" → "OPPO Reno").
+        brandRootCategory(brandValue, series) {
+            const brand = this.brands.find(b => b.value === brandValue) || {}
+            const names = [brandValue, brand.label, brand.deviceBrand].filter(Boolean).map(s => String(s).toLowerCase())
+            const top = this.pickableCategories.find(c => !this.categoryById[c.parentId] && names.includes(String(c.name || '').toLowerCase()))
+            if (!top) return ''
+            const word = String(series || '').toLowerCase().replace(/\bseries\b/g, ' ').trim().split(/\s+/)[0]
+            // a folder (it has categories under it) — not a model's own category ("Google Pixel 11 Pro Fold")
+            const isFolder = c => this.pickableCategories.some(k => k.parentId === c.id)
+            const folder = word && this.pickableCategories.find(c => c.parentId === top.id && isFolder(c) && String(c.name || '').toLowerCase().split(/[^a-z0-9]+/).includes(word))
+            return folder ? folder.id : top.id
         },
         async openLink(row) {
             if (!row) return
@@ -1360,20 +1475,117 @@ export default {
             }
         },
         // ── Models ─────────────────────────────────────────────────
-        openModel(row) {
+        async openModel(row) {
             this.modelForm = row
-                ? { _id: row._id, brand: row.brand, series: row.series || '', model: row.model, compatibleModel: row.compatibleModel || '', codes: (row.codes || []).join(', '), aliases: (row.aliases || []).join(', '), note: row.note || '' }
-                : { _id: null, brand: this.sel.brand || (this.brands[0] && this.brands[0].value) || 'Motorola', series: this.sel.series || '', model: '', compatibleModel: '', codes: '', aliases: '', note: '' }
+                ? { ...blankModelForm(), _id: row._id, brand: row.brand, series: row.series || '', model: row.model, pick: row.model, codes: (row.codes || []).join(', '), note: row.note || '', categoryId: row.categoryId || '', linkedId: row.categoryId || '' }
+                : blankModelForm() // no brand picked for you (user 2026-10-19)
+            this.createNarrow = window.innerWidth < 900
+            this.zohoModels = []
             this.modelVisible = true
+            this.loadModelOptions()
+            if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) await this.loadCategories()
+        },
+        // the Model list for the dialog's brand + series (none until a series is picked)
+        async loadModelOptions() {
+            const { brand, series } = this.modelForm
+            const seq = ++this.zohoModelsSeq
+            if (!brand || !String(series || '').trim()) { this.zohoModels = []; this.zohoModelsLoading = false; return }
+            this.zohoModelsLoading = true
+            try {
+                const r = await newProductModelOptions(brand, series)
+                if (seq !== this.zohoModelsSeq) return
+                this.zohoModels = (r && r.options) || []
+            } catch (e) {
+                if (seq === this.zohoModelsSeq) this.zohoModels = []
+            } finally {
+                if (seq === this.zohoModelsSeq) this.zohoModelsLoading = false
+            }
+        },
+        // A model from the list brings its codes and Zoho's own Compatible
+        // Model (its parts then count at once); a typed name that is one of
+        // the list's ("Z Fold 8") is taken as that one; anything else is new.
+        onModelPick(v) {
+            const f = this.modelForm
+            const typed = String(v || '').trim()
+            const o = this.zohoModels.find(x => x.compatibleModel === v) ||
+                (typed ? this.zohoModels.find(x => looseName(x.model) === looseName(typed) || looseName(x.compatibleModel) === looseName(typed)) : null)
+            if (o) {
+                f.pick = o.compatibleModel
+                f.model = o.model
+                f.codes = o.codes.join(', ')
+                f.cm = o.compatibleModel
+                // its parts are filed under a store category already: link the model there too
+                f.partsCategory = o.category ? { ...o.category, total: o.items } : null
+                if (o.category) { f.catMode = 'pick'; f.categoryId = o.category.id }
+            } else {
+                // a new name: the codes a pick filled in were that model's
+                if (f.cm) f.codes = ''
+                f.model = typed
+                f.cm = ''
+                f.partsCategory = null
+            }
+            this.refreshModelCat()
+        },
+        // the category picked above is not the one the model's parts are in
+        partsElsewhere() {
+            const f = this.modelForm
+            return !!f.partsCategory && (f.catMode === 'new' || f.categoryId !== f.partsCategory.id)
+        },
+        partsCategoryPath() {
+            const c = this.modelForm.partsCategory
+            return c ? (this.categoryById[c.id] ? this.categoryPath(c.id) : c.name) : ''
+        },
+        // the suggestions follow the typed model / brand / series until changed by hand
+        refreshModelCat() {
+            const f = this.modelForm
+            if (f.catMode !== 'new') return
+            if (!f.catNameTouched) f.catName = this.modelDraft.model ? this.newCategoryName(this.modelDraft) : ''
+            if (!f.catParentTouched) f.catParentId = this.newCategoryParent(this.modelDraft)
+        },
+        // another series / brand: its own Model list (a model picked from the old one is let go)
+        onModelSeries() {
+            if (this.modelForm.cm) { this.modelForm.pick = ''; this.modelForm.model = ''; this.modelForm.codes = ''; this.modelForm.cm = ''; this.modelForm.partsCategory = null }
+            this.loadModelOptions()
+            this.refreshModelCat()
+        },
+        onModelBrand() {
+            // another brand's series list
+            if (this.modelForm.series && !(this.modelBrand.series || []).includes(this.modelForm.series)) this.modelForm.series = ''
+            this.onModelSeries()
+        },
+        onModelCatMode(mode) {
+            if (mode === 'new') this.refreshModelCat()
         },
         async submitModel() {
-            if (!this.modelForm.model.trim()) { this.$message.warning(this.$tp('Enter the model')); return }
+            const f = this.modelForm
+            const warn = text => { this.$message.warning(this.$tp(text)); return false }
+            if (!f.brand) return warn('Pick the brand')
+            if (!String(f.series || '').trim()) return warn('Pick the series')
+            if (!f.model.trim()) return warn('Enter the model')
+            // a new model is linked at once (items can only be created once it is)
+            if (f.catMode === 'new') {
+                if (!f.catName.trim()) return warn('Enter the category name')
+                if (!f.catParentId) return warn('Pick the parent category')
+            } else if (!f._id && !f.categoryId) return warn('Pick the store category')
             this.modelSaving = true
             try {
-                const data = { ...this.modelForm }
-                delete data._id
-                const r = this.modelForm._id ? await updateNewProductModel(this.modelForm._id, data) : await addNewProductModel(data)
+                let categoryId = f.categoryId || ''
+                if (f.catMode === 'new') {
+                    const c = await createCategory({ name: f.catName.trim(), parentId: f.catParentId, visible: true, showInMenu: false })
+                    if (!c || c.success === false || !c.category) throw new Error((c && c.message) || 'Failed')
+                    categoryId = c.category.id
+                    this.$message.success(this.$tp('{name} created', { name: c.category.name }))
+                    this.loadCategories(true)
+                }
+                const data = { brand: f.brand, series: f.series.trim(), model: f.model.trim(), codes: f.codes, note: f.note }
+                // picked from Zoho's list: its own Compatible Model, so the parts it has count straight away
+                if (f.cm) data.compatibleModel = f.cm
+                // an edit sends the category only when it changed (clearing it is the link dialog's Unlink)
+                if (!f._id || (categoryId && categoryId !== f.linkedId)) data.categoryId = categoryId
+                const r = f._id ? await updateNewProductModel(f._id, data) : await addNewProductModel(data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                // a category made here is kept in the form, so a retry after an error links it rather than making another
+                if (f.catMode === 'new') { f.catMode = 'pick'; f.categoryId = categoryId }
                 this.$message.success(this.$tp('Saved'))
                 this.modelVisible = false
                 // a new model opens; an edited one keeps its place (its series may have moved)
@@ -1522,6 +1734,7 @@ export default {
 .spn-cat { display: flex; gap: 6px; }
 .spn-cat-pick { flex: 1; min-width: 0; }
 .spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } .el-button { padding: 0; } }
+.spn-cat-warn { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #b88230; i { color: #e6a23c; } .el-button { padding: 0; } }
 /* the model's linked store category (2026-10-16): on the model, its tile, the create dialog */
 .spn-cat-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; }
 .spn-catline { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; color: #606266;
@@ -1572,4 +1785,8 @@ export default {
     .el-dialog__header { padding: 16px 20px 10px; border-bottom: 1px solid #ebeef5; }
     .el-dialog__body { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px 6px; word-break: normal; }
     .el-dialog__footer { padding: 10px 20px; border-top: 1px solid #ebeef5; } }
+/* Add Model's Model list (appended to <body>): the code dimmed, the part count on the right */
+.spn-model-pop {
+    .spn-dim { font-size: 12px; color: #909399; }
+    .spn-opt-meta { float: right; margin-left: 16px; font-size: 12px; color: #909399; } }
 </style>
