@@ -653,7 +653,7 @@ const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: 
 const BOARD_OPEN = 200
 const BOARD_RECEIVED = 30
 import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
-import { appendOscarLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
+import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
 const ACTION_LABELS = {
@@ -746,7 +746,7 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
-            labelOscar: false, // the preview holds Oscar's fixed-size labels
+            labelOscar: false, // the preview holds fixed-size labels (Oscar's, or Order Dispatch's for another customer): no size / orientation choice
             labelSize: getLabelSize(),
             LABEL_SIZES,
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
@@ -1435,6 +1435,20 @@ export default {
                     this.labelUrl = build().output('bloburl') + '#toolbar=0'
                     this.labelTitle = this.$tp('Labels') + ' — OSCAR · ' + (oline.sku || row.productName)
                     this.labelOscar = true
+                    this.labelVisible = true
+                    return
+                }
+                // ordered for another customer from Order Dispatch (Best Sourcing, 2026-10-19):
+                // the Order Dispatch label — their description and barcode, their PO number, today
+                const cdr = row.dispatchRef || {}
+                if (row.forCustomer && cdr.customerSku) {
+                    const cline = { sku: cdr.customerSku, description: cdr.customerDescription || row.productName }
+                    const build = () => appendDispatchLabelsToDoc(null, { record: { invoiceNumber: cdr.invoiceNumber || '' }, batch: { at: new Date() }, line: cline }, 1)
+                    this.labelBuild = build
+                    this.labelFileName = `label_${String(cdr.invoiceNumber || row.orderNo).replace(/[^a-z0-9-]/gi, '')}_${cline.sku}.pdf`
+                    this.labelUrl = build().output('bloburl') + '#toolbar=0'
+                    this.labelTitle = this.$tp('Label') + ' — ' + row.forCustomer + ' · ' + cline.sku
+                    this.labelOscar = true // a fixed-size label: no size / orientation choice
                     this.labelVisible = true
                     return
                 }

@@ -1576,6 +1576,7 @@ export default {
     '— every device in this batch comes from this supplier': '— 本批次所有设备均来自该供应商',
     'Pick a supplier — or leave blank to set it per line': '选择供应商 — 留空则逐行设置',
     'OSCAR code with no open purchase line': 'OSCAR 退货码没有未完成的采购行',
+    '{c} code with no open purchase line': '{c} 条码没有未完成的采购行',
     'Dispatch Batches': '发货批次',
     'For {c}': '为 {c}',
     'For {c} — {no}': '为 {c} — {no}',

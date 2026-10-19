@@ -823,7 +823,7 @@ import BarcodeScanner from './components/BarcodeScanner'
 import * as XLSX from 'xlsx-js-style'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
-import { appendOscarLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
+import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
 
@@ -862,7 +862,7 @@ export default {
             labelBuild: null,
             labelFileName: '',
             labelOrientation: getLabelOrientation(),
-            labelOscar: false, // the preview holds only Oscar's fixed-size labels
+            labelOscar: false, // the preview holds only fixed-size labels (Oscar's / Order Dispatch's): no size / orientation choice
             labelSize: getLabelSize(),
             LABEL_SIZES,
             // a phone-width window (user ask 2026-10-13: batches are created on
@@ -1242,7 +1242,7 @@ export default {
                 lines: lines.filter(l => !(l.unmatched && !l.itemId && !l.sku && !(l.productName || '').trim())).map(l => (l.special
                     ? { special: true, key: l.key, productName: l.productName, requestedFor: l.requestedFor, supplier: l.supplier, unitPrice: l.unitPrice, qty: l.qty }
                     : l.unmatched
-                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.warranty ? 0 : l.unitPrice, qty: l.qty, warranty: !!l.warranty, oscarCode: l.oscarCode || '' }
+                        ? { unmatched: true, key: l.key, itemId: l.itemId, imageId: l.imageId, sku: l.sku, productName: l.productName, category: l.category, reason: l.reason, supplier: l.supplier, unitPrice: l.warranty ? 0 : l.unitPrice, qty: l.qty, warranty: !!l.warranty, oscarCode: l.oscarCode || '', customerCode: l.customerCode || '', customerName: l.customerName || '' }
                         : { orderId: l.orderId, qty: l.qty, supplier: l.status === 'pending' ? l.supplier : undefined, unitPrice: l.unitPrice }))
             }
         },
@@ -1513,8 +1513,18 @@ export default {
         groupForCode(code) {
             const c = String(code || '').toLowerCase()
             if (/^ss-\d+-.+$/.test(c)) return this.lineGroups.find(g => g.lines.some(l => (this.oscarCodeOf(l) || '').toLowerCase() === c)) || null
+            // another customer's own barcode (Best Sourcing, 2026-10-19): that customer's row
+            const theirs = this.lineGroups.find(g => g.lines.some(l => (this.customerCodeOf(l) || '').toLowerCase() === c))
+            if (theirs) return theirs
             const same = this.lineGroups.filter(g => String(g.sku || '').toLowerCase() === c)
             return same.find(g => !g.forCustomer) || same[0] || null
+        },
+        // the barcode a line raised for another customer answers to (Best
+        // Sourcing's 13 digits — on Order Dispatch's label); Oscar's go by return code
+        customerCodeOf(l) {
+            if (!l) return ''
+            if (l.customerCode) return l.customerCode
+            return l.forCustomer && l.forCustomer !== 'OSCAR' ? (l.customerSku || '') : ''
         },
         // One scan = one unit, counted on the scanned SKU's row (its lines
         // fill oldest first). The first scan of a SKU brings in every waiting
@@ -1526,8 +1536,10 @@ export default {
             // by SKU (iMobile's row), or by Oscar's return code for a line raised for OSCAR (user 2026-10-14)
             const oscarCode = /^SS-\d+-.+$/i.test(sku)
             const g = this.groupForCode(sku)
+            // the customer's own barcode scanned: their row (a plain SKU leaves a customer's row to its code)
+            const theirCode = !!g && g.lines.some(l => (this.customerCodeOf(l) || '').toLowerCase() === sku.toLowerCase())
             const room = x => !!x && (x.qty || 0) < x.orderQty
-            if (room(g) && (!g.forCustomer || oscarCode)) {
+            if (room(g) && (!g.forCustomer || oscarCode || theirCode)) {
                 this.countScan(g, sku)
                 this.scan = ''
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
@@ -1581,7 +1593,7 @@ export default {
         },
         codeMatches(l, code) {
             const c = String(code || '').toLowerCase()
-            return String(l.sku || '').toLowerCase() === c || (this.oscarCodeOf(l) || '').toLowerCase() === c
+            return String(l.sku || '').toLowerCase() === c || (this.oscarCodeOf(l) || '').toLowerCase() === c || (this.customerCodeOf(l) || '').toLowerCase() === c
         },
         // the line just scanned goes to the top, where the camera view shows it
         // (an order line takes the rest of its row along)
@@ -1662,6 +1674,8 @@ export default {
                 orderId: null, unmatched: true, key: (src && src.key) || this.newKey(), reason: (src && src.reason === 'over') ? 'over' : 'none',
                 // the product behind it (the register's item when the SKU is known, or one picked by hand)
                 itemId: (src && src.itemId) || null, imageId: (src && src.imageId) || null, imageUrl: (src && src.imageUrl) || '', warranty: !!(src && src.warranty), oscarCode: (src && src.oscarCode) || '',
+                // another customer's barcode scanned with no open line: it ships marked for them
+                customerCode: (src && src.customerCode) || '', customerName: (src && src.customerName) || '',
                 orderNo: '', sku, productName: (src && (src.productName || src.name)) || '', category: (src && (src.category || src.suggestedCategory || src.classification)) || '',
                 status: 'unmatched', supplier: (src && src.supplier) || '', orderedAt: null,
                 unitPrice: src && src.unitPrice != null ? src.unitPrice : undefined, orderQty: null, qty
@@ -1676,17 +1690,24 @@ export default {
             const same = l => l.unmatched && this.codeMatches(l, sku)
             let line = this.createForm.extra.find(same)
             const oscar = !!(r && r.oscar)
+            const customer = (r && r.customer) || null
             if (line) {
                 line.qty = (line.qty || 0) + 1
                 this.toTop(line)
             } else {
-                // an Oscar return code stands for a product: the line takes the product's SKU and keeps the code for re-scans
-                const lineSku = oscar && r.item && r.item.sku ? r.item.sku : sku
-                line = this.unmatchedLine(lineSku, { ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none', oscarCode: oscar ? sku : '' }, 1)
+                // an Oscar return code / a customer's barcode stands for a product:
+                // the line takes the product's SKU and keeps the code for re-scans
+                const lineSku = (oscar || customer) && r.item && r.item.sku ? r.item.sku : sku
+                line = this.unmatchedLine(lineSku, {
+                    ...(r && r.item), reason: r && r.hadWaiting ? 'over' : 'none', oscarCode: oscar ? sku : '',
+                    customerCode: customer ? sku : '', customerName: customer ? customer.name : ''
+                }, 1)
                 if (this.isSea) line.category = SEA // it ships as a 海运 line
                 this.createForm.extra.unshift(line)
             }
-            this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}` + (oscar ? ' · ' + this.$tp('OSCAR code with no open purchase line') : ''), type: 'warning', duration: oscar ? 3000 : 2000 })
+            const note = oscar ? ' · ' + this.$tp('OSCAR code with no open purchase line')
+                : customer ? ' · ' + this.$tp('{c} code with no open purchase line', { c: customer.tag || customer.name }) : ''
+            this.$message({ message: `${sku} · ${line.qty} — ${this.unmatchedLabel(line)}` + note, type: 'warning', duration: note ? 3000 : 2000 })
             // heard without looking: the camera's low double tone
             if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
         },
@@ -1971,7 +1992,21 @@ export default {
         oscarArgs(l) {
             return { record: { faultyCodePrefix: l.oscarPrefix || '' }, line: { sku: l.customerSku || l.sku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName } }
         },
+        // a line ordered for another customer from Order Dispatch (Best Sourcing, 2026-10-19):
+        // the Order Dispatch label — their barcode and description, their PO number, the ship date
+        isCustomerLine(l) {
+            return !!l && !!l.forCustomer && l.forCustomer !== 'OSCAR' && !!l.customerSku
+        },
+        customerArgs(l, batch) {
+            const b = batch || this.view || {}
+            return { record: { invoiceNumber: l.customerPo || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerDescription || l.productName } }
+        },
         async printLineLabels(line) {
+            if (this.isCustomerLine(line)) {
+                this.labelOscar = true // a fixed-size label: no size / orientation choice
+                this.showLabels(() => appendDispatchLabelsToDoc(null, this.customerArgs(line), 1), sppLabelFileName(this.view, line), this.$tp('Label') + ' — ' + line.forCustomer + ' · ' + line.customerSku)
+                return
+            }
             if (line.forCustomer === 'OSCAR') {
                 if (!line.oscarPrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
                 this.labelOscar = true
@@ -1987,13 +2022,17 @@ export default {
             const n = sppLabelCount(batch)
             if (!n) return
             const named = { ...batch, lines: await withLabelNames(batch.lines) }
-            // Oscar's lines go on their own 100×50 pages after the ordinary labels
+            // Oscar's lines go on their own 100×50 pages after the ordinary labels,
+            // another customer's (Best Sourcing) on Order Dispatch's 50×40 ones
             const oscar = named.lines.filter(l => l.forCustomer === 'OSCAR')
-            const rest = named.lines.filter(l => l.forCustomer !== 'OSCAR')
-            this.labelOscar = !rest.length // only Oscar pages: nothing to re-lay out
+            const customer = named.lines.filter(l => this.isCustomerLine(l))
+            const rest = named.lines.filter(l => l.forCustomer !== 'OSCAR' && !this.isCustomerLine(l))
+            this.labelOscar = !rest.length // only fixed-size pages: nothing to re-lay out
+            const units = l => Math.max(1, Math.floor(Number(l.shippedQty)) || 1)
             const build = () => {
                 let doc = rest.length ? buildSppBatchLabelsPdf({ ...named, lines: rest }) : null
-                for (const l of oscar) doc = appendOscarLabelsToDoc(doc, this.oscarArgs(l), Math.max(1, Math.floor(Number(l.shippedQty)) || 1))
+                for (const l of oscar) doc = appendOscarLabelsToDoc(doc, this.oscarArgs(l), units(l))
+                for (const l of customer) doc = appendDispatchLabelsToDoc(doc, this.customerArgs(l, batch), units(l))
                 return doc
             }
             this.showLabels(build, sppLabelFileName(batch), this.$tp('Labels') + ' — ' + batch.batchNo + ' (' + n + ')')

@@ -135,6 +135,20 @@ export function buildBatchLabelsPdf({ record, batch }) {
     return pages ? doc : null
 }
 
+// The same 50 × 40 label onto an existing jsPDF doc (or a new one when `doc`
+// is null), `units` copies — the Spare Parts Purchase pages print it for a
+// line ordered for a customer other than Oscar (Best Sourcing, 2026-10-19):
+// the customer's description and barcode, their PO number and the date.
+export function appendDispatchLabelsToDoc(doc, { record, batch, line }, units = 1) {
+    const pngCache = {}
+    for (let u = 0; u < Math.max(1, Math.floor(Number(units)) || 1); u++) {
+        if (!doc) doc = newLabelDoc()
+        else doc.addPage([LABEL_W, LABEL_H], 'landscape')
+        drawLabel(doc, record, batch, line, pngCache)
+    }
+    return doc
+}
+
 // Total labels buildBatchLabelsPdf would print — for the button caption.
 export function batchLabelCount(batch) {
     return ((batch && batch.lines) || []).reduce(
