@@ -10,6 +10,8 @@
 </template>
 
 <script>
+import { liftedForUser } from '@/store/modules/permission'
+
 export default {
   data() {
     return {
@@ -45,6 +47,9 @@ export default {
       } else {
         matched = router.matched.filter(item => item.meta && item.meta.title)
       }
+      // A page the sidebar lifts out of its group for this account
+      // (liftForPhoneSupplier) drops that group from the trail too.
+      matched = matched.filter((item, i) => !liftedForUser(matched[i + 1]))
       // 判断是否为首页
       if (!this.isDashboard(matched[0])) {
         matched = [{ path: "/index", meta: { title: "Home" } }].concat(matched)

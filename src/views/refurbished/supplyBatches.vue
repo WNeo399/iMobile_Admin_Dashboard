@@ -111,7 +111,7 @@
                     </div>
                 </div>
 
-                <el-table v-if="form.lines.length" :data="groupedFormLines" border size="mini" max-height="300"
+                <el-table v-if="form.lines.length" ref="formTable" :data="groupedFormLines" border size="mini" max-height="300"
                     :row-class-name="lineRowClass" :span-method="lineSpan"
                     @row-click="r => toggleGroup(r, collapsedFormGroups)">
                     <el-table-column label="IMEI" min-width="150">
@@ -414,6 +414,13 @@ export default {
             mySuppliers: [],
             // One currency for every cost typed in the dialog.
             crCurrency: 'AUD',
+            // The latest scan / pick sits on top, highlighted (user
+            // 2026-10-20): each add stamps the line with the next number;
+            // lastAdded = that line's IMEI, flashAdded = the same while the
+            // short flash runs.
+            addSeq: 0,
+            lastAdded: '',
+            flashAdded: '',
 
             detailVisible: false,
             detail: null
@@ -424,12 +431,22 @@ export default {
         currencies() { return CURRENCIES },
         // Both dialog tables show the lines grouped by model under
         // full-width header rows (lineSpan collapses the other cells).
+        // The create / edit list puts what was added last on top: groups by
+        // their newest line, newest first inside a group; the lines a batch
+        // reopened with keep the A→Z order beneath.
         groupedFormLines() {
+            const seq = l => l.addedSeq || 0
+            const byNewest = (a, b) => (b.seq - a.seq) || (a.i - b.i)
+            const groups = groupSupplyLines(this.form.lines)
+                .map((g, i) => ({ ...g, i, seq: Math.max(0, ...g.rows.map(seq)) }))
+                .sort(byNewest)
             const out = []
-            for (const g of groupSupplyLines(this.form.lines)) {
+            for (const g of groups) {
                 const collapsed = !!this.collapsedFormGroups[g.name]
                 out.push({ __group: true, model: g.name, count: g.rows.length, collapsed })
-                if (!collapsed) out.push(...g.rows)
+                if (!collapsed) {
+                    out.push(...g.rows.map((r, i) => ({ r, i, seq: seq(r) })).sort(byNewest).map(x => x.r))
+                }
             }
             return out
         },
@@ -490,6 +507,9 @@ export default {
             if (this.isSupplier) this.openCreate()
         }
     },
+    beforeDestroy() {
+        clearTimeout(this.flashTimer)
+    },
     methods: {
         msg(e, fallback) {
             return (e && e.response && e.response.data && e.response.data.message) || fallback
@@ -519,6 +539,7 @@ export default {
             this.crCurrency = 'AUD'
             this.form = { notes: '', tracking: '', supplierId: '', lines: [] }
             this.collapsedFormGroups = {}
+            this.resetAdded()
             this.pickerSearch = ''
             this.pickerResults = []
             this.pickerSearched = false
@@ -533,20 +554,27 @@ export default {
             try {
                 // Our In Stock units and the supplier's own shelf both board.
                 const r = await getRefurbDevices({ search: q, status: 'In Stock,With Supplier', page: 1, pageSize: 20 })
-                this.pickerResults = r.rows || []
-                this.pickerSearched = true
-                // A scan that matches exactly one device goes straight in.
-                if (this.pickerResults.length === 1 && !this.isPicked(this.pickerResults[0])) {
-                    this.addLine(this.pickerResults[0])
+                const hits = r.rows || []
+                // A scan that matches exactly one device goes straight in —
+                // or, already aboard, comes back up to the top. Done here:
+                // falling through to the no-hit branch below re-read the
+                // scan as a new code and warned it was already on the batch.
+                if (hits.length === 1) {
+                    const d = hits[0]
+                    if (this.isPicked(d)) this.bumpLine(this.form.lines.find(l => String(l.deviceId) === String(d._id)))
+                    else this.addLine(d)
                     this.pickerSearch = ''
                     this.pickerResults = []
                     this.pickerSearched = false
+                    return
                 }
+                this.pickerResults = hits
+                this.pickerSearched = true
                 // A code-shaped scan with no hit joins the batch as a new
                 // record on your shelf: Blackbelt is asked automatically,
                 // and where it has no report the details are typed on the
                 // line. Created at Send to iMobile.
-                if (!this.pickerResults.length) {
+                if (!hits.length) {
                     const code = q.replace(/[\s-]/g, '').toUpperCase()
                     if (CODE_RE.test(code)) {
                         this.addDraftLine(code)
@@ -562,7 +590,37 @@ export default {
         },
         lineRowClass({ row }) {
             if (row.__group) return 'sb-row-grouphead'
-            return row.isNew ? 'sb-row-new' : ''
+            const key = String(row.imei || '').toUpperCase()
+            return [
+                row.isNew ? 'sb-row-new' : '',
+                key && key === this.lastAdded ? 'sb-row-last' : '',
+                key && key === this.flashAdded ? 'sb-row-flash' : ''
+            ].filter(Boolean).join(' ')
+        },
+        resetAdded() {
+            this.addSeq = 0
+            this.lastAdded = ''
+            this.flashAdded = ''
+            clearTimeout(this.flashTimer)
+        },
+        // A line just scanned / picked — or scanned again while already
+        // aboard — goes to the top of the list, highlighted, its group
+        // unfolded and the table scrolled up to it.
+        markAdded(line) {
+            line.addedSeq = ++this.addSeq
+            const key = String(line.imei || '').toUpperCase()
+            this.lastAdded = key
+            this.unfoldFor(line)
+            // cleared first so a second scan of the same unit flashes again
+            this.flashAdded = ''
+            clearTimeout(this.flashTimer)
+            this.$nextTick(() => {
+                this.flashAdded = key
+                this.flashTimer = setTimeout(() => { this.flashAdded = '' }, 1600)
+                const t = this.$refs.formTable
+                const body = t && t.$el && t.$el.querySelector('.el-table__body-wrapper')
+                if (body) body.scrollTop = 0
+            })
         },
         lineSpan({ row, columnIndex }) {
             if (!row.__group) return [1, 1]
@@ -604,11 +662,13 @@ export default {
                         costMissing: figure == null,
                         origCost: figure == null ? undefined : figure,
                         supplierId,
-                        origSupplierId: supplierId
+                        origSupplierId: supplierId,
+                        addedSeq: 0
                     }
                 })
             }
             this.collapsedFormGroups = {}
+            this.resetAdded()
             this.pickerSearch = ''
             this.pickerResults = []
             this.pickerSearched = false
@@ -711,9 +771,16 @@ export default {
                 this.$message.error(this.$tp('Could not build the spreadsheet.'))
             }
         },
+        // Scanned again while aboard: say so and show it on top.
+        bumpLine(line) {
+            if (!line) return
+            this.$message.warning(this.$tp('{code} is already on the batch', { code: line.imei }))
+            this.markAdded(line)
+        },
         async addDraftLine(code) {
-            if (this.form.lines.some(l => String(l.imei).toUpperCase() === code)) {
-                this.$message.warning(this.$tp('{code} is already on the batch', { code }))
+            const aboard = this.form.lines.find(l => String(l.imei).toUpperCase() === code)
+            if (aboard) {
+                this.bumpLine(aboard)
                 return
             }
             // Every field seeded now — Vue 2 can't track keys added later.
@@ -730,10 +797,11 @@ export default {
                 bbChecking: true,
                 bbFound: false,
                 modelMissing: false, // Blackbelt found it, report has no model → typed
-                bb: {}
+                bb: {},
+                addedSeq: 0
             }
             this.form.lines.push(line)
-            this.unfoldFor(line)
+            this.markAdded(line)
             try {
                 const r = await lookupRefurbDevice(code)
                 if (r && r.alreadyInStock) {
@@ -778,10 +846,9 @@ export default {
         },
         addLine(d) {
             if (this.isPicked(d)) return
-            this.unfoldFor(d)
             const supplierId = (d.supplier && String(d.supplier.id)) || ''
             const model = String(d.model || '').trim()
-            this.form.lines.push({
+            const line = {
                 deviceId: String(d._id),
                 imei: d.imei,
                 model,
@@ -798,8 +865,11 @@ export default {
                 origCost: d.costPrice == null ? undefined : d.costPrice,
                 // the batch's supplier wins over the unit's current one
                 supplierId: this.form.supplierId || supplierId,
-                origSupplierId: supplierId
-            })
+                origSupplierId: supplierId,
+                addedSeq: 0
+            }
+            this.form.lines.push(line)
+            this.markAdded(line)
         },
         async save() {
             const stillChecking = this.form.lines.find(l => l.bbChecking)
@@ -992,6 +1062,15 @@ export default {
 ::v-deep .el-table .sb-row-new:hover > td { background: #faf3e0; }
 ::v-deep .el-table .sb-row-received > td { background: #f5faf0; }
 ::v-deep .el-table .sb-row-received:hover > td { background: #eef6e6; }
+/* the line added last — on top, blue tint + bar; a short flash as it lands */
+::v-deep .el-table .el-table__body tr.sb-row-last > td,
+::v-deep .el-table .el-table__body tr.sb-row-last:hover > td { background: #ecf5ff; }
+::v-deep .el-table .el-table__body tr.sb-row-last > td:first-child { box-shadow: inset 3px 0 0 #409eff; }
+::v-deep .el-table .el-table__body tr.sb-row-flash > td { animation: sb-flash 1.6s ease-out; }
+@keyframes sb-flash {
+    0%, 25% { background: #b3d8ff; }
+    100% { background: #ecf5ff; }
+}
 
 .sb-detail { display: flex; flex-direction: column; gap: 12px; }
 .sb-dtitle { display: flex; align-items: center; gap: 10px; }

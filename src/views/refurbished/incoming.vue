@@ -152,7 +152,7 @@
                 </div>
                 <div v-if="scanMessage" :class="['ri-scan-msg', 'ri-msg-' + scanTone]">{{ scanMessage }}</div>
 
-                <el-table :data="visibleLines" border size="mini" height="46vh"
+                <el-table ref="takeTable" :data="visibleLines" border size="mini" height="46vh"
                     :row-key="r => r.code" :row-class-name="rowClass" :span-method="lineSpan"
                     empty-text="Nothing to show for this filter." @row-click="onRowClick">
                     <!-- Ticked by scanning or by clicking anywhere on the row;
@@ -521,6 +521,14 @@ export default {
             lineFilter: 'all',
             checkedCodes: [],
             localExtras: [],
+            // A scan brings its device to the top of the whole list,
+            // highlighted (user 2026-10-20): scanSeq = code → scan number
+            // (re-scans renumber), lastScan = the latest code, flashScan = the
+            // same while its short flash runs. Ticking by click doesn't count.
+            scanSeq: {},
+            scanCounter: 0,
+            lastScan: '',
+            flashScan: '',
             // Grades picked in the dialog for lines the sheet left blank,
             // keyed by code. Saved at commit.
             gradePicks: {},
@@ -645,6 +653,11 @@ export default {
                 if (bm === '(No model)' && am !== '(No model)') return -1
                 return am.localeCompare(bm) || (rank(as) - rank(bs)) || as.localeCompare(bs)
             })
+            // Groups holding a scan come first, latest scan on top; the rest
+            // keep the A→Z order beneath.
+            const seq = l => this.scanSeq[l.code] || 0
+            const groupSeq = new Map(names.map(n => [n, Math.max(0, ...groups.get(n).map(seq))]))
+            names.sort((a, b) => groupSeq.get(b) - groupSeq.get(a))
             const pos = l => (this.isPersisted(l) ? -1 : this.checkedCodes.indexOf(l.code))
             const out = []
             for (const name of names) {
@@ -661,9 +674,12 @@ export default {
                     collapsed
                 })
                 if (collapsed) continue
-                const scanned = members.filter(l => pos(l) >= 0).sort((a, b) => pos(a) - pos(b))
-                const rest = members.filter(l => pos(l) < 0)
-                out.push(...scanned, ...rest)
+                // inside a group: scans (latest first), then rows ticked by
+                // click / Select all, then the rest
+                const byScan = members.filter(l => seq(l) > 0).sort((a, b) => seq(b) - seq(a))
+                const ticked = members.filter(l => !seq(l) && pos(l) >= 0).sort((a, b) => pos(a) - pos(b))
+                const rest = members.filter(l => !seq(l) && pos(l) < 0)
+                out.push(...byScan, ...ticked, ...rest)
             }
             return out
         },
@@ -755,6 +771,7 @@ export default {
     },
     beforeDestroy() {
         this.stopPolling()
+        clearTimeout(this.flashTimer)
     },
     methods: {
         // ── Batch list ───────────────────────────────────────────────
@@ -914,6 +931,7 @@ export default {
             this.collapsedGroups = {}
             this.checkedCodes = []
             this.localExtras = []
+            this.resetScanMarks()
             this.gradePicks = {}
             this.detailPicks = {}
             this.receiveCosts = {}
@@ -1015,6 +1033,7 @@ export default {
             this.batch = null
             this.checkedCodes = []
             this.localExtras = []
+            this.resetScanMarks()
             this.gradePicks = {}
             this.detailPicks = {}
             this.loadBatches()
@@ -1039,13 +1058,16 @@ export default {
             const line = (this.batch.lines || []).find(l => l.code === code)
             if (line && this.isPersisted(line)) {
                 this.say('warn', this.$tp('{code} was already received', { code }))
+                this.markScanned(code)
                 return
             }
             if (this.checkedCodes.includes(code)) {
                 this.say('warn', this.$tp('{code} was already scanned', { code }))
+                this.markScanned(code)
                 return
             }
             this.checkedCodes.unshift(code)
+            this.$nextTick(() => this.markScanned(code)) // after an extra's row exists
             if (line) {
                 if (line.alreadyInStock) this.say('warn', this.$tp("{code} scanned — but it's already in stock, so it will be skipped", { code }))
                 else this.say('ok', this.$tp('{code} scanned', { code }))
@@ -1061,6 +1083,32 @@ export default {
                 })
                 this.say('warn', this.$tp("{code} isn't on the supplier's list — added as an extra", { code }))
             }
+        },
+        // The scanned device goes to the top of the list, highlighted, its
+        // group unfolded and the table scrolled up to it.
+        markScanned(code) {
+            this.$set(this.scanSeq, code, ++this.scanCounter)
+            this.lastScan = code
+            const row = [...this.localExtras, ...((this.batch && this.batch.lines) || [])].find(l => l.code === code)
+            const k = row ? this.groupKey(row) : ''
+            if (k && this.collapsedGroups[k]) this.$set(this.collapsedGroups, k, false)
+            // cleared first so a second scan of the same unit flashes again
+            this.flashScan = ''
+            clearTimeout(this.flashTimer)
+            this.$nextTick(() => {
+                this.flashScan = code
+                this.flashTimer = setTimeout(() => { this.flashScan = '' }, 1600)
+                const t = this.$refs.takeTable
+                const body = t && t.$el && t.$el.querySelector('.el-table__body-wrapper')
+                if (body) body.scrollTop = 0
+            })
+        },
+        resetScanMarks() {
+            this.scanSeq = {}
+            this.scanCounter = 0
+            this.lastScan = ''
+            this.flashScan = ''
+            clearTimeout(this.flashTimer)
         },
         // Persisted = the server already knows (committed or received) —
         // the checkbox is locked for those.
@@ -1115,6 +1163,7 @@ export default {
         clearSelection() {
             this.checkedCodes = []
             this.localExtras = []
+            this.resetScanMarks()
             this.scanMessage = ''
         },
         toggleCheck(row, v) {
@@ -1128,6 +1177,9 @@ export default {
             } else {
                 const i = this.checkedCodes.indexOf(row.code)
                 if (i >= 0) this.checkedCodes.splice(i, 1)
+                // unticked = no longer a scan: it drops back into place
+                this.$delete(this.scanSeq, row.code)
+                if (this.lastScan === row.code) this.lastScan = ''
                 // An unchecked extra has no reason to stay on the list.
                 const x = this.localExtras.findIndex(l => l.code === row.code)
                 if (x >= 0) this.localExtras.splice(x, 1)
@@ -1231,6 +1283,7 @@ export default {
                 this.sellVisible = false
                 this.checkedCodes = []
                 this.localExtras = []
+                this.resetScanMarks()
                 this.gradePicks = {}
                 this.detailPicks = {}
             this.detailPicks = {}
@@ -1281,6 +1334,7 @@ export default {
                 this.receiveVisible = false
                 this.checkedCodes = []
                 this.localExtras = []
+                this.resetScanMarks()
                 this.gradePicks = {}
                 this.detailPicks = {}
                 this.receiveCosts = {}
@@ -1457,10 +1511,14 @@ export default {
         },
         rowClass({ row }) {
             if (row.__group) return 'ri-row-group'
-            if (this.isPersisted(row)) return 'ri-row-stock'
-            if (this.checkedCodes.includes(row.code)) return 'ri-row-got'
-            if (row.alreadyInStock) return 'ri-row-warn'
-            return ''
+            const last = [
+                row.code === this.lastScan ? 'ri-row-last' : '',
+                row.code === this.flashScan ? 'ri-row-flash' : ''
+            ].filter(Boolean).join(' ')
+            const tone = this.isPersisted(row) ? 'ri-row-stock'
+                : this.checkedCodes.includes(row.code) ? 'ri-row-got'
+                    : row.alreadyInStock ? 'ri-row-warn' : ''
+            return [tone, last].filter(Boolean).join(' ')
         },
         shortDate(v) {
             if (!v) return '—'
@@ -1594,4 +1652,21 @@ export default {
 .ri-take ::v-deep .ri-row-got td { background: #f0f9eb !important; }
 .ri-take ::v-deep .ri-row-stock td { background: #ecf5ff !important; }
 .ri-take ::v-deep .ri-row-warn td { background: #fdf6ec !important; }
+/* the latest scan — on top: a deeper shade of its own tone + a blue bar, and a
+   short flash (box-shadow, since the tones above are !important backgrounds) */
+.ri-take ::v-deep .ri-row-last td { background: #ecf5ff !important; }
+.ri-take ::v-deep .ri-row-got.ri-row-last td { background: #e1f3d8 !important; }
+.ri-take ::v-deep .ri-row-stock.ri-row-last td { background: #d9ecff !important; }
+.ri-take ::v-deep .ri-row-warn.ri-row-last td { background: #faecd8 !important; }
+.ri-take ::v-deep .ri-row-last td:first-child { box-shadow: inset 4px 0 0 #409eff; }
+.ri-take ::v-deep .ri-row-flash td { animation: ri-flash 1.6s ease-out; }
+.ri-take ::v-deep .ri-row-flash td:first-child { animation: ri-flash-first 1.6s ease-out; }
+@keyframes ri-flash {
+    0%, 25% { box-shadow: inset 0 0 0 999px rgba(64, 158, 255, 0.28); }
+    100% { box-shadow: inset 0 0 0 999px rgba(64, 158, 255, 0); }
+}
+@keyframes ri-flash-first {
+    0%, 25% { box-shadow: inset 4px 0 0 #409eff, inset 0 0 0 999px rgba(64, 158, 255, 0.28); }
+    100% { box-shadow: inset 4px 0 0 #409eff, inset 0 0 0 999px rgba(64, 158, 255, 0); }
+}
 </style>

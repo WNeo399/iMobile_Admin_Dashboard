@@ -123,8 +123,8 @@
                     </div>
                 </div>
 
-                <el-table v-if="form.lines.length" :data="form.lines" border size="mini" max-height="300"
-                    :row-class-name="lineRowClass">
+                <el-table v-if="form.lines.length" ref="orderTable" :data="orderLines" border size="mini" max-height="300"
+                    :row-key="r => r.imei" :row-class-name="lineRowClass">
                     <el-table-column label="IMEI" min-width="150">
                         <template slot-scope="s">
                             <div><b>{{ s.row.imei }}</b></div>
@@ -189,7 +189,7 @@
                     <el-table-column label="" width="50" align="center">
                         <template slot-scope="s">
                             <el-button size="mini" type="text" icon="el-icon-close" class="rso-cancel"
-                                @click="removeLine(s.$index)" />
+                                @click="removeLine(s.row)" />
                         </template>
                     </el-table-column>
                 </el-table>
@@ -386,6 +386,12 @@ export default {
             pickerResults: [],
             pickerLoading: false,
             pickerSearched: false,
+            // The latest scan / pick sits on top of the device list,
+            // highlighted (user 2026-10-20). form.lines keeps the add order
+            // (it is what gets saved); the table shows `orderLines`.
+            addSeq: 0,
+            lastAdded: '',
+            flashAdded: '',
             gradeOptions: GRADES,
             storageOptions: STORAGES,
 
@@ -410,6 +416,14 @@ export default {
         returnedCount() {
             return ((this.detail && this.detail.lines) || []).filter(l => l.returned).length
         },
+        // Newest added first; the lines an order reopened with keep their
+        // order beneath.
+        orderLines() {
+            return this.form.lines
+                .map((l, i) => ({ l, i }))
+                .sort((a, b) => ((b.l.addedSeq || 0) - (a.l.addedSeq || 0)) || (a.i - b.i))
+                .map(x => x.l)
+        },
         formSubTotal() {
             return Math.round(this.form.lines.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100
         },
@@ -427,6 +441,9 @@ export default {
             this.$router.replace({ query: {} })
             this.openCreate()
         }
+    },
+    beforeDestroy() {
+        clearTimeout(this.flashTimer)
     },
     methods: {
         msg(e, fallback) {
@@ -533,7 +550,8 @@ export default {
                     // snapshot never carries cost.
                     costPrice: null,
                     costCurrency: '',
-                    price: l.price == null ? undefined : l.price
+                    price: l.price == null ? undefined : l.price,
+                    addedSeq: 0
                 }))
             }
             this.fillLineCosts()
@@ -542,6 +560,7 @@ export default {
         },
         async openOrderDialog() {
             this.detached = []
+            this.resetAdded()
             this.pickerSearch = ''
             this.pickerResults = []
             this.pickerSearched = false
@@ -602,9 +621,12 @@ export default {
                         this.pickerSearched = false
                     }
                 }
-                // A scan that matches exactly one device goes straight in.
-                if (this.pickerResults.length === 1 && !this.isPicked(this.pickerResults[0])) {
-                    this.addLine(this.pickerResults[0])
+                // A scan that matches exactly one device goes straight in —
+                // or, already on the order, comes back up to the top.
+                if (this.pickerResults.length === 1) {
+                    const d = this.pickerResults[0]
+                    if (this.isPicked(d)) this.bumpLine(this.form.lines.find(l => String(l.deviceId) === String(d._id)))
+                    else this.addLine(d)
                     this.pickerSearch = ''
                     this.pickerResults = []
                     this.pickerSearched = false
@@ -650,8 +672,9 @@ export default {
         // on the line if it has no report, and the stock record is created
         // when the order is saved.
         async addDraftLine(code) {
-            if (this.form.lines.some(l => String(l.imei).toUpperCase() === code)) {
-                this.$message.warning(this.$tp('{code} is already on the order', { code }))
+            const aboard = this.form.lines.find(l => String(l.imei).toUpperCase() === code)
+            if (aboard) {
+                this.bumpLine(aboard)
                 return
             }
             // Every field seeded now — Vue 2 can't track keys added later.
@@ -665,9 +688,11 @@ export default {
                 price: undefined,
                 bbChecking: true,
                 bbFound: false,
-                bb: {}
+                bb: {},
+                addedSeq: 0
             }
             this.form.lines.push(line)
+            this.markAdded(line)
             try {
                 const r = await lookupRefurbDevice(code)
                 if (r && r.alreadyInStock) {
@@ -705,7 +730,40 @@ export default {
         // Draft rows get a warm wash so what's about to be created in the
         // register is visible at a glance.
         lineRowClass({ row }) {
-            return row.isNew ? 'rso-row-new' : ''
+            const key = String(row.imei || '').toUpperCase()
+            return [
+                row.isNew ? 'rso-row-new' : '',
+                key && key === this.lastAdded ? 'rso-row-last' : '',
+                key && key === this.flashAdded ? 'rso-row-flash' : ''
+            ].filter(Boolean).join(' ')
+        },
+        resetAdded() {
+            this.addSeq = 0
+            this.lastAdded = ''
+            this.flashAdded = ''
+            clearTimeout(this.flashTimer)
+        },
+        // A device just scanned / picked — or scanned again while already on
+        // the order — goes to the top, highlighted, the table scrolled up.
+        markAdded(line) {
+            line.addedSeq = ++this.addSeq
+            const key = String(line.imei || '').toUpperCase()
+            this.lastAdded = key
+            // cleared first so a second scan of the same unit flashes again
+            this.flashAdded = ''
+            clearTimeout(this.flashTimer)
+            this.$nextTick(() => {
+                this.flashAdded = key
+                this.flashTimer = setTimeout(() => { this.flashAdded = '' }, 1600)
+                const t = this.$refs.orderTable
+                const body = t && t.$el && t.$el.querySelector('.el-table__body-wrapper')
+                if (body) body.scrollTop = 0
+            })
+        },
+        bumpLine(line) {
+            if (!line) return
+            this.$message.warning(this.$tp('{code} is already on the order', { code: line.imei }))
+            this.markAdded(line)
         },
         isPicked(d) {
             return this.form.lines.some(l => String(l.deviceId) === String(d._id))
@@ -715,7 +773,7 @@ export default {
             // Re-adding one that was removed in this session restores its price.
             const wasIdx = this.detached.findIndex(x => String(x._id) === String(d._id))
             const prev = wasIdx >= 0 ? this.detached.splice(wasIdx, 1)[0] : null
-            this.form.lines.push({
+            const line = {
                 deviceId: String(d._id),
                 imei: d.imei,
                 model: d.model,
@@ -724,10 +782,16 @@ export default {
                 grade: d.grade,
                 costPrice: d.costPrice == null ? null : d.costPrice,
                 costCurrency: d.currency || '',
-                price: prev ? prev.price : undefined
-            })
+                price: prev ? prev.price : undefined,
+                addedSeq: 0
+            }
+            this.form.lines.push(line)
+            this.markAdded(line)
         },
-        removeLine(index) {
+        // By the row itself — the table's order isn't form.lines' order.
+        removeLine(row) {
+            const index = this.form.lines.indexOf(row)
+            if (index < 0) return
             const [line] = this.form.lines.splice(index, 1)
             // Only lines that were already on the saved order need stashing —
             // a freshly added one is In Stock again the moment it's dropped.
@@ -955,6 +1019,15 @@ export default {
 // paints cell backgrounds per <td>, so the override lands there.
 ::v-deep .el-table .rso-row-new > td { background: #fdf9ee; }
 ::v-deep .el-table .rso-row-new:hover > td { background: #faf3e0; }
+/* the line added last — on top, blue tint + bar; a short flash as it lands */
+::v-deep .el-table .el-table__body tr.rso-row-last > td,
+::v-deep .el-table .el-table__body tr.rso-row-last:hover > td { background: #ecf5ff; }
+::v-deep .el-table .el-table__body tr.rso-row-last > td:first-child { box-shadow: inset 3px 0 0 #409eff; }
+::v-deep .el-table .el-table__body tr.rso-row-flash > td { animation: rso-flash 1.6s ease-out; }
+@keyframes rso-flash {
+    0%, 25% { background: #b3d8ff; }
+    100% { background: #ecf5ff; }
+}
 .rso-noresult { padding: 8px 2px; }
 .rso-totals {
     margin-left: auto;

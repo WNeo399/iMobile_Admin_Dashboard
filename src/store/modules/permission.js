@@ -1,5 +1,13 @@
 import { constantRoutes, moduleRoutes } from '@/router'
 import auth from '@/plugins/auth'
+import { actsAsPhoneSupplier } from '@/utils/permission'
+
+// `liftForPhoneSupplier`: an account working as a phone supplier sees the
+// page one level up in the sidebar, out of its group, and the breadcrumb
+// leaves the group out (the route itself — path, guard — stays where it is).
+export function liftedForUser(route) {
+  return !!(route && route.meta && route.meta.liftForPhoneSupplier) && actsAsPhoneSupplier()
+}
 
 // Is the current user allowed to access this route?
 function routeAllowed(route) {
@@ -18,18 +26,27 @@ function routeAllowed(route) {
 }
 
 // Recursively filter the static module routes by the user's permissions.
-// A parent group is dropped if all of its children get filtered out.
+// A parent group is dropped if all of its children get filtered out; a
+// child lifted for this user moves up beside its group.
 function filterModuleRoutes(routes) {
   const res = []
   routes.forEach(route => {
     const tmp = { ...route }
     if (!routeAllowed(tmp)) return
+    let lifted = []
     if (tmp.children) {
       const hadChildren = tmp.children.length > 0
-      tmp.children = filterModuleRoutes(tmp.children)
-      if (hadChildren && tmp.children.length === 0) return
+      const kids = filterModuleRoutes(tmp.children)
+      // one level only — the copy loses the flag, or every level above
+      // would lift it again
+      lifted = kids.filter(liftedForUser).map(k => ({ ...k, meta: { ...k.meta, liftForPhoneSupplier: false } }))
+      tmp.children = kids.filter(k => !liftedForUser(k))
+      if (hadChildren && tmp.children.length === 0) {
+        res.push(...lifted)
+        return
+      }
     }
-    res.push(tmp)
+    res.push(tmp, ...lifted)
   })
   return res
 }

@@ -1008,26 +1008,31 @@ export const moduleRoutes = [
           {
             // Supplier shipments to iMobile — suppliers create them, staff
             // can watch them here too; the warehouse receives the
-            // auto-created record through Incoming Stocks.
+            // auto-created record through Incoming Stocks. A phone supplier
+            // has nothing else under Warehouse, so their sidebar shows it
+            // one level up, beside Stock (liftForPhoneSupplier, 2026-10-20).
             path: "/refurbished/supply",
             component: (resolve) => require(["@/views/refurbished/supplyBatches"], resolve),
             name: "RefurbishedSupplyBatches",
             meta: {
               title: "Supply Batches",
               icon: "el-icon-truck",
-              permissions: ["refurb:supply:view"]
+              permissions: ["refurb:supply:view"],
+              liftForPhoneSupplier: true
             }
           },
           {
             // The records left by bulk shelf moves (Assign To Exyon on the
             // Stock page) — printable transfer notes and spreadsheets (2026-10-09).
+            // Not for phone suppliers (2026-10-20) — the API refuses them too.
             path: "/refurbished/transfers",
             component: (resolve) => require(["@/views/refurbished/transfers"], resolve),
             name: "RefurbishedTransfers",
             meta: {
               title: "Transfers",
               icon: "el-icon-sort",
-              permissions: ["refurb:stock:view"]
+              permissions: ["refurb:stock:view"],
+              excludeRoles: ["phone-supplier"]
             }
           },
           {
