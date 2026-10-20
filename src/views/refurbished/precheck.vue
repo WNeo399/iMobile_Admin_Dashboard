@@ -79,7 +79,7 @@
 
         <!-- Add Device / Edit (user 2026-10-20: "make the add device a dialog").
              Adding keeps the dialog open for the next one — scan or type the
-             IMEI, Enter adds; the IMEI and Note clear, Device, Supplier and Assign stay. -->
+             IMEI, Enter adds; then every field clears (user 2026-10-21). -->
         <el-dialog :title="editRow ? $tp('Edit {name}', { name: editRow.imei }) : $tp('Add Device')" :visible.sync="dialogVisible"
             :width="narrow ? '94%' : '520px'" append-to-body :close-on-click-modal="false" @opened="focusImei" @closed="onClosed">
             <el-form label-width="90px" size="small" @submit.native.prevent>
@@ -328,8 +328,8 @@ export default {
             this.editRow = null
             this.addedHere = []
         },
-        // Add: the dialog stays for the next device (IMEI and Note clear,
-        // Device, Supplier and Assign stay). Edit: saved and closed.
+        // Add: the dialog stays for the next device with the whole form
+        // cleared (user 2026-10-21). Edit: saved and closed.
         async save() {
             const imei = String(this.form.imei || '').replace(/\s+/g, '')
             if (!imei) { this.$message.warning(this.$tp('Enter the IMEI')); this.focusImei(); return }
@@ -349,8 +349,7 @@ export default {
                 this.justAdded = r.row.imei
                 this.addedHere.push(r.row.imei)
                 this.$message({ type: 'success', duration: 1400, message: this.$tp('{imei} added', { imei: r.row.imei }) + (r.row.addedToStock ? ' · ' + this.$tp('Added to Stock') : '') })
-                this.form.imei = ''
-                this.form.note = ''
+                this.form = blankForm()
                 this.query.page = 1
                 this.load()
             } catch (e) {

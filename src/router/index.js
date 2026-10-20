@@ -576,7 +576,7 @@ export const moduleRoutes = [
   {
     // Exyon Accessories (2026-10-08) — Exyon's accessory orders, read from
     // their MySQL table exyon.accessory_orders: Orders, Dispatch, Pick Lists.
-    // Admin and the Exyon Operation role only (nobody else holds exyon:*).
+    // Admin and the Exyon roles only (nobody else holds exyon:*).
     path: "/exyonAccessories",
     component: Layout,
     redirect: "noRedirect",
