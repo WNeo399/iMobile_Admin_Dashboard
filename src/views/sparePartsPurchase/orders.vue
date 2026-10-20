@@ -652,7 +652,7 @@ const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: 
 // The board shows every open line and the latest received ones.
 const BOARD_OPEN = 200
 const BOARD_RECEIVED = 30
-import { buildSppLineLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
@@ -1421,6 +1421,19 @@ export default {
         async printLineLabels(row) {
             this.cleanupLabels()
             try {
+                // a Special Order (user ask 2026-10-20): its SP- number as a barcode — what
+                // Dispatch Batches scans — who placed it and the date code; no item name
+                if (row.category === 'Special Order') {
+                    this.labelOscar = false // the part labels' sizes and orientation
+                    const sline = { orderNo: row.orderNo, by: this.specialBy(row) || row.requestedFor || '' }
+                    const build = () => buildSpecialOrderLabelPdf(sline, 1)
+                    this.labelBuild = build
+                    this.labelFileName = `label_${String(row.orderNo).replace(/[^a-z0-9-]/gi, '')}.pdf`
+                    this.labelUrl = build().output('bloburl') + '#toolbar=0'
+                    this.labelTitle = this.$tp('Label') + ' — ' + row.orderNo
+                    this.labelVisible = true
+                    return
+                }
                 // ordered for Oscar Mobile: the Order Dispatch label set (item ×2 + supplier card)
                 if (row.forCustomer === 'OSCAR') {
                     const dr = row.dispatchRef || {}

@@ -214,7 +214,7 @@
                     <div v-for="(l, i) in scanRows" :key="'s-' + (l.orderId || l.key || l.sku) + '-' + i" :class="['spb-scanrow', { hit: isLastScan(l), bad: l.unmatched }]">
                         <div class="spb-scanrow-main">
                             <div class="spb-pname">{{ l.productName || l.sku }} <span v-if="l.forCustomer" class="spb-for">{{ l.forCustomer }}</span></div>
-                            <div class="spb-dim">{{ l.sku || '—' }}<template v-if="l.unmatched"> · <span class="spb-warn">{{ unmatchedLabel(l) }}</span></template><template v-else> · {{ $tp('ordered {n}', { n: l.orderQty }) }}</template></div>
+                            <div class="spb-dim">{{ l.sku || l.orderNo || '—' }}<template v-if="l.unmatched"> · <span class="spb-warn">{{ unmatchedLabel(l) }}</span></template><template v-else> · {{ $tp('ordered {n}', { n: l.orderQty }) }}</template></div>
                         </div>
                         <div class="spb-scanrow-qty">
                             <el-button size="mini" icon="el-icon-minus" circle :disabled="!l.qty || l.qty <= 1" @click="bumpQty(l, -1)" />
@@ -337,7 +337,7 @@
                 </div>
                 <div v-if="!createForm.special.length" class="spb-dim spb-special-empty">{{ $tp('None on this batch') }}</div>
                 <div v-else class="spb-special-lines">
-                    <div v-for="(l, i) in createForm.special" :key="l.orderId || l.key" class="spb-slrow">
+                    <div v-for="(l, i) in createForm.special" :key="l.orderId || l.key" :class="['spb-slrow', { 'is-hit': isLastScan(l) }]">
                         <div class="spb-slrow-main">
                             <el-input v-if="l.special" v-model="l.productName" size="small" maxlength="200" :placeholder="$tp('Description of the item')" />
                             <template v-else>
@@ -1014,7 +1014,7 @@ export default {
         },
         // the camera view: the not-in-PO lines first (they need attention), then the order rows
         scanRows() {
-            return [...this.createForm.extra, ...this.lineGroups, ...this.createForm.warranty]
+            return [...this.createForm.extra, ...this.lineGroups, ...this.createForm.warranty, ...this.createForm.special]
         },
         specialPickedCount() {
             return Object.keys(this.specialPicked).length
@@ -1533,6 +1533,8 @@ export default {
         async doScan() {
             const sku = (this.scan || '').trim()
             if (!sku) return
+            // a line's own number — the Special Order label's barcode (2026-10-20)
+            if (/^SP-\d+$/i.test(sku)) return this.scanOrderNo(sku)
             // by SKU (iMobile's row), or by Oscar's return code for a line raised for OSCAR (user 2026-10-14)
             const oscarCode = /^SS-\d+-.+$/i.test(sku)
             const g = this.groupForCode(sku)
@@ -1575,6 +1577,60 @@ export default {
                 this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
             }
         },
+        // A scanned SP- number (user ask 2026-10-20: "dispatch can scan the
+        // Special Order's SP id to add to the batch"): the line already on the
+        // batch counts one more; else it is looked up and comes in (a Special
+        // Order to its own section) with one. Anything else is said so.
+        async scanOrderNo(code) {
+            const no = code.toUpperCase()
+            const done = () => {
+                this.scan = ''
+                this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
+            }
+            const bad = message => {
+                this.$message({ type: 'error', duration: 4000, message })
+                if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
+            }
+            const on = this.allLines.find(l => String(l.orderNo || '').toUpperCase() === no)
+            if (on) { this.countLine(on, no); done(); return }
+            this.scanning = true
+            try {
+                const r = await lookupOrder(no, this.allLines.map(l => l.orderId).filter(Boolean), this.createForm.freight)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (r.match) {
+                    this.addLine(r.match)
+                    this.countLine(this.allLines.find(l => l.orderId === r.match._id), no)
+                } else if (r.otherFreight) {
+                    bad(this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku: no, other: r.otherFreight.label, no: r.otherFreight.orderNo, kind: this.isSea ? SEA : '空运' }))
+                } else {
+                    bad((r.orderNo && r.orderNo.message) || this.$tp('{no} can\'t go on this batch', { no }))
+                }
+                done()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Lookup failed')))
+            } finally {
+                this.scanning = false
+                this.$nextTick(() => { if (this.$refs.scanRef) this.$refs.scanRef.focus() })
+            }
+        },
+        // one unit onto a line found by its number: a main-list line counts on its row;
+        // a Special Order / Warranty line on itself, and goes to the top of its section
+        countLine(line, code) {
+            if (!line) return
+            if (this.createForm.lines.includes(line)) return this.countScan(this.lineGroups.find(g => g.lines.includes(line)), code)
+            // all its ordered units are on already: likely the same label twice — not counted
+            if (line.orderQty && (Number(line.qty) || 0) >= Number(line.orderQty)) {
+                this.toTop(line)
+                this.lastScan = code
+                this.$message({ type: 'warning', duration: 3500, message: this.$tp('{no}: all {n} ordered already on this batch — change the quantity by hand if more were sent', { no: code, n: line.orderQty }) })
+                if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
+                return
+            }
+            line.qty = (Number(line.qty) || 0) + 1
+            this.toTop(line)
+            this.lastScan = code
+            this.$message({ message: `${code} · ${line.qty}${line.orderQty ? ' / ' + line.orderQty : ''}`, type: 'success', duration: 1300 })
+        },
         // one unit onto a row: its count + 1, spread oldest first; the row goes to the top
         countScan(g, code) {
             if (!g) return
@@ -1605,7 +1661,7 @@ export default {
                 this.createForm.lines = [...mine, ...this.createForm.lines.filter(l => this.groupKey(l) !== key)]
                 return
             }
-            for (const arr of [this.createForm.extra, this.createForm.warranty]) {
+            for (const arr of [this.createForm.extra, this.createForm.warranty, this.createForm.special]) {
                 const i = arr.indexOf(line)
                 if (i > 0) { arr.splice(i, 1); arr.unshift(line) }
                 if (i >= 0) return
@@ -1657,7 +1713,8 @@ export default {
         isLastScan(l) {
             if (!this.lastScan) return false
             if (l.isGroup) return l.lines.some(x => this.codeMatches(x, this.lastScan))
-            return String(l.sku || '').toLowerCase() === this.lastScan.toLowerCase()
+            // a line by its SKU, or by its SP- number (a Special Order's label)
+            return [l.sku, l.orderNo].some(v => v && String(v).toLowerCase() === this.lastScan.toLowerCase())
         },
         bumpQty(l, d) {
             if (l.isGroup) { this.setGroupQty(l, Math.max(1, (Number(l.qty) || 0) + d)); return }
@@ -2208,7 +2265,7 @@ export default {
 .spb-special-head { display: flex; align-items: center; gap: 8px; font-size: 13px; i { color: #e6a23c; } }
 .spb-special-empty { padding: 6px 0 2px; font-size: 12px; }
 .spb-special-lines { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.spb-slrow { display: flex; align-items: flex-start; gap: 8px; }
+.spb-slrow { display: flex; align-items: flex-start; gap: 8px; &.is-hit { background: #ecf5ff; border-radius: 4px; } }
 .spb-slrow .spb-del { margin-top: 6px; }
 .spb-slrow-act { padding: 0; margin-left: 8px; }
 .spb-pick-for { margin-bottom: 8px; font-size: 12px; }

@@ -1598,7 +1598,8 @@ export default {
         },
         locationTag(loc) {
             if (loc === 'iMobile') return 'success'
-            if (loc === 'Supplier Stock') return 'warning'
+            // 'In transit': a phone supplier's unit on a sent supply batch (2026-10-20)
+            if (loc === 'Supplier Stock' || loc === 'In transit') return 'warning'
             return '' // Assigned To Exyon — blue
         },
         soldTitle(row) {

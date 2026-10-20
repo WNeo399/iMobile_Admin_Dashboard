@@ -151,6 +151,8 @@ export default {
     'With Supplier': '供应商持有',
     'On Consignment': '寄售中',
     'Sending to iMobile': '运往 iMobile',
+    // a phone supplier's view of a unit on a sent supply batch (2026-10-20)
+    'In transit': '运输中',
     'Supplier Stock': '供应商库存',
     'Assigned To Exyon': '已分配 Exyon',
     'Pending': '待发出',
@@ -1686,6 +1688,8 @@ export default {
     'Mark as Special Order': '标记为特殊订单',
     'Not in Zoho — search an item, or mark it as a Special Order': 'Zoho 中没有此 SKU — 搜索产品，或标记为特殊订单',
     'Moved to Special Order': '已移至特殊订单',
+    "{no} can't go on this batch": '{no} 不能加入此批次',
+    '{no}: all {n} ordered already on this batch — change the quantity by hand if more were sent': '{no}：所订 {n} 件已全部在此批次 — 如多发了，请手动修改数量',
     'Scanned items with no order behind them land here': '扫描到但没有订单的物品会放在这里',
     'Scanned {sku}': '已扫描 {sku}',
     'Pick Special Orders': '选择特殊订单',
