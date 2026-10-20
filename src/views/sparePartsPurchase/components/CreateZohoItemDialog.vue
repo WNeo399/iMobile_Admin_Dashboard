@@ -66,8 +66,8 @@
                             <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
                         </el-tooltip>
                     </div>
-                    <div v-if="categoryFromLink" class="czi-hint"><i class="el-icon-collection-tag" /> {{ $tp('From the New Products link of {model}', { model: linkedModel.model }) }}</div>
-                    <div v-else-if="!form.categoryId && form.compatibleModels.length && !linkedModel" class="czi-hint">{{ $tp('None of the picked models is linked to a store category on New Products — pick one') }}</div>
+                    <div v-if="categoryFromLink" class="czi-hint"><i class="el-icon-collection-tag" /> {{ $tp('From the Listing link of {model}', { model: linkedModel.model }) }}</div>
+                    <div v-else-if="!form.categoryId && form.compatibleModels.length && !linkedModel" class="czi-hint">{{ $tp('None of the picked models is linked to a store category on Listing — pick one') }}</div>
                 </el-form-item>
 
                 <div class="czi-sec">{{ $tp('Prices') }}

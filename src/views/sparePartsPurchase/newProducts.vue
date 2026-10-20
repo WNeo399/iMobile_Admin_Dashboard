@@ -475,20 +475,13 @@
                         <div v-if="editModelsChanged" class="spn-cat-hint">{{ $tp('The Device Series follows the models when saved.') }}</div>
                     </div>
 
-                    <!-- its photos (main first, not changed here) and new ones to add -->
+                    <!-- its photos and new ones in one list (2026-10-20): drag to
+                         reorder, the first is the main image; the ones in Zoho
+                         stay (removing needs a Zoho right we don't hold) -->
                     <div class="spn-cf-side">
-                        <div class="spn-sec">{{ $tp('Photos') }}<span v-if="editItem.photos.length" class="spn-sec-n">{{ editItem.photos.length }}</span></div>
-                        <div v-if="editItem.photos.length" class="spn-photos">
-                            <a v-for="p in editItem.photos" :key="p.id" :href="p.url" target="_blank" rel="noopener" class="spn-photo" :title="p.name">
-                                <img :src="p.url" alt="" loading="lazy">
-                                <span v-if="p.main" class="spn-photo-main">{{ $tp('Main') }}</span>
-                            </a>
-                        </div>
-                        <div v-else class="spn-dim">{{ $tp('No photos yet') }}</div>
-                        <div class="spn-sec">{{ $tp('Add photos') }}<span v-if="editFiles.length" class="spn-sec-n">{{ editFiles.length }}</span></div>
-                        <image-picker ref="editPhotoPicker" v-model="editFiles" :max="MAX_PHOTOS" :disabled="editSaving" compact />
-                        <el-checkbox v-if="editFiles.length && editItem.photos.length" v-model="editMainFirst" class="spn-main-first">
-                            {{ $tp('Make the first new photo the main image') }}</el-checkbox>
+                        <div class="spn-sec">{{ $tp('Photos') }}<span v-if="editPhotos.length" class="spn-sec-n">{{ editPhotos.length }}</span>
+                            <span v-if="editPhotosChanged" class="spn-photos-changed">{{ $tp('changed') }}</span></div>
+                        <image-picker ref="editPhotoPicker" v-model="editPhotos" :max="editPhotoMax" :disabled="editSaving" keep-saved compact />
                     </div>
                 </el-form>
             </div>
@@ -646,7 +639,7 @@ import TreePanel from '@/components/TreePanel'
 import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import { hasPermission } from '@/utils/permission'
-import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, getNewProductItem, updateNewProductItem, addNewProductItemPhotos, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
+import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, getNewProductItem, updateNewProductItem, saveNewProductItemPhotos, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { createCategory } from '@/api/website'
 import { getStockItemPrices, pushStockItemPrices } from '@/api/stockMonitor'
 import { zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter } from './shared'
@@ -790,8 +783,9 @@ export default {
             editPricesLoading: false,
             editPricesReady: false,
             editPricesError: '',
-            editFiles: [],
-            editMainFirst: false,
+            // the photos: the item's ({ key "d:<id>", id, url, name }) and new ones ({ key, file, url }), in order
+            editPhotos: [],
+            editPhotosOrig: '',
             editSaving: false,
             editSeq: 0,
             // the name following the Compatible Models, per dialog
@@ -931,7 +925,7 @@ export default {
             if (this.model) return this.model.compatibleModel || `${this.model.brand} ${this.model.model}`
             if (this.sel.type === 'series') return `${this.brandLabel(this.sel.brand)} ${this.sel.series}`
             if (this.sel.type === 'brand') return this.brandLabel(this.sel.brand)
-            return this.$tt('New Products')
+            return this.$tt('Listing')
         },
         headCount() {
             if (this.model) return this.itemsLoading ? '' : this.$tp('{n} item(s)', { n: this.items.length })
@@ -1140,8 +1134,17 @@ export default {
             if (c != null && c !== '' && !samePrice(c, this.editOrig.cost)) out.push({ itemId, list: 'purchase', rate: Number(c) })
             return out
         },
+        // new photos, or the item's in another order
+        editPhotosChanged() {
+            return this.editPhotos.some(p => p.file) || this.editPhotos.filter(p => !p.file).map(p => p.id).join(',') !== this.editPhotosOrig
+        },
+        // Zoho keeps up to 15 photos an item; 10 new at a time
+        editPhotoMax() {
+            const saved = this.editPhotos.filter(p => !p.file).length
+            return Math.max(saved, Math.min(15, saved + 10))
+        },
         editChangeCount() {
-            return Object.keys(this.editFieldChanges).length + this.editPriceChanges.length + (this.editFiles.length ? 1 : 0)
+            return Object.keys(this.editFieldChanges).length + this.editPriceChanges.length + (this.editPhotosChanged ? 1 : 0)
         },
         // the footer: what Save will do
         editSummary() {
@@ -1149,7 +1152,9 @@ export default {
             const bits = []
             const fields = Object.keys(this.editFieldChanges).length + this.editPriceChanges.length
             if (fields) bits.push(this.$tp('{n} change(s)', { n: fields }))
-            if (this.editFiles.length) bits.push(this.$tp('{n} photo(s) to add', { n: this.editFiles.length }))
+            const added = this.editPhotos.filter(p => p.file).length
+            if (added) bits.push(this.$tp('{n} photo(s) to add', { n: added }))
+            else if (this.editPhotosChanged) bits.push(this.$tp('photos reordered'))
             return bits.length ? bits.join(' · ') : this.$tp('Nothing changed yet')
         }
     },
@@ -1358,7 +1363,7 @@ export default {
         async openEdit(it) {
             const seq = ++this.editSeq
             this.clearEditFiles()
-            this.editMainFirst = false
+            this.editPhotosOrig = ''
             this.editItem = null
             this.editError = ''
             this.editForm = blankEditForm()
@@ -1390,6 +1395,8 @@ export default {
                 this.editForm = form
                 this.editAppliedQuality = form.quality
                 this.editItem = x
+                this.editPhotos = (x.photos || []).map(p => ({ key: 'd:' + p.id, id: p.id, url: p.url, name: p.name }))
+                this.editPhotosOrig = (x.photos || []).map(p => p.id).join(',')
                 this.nameFollow.edit = { ...blankFollow(), part: this.modelsNamePart(this.editBrand, form.compatibleModels) }
                 if (this.editCanPrice) this.loadEditPrices(seq, x.itemId)
             } catch (e) {
@@ -1457,8 +1464,8 @@ export default {
                 ? raw : new File([raw], `screenshot-${Date.now() + i}.png`, { type: raw.type })))
         },
         clearEditFiles() {
-            for (const x of this.editFiles) { if (x.url && x.url.startsWith('blob:')) { try { URL.revokeObjectURL(x.url) } catch (e) { /* ignore */ } } }
-            this.editFiles = []
+            for (const x of this.editPhotos) { if (x.file && x.url && x.url.startsWith('blob:')) { try { URL.revokeObjectURL(x.url) } catch (e) { /* ignore */ } } }
+            this.editPhotos = []
         },
         // Save: the item's fields (one Zoho update), then the prices, then the
         // photos — a step that fails is said so; the ones before it are saved
@@ -1475,7 +1482,7 @@ export default {
             const itemId = this.editItem.itemId
             const sku = this.editItem.sku
             const prices = this.editPriceChanges
-            const files = this.editFiles.map(x => x.file)
+            const photos = this.editPhotosChanged ? this.editPhotos.slice() : null
             const done = []
             const failed = []
             this.editSaving = true
@@ -1503,14 +1510,16 @@ export default {
                         failed.push(this.$tp('prices: {lists}', { lists: this.msg(e, '') }))
                     }
                 }
-                if (files.length) {
+                if (photos) {
+                    // the new files, and the whole list's order ("d:<id>" / "n:<i>") — the first is the main image
                     try {
+                        const fresh = photos.filter(p => p.file)
                         const data = new FormData()
-                        files.forEach(file => data.append('images', file, file.name))
-                        data.append('main', this.editMainFirst || !this.editItem.photos.length ? '1' : '0')
-                        const r = await addNewProductItemPhotos(itemId, data)
+                        fresh.forEach(p => data.append('images', p.file, p.file.name))
+                        data.append('order', JSON.stringify(photos.map(p => (p.file ? 'n:' + fresh.indexOf(p) : 'd:' + p.id))))
+                        const r = await saveNewProductItemPhotos(itemId, data)
                         if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                        done.push(this.$tp('{n} photo(s)', { n: files.length }))
+                        done.push(fresh.length ? this.$tp('{n} photo(s)', { n: fresh.length }) : this.$tp('photo order'))
                     } catch (e) {
                         failed.push(this.$tp('photos: {error}', { error: this.msg(e, '') }))
                     }
@@ -2254,11 +2263,7 @@ export default {
 .spn-edit-body { min-height: 120px; }
 .spn-follow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -6px 0 10px; font-size: 12px; color: #67c23a; line-height: 1.5;
     .el-button { padding: 0; } }
-.spn-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; margin-bottom: 4px; }
-.spn-photo { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border: 1px solid #ebeef5; border-radius: 4px; background: #f5f7fa; overflow: hidden;
-    img { max-width: 100%; max-height: 100%; object-fit: contain; } &:hover { border-color: #409eff; } }
-.spn-photo-main { position: absolute; left: 3px; top: 3px; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 16px; color: #fff; background: #409eff; }
-.spn-main-first { margin-top: 8px; ::v-deep .el-checkbox__label { font-size: 12px; } }
+.spn-photos-changed { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: #fdf6ec; color: #e6a23c; font-weight: 500; text-transform: none; }
 .spn-good { color: #67c23a; }
 .spn-warn { color: #e6a23c; }
 /* a brand / series: tiles */

@@ -203,6 +203,22 @@ export const moduleRoutes = [
     meta: { title: "iMobile Listing", icon: "el-icon-goods" },
     children: [
       {
+        // Listing (was "New Products": 2026-10-06, moved here from Spare
+        // Parts Purchase 2026-10-16; renamed and put first 2026-10-20 — it
+        // now manages the listing and edits existing products too): the
+        // device models we want parts for, whether Zoho already has each
+        // part type, creating the missing items and changing existing ones.
+        // The address stays /listing/new-products (links and bookmarks).
+        path: "new-products",
+        component: (resolve) => require(["@/views/sparePartsPurchase/newProducts"], resolve),
+        name: "SppNewProducts",
+        meta: {
+          title: "Listing",
+          icon: "el-icon-mobile-phone",
+          permissions: ["listing:product:view"]
+        }
+      },
+      {
         // The online store's category tree through Zoho Commerce (shared
         // with Zoho Inventory): create / edit categories, see a category's
         // products, move products into it.
@@ -225,19 +241,6 @@ export const moduleRoutes = [
           title: "Qualities",
           icon: "el-icon-medal",
           permissions: ["listing:quality:view"]
-        }
-      },
-      {
-        // New Products (2026-10-06, moved here from Spare Parts Purchase
-        // 2026-10-16): the device models we want parts for, whether Zoho
-        // already has each part type, and creating the missing items.
-        path: "new-products",
-        component: (resolve) => require(["@/views/sparePartsPurchase/newProducts"], resolve),
-        name: "SppNewProducts",
-        meta: {
-          title: "New Products",
-          icon: "el-icon-mobile-phone",
-          permissions: ["listing:product:view"]
         }
       },
       {

@@ -11,6 +11,8 @@
         An entry may also be a photo saved earlier ({ key, id, url, name },
         no file — a New Products draft's): shown and ordered like the rest.
         `compact`: a smaller drop zone and thumbnails (New Products dialog).
+        `keepSaved`: a saved photo (no file) can't be removed — the Listing
+        Edit dialog's photos already in Zoho, only reordered (2026-10-20).
     -->
     <div :class="['ip', { 'is-compact': compact }]">
         <div :class="['ip-drop', { over, 'is-disabled': disabled }]" @click="pick"
@@ -34,13 +36,13 @@
                 @input="v => $emit('input', v)">
                 <div v-for="(f, i) in value" :key="f.key" :class="['ip-card', { main: i === 0 && !hasImage }]">
                     <span class="ip-pos">{{ i + 1 }}</span>
-                    <i class="el-icon-close ip-remove" :title="$tp('Remove')" @click="remove(i)" />
+                    <i v-if="!(keepSaved && !f.file)" class="el-icon-close ip-remove" :title="$tp('Remove')" @click="remove(i)" />
                     <div class="ip-thumb" :title="$tp('Click to enlarge')" @click="view(i)">
                         <img :src="f.url" alt="" draggable="false">
                     </div>
                     <div class="ip-name" :title="nameOf(f)">{{ nameOf(f) }}</div>
                     <div class="ip-foot">
-                        <span class="ip-dim">{{ f.file ? sizeText(f.file.size) : $tp('Saved') }}</span>
+                        <span class="ip-dim">{{ f.file ? sizeText(f.file.size) : keepSaved ? $tp('In Zoho') : $tp('Saved') }}</span>
                         <span v-if="i === 0 && !hasImage" class="ip-main">{{ $tp('Main image') }}</span>
                         <el-button v-else-if="!hasImage" type="text" size="mini" class="ip-act" @click="makeMain(i)">{{ $tp('Set as main') }}</el-button>
                     </div>
@@ -79,7 +81,9 @@ export default {
         hasImage: { type: Boolean, default: false },
         currentUrl: { type: String, default: '' },
         disabled: { type: Boolean, default: false },
-        compact: { type: Boolean, default: false }
+        compact: { type: Boolean, default: false },
+        // saved photos (no file) stay: they can be reordered, not removed
+        keepSaved: { type: Boolean, default: false }
     },
     data() {
         return {

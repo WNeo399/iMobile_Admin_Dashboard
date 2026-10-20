@@ -197,14 +197,15 @@ export function createNewProductItem(data) {
 }
 // an existing item (the Edit dialog): read live from Zoho, change it (only
 // the fields sent: name, quality, classification, subClassification,
-// categoryId, compatibleModels, rate), add photos (FormData "images", main 1|0)
+// categoryId, compatibleModels, rate), its photos (FormData: "images" = new
+// files, "order" = JSON ["d:<document id>" | "n:<i>"] — the first is the main image)
 export function getNewProductItem(itemId) {
   return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'get', timeout: 30000 })
 }
 export function updateNewProductItem(itemId, data) {
   return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'put', data, timeout: 60000 })
 }
-export function addNewProductItemPhotos(itemId, data) {
+export function saveNewProductItemPhotos(itemId, data) {
   return request({ url: `${BASE}/new-products/items/${itemId}/photos`, method: 'post', data, timeout: 120000 })
 }
 export function updateBatch(id, data) {
