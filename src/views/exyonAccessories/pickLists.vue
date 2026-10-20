@@ -6,6 +6,20 @@
                 <div class="xp-sub">{{ $tp('One list per day of the orders being processed, ready to print for picking') }}</div>
             </div>
             <span class="xp-flex" />
+            <!-- which list an order is on (user 2026-10-20): matches as you type;
+                 picking one — or Enter on a full number — opens that list there -->
+            <el-autocomplete v-model="findQ" size="small" class="xp-find" clearable prefix-icon="el-icon-search"
+                :fetch-suggestions="findOrders" :trigger-on-focus="false" :debounce="250" select-when-unmatched
+                popper-class="xp-find-pop" :placeholder="$tp('Find an order number')" @select="goToOrder">
+                <template slot-scope="{ item }">
+                    <div v-if="item.none" class="xp-find-none">{{ item.none }}</div>
+                    <div v-else class="xp-find-item">
+                        <b>{{ item.orderId }}</b>
+                        <span class="xp-find-day">{{ shortDay(item.day) }}</span>
+                        <span :class="['xp-find-st', 'xp-find-st-' + (dstatus(item) || (item.tracking ? 'todo' : 'none'))]">{{ dlabel(item) }}</span>
+                    </div>
+                </template>
+            </el-autocomplete>
             <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="reload">{{ $tp('Refresh') }}</el-button>
         </div>
 
@@ -60,7 +74,8 @@
                     </div>
 
                     <div class="xp-sec">{{ $tp('Orders on this list') }} <span class="xp-dim">({{ list.orders.length }})</span></div>
-                    <el-table :data="list.orders" border size="mini" class="xp-table">
+                    <el-table :data="list.orders" border size="mini" class="xp-table"
+                        :row-class-name="r => (r.row.orderId === foundOrder ? 'xp-row-found' : '')">
                         <el-table-column :label="$tp('Order')" min-width="130">
                             <template slot-scope="s">
                                 <div class="xp-order">{{ s.row.orderId }}</div>
@@ -128,14 +143,23 @@
         </div>
 
         <!-- Confirm dispatch: each order dispatched (→ Neto) or held back with a reason -->
-        <el-dialog :title="confirmTitle" :visible.sync="confirmVisible" width="1000px" top="5vh" append-to-body :close-on-click-modal="false">
+        <el-dialog :title="confirmTitle" :visible.sync="confirmVisible" width="1000px" top="5vh" append-to-body :close-on-click-modal="false"
+            @opened="focusConfirmSearch">
             <div class="xp-cf-intro">
                 <i class="el-icon-info" />
                 {{ $tp('Every order on this list is taken as picked and shipped. Switch off an order that is not going out and say why — it stays on the list. The others are set to Dispatched in Neto with their tracking number (Australia Post, no email to the customer).') }}
             </div>
-            <el-table :data="confirmRows" border size="mini" max-height="520" :row-class-name="r => r.row.dispatch ? '' : 'xp-cf-held'">
+            <!-- scanning an order number (Enter) switches that order over and clears
+                 the box (user 2026-10-20: no filtering, just the switch) -->
+            <div class="xp-cf-search">
+                <el-input ref="confirmSearch" v-model="confirmSearch" size="small" clearable prefix-icon="el-icon-full-screen"
+                    :placeholder="$tp('Scan order number')" class="xp-cf-search-input"
+                    @keyup.enter.native="scanConfirm" />
+                <span class="xp-dim">{{ $tp('Scan an order to switch it to not dispatched (scan again to switch it back)') }}</span>
+            </div>
+            <el-table :data="confirmShown" border size="mini" max-height="520" :row-class-name="confirmRowClass">
                 <el-table-column :label="$tp('Dispatched')" width="96" align="center">
-                    <template slot-scope="s"><el-switch v-model="s.row.dispatch" /></template>
+                    <template slot-scope="s"><el-switch v-model="s.row.dispatch" @change="onSwitch(s.row)" /></template>
                 </el-table-column>
                 <el-table-column :label="$tp('Order')" min-width="150">
                     <template slot-scope="s">
@@ -194,7 +218,7 @@
 </template>
 
 <script>
-import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch } from '@/api/exyonAccessories'
+import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch, findOnPickLists } from '@/api/exyonAccessories'
 import { buildPickListPdf, pickListFileName } from '@/utils/exyonPickListPdf'
 import { hasPermission } from '@/utils/permission'
 
@@ -218,9 +242,16 @@ export default {
             printUrl: '',
             printTitle: '',
             holdReasons: HOLD_REASONS,
+            // Find an order number: the box, and the order found (highlighted)
+            findQ: '',
+            foundOrder: '',
             // the Confirm dispatch popup
             confirmVisible: false,
             confirmRows: [],
+            confirmSearch: '',
+            // switched-off order: the newest goes first; the one scanned last is highlighted
+            confirmSeq: 0,
+            confirmLast: '',
             confirming: false
         }
     },
@@ -234,6 +265,14 @@ export default {
         },
         confirmTitle() {
             return this.list ? `${this.$tp('Confirm dispatch')} — ${this.longDay(this.list.day)}` : ''
+        },
+        // the popup's rows: the not dispatched ones first (user 2026-10-20) —
+        // the one switched off last on top — then the rest in list order
+        confirmShown() {
+            return this.confirmRows.slice().sort((a, b) =>
+                (a.dispatch ? 1 : 0) - (b.dispatch ? 1 : 0) ||
+                (a.dispatch ? 0 : b.offSeq - a.offSeq) ||
+                a.idx - b.idx)
         },
         confirmCounts() {
             const dispatch = this.confirmRows.filter(r => r.dispatch).length
@@ -300,6 +339,60 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to remove the order')))
             }
         },
+        // ── Find an order number ──
+        async findOrders(q, cb) {
+            const text = String(q || '').replace(/\s+/g, '')
+            if (text.length < 3) { cb([]); return }
+            try {
+                const r = await findOnPickLists(text)
+                const matches = (r && r.matches) || []
+                cb(matches.length ? matches.map(m => ({ ...m, value: m.orderId }))
+                    : [{ none: this.$tp('Not on any pick list'), value: q }])
+            } catch (e) {
+                cb([])
+            }
+        },
+        // a picked match — or Enter on what was typed (a scan): the one list
+        // holding exactly that number, or the only match
+        async goToOrder(item) {
+            if (!item || item.none) return
+            let hit = item.day ? item : null
+            if (!hit) {
+                const text = String(item.value || '').replace(/\s+/g, '')
+                if (text.length < 3) return
+                try {
+                    const r = await findOnPickLists(text)
+                    const matches = (r && r.matches) || []
+                    const exact = matches.filter(m => m.orderId.toLowerCase() === text.toLowerCase())
+                    hit = exact[0] || (matches.length === 1 ? matches[0] : null)
+                    if (!hit) {
+                        this.$message.warning(matches.length
+                            ? this.$tp('{n} orders match "{q}" — pick one from the list', { n: matches.length, q: text })
+                            : this.$tp('{q} is not on any pick list', { q: text }))
+                        return
+                    }
+                } catch (e) {
+                    this.$message.error(this.msg(e, this.$tp('Failed to search the pick lists')))
+                    return
+                }
+            }
+            this.foundOrder = hit.orderId
+            this.findQ = hit.orderId
+            if (this.day !== hit.day || !this.list) await this.open(hit.day)
+            // a moment's wait: the dropdown closing would cut a scroll short
+            setTimeout(() => {
+                const row = this.$el.querySelector('.xp-row-found')
+                if (row && row.scrollIntoView) row.scrollIntoView({ block: 'center' })
+            }, 80)
+        },
+        // an order's state on its list, in words
+        dlabel(o) {
+            const st = this.dstatus(o)
+            if (st === 'dispatched') return this.$tp('Dispatched')
+            if (st === 'held') return this.$tp('Not dispatched')
+            if (st === 'failed') return this.$tp('Neto update failed')
+            return o.tracking ? this.$tp('To confirm') : this.$tp('Not processed')
+        },
         // ── Confirm dispatch ──
         dstatus(o) {
             return (o && o.dispatch && o.dispatch.status) || ''
@@ -310,9 +403,11 @@ export default {
         // every order goes out unless switched off; one held back before
         // opens held, with its reason
         openConfirm(orders) {
-            this.confirmRows = orders.map(o => {
+            this.confirmRows = orders.map((o, idx) => {
                 const held = this.dstatus(o) === 'held'
                 return {
+                    idx,
+                    offSeq: 0,
                     orderId: o.orderId,
                     channel: o.channel,
                     customerName: o.customerName,
@@ -325,7 +420,49 @@ export default {
                     note: held ? (o.dispatch.note || '') : ''
                 }
             })
+            this.confirmSearch = ''
+            this.confirmSeq = 0
+            this.confirmLast = ''
             this.confirmVisible = true
+        },
+        // ready for the scanner as soon as the popup is up
+        focusConfirmSearch() {
+            const el = this.$refs.confirmSearch
+            if (el && el.focus) el.focus()
+        },
+        // a switch turned off: to the top of the not dispatched ones
+        onSwitch(row) {
+            if (!row.dispatch) row.offSeq = ++this.confirmSeq
+        },
+        // A scanned (or typed + Enter) order number: the order with exactly
+        // that number — or the only one containing it — switches over; the box
+        // clears for the next scan.
+        scanConfirm() {
+            const q = this.confirmSearch.replace(/\s+/g, '').toLowerCase()
+            if (!q) return
+            const exact = this.confirmRows.find(r => String(r.orderId).toLowerCase() === q)
+            const partial = this.confirmRows.filter(r => String(r.orderId).toLowerCase().includes(q))
+            const row = exact || (partial.length === 1 ? partial[0] : null)
+            if (!row) {
+                this.$message.warning(partial.length
+                    ? this.$tp('{n} orders match "{q}" — scan the full order number', { n: partial.length, q: this.confirmSearch.trim() })
+                    : this.$tp('{q} is not on this list', { q: this.confirmSearch.trim() }))
+                return
+            }
+            row.dispatch = !row.dispatch
+            this.onSwitch(row)
+            this.confirmLast = row.orderId
+            this.confirmSearch = ''
+            this.$message({
+                type: row.dispatch ? 'success' : 'warning',
+                message: row.dispatch
+                    ? this.$tp('{no} back to dispatched', { no: row.orderId })
+                    : this.$tp('{no} switched to not dispatched — pick a reason', { no: row.orderId })
+            })
+            this.focusConfirmSearch()
+        },
+        confirmRowClass({ row }) {
+            return [row.dispatch ? '' : 'xp-cf-held', row.orderId === this.confirmLast ? 'xp-cf-last' : ''].filter(Boolean).join(' ')
         },
         async submitConfirm() {
             const go = this.confirmRows.filter(r => r.dispatch)
@@ -471,6 +608,10 @@ export default {
     b { flex-shrink: 0; margin-left: auto; } }
 .xp-item-name { min-width: 0; color: #606266; line-height: 1.35; word-break: normal; }
 .xp-remove { color: #c0c4cc; &:hover { color: #f56c6c; } }
+/* Find an order number */
+.xp-find { width: 260px; max-width: 100%; }
+::v-deep .xp-row-found > td { background: #ecf5ff !important; }
+::v-deep .xp-row-found > td:first-child { box-shadow: inset 4px 0 0 #409eff; }
 /* Confirm dispatch */
 .xp-day-3 { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; font-size: 12px; }
 .xp-ok { color: #529b2e; }
@@ -483,9 +624,13 @@ export default {
 .xp-cf-intro { display: flex; gap: 6px; margin-bottom: 10px; padding: 8px 12px; border-radius: 6px; background: #f4f8ff; color: #4b5563; font-size: 13px; line-height: 1.5;
     i { margin-top: 3px; color: #409eff; } }
 .xp-cf-cust { margin-left: 6px; font-size: 12px; }
+.xp-cf-search { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.xp-cf-search-input { width: 280px; max-width: 100%; }
 .xp-cf-why { display: flex; flex-direction: column; gap: 4px; }
 .xp-cf-bad ::v-deep .el-input__inner { border-color: #f56c6c; }
 ::v-deep .el-table .xp-cf-held > td { background: #fdf6ec; }
+/* the order scanned last — a blue bar down its left */
+::v-deep .el-table .xp-cf-last > td:first-child { box-shadow: inset 4px 0 0 #409eff; }
 .xp-cf-foot { display: flex; align-items: center; gap: 8px; }
 .xp-cf-count { font-size: 13px; color: #606266; b { color: #303133; } }
 .xp-cf-warn { margin-left: 10px; color: #e6a23c; }
@@ -497,5 +642,21 @@ export default {
     .xp-days { flex-direction: row; overflow-x: auto; min-height: 0; padding-bottom: 2px; }
     .xp-day { flex-shrink: 0; }
     .xp-detail { padding: 10px; }
+}
+</style>
+
+<style lang="scss">
+/* the Find an order number dropdown — appended to <body>, so outside the
+   scoped styles above */
+.xp-find-pop {
+    .xp-find-item { display: flex; align-items: center; gap: 8px; font-size: 13px;
+        b { color: #303133; } }
+    .xp-find-day { color: #909399; font-size: 12px; }
+    .xp-find-st { margin-left: auto; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px; white-space: nowrap; color: #909399; background: #f4f4f5; }
+    .xp-find-st-dispatched { color: #529b2e; background: #f0f9eb; }
+    .xp-find-st-held { color: #d48806; background: #fdf6ec; }
+    .xp-find-st-failed { color: #f56c6c; background: #fef0f0; }
+    .xp-find-st-todo { color: #409eff; background: #ecf5ff; }
+    .xp-find-none { color: #909399; font-size: 13px; }
 }
 </style>

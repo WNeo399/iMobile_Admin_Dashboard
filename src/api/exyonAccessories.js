@@ -28,6 +28,10 @@ export function getExyonAccessoryDispatch(params) {
 export function getExyonPickLists() {
   return request({ url: '/exyon-accessories/pick-lists', method: 'get', timeout: 60000 })
 }
+// which list(s) an order number is on: { matches: [{ day, orderId, channel, customerName, tracking, dispatch }] }
+export function findOnPickLists(q) {
+  return request({ url: '/exyon-accessories/pick-lists/find', method: 'get', params: { q } })
+}
 // one day's list: { list, lines (per SKU: single / multi / total), summary }
 export function getExyonPickList(day) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}`, method: 'get' })

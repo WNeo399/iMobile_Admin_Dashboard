@@ -110,7 +110,7 @@
                             <div v-for="o in shown(g)" :key="o.orderId" class="xd-o">
                                 <div class="xd-o-main">
                                     <b class="xd-o-id">{{ o.orderId }}</b>
-                                    <div class="xd-o-meta" :title="[o.customerName, o.channel].filter(Boolean).join(' · ')">{{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
+                                    <div class="xd-o-meta" :title="[o.channel, o.customerName].filter(Boolean).join(' · ')"><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span> {{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
                                 </div>
                                 <!-- only an order whose quantity takes another envelope than the item's -->
                                 <span v-if="envSize(o) !== envSize(groupEnv(g))" :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
@@ -130,7 +130,7 @@
                         <div class="xd-tile-head">
                             <div class="xd-o-main">
                                 <b class="xd-o-id xd-o-id-lg">{{ o.orderId }}</b>
-                                <div class="xd-o-meta" :title="[o.customerName, o.channel].filter(Boolean).join(' · ')">{{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
+                                <div class="xd-o-meta" :title="[o.channel, o.customerName].filter(Boolean).join(' · ')"><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span> {{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
                             </div>
                             <span :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
                         </div>
