@@ -1997,14 +1997,16 @@ export default {
         isCustomerLine(l) {
             return !!l && !!l.forCustomer && l.forCustomer !== 'OSCAR' && !!l.customerSku
         },
+        // the description under the label-name rule, as on the Purchase Order page (a line from withLabelNames; 2026-10-20)
         customerArgs(l, batch) {
             const b = batch || this.view || {}
-            return { record: { invoiceNumber: l.customerPo || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerDescription || l.productName } }
+            return { record: { invoiceNumber: l.customerPo || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName } }
         },
         async printLineLabels(line) {
             if (this.isCustomerLine(line)) {
                 this.labelOscar = true // a fixed-size label: no size / orientation choice
-                this.showLabels(() => appendDispatchLabelsToDoc(null, this.customerArgs(line), 1), sppLabelFileName(this.view, line), this.$tp('Label') + ' — ' + line.forCustomer + ' · ' + line.customerSku)
+                const [named] = await withLabelNames([line])
+                this.showLabels(() => appendDispatchLabelsToDoc(null, this.customerArgs(named), 1), sppLabelFileName(this.view, line), this.$tp('Label') + ' — ' + line.forCustomer + ' · ' + line.customerSku)
                 return
             }
             if (line.forCustomer === 'OSCAR') {

@@ -152,9 +152,10 @@ export function labelName(name, terms) {
 // The lines with their label names (`labelName`); the brand is looked up
 // from the register by item id. A line without an item, or a failed
 // lookup, loses only the four fixed words. A line ordered for a customer
-// (OSCAR) also gets `customerLabelName`: the customer's description under
-// the same rule, for the Oscar label set these pages print (user
-// 2026-10-14; Order Dispatch keeps the description as written).
+// (OSCAR, Best Sourcing …) also gets `customerLabelName`: the customer's
+// description under the same rule, for the customer labels these pages
+// print (Oscar 2026-10-14, the other customers 2026-10-20; Order Dispatch
+// keeps the description as written).
 export async function withLabelNames(lines) {
     const list = lines || []
     const ids = [...new Set(list.map(l => l && l.itemId).filter(Boolean).map(String))]

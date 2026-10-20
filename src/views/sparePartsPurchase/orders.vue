@@ -1439,10 +1439,13 @@ export default {
                     return
                 }
                 // ordered for another customer from Order Dispatch (Best Sourcing, 2026-10-19):
-                // the Order Dispatch label — their description and barcode, their PO number, today
+                // the Order Dispatch label — their description and barcode, their PO number, today.
+                // The description under the label-name rule too (user 2026-10-20: every label
+                // printed from Purchase Order follows it)
                 const cdr = row.dispatchRef || {}
                 if (row.forCustomer && cdr.customerSku) {
-                    const cline = { sku: cdr.customerSku, description: cdr.customerDescription || row.productName }
+                    const [named] = await withLabelNames([row])
+                    const cline = { sku: cdr.customerSku, description: named.customerLabelName || named.labelName || cdr.customerDescription || row.productName }
                     const build = () => appendDispatchLabelsToDoc(null, { record: { invoiceNumber: cdr.invoiceNumber || '' }, batch: { at: new Date() }, line: cline }, 1)
                     this.labelBuild = build
                     this.labelFileName = `label_${String(cdr.invoiceNumber || row.orderNo).replace(/[^a-z0-9-]/gi, '')}_${cline.sku}.pdf`
