@@ -97,12 +97,13 @@ export function formulaPricesFor(cost, f) {
 }
 // Which formula prices an item — the server's priceRuleFamily: "Service Pack"
 // in the quality or name; else the classification's family; a part the
-// classification calls "other" is still a major part when its name says
-// screen / LCD / digitizer / housing / back cover / battery.
+// classification calls "other" (or "accessory", 2026-10-20) is still a
+// major part when its name says screen / LCD / digitizer / housing / back
+// cover / battery.
 export function priceFamilyOf({ quality, name, family }) {
     const sp = /service pack/i
     if (sp.test(quality || '') || sp.test(name || '')) return 'service-pack'
-    if (family && family !== 'other') return family
+    if (family && family !== 'other' && family !== 'accessory') return family
     if (/housing|back ?cover|backcover|lcd|digitizer|\bscreen\b|battery/i.test(name || '')) return 'major-part'
     return family || 'other'
 }
