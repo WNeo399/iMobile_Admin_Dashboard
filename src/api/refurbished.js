@@ -220,6 +220,23 @@ export function cancelSupplyBatch(id) {
 
 // ── Suppliers — a phone supplier's own upstream suppliers ─────────────
 // Phone-supplier only; scoped server-side to the caller's stock source.
+// Pending Stock 待入库 (2026-10-20, first named Pre-Check): a phone supplier's devices before Blackbelt / Stock
+// — { imei, device?, supplierId?, note? }, scoped to their stock source
+export function getPrecheck(query) {
+  return request({ url: '/refurbished/precheck', method: 'get', params: query })
+}
+export function addPrecheck(data) {
+  return request({ url: '/refurbished/precheck', method: 'post', data })
+}
+export function updatePrecheck(id, data) {
+  return request({ url: `/refurbished/precheck/${id}`, method: 'put', data })
+}
+export function deletePrecheck(id) {
+  return request({ url: `/refurbished/precheck/${id}`, method: 'delete' })
+}
+export function deletePrechecks(ids) {
+  return request({ url: '/refurbished/precheck/delete', method: 'post', data: { ids } })
+}
 export function getRefurbSuppliers(query) {
   return request({ url: '/refurbished/suppliers', method: 'get', params: query })
 }

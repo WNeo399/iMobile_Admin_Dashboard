@@ -876,6 +876,22 @@ export const moduleRoutes = [
     // only the sidebar nesting changes.
     children: [
       {
+        // Pending Stock 待入库 (2026-10-20, first named Pre-Check): a phone
+        // supplier's devices listed before they are checked in Blackbelt
+        // and loaded into Stock — its own records (IMEI, device, supplier,
+        // assign, note), scoped to their source; "Add to Stock" moves one
+        // in. Above Stock (user). Phone suppliers only: exclusiveRoles keeps
+        // it off every staff sidebar, admin's too.
+        path: "/refurbished/pending-stock",
+        component: (resolve) => require(["@/views/refurbished/precheck"], resolve),
+        name: "RefurbishedPrecheck",
+        meta: {
+          title: "Pending Stock",
+          icon: "el-icon-document-checked",
+          exclusiveRoles: ["phone-supplier"]
+        }
+      },
+      {
         // The register itself sits at the top level — it is the anchor
         // every sub menu below works against.
         path: "/refurbished/stock",
