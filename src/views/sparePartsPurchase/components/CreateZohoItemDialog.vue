@@ -77,11 +77,11 @@
                      four lists below are worked out from it with the formula -->
                 <div class="czi-cost">
                     <div class="czi-price">
-                        <span class="czi-price-label">{{ $tp('Cost price') }} <span class="czi-req">*</span>
-                            <el-tooltip :content="$tp('Goes to Zoho as the purchase price. The four price lists are worked out from it with the pricing formula — they can still be changed.')" placement="top">
+                        <span class="czi-price-label">{{ $tp('Cost price') }}
+                            <el-tooltip :content="$tp('Goes to Zoho as the purchase price; the four price lists are worked out from it with the pricing formula. Leave it blank when it is not known yet — set it later in Listing → Edit or on Price Monitoring.')" placement="top">
                                 <i class="el-icon-info czi-help" /></el-tooltip></span>
                         <el-input-number v-model="form.cost" size="small" :min="0" :precision="2" :controls="false" class="czi-money"
-                            :placeholder="$tp('Required')" style="width:100%" @change="applyFormula(true)" />
+                            :placeholder="$tp('Not set')" style="width:100%" @change="applyFormula(true)" />
                     </div>
                     <div class="czi-price">
                         <span class="czi-price-label">{{ $tp('Selling price') }}
@@ -473,7 +473,6 @@ export default {
             if (name !== typed) f.name = name
             if (!f.classification) { this.$message.warning(this.$tp('Pick a classification')); return }
             if (!/^\d{4,6}$/.test(String(f.sku || '').trim())) { this.$message.warning(this.$tp('SKU must be a number')); return }
-            if (!(Number(f.cost) > 0)) { this.$message.warning(this.$tp('Enter the cost price')); return }
             if (!f.categoryId) { this.$message.warning(this.$tp('Pick the store category')); return }
             const data = new FormData()
             const fields = {

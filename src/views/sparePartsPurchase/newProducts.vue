@@ -285,11 +285,11 @@
                     <!-- the cost: Zoho's purchase price, and what the four lists are worked out from -->
                     <div class="spn-cost">
                         <div class="spn-price">
-                            <span class="spn-price-label">{{ $tp('Cost price') }} <span class="spn-req">*</span>
-                                <el-tooltip :content="$tp('Goes to Zoho as the purchase price. The four price lists are worked out from it with the pricing formula — they can still be changed.')" placement="top">
+                            <span class="spn-price-label">{{ $tp('Cost price') }}
+                                <el-tooltip :content="$tp('Goes to Zoho as the purchase price; the four price lists are worked out from it with the pricing formula. Leave it blank when it is not known yet — set it later in Listing → Edit or on Price Monitoring.')" placement="top">
                                     <i class="el-icon-info spn-help" /></el-tooltip></span>
                             <el-input-number v-model="createForm.cost" size="small" :min="0" :precision="2" :controls="false" class="spn-money"
-                                :placeholder="$tp('Required')" style="width:100%" @change="onCost" />
+                                :placeholder="$tp('Not set')" style="width:100%" @change="onCost" />
                         </div>
                         <div class="spn-price">
                             <span class="spn-price-label">{{ $tp('Selling price') }}
@@ -1825,7 +1825,6 @@ export default {
             }
             if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) return warn('SKU must be a number')
             if (!this.createForm.compatibleModels.length) return warn('Pick every model this part fits')
-            if (!(Number(this.createForm.cost) > 0)) return warn('Enter the cost price')
             if (!this.createRow || !this.createRow.categoryId) return warn('Link the model to a store category first')
             return true
         },

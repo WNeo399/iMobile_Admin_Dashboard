@@ -1643,7 +1643,7 @@ export default {
     "{sku} is waiting on a {other} line ({no}) — it can't go on this {kind} batch": '{sku} 在{other}采购行（{no}）上等待——不能放进这个{kind}批次',
     'Cost price': '成本价',
     'Required': '必填',
-    'Goes to Zoho as the purchase price The four price lists are worked out from it with the pricing formula — they can still be changed': '作为采购价写入 Zoho。四个价格表按定价公式由它算出——仍可修改。',
+    'Goes to Zoho as the purchase price; the four price lists are worked out from it with the pricing formula. Leave it blank when it is not known yet — set it later in Listing → Edit or on Price Monitoring.': '作为采购价写入 Zoho，四个价格表按定价公式由它算出。还不知道成本价时可留空——之后在 商品上架 → 编辑 或价格监控中填写。',
     'Formula': '公式',
     'Use the formula prices': '使用公式价格',
     'Use the formula price': '使用公式价格',
