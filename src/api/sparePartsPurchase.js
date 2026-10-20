@@ -195,6 +195,18 @@ export function newProductCategories(refresh) {
 export function createNewProductItem(data) {
   return request({ url: `${BASE}/new-products/items`, method: 'post', data, timeout: 120000 })
 }
+// an existing item (the Edit dialog): read live from Zoho, change it (only
+// the fields sent: name, quality, classification, subClassification,
+// categoryId, compatibleModels, rate), add photos (FormData "images", main 1|0)
+export function getNewProductItem(itemId) {
+  return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'get', timeout: 30000 })
+}
+export function updateNewProductItem(itemId, data) {
+  return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'put', data, timeout: 60000 })
+}
+export function addNewProductItemPhotos(itemId, data) {
+  return request({ url: `${BASE}/new-products/items/${itemId}/photos`, method: 'post', data, timeout: 120000 })
+}
 export function updateBatch(id, data) {
   return request({ url: `${BASE}/batches/${id}`, method: 'put', data })
 }

@@ -131,11 +131,9 @@
                                             {{ $tp('fits {n} models', { n: it.compatibleModels.length }) }}</span>
                                     </div>
                                 </div>
-                                <div class="spn-stock">
-                                    <em>{{ $tp('Stock') }}</em>
-                                    <b :class="stockTone(it)">{{ it.available == null ? '—' : it.available }}</b>
-                                </div>
-                            </div>
+                                <!-- the item as Zoho has it, to change (user ask 2026-10-20) -->
+                                <el-button v-if="canCreate" type="text" size="mini" icon="el-icon-edit" class="spn-fits-btn"
+                                    :title="$tp('See and change this item in Zoho')" @click="openEdit(it)">{{ $tp('Edit') }}</el-button>                            </div>
                         </section>
                       </div>
                     </div>
@@ -218,6 +216,14 @@
                         <el-input ref="nameInput" v-model="createForm.name" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" resize="none"
                             maxlength="200" show-word-limit class="spn-name" @keydown.native.enter.prevent />
                     </el-form-item>
+                    <!-- the models in the name follow the Compatible Models (2026-10-20) -->
+                    <div v-if="nameFollow.create.note === 'updated'" class="spn-follow"><i class="el-icon-refresh" />
+                        {{ $tp('The models in the name follow the Compatible Models below.') }}
+                        <el-button type="text" size="mini" @click="undoFollow('create')">{{ $tp('Undo') }}</el-button></div>
+                    <div v-else-if="nameFollow.create.note === 'manual'" class="spn-price-warn"><i class="el-icon-warning-outline" />
+                        {{ $tp('This name has no "… Compatible …" — change the models in it by hand.') }}</div>
+                    <div v-if="createForm.name.length > 200" class="spn-price-warn"><i class="el-icon-warning-outline" />
+                        {{ $tp('{n} characters — Zoho takes 200 at most', { n: createForm.name.length }) }}</div>
                     <!-- any other product: its Zoho classification (sets the qualities and the price formula) -->
                     <div v-if="isOther" class="spn-row">
                         <el-form-item class="spn-col">
@@ -311,7 +317,7 @@
                     <!-- every model of the brand on the page; the part counts for each one picked -->
                     <el-form-item class="spn-fits-item">
                         <el-select v-model="createForm.compatibleModels" multiple filterable style="width:100%"
-                            :placeholder="$tp('Pick every model this part fits')">
+                            :placeholder="$tp('Pick every model this part fits')" @change="followModels('create')">
                             <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
                         </el-select>
                     </el-form-item>
@@ -335,6 +341,163 @@
                 <!-- a model without a store category creates nothing until it is linked -->
                 <el-button type="primary" size="small" icon="el-icon-check" :loading="creating" :disabled="draftSaving || (skuLoading && !createForm.sku) || !(createRow && createRow.categoryId)"
                     @click="submitCreate">{{ $tp('Create item') }}</el-button>
+            </div>
+        </el-dialog>
+
+        <!-- ── An existing item, as Zoho has it (user ask 2026-10-20: "a dialog
+             like Create in Zoho Inventory that shows the product detail and can
+             update the item") — only what is changed goes to Zoho ────────── -->
+        <el-dialog :visible.sync="editVisible" :width="createNarrow ? '96%' : '860px'" top="5vh" append-to-body
+            :close-on-click-modal="false" custom-class="spn-create-dlg" @closed="clearEditFiles">
+            <div slot="title" class="spn-ct">
+                <div class="spn-ct-title"><i class="el-icon-edit" /> {{ $tp('Edit in Zoho Inventory') }}
+                    <el-tag v-if="editItem && editItem.status && editItem.status !== 'active'" size="mini" type="info">{{ editItem.status }}</el-tag></div>
+                <div v-if="editItem" class="spn-ct-sub">
+                    <b>{{ $tp('SKU {sku}', { sku: editItem.sku || '—' }) }}</b>
+                    <span class="spn-dim">{{ $tp('Device Brand') }}: {{ editItem.deviceBrand || '—' }}
+                        <template v-if="editItem.deviceSeries"> · {{ $tp('Device Series') }}: {{ editItem.deviceSeries }}</template></span>
+                    <a class="spn-link" :href="zohoLink(editItem.itemId)" target="_blank" rel="noopener">{{ $tp('Open in Zoho') }}</a>
+                </div>
+            </div>
+
+            <div v-loading="editLoading" class="spn-edit-body">
+                <div v-if="editError" class="spn-none">{{ editError }}</div>
+                <el-form v-if="editItem" label-position="top" size="small" class="spn-cf" @submit.native.prevent @paste.native="onEditPaste">
+                    <div class="spn-cf-main">
+                        <div class="spn-sec">{{ $tp('Item') }}</div>
+                        <el-form-item :label="$tp('Item name')">
+                            <el-input v-model="editForm.name" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" resize="none"
+                                maxlength="200" show-word-limit class="spn-name" @keydown.native.enter.prevent />
+                        </el-form-item>
+                        <!-- the models in the name follow the Compatible Models (2026-10-20) -->
+                        <div v-if="nameFollow.edit.note === 'updated'" class="spn-follow"><i class="el-icon-refresh" />
+                            {{ $tp('The models in the name follow the Compatible Models below.') }}
+                            <el-button type="text" size="mini" @click="undoFollow('edit')">{{ $tp('Undo') }}</el-button></div>
+                        <div v-else-if="nameFollow.edit.note === 'manual'" class="spn-price-warn"><i class="el-icon-warning-outline" />
+                            {{ $tp('This name has no "… Compatible …" — change the models in it by hand.') }}</div>
+                        <div v-if="editForm.name.length > 200" class="spn-price-warn"><i class="el-icon-warning-outline" />
+                            {{ $tp('{n} characters — Zoho takes 200 at most', { n: editForm.name.length }) }}</div>
+                        <div class="spn-row">
+                            <el-form-item class="spn-col" :label="$tp('Classification')">
+                                <el-select v-model="editForm.classification" filterable style="width:100%" @change="onEditClassification">
+                                    <el-option v-for="c in classifications" :key="c.value" :label="classLabel(c.value)" :value="c.value" />
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item class="spn-col">
+                                <span slot="label">{{ $tp('Sub Classification') }}
+                                    <el-tooltip :content="$tp('The ones Zoho items of this classification use; a new one can be typed.')" placement="top">
+                                        <i class="el-icon-info spn-help" /></el-tooltip></span>
+                                <el-select v-model="editForm.subClassification" filterable allow-create clearable default-first-option
+                                    :placeholder="$tp('None')" style="width:100%">
+                                    <el-option v-for="x in editSubOptions" :key="x" :label="x" :value="x" />
+                                </el-select>
+                            </el-form-item>
+                        </div>
+                        <div class="spn-row">
+                            <el-form-item class="spn-col">
+                                <span slot="label">{{ $tp('SKU') }}
+                                    <el-tooltip :content="$tp('Not changed here — it is on the labels and barcodes.')" placement="top">
+                                        <i class="el-icon-info spn-help" /></el-tooltip></span>
+                                <el-input :value="editItem.sku" disabled />
+                            </el-form-item>
+                            <el-form-item class="spn-col" :label="$tp('Quality')">
+                                <el-select v-model="editForm.quality" clearable filterable :allow-create="!editQualityListed" default-first-option
+                                    :placeholder="$tp('None')" style="width:100%" @change="onEditQuality">
+                                    <el-option v-for="q in editQualityOptions" :key="q" :label="q" :value="q" />
+                                </el-select>
+                            </el-form-item>
+                        </div>
+                        <el-form-item>
+                            <span slot="label">{{ $tp('Category') }}
+                                <el-tooltip :content="$tp('The store category the item is filed under.')" placement="top">
+                                    <i class="el-icon-info spn-help" /></el-tooltip></span>
+                            <div class="spn-cat">
+                                <!-- a hidden category can't be picked: its name shows until another is chosen -->
+                                <el-cascader v-model="editForm.categoryId" :options="categoryTree" :props="CATEGORY_PROPS" :filter-method="categoryFilter"
+                                    filterable :placeholder="editItem.categoryName || $tp('Pick the category')" class="spn-cat-pick" />
+                                <el-tooltip :content="$tp('Read the categories again from Zoho (after adding one on the Categories page)')" placement="top">
+                                    <el-button size="small" icon="el-icon-refresh" :loading="categoriesLoading" @click="loadCategories(true)" />
+                                </el-tooltip>
+                            </div>
+                            <div v-if="model && model.categoryId && editForm.categoryId !== model.categoryId" class="spn-cat-hint">
+                                {{ $tp('This model\'s category') }}: <el-button type="text" size="mini" @click="editForm.categoryId = model.categoryId">{{ categoryPathOf(model) }}</el-button></div>
+                        </el-form-item>
+
+                        <!-- the cost and prices: with the Price Monitoring right only, read live -->
+                        <template v-if="editCanPrice">
+                            <div class="spn-sec">{{ $tp('Prices') }}
+                                <el-tooltip :content="$tp('Read live from Zoho. Only the prices you change are saved, as on Price Monitoring.')" placement="top">
+                                    <i class="el-icon-info spn-help" /></el-tooltip></div>
+                            <div v-if="editPricesError" class="spn-price-warn"><i class="el-icon-warning-outline" /> {{ editPricesError }}</div>
+                            <div v-loading="editPricesLoading">
+                                <div class="spn-cost">
+                                    <div class="spn-price">
+                                        <span class="spn-price-label">{{ $tp('Cost price') }}
+                                            <el-tooltip :content="$tp('Zoho\'s purchase price — what the formula prices are worked out from.')" placement="top">
+                                                <i class="el-icon-info spn-help" /></el-tooltip></span>
+                                        <el-input-number v-model="editForm.cost" size="small" :min="0" :precision="2" :controls="false" class="spn-money"
+                                            :disabled="!editPricesReady" style="width:100%" />
+                                    </div>
+                                    <div class="spn-price">
+                                        <span class="spn-price-label">{{ $tp('Selling price') }}
+                                            <el-tooltip :content="$tp('9999.99 is the usual placeholder until the price is set.')" placement="top">
+                                                <i class="el-icon-info spn-help" /></el-tooltip></span>
+                                        <el-input-number v-model="editForm.rate" size="small" :min="0" :precision="2" :controls="false" class="spn-money" style="width:100%" />
+                                    </div>
+                                    <el-button v-if="editFormulaOff && editPricesReady" type="text" size="mini" icon="el-icon-refresh" class="spn-formula"
+                                        @click="editForm.prices = { ...editFormula }">{{ $tp('Use the formula prices') }}</el-button>
+                                </div>
+                                <div class="spn-prices">
+                                    <div v-for="p in PRICE_LISTS" :key="p.list" class="spn-price">
+                                        <span class="spn-price-label">{{ p.label }}</span>
+                                        <el-input-number v-model="editForm.prices[p.list]" size="small" :min="0" :precision="2" :controls="false" class="spn-money"
+                                            :disabled="!editPricesReady" :placeholder="$tp('Not set')" style="width:100%" />
+                                        <span v-if="editFormula && editOffFormula(p.list)" class="spn-ref" :title="$tp('Use the formula price')"
+                                            @click="editForm.prices[p.list] = editFormula[p.list]">{{ $tp('Formula') }} ${{ editFormula[p.list].toFixed(2) }}</span>
+                                    </div>
+                                </div>
+                                <div v-for="w in editPriceWarnings" :key="w" class="spn-price-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
+                            </div>
+                        </template>
+
+                        <div class="spn-sec">{{ $tp('Compatible Models') }}
+                            <el-tooltip :content="$tp('Goes into the Compatible Model field in Zoho. One item can fit several models — it then counts for each of them.')" placement="top">
+                                <i class="el-icon-info spn-help" /></el-tooltip></div>
+                        <!-- the brand's models on the page, or typed ("A; B" adds both) -->
+                        <el-form-item class="spn-fits-item">
+                            <el-select v-model="editForm.compatibleModels" multiple filterable allow-create default-first-option style="width:100%"
+                                :placeholder="$tp('Pick every model this part fits')" @change="onEditModels">
+                                <el-option v-for="m in editModelOptions" :key="m" :label="m" :value="m" />
+                            </el-select>
+                        </el-form-item>
+                        <div v-if="editDropsOpen" class="spn-price-warn"><i class="el-icon-warning-outline" />
+                            {{ $tp('{model} is not on the list — this part will no longer show for it', { model: model.compatibleModel || model.model }) }}</div>
+                        <div v-if="editModelsChanged" class="spn-cat-hint">{{ $tp('The Device Series follows the models when saved.') }}</div>
+                    </div>
+
+                    <!-- its photos (main first, not changed here) and new ones to add -->
+                    <div class="spn-cf-side">
+                        <div class="spn-sec">{{ $tp('Photos') }}<span v-if="editItem.photos.length" class="spn-sec-n">{{ editItem.photos.length }}</span></div>
+                        <div v-if="editItem.photos.length" class="spn-photos">
+                            <a v-for="p in editItem.photos" :key="p.id" :href="p.url" target="_blank" rel="noopener" class="spn-photo" :title="p.name">
+                                <img :src="p.url" alt="" loading="lazy">
+                                <span v-if="p.main" class="spn-photo-main">{{ $tp('Main') }}</span>
+                            </a>
+                        </div>
+                        <div v-else class="spn-dim">{{ $tp('No photos yet') }}</div>
+                        <div class="spn-sec">{{ $tp('Add photos') }}<span v-if="editFiles.length" class="spn-sec-n">{{ editFiles.length }}</span></div>
+                        <image-picker ref="editPhotoPicker" v-model="editFiles" :max="MAX_PHOTOS" :disabled="editSaving" compact />
+                        <el-checkbox v-if="editFiles.length && editItem.photos.length" v-model="editMainFirst" class="spn-main-first">
+                            {{ $tp('Make the first new photo the main image') }}</el-checkbox>
+                    </div>
+                </el-form>
+            </div>
+
+            <div slot="footer" class="spn-cfoot">
+                <span class="spn-cfoot-sum">{{ editSummary }}</span>
+                <el-button size="small" :disabled="editSaving" @click="editVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button type="primary" size="small" icon="el-icon-check" :loading="editSaving" :disabled="editLoading || !editChangeCount"
+                    @click="saveEdit">{{ $tp('Save to Zoho') }}</el-button>
             </div>
         </el-dialog>
 
@@ -483,8 +646,9 @@ import TreePanel from '@/components/TreePanel'
 import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import { hasPermission } from '@/utils/permission'
-import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
+import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, getNewProductItem, updateNewProductItem, addNewProductItemPhotos, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { createCategory } from '@/api/website'
+import { getStockItemPrices, pushStockItemPrices } from '@/api/stockMonitor'
 import { zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter } from './shared'
 
 // the order the classifications are shown in after the needed parts
@@ -507,6 +671,11 @@ const otherPart = () => ({ key: OTHER, label: 'Other product', classification: '
 const blankModelForm = () => ({ _id: null, brand: '', series: '', model: '', pick: '', cm: '', codes: '', note: '', catMode: 'pick', categoryId: '', catName: '', catParentId: '', catNameTouched: false, catParentTouched: false, linkedId: '', partsCategory: null })
 // names compared without case, spaces or punctuation
 const looseName = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+// a model name reduced to what identifies the phone — the server's modelKey
+const fitKey = s => String(s || '').toLowerCase()
+    .replace(/\b(xt|pb|pa)[-\w]*\d[\w-]*/g, ' ')
+    .replace(/\b(motorola|moto|samsung|galaxy|google|apple|oppo|xiaomi|huawei|sony|nokia|5g|4g|us)\b/g, ' ')
+    .replace(/[^a-z0-9()]+/g, '')
 // the four price lists, as Price Monitoring names them
 const PRICE_LISTS = [
     { list: 'platinum', label: 'Platinum' },
@@ -515,6 +684,24 @@ const PRICE_LISTS = [
     { list: 'wholesale', label: 'Wholesale' }
 ]
 const blankPrices = () => ({ platinum: undefined, vip: undefined, svip: undefined, wholesale: undefined })
+// The models in an item name (2026-10-20, "editing compatible models
+// reflects in the product name"): the team's names read "<models> Compatible
+// <part>", so what comes before "Compatible" is swapped for the new list; a
+// name without it follows only while it still starts with the models last put
+// there. null = left as it is (changed by hand).
+const swapModelsInName = (name, lastPart, part) => {
+    const n = String(name || '')
+    if (!part) return null
+    const m = n.match(/\s+compatible\b/i)
+    if (m && m.index > 0) return part + n.slice(m.index)
+    if (lastPart && n.toLowerCase().startsWith(lastPart.toLowerCase())) return part + n.slice(lastPart.length)
+    return null
+}
+// per dialog: the model part last put in the name, the name before (Undo), the note shown
+const blankFollow = () => ({ part: '', undo: null, note: '' })
+const blankEditForm = () => ({ name: '', quality: '', classification: '', subClassification: '', categoryId: '', compatibleModels: [], rate: undefined, cost: undefined, prices: blankPrices() })
+// two prices the same (blank = blank)
+const samePrice = (a, b) => (a == null || a === '') ? (b == null || b === '') : (b != null && b !== '' && Math.abs(Number(a) - Number(b)) < 0.005)
 // photos on a new item — as on Missing Images (types / 7 MB: ImagePicker)
 const MAX_PHOTOS = 10
 // a brand's own short name in the store's category names ("MOTO G57")
@@ -589,7 +776,26 @@ export default {
             zohoModels: [],
             zohoModelsLoading: false,
             zohoModelsSeq: 0,
-            modelSaving: false
+            modelSaving: false,
+            // the Edit dialog: the item as Zoho has it (editItem), the form,
+            // and what was loaded into it (to send only what changed)
+            editVisible: false,
+            editLoading: false,
+            editError: '',
+            editItem: null,
+            editForm: blankEditForm(),
+            editOrig: blankEditForm(),
+            editAppliedQuality: '',
+            editServerCanPrice: false,
+            editPricesLoading: false,
+            editPricesReady: false,
+            editPricesError: '',
+            editFiles: [],
+            editMainFirst: false,
+            editSaving: false,
+            editSeq: 0,
+            // the name following the Compatible Models, per dialog
+            nameFollow: { create: blankFollow(), edit: blankFollow() }
         }
     },
     computed: {
@@ -845,24 +1051,106 @@ export default {
         // the typed price lists against the tier order (advisory, as on Price
         // Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum; SVIP vs Wholesale free)
         priceWarnings() {
-            const p = this.createForm.prices || {}
-            const has = k => p[k] != null && p[k] !== ''
-            const out = []
-            const rule = (low, high, a, b) => { if (has(low) && has(high) && Number(p[low]) > Number(p[high])) out.push(this.$tp('{a} is above {b}', { a, b })) }
-            rule('vip', 'platinum', 'VIP', 'Platinum')
-            rule('svip', 'vip', 'SVIP', 'VIP')
-            rule('wholesale', 'vip', 'Wholesale', 'VIP')
-            if (!has('vip')) { rule('svip', 'platinum', 'SVIP', 'Platinum'); rule('wholesale', 'platinum', 'Wholesale', 'Platinum') }
-            // a list under the cost loses money
-            const cost = Number(this.createForm.cost)
-            if (cost > 0) for (const { list, label } of PRICE_LISTS) if (has(list) && Number(p[list]) < cost) out.push(this.$tp('{a} is below the cost', { a: label }))
-            return out
+            return this.priceWarningsOf(this.createForm.prices, this.createForm.cost)
         },
         // the brand's models, for the create dialog's Compatible Model picker
         modelOptions() {
-            const brand = this.createRow ? this.createRow.brand : this.sel.brand
-            return [...new Set(this.rows.filter(r => r.brand === brand).map(r => r.compatibleModel).filter(Boolean))]
-                .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+            return this.modelOptionsOf(this.createRow ? this.createRow.brand : this.sel.brand)
+        },
+        // ── the Edit dialog ──
+        // prices: the Price Monitoring right (the server agrees when it reads the item)
+        editCanPrice() {
+            return this.can('zoho:stock:edit') && this.editServerCanPrice
+        },
+        editSubOptions() {
+            const c = this.classifications.find(x => x.value === this.editForm.classification)
+            const list = c ? c.subs.map(x => x.value) : []
+            const cur = this.editOrig.subClassification
+            return cur && this.editForm.classification === this.editOrig.classification && !list.includes(cur) ? [cur, ...list] : list
+        },
+        editQualityListed() {
+            const list = this.editForm.classification && this.qualitiesByClass[this.editForm.classification]
+            return list && list.length ? list : null
+        },
+        // its classification's qualities (or every one in use), its own kept in the list
+        editQualityOptions() {
+            const list = this.editQualityListed || this.qualities.filter(Boolean)
+            const cur = this.editOrig.quality
+            return cur && !list.includes(cur) ? [cur, ...list] : list
+        },
+        // the page brand of the item (its Device Brand), else the open model's
+        editBrand() {
+            return (this.brands.find(b => b.deviceBrand && this.editItem && b.deviceBrand.toLowerCase() === String(this.editItem.deviceBrand || '').toLowerCase()) || {}).value ||
+                (this.model ? this.model.brand : this.sel.brand)
+        },
+        createBrand() {
+            return this.createRow ? this.createRow.brand : this.sel.brand
+        },
+        // the brand's models on the page, and the ones the item lists
+        editModelOptions() {
+            const list = this.modelOptionsOf(this.editBrand)
+            const have = new Set(list.map(fitKey))
+            return [...this.editForm.compatibleModels.filter(m => !have.has(fitKey(m))), ...list]
+        },
+        editModelsChanged() {
+            return this.editForm.compatibleModels.join('; ') !== this.editOrig.compatibleModels.join('; ')
+        },
+        // the open model is off the list (the part leaves this model)
+        editDropsOpen() {
+            return !!this.editItem && !!this.model && !this.editForm.compatibleModels.some(m => this.isOpenModel(m))
+        },
+        editPriceFamily() {
+            return priceFamilyOf({ quality: this.editForm.quality, name: this.editForm.name, family: this.priceFamilies[this.editForm.classification] })
+        },
+        editFormula() {
+            return formulaPricesFor(this.editForm.cost, this.priceFormulas[this.editPriceFamily])
+        },
+        editFormulaOff() {
+            return !!this.editFormula && PRICE_LISTS.some(p => this.editOffFormula(p.list))
+        },
+        editPriceWarnings() {
+            return this.editCanPrice && this.editPricesReady ? this.priceWarningsOf(this.editForm.prices, this.editForm.cost) : []
+        },
+        // the item's fields that differ from Zoho's (what PUT /items/:id gets)
+        editFieldChanges() {
+            const f = this.editForm
+            const o = this.editOrig
+            const out = {}
+            const name = String(f.name || '').replace(/\s+/g, ' ').trim()
+            if (name !== o.name) out.name = name
+            if ((f.quality || '') !== o.quality) out.quality = f.quality || ''
+            if (f.classification !== o.classification) out.classification = f.classification
+            const sub = String(f.subClassification || '').trim()
+            if (sub !== o.subClassification) out.subClassification = sub
+            if (f.categoryId && f.categoryId !== o.categoryId) out.categoryId = f.categoryId
+            if (this.editModelsChanged) out.compatibleModels = [...f.compatibleModels]
+            if (this.editCanPrice && f.rate != null && f.rate !== '' && !samePrice(f.rate, o.rate)) out.rate = Number(f.rate)
+            return out
+        },
+        // the cost and price lists that differ (Price Monitoring's bulk route); a blank stays as it is
+        editPriceChanges() {
+            if (!this.editCanPrice || !this.editPricesReady || !this.editItem) return []
+            const out = []
+            const itemId = this.editItem.itemId
+            for (const { list } of PRICE_LISTS) {
+                const v = this.editForm.prices[list]
+                if (v != null && v !== '' && !samePrice(v, this.editOrig.prices[list])) out.push({ itemId, list, rate: Number(v) })
+            }
+            const c = this.editForm.cost
+            if (c != null && c !== '' && !samePrice(c, this.editOrig.cost)) out.push({ itemId, list: 'purchase', rate: Number(c) })
+            return out
+        },
+        editChangeCount() {
+            return Object.keys(this.editFieldChanges).length + this.editPriceChanges.length + (this.editFiles.length ? 1 : 0)
+        },
+        // the footer: what Save will do
+        editSummary() {
+            if (this.editLoading || !this.editItem) return ''
+            const bits = []
+            const fields = Object.keys(this.editFieldChanges).length + this.editPriceChanges.length
+            if (fields) bits.push(this.$tp('{n} change(s)', { n: fields }))
+            if (this.editFiles.length) bits.push(this.$tp('{n} photo(s) to add', { n: this.editFiles.length }))
+            return bits.length ? bits.join(' · ') : this.$tp('Nothing changed yet')
         }
     },
     watch: {
@@ -924,10 +1212,6 @@ export default {
         haveCount(partKey) {
             return this.nodeRows.filter(r => (r.have[partKey] || []).length).length
         },
-        stockTone(it) {
-            const a = Number(it.available) || 0
-            return a <= 0 ? 'spn-bad' : a < 3 ? 'spn-warn' : 'spn-good'
-        },
         // the tree search also finds model codes and other names
         treeFilter(value, data) {
             if (!value) return true
@@ -988,6 +1272,256 @@ export default {
         async refresh() {
             await this.load()
             this.loadItems()
+        },
+        // The model part of a name for a Compatible Model list: each model the
+        // way the page names it — the first in full ("Samsung Galaxy S24
+        // (S921)"), the rest short ("S24 Plus (S926)"), " / " between. A model
+        // not on the page: its Compatible Model without the brand's words, the
+        // brand's lead before the first ("MOTO", "Samsung Galaxy").
+        modelsNamePart(brand, models) {
+            const b = this.brands.find(x => x.value === brand) || {}
+            const rows = this.rows.filter(r => r.brand === brand && r.nameModel)
+            const words = (b.words || []).map(w => String(w).toLowerCase())
+            return (models || []).map((cm, i) => {
+                let row = rows.find(r => r.compatibleModel === cm)
+                if (!row) {
+                    const k = fitKey(cm)
+                    const hits = k ? rows.filter(r => [r.compatibleModel, r.model, ...(r.aliases || [])].some(x => fitKey(x) === k)) : []
+                    if (hits.length === 1) row = hits[0]
+                }
+                if (row) return i === 0 ? row.nameModel.full : row.nameModel.short
+                let short = String(cm || '').trim()
+                for (let again = true; again;) {
+                    again = false
+                    for (const w of words) {
+                        const rx = new RegExp('^' + w + '\\s+', 'i')
+                        if (rx.test(short)) { short = short.replace(rx, ''); again = true }
+                    }
+                }
+                if (i > 0 || !b.nameLead || /^(realme|oneplus)\b/i.test(short)) return short
+                return `${b.nameLead} ${short}`
+            }).filter(Boolean).join(' / ')
+        },
+        // the models changed: the name follows (swapModelsInName) — the name it
+        // had is kept for Undo — or a note says to change it by hand
+        followModels(kind) {
+            const form = kind === 'edit' ? this.editForm : this.createForm
+            const st = this.nameFollow[kind]
+            const part = this.modelsNamePart(kind === 'edit' ? this.editBrand : this.createBrand, form.compatibleModels)
+            if (!part) return
+            const next = swapModelsInName(form.name, st.part, part)
+            if (next == null) { st.note = 'manual'; return }
+            if (next !== form.name) {
+                if (st.undo == null) st.undo = form.name
+                form.name = next
+                st.note = 'updated'
+            }
+            st.part = part
+        },
+        // back to the name before the models changed it (with the quality tag as it is now)
+        undoFollow(kind) {
+            const form = kind === 'edit' ? this.editForm : this.createForm
+            const st = this.nameFollow[kind]
+            if (st.undo == null) return
+            form.name = this.withQuality(st.undo, form.quality || '', kind === 'edit' ? this.editAppliedQuality : this.appliedQuality)
+            this.nameFollow[kind] = blankFollow()
+        },
+        // a brand's models on the page (their Compatible Model), sorted
+        modelOptionsOf(brand) {
+            return [...new Set(this.rows.filter(r => r.brand === brand).map(r => r.compatibleModel).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+        },
+        // the typed price lists against the tier order (advisory, as on Price
+        // Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum; SVIP vs Wholesale free)
+        priceWarningsOf(prices, costValue) {
+            const p = prices || {}
+            const has = k => p[k] != null && p[k] !== ''
+            const out = []
+            const rule = (low, high, a, b) => { if (has(low) && has(high) && Number(p[low]) > Number(p[high])) out.push(this.$tp('{a} is above {b}', { a, b })) }
+            rule('vip', 'platinum', 'VIP', 'Platinum')
+            rule('svip', 'vip', 'SVIP', 'VIP')
+            rule('wholesale', 'vip', 'Wholesale', 'VIP')
+            if (!has('vip')) { rule('svip', 'platinum', 'SVIP', 'Platinum'); rule('wholesale', 'platinum', 'Wholesale', 'Platinum') }
+            // a list under the cost loses money
+            const cost = Number(costValue)
+            if (cost > 0) for (const { list, label } of PRICE_LISTS) if (has(list) && Number(p[list]) < cost) out.push(this.$tp('{a} is below the cost', { a: label }))
+            return out
+        },
+        // ── Edit an existing item (2026-10-20) ──
+        // a model name is the open model (its name, Compatible Model or another name)
+        isOpenModel(m) {
+            const k = fitKey(m)
+            return !!this.model && !!k && [this.model.model, this.model.compatibleModel, ...(this.model.aliases || [])].some(x => fitKey(x) === k)
+        },
+        // Open it: the item live from Zoho, and — with the price right — its
+        // cost and four price lists (Price Monitoring's live read)
+        async openEdit(it) {
+            const seq = ++this.editSeq
+            this.clearEditFiles()
+            this.editMainFirst = false
+            this.editItem = null
+            this.editError = ''
+            this.editForm = blankEditForm()
+            this.editOrig = blankEditForm()
+            this.editPricesReady = false
+            this.editPricesError = ''
+            this.createNarrow = window.innerWidth < 900
+            this.editVisible = true
+            this.editLoading = true
+            if (!this.categories.length || Date.now() - this.categoriesAt > CATEGORIES_TTL) this.loadCategories()
+            try {
+                const r = await getNewProductItem(it.itemId)
+                if (seq !== this.editSeq) return
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const x = r.item
+                this.editServerCanPrice = !!r.canPrice
+                const form = {
+                    name: x.name || '',
+                    quality: x.quality || '',
+                    classification: x.classification || '',
+                    subClassification: x.subClassification || '',
+                    categoryId: x.categoryId || '',
+                    compatibleModels: [...(x.compatibleModels || [])],
+                    rate: x.rate == null ? undefined : x.rate,
+                    cost: undefined,
+                    prices: blankPrices()
+                }
+                this.editOrig = JSON.parse(JSON.stringify(form))
+                this.editForm = form
+                this.editAppliedQuality = form.quality
+                this.editItem = x
+                this.nameFollow.edit = { ...blankFollow(), part: this.modelsNamePart(this.editBrand, form.compatibleModels) }
+                if (this.editCanPrice) this.loadEditPrices(seq, x.itemId)
+            } catch (e) {
+                if (seq === this.editSeq) this.editError = this.msg(e, this.$tp('Could not read the item from Zoho'))
+            } finally {
+                if (seq === this.editSeq) this.editLoading = false
+            }
+        },
+        async loadEditPrices(seq, itemId) {
+            this.editPricesLoading = true
+            try {
+                const r = await getStockItemPrices(itemId)
+                if (seq !== this.editSeq) return
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const prices = blankPrices()
+                for (const { list } of PRICE_LISTS) prices[list] = r.prices && r.prices[list] != null ? r.prices[list] : undefined
+                const cost = r.purchasePrice != null ? r.purchasePrice : undefined
+                this.editOrig.prices = { ...prices }
+                this.editOrig.cost = cost
+                this.editForm.prices = { ...prices }
+                this.editForm.cost = cost
+                this.editPricesReady = true
+            } catch (e) {
+                if (seq === this.editSeq) this.editPricesError = this.msg(e, this.$tp('Could not read the prices from Zoho — they are not changed here'))
+            } finally {
+                if (seq === this.editSeq) this.editPricesLoading = false
+            }
+        },
+        editOffFormula(list) {
+            const v = this.editForm.prices[list]
+            return v == null || v === '' || Math.abs(Number(v) - this.editFormula[list]) > 0.004
+        },
+        onEditClassification() {
+            const f = this.editForm
+            if (f.subClassification && !this.editSubOptions.includes(f.subClassification)) f.subClassification = ''
+            if (f.quality && this.editQualityListed && !this.editQualityListed.includes(f.quality)) {
+                f.quality = ''
+                this.onEditQuality('')
+            }
+        },
+        // the quality's [tag] on the name follows it, as in the create dialog
+        onEditQuality(q) {
+            this.editForm.name = this.withQuality(this.editForm.name, q || '', this.editAppliedQuality)
+            this.editAppliedQuality = q || ''
+        },
+        // picked or typed: "A; B" becomes two, the same model twice (any case) once
+        onEditModels(list) {
+            const out = []
+            for (const raw of list || []) {
+                for (const part of String(raw).split(';')) {
+                    const m = part.trim().replace(/\s+/g, ' ')
+                    if (!m) continue
+                    if (m.length > 80) { this.$message.warning(this.$tp('A model name is 80 characters at most')); continue }
+                    if (!out.some(x => x.toLowerCase() === m.toLowerCase())) out.push(m)
+                }
+            }
+            this.editForm.compatibleModels = out
+            this.followModels('edit')
+        },
+        onEditPaste(e) {
+            const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter(x => /^image\//i.test(x.type))
+            if (!files.length || !this.$refs.editPhotoPicker) return
+            e.preventDefault()
+            this.$refs.editPhotoPicker.add(files.map((raw, i) => raw.name && raw.name !== 'image.png'
+                ? raw : new File([raw], `screenshot-${Date.now() + i}.png`, { type: raw.type })))
+        },
+        clearEditFiles() {
+            for (const x of this.editFiles) { if (x.url && x.url.startsWith('blob:')) { try { URL.revokeObjectURL(x.url) } catch (e) { /* ignore */ } } }
+            this.editFiles = []
+        },
+        // Save: the item's fields (one Zoho update), then the prices, then the
+        // photos — a step that fails is said so; the ones before it are saved
+        async saveEdit() {
+            if (!this.editItem || this.editSaving || !this.editChangeCount) return
+            const fields = this.editFieldChanges
+            if (fields.name !== undefined && fields.name.length < 5) return this.$message.warning(this.$tp('Item name is too short'))
+            if (fields.compatibleModels && !fields.compatibleModels.length) {
+                try {
+                    await this.$confirm(this.$tp('Save with no models? The part will not show for any model on this page.'), this.$tp('Compatible Models'),
+                        { type: 'warning', confirmButtonText: this.$tp('Save to Zoho'), cancelButtonText: this.$tp('Cancel') })
+                } catch (e) { return }
+            }
+            const itemId = this.editItem.itemId
+            const sku = this.editItem.sku
+            const prices = this.editPriceChanges
+            const files = this.editFiles.map(x => x.file)
+            const done = []
+            const failed = []
+            this.editSaving = true
+            try {
+                if (Object.keys(fields).length) {
+                    try {
+                        const r = await updateNewProductItem(itemId, fields)
+                        if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                        done.push(this.$tp('details'))
+                    } catch (e) {
+                        // nothing else is sent: the dialog stays open to fix it
+                        this.$message.error(this.msg(e, this.$tp('Zoho did not update the item')))
+                        return
+                    }
+                }
+                if (prices.length) {
+                    try {
+                        const r = await pushStockItemPrices(prices)
+                        const bad = ((r && r.results) || []).filter(x => !x.ok)
+                        if (!r || r.success === false || bad.length) {
+                            const names = (bad.length ? bad : prices).map(x => x.list === 'purchase' ? this.$tp('Cost price') : (PRICE_LISTS.find(p => p.list === x.list) || { label: x.list }).label)
+                            failed.push(this.$tp('prices: {lists}', { lists: names.join(', ') }))
+                        } else done.push(this.$tp('prices'))
+                    } catch (e) {
+                        failed.push(this.$tp('prices: {lists}', { lists: this.msg(e, '') }))
+                    }
+                }
+                if (files.length) {
+                    try {
+                        const data = new FormData()
+                        files.forEach(file => data.append('images', file, file.name))
+                        data.append('main', this.editMainFirst || !this.editItem.photos.length ? '1' : '0')
+                        const r = await addNewProductItemPhotos(itemId, data)
+                        if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                        done.push(this.$tp('{n} photo(s)', { n: files.length }))
+                    } catch (e) {
+                        failed.push(this.$tp('photos: {error}', { error: this.msg(e, '') }))
+                    }
+                }
+                if (failed.length) this.$message.warning(this.$tp('{sku}: not saved — {what}', { sku, what: failed.join('; ') }))
+                if (done.length) this.$message.success(this.$tp('{sku} saved to Zoho: {what}', { sku, what: done.join(', ') }))
+                this.editVisible = false
+                this.refresh()
+            } finally {
+                this.editSaving = false
+            }
         },
         onNode(data) {
             this.sel = { type: data.type, brand: data.brand, series: data.series || '', modelId: data.modelId || '' }
@@ -1055,6 +1589,7 @@ export default {
                 subClassification: ''
             }
             this.lastAuto = null
+            this.nameFollow.create = { ...blankFollow(), part: this.modelsNamePart(row.brand, this.createForm.compatibleModels) }
             this.createVisible = true
             this.loadNextSku()
         },
@@ -1304,9 +1839,9 @@ export default {
         // team's items read ("… Compatible Battery [Original]"); picking
         // another one swaps it, clearing it takes it off. Only a trailing tag
         // that IS a quality is replaced, so typed wording stays.
-        withQuality(name, quality) {
+        withQuality(name, quality, applied = this.appliedQuality) {
             // the list's qualities, and the one put on last (it may have been typed)
-            const known = [...this.qualities.filter(Boolean), this.appliedQuality].filter(Boolean)
+            const known = [...this.qualities.filter(Boolean), applied].filter(Boolean)
             let base = String(name || '').trim()
             for (let m = base.match(/\s*\[([^\]]+)\]$/); m && known.includes(m[1]); m = base.match(/\s*\[([^\]]+)\]$/)) {
                 base = base.slice(0, m.index).trim()
@@ -1477,6 +2012,7 @@ export default {
                 classification: d.classification || '',
                 subClassification: d.subClassification || ''
             }
+            this.nameFollow.create = { ...blankFollow(), part: this.modelsNamePart(row.brand, this.createForm.compatibleModels) }
             // the saved prices stand; a quality change re-prices them only while they are the formula's
             this.lastAuto = this.formulaPrices && !this.formulaOff ? { ...this.formulaPrices } : null
             this.createFiles = (d.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
@@ -1714,11 +2250,17 @@ export default {
 .spn-link { color: #409eff; text-decoration: none; font-weight: 600; font-variant-numeric: tabular-nums; &:hover { text-decoration: underline; } }
 .spn-type { padding: 0 7px; border-radius: 10px; color: #606266; background: #f4f4f5; border: 1px solid #e9e9eb; white-space: nowrap; }
 .spn-fits { color: #909399; cursor: default; }
-.spn-stock { flex-shrink: 0; width: 44px; text-align: right; display: flex; flex-direction: column; font-size: 11px;
-    em { font-style: normal; color: #909399; } b { font-size: 13px; font-variant-numeric: tabular-nums; } }
+.spn-fits-btn { padding: 0 !important; flex-shrink: 0; }
+.spn-edit-body { min-height: 120px; }
+.spn-follow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -6px 0 10px; font-size: 12px; color: #67c23a; line-height: 1.5;
+    .el-button { padding: 0; } }
+.spn-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; margin-bottom: 4px; }
+.spn-photo { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border: 1px solid #ebeef5; border-radius: 4px; background: #f5f7fa; overflow: hidden;
+    img { max-width: 100%; max-height: 100%; object-fit: contain; } &:hover { border-color: #409eff; } }
+.spn-photo-main { position: absolute; left: 3px; top: 3px; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 16px; color: #fff; background: #409eff; }
+.spn-main-first { margin-top: 8px; ::v-deep .el-checkbox__label { font-size: 12px; } }
 .spn-good { color: #67c23a; }
 .spn-warn { color: #e6a23c; }
-.spn-bad { color: #f56c6c; }
 /* a brand / series: tiles */
 .spn-pickview { min-height: 200px; }
 .spn-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: #606266; margin-bottom: 12px; }
