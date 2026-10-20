@@ -63,7 +63,7 @@
                 <el-button size="small" icon="el-icon-refresh" :loading="loading || itemsLoading" :title="$tp('Refresh')" @click="refresh" />
             </div>
 
-            <div class="spn-body">
+            <div ref="body" class="spn-body">
                 <!-- ── a model: its items by classification ─────────────── -->
                 <template v-if="model">
                     <div v-if="model.note" class="spn-note"><i class="el-icon-info" /> {{ model.note }}</div>
@@ -79,8 +79,10 @@
                     <el-alert v-if="modelMissing.length" type="warning" show-icon :closable="false" class="spn-alert"
                         :title="$tp('Missing: {parts}', { parts: modelMissing.map(p => $tp(p.label)).join(', ') })"
                         :description="$tp('Every {brand} model needs a {parts}.', { brand: model.brand, parts: neededText(model.brand) })" />
+                    <!-- masonry (user 2026-10-20): each part's card into the shortest column -->
                     <div v-loading="itemsLoading" class="spn-groups">
-                        <section v-for="g in groups" :key="g.key" :class="['spn-group', { 'is-required': g.required, 'is-missing': g.required && !g.items.length }]">
+                      <div v-for="(col, ci) in groupColumns" :key="ci" class="spn-mcol">
+                        <section v-for="g in col" :key="g.key" :class="['spn-group', { 'is-required': g.required, 'is-missing': g.required && !g.items.length }]">
                             <div class="spn-group-head">
                                 <span class="spn-group-title">{{ $tp(g.label) }}</span>
                                 <span class="spn-group-count">{{ g.items.length }}</span>
@@ -135,6 +137,7 @@
                                 </div>
                             </div>
                         </section>
+                      </div>
                     </div>
                 </template>
 
@@ -490,6 +493,9 @@ const CLASS_LABELS = { BackCover: 'Back Cover', '': 'Unclassified' }
 // any product beyond the brand's needed parts: its classification is picked
 // in the dialog (part "other" on the server)
 const OTHER = 'other'
+// a model's part cards (masonry): the narrowest a card gets, and the gap
+const GROUP_MIN = 360
+const GROUP_GAP = 12
 const otherPart = () => ({ key: OTHER, label: 'Other product', classification: '', subClassification: '', priceFamily: null })
 // the Add / Edit Model dialog: the model, and its store category — an
 // existing one (pick) or one made here (new: name + parent; the *Touched
@@ -522,6 +528,8 @@ export default {
     data() {
         return {
             loading: false,
+            // the page body's width — how many masonry columns the part cards get
+            bodyWidth: 0,
             brands: [],
             qualities: [],
             // { classification: [qualities] } from iMobile Listing → Qualities
@@ -673,6 +681,22 @@ export default {
             const all = needed.concat(others)
             all.forEach(g => g.items.sort(byName))
             return all
+        },
+        // The part cards in masonry columns (user 2026-10-20): as many columns
+        // as fit (cards at least GROUP_MIN wide), each card into the shortest
+        // column so far — the leftmost on a tie, so the needed parts lead.
+        groupColumns() {
+            const count = Math.max(1, Math.floor((this.bodyWidth + GROUP_GAP) / (GROUP_MIN + GROUP_GAP)))
+            const cols = Array.from({ length: count }, () => ({ h: 0, cards: [] }))
+            for (const g of this.groups) {
+                let c = cols[0]
+                for (const x of cols) if (x.h < c.h) c = x
+                c.cards.push(g)
+                // a card's rough height: its head, then a row per item / draft (or the "none yet" line)
+                const rows = g.items.length + this.partDrafts(g).length
+                c.h += 38 + (rows ? rows * 60 : 34) + GROUP_GAP
+            }
+            return cols.map(c => c.cards)
         },
         // a brand / series: its models
         nodeRows() {
@@ -854,8 +878,26 @@ export default {
     created() {
         this.load()
     },
+    mounted() {
+        this.measureBody()
+        window.addEventListener('resize', this.measureBody)
+        // the tree folding / unfolding changes the width without a window resize
+        if (window.ResizeObserver && this.$refs.body) {
+            this.bodyObs = new ResizeObserver(() => this.measureBody())
+            this.bodyObs.observe(this.$refs.body)
+        }
+    },
+    beforeDestroy() {
+        window.removeEventListener('resize', this.measureBody)
+        if (this.bodyObs) this.bodyObs.disconnect()
+    },
     methods: {
         zohoLink,
+        // the width the part cards share (masonry columns)
+        measureBody() {
+            const el = this.$refs.body
+            if (el && el.clientWidth) this.bodyWidth = el.clientWidth
+        },
         can(p) {
             return hasPermission(this.$store.getters.permissions, p)
         },
@@ -1651,7 +1693,9 @@ export default {
 /* a model */
 .spn-note { font-size: 12px; color: #e6a23c; margin-bottom: 8px; }
 .spn-alert { margin-bottom: 12px; }
-.spn-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; align-items: start; min-height: 120px; }
+/* masonry: columns side by side, each card into the shortest (groupColumns) */
+.spn-groups { display: flex; align-items: flex-start; gap: 12px; min-height: 120px; }
+.spn-mcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .spn-group { border: 1px solid #ebeef5; border-radius: 8px; background: #fff; overflow: hidden; }
 .spn-group.is-missing { border-color: #f5dab1; background: #fffcf6; }
 .spn-group-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fafafa; border-bottom: 1px solid #ebeef5; }
@@ -1764,7 +1808,6 @@ export default {
 @media (max-width: 767px) {
     .spn-main { padding: 8px 10px 4px; }
     .spn-head { flex-wrap: wrap; }
-    .spn-groups { grid-template-columns: 1fr; }
 }
 </style>
 
