@@ -1896,7 +1896,7 @@ const LABOR_COST = 70
 // Roles with the admin-side SQT view: parts prices, Zoho order links, the
 // Solvup statuses and the shop-group filter. iMobile Front Desk works SQT
 // like TechElite Admin (2026-10-05).
-const SQT_ADMIN_SIDE_ROLES = ['admin', 'techelite-admin', 'imobile-front-desk']
+const SQT_ADMIN_SIDE_ROLES = ['admin', 'techelite-admin', 'imobile-front-desk', 'exyon-admin']
 const GST_RATE = 0.1
 
 export default {

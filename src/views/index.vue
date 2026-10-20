@@ -58,6 +58,7 @@ import AccountantHome from './dashboard/AccountantHome'
 import WarehouseHome from './dashboard/WarehouseHome'
 import FrontDeskHome from './dashboard/FrontDeskHome'
 import ExyonOperationHome from './dashboard/ExyonOperationHome'
+import ExyonAdminHome from './dashboard/ExyonAdminHome'
 import CallCenterHome from './dashboard/CallCenterHome'
 import SupplierWarehouseHome from './dashboard/SupplierWarehouseHome'
 
@@ -80,6 +81,7 @@ const ROLE_TO_COMPONENT = {
     'imobile-warehouse': 'WarehouseHome',
     'imobile-front-desk': 'FrontDeskHome',
     'exyon-operation': 'ExyonOperationHome',
+    'exyon-admin': 'ExyonAdminHome',
     'sqt-call-center': 'CallCenterHome',
     'supplier-warehouse': 'SupplierWarehouseHome'
 }
@@ -97,7 +99,7 @@ export default {
         IMobileAdminHome, IMobileRepairAdminHome,
         ShopOwnerHome, RepairShopHome, InflowCustomerHome,
         PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome, PartsSupplierHome, AccountantHome,
-        WarehouseHome, FrontDeskHome, ExyonOperationHome, CallCenterHome, SupplierWarehouseHome
+        WarehouseHome, FrontDeskHome, ExyonOperationHome, ExyonAdminHome, CallCenterHome, SupplierWarehouseHome
     },
     data() {
         // Hydrate from localStorage so a reload keeps the chosen view.
