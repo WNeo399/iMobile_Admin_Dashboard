@@ -40,6 +40,12 @@ export function processExyonOrders(orders) {
 export function getExyonLabels(orderIds) {
   return request({ url: '/exyon-accessories/labels', method: 'get', params: { orderIds: orderIds.join(',') }, timeout: 60000 })
 }
+// Confirm dispatch on a day's list: [{ orderId, dispatch: true, tracking? }
+// | { orderId, dispatch: false, reason, note? }] — dispatched ones are set to
+// Dispatched in Neto. dryRun: only shows what Neto would get.
+export function confirmExyonDispatch(day, orders, dryRun) {
+  return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/dispatch`, method: 'post', data: { orders, dryRun: !!dryRun }, timeout: 180000 })
+}
 export function removeFromPickList(day, orderId) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/remove`, method: 'post', data: { orderId } })
 }

@@ -71,6 +71,11 @@
             </div>
         </div>
 
+        <!-- orders Neto already dispatched are left out; when Neto didn't answer,
+             only the ones it answered before are -->
+        <div v-if="summary.netoChecked === false" class="xd-warnbar">
+            <i class="el-icon-warning" /> {{ $tp('Neto did not answer — orders already dispatched there may still show. Refresh in a moment.') }}
+        </div>
         <div ref="body" v-loading="loading" class="xd-body">
             <!-- ───────── Grid ───────── -->
             <!-- masonry: tiles packed into columns, the shortest column takes the next -->
@@ -132,6 +137,9 @@
                         <div v-if="tab === 'onlist'" class="xd-tile-sub">
                             <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}</span>
                             <span v-else class="xd-todo">{{ $tp('Not processed') }}</span>
+                            <!-- held back at Confirm dispatch, or Neto refused the update -->
+                            <span v-if="o.dispatch && o.dispatch.status === 'held'" class="xd-todo" :title="o.dispatch.note || ''">{{ $tp('Not dispatched') }}: {{ $tp(o.dispatch.reason) }}</span>
+                            <span v-else-if="o.dispatch && o.dispatch.status === 'failed'" class="xd-failed" :title="o.dispatch.error || ''">{{ $tp('Neto update failed') }}</span>
                             <span class="xd-flex" />
                             <span class="xd-dim">{{ $tp('Pick list') }} {{ longDm(o.pickDay) }}</span>
                         </div>
@@ -850,6 +858,7 @@ export default {
     &:hover { color: #409eff; }
     &.on { background: #409eff; color: #fff; } }
 .xd-body { min-height: 140px; }
+.xd-warnbar { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; background: #fdf6ec; color: #b88200; font-size: 13px; }
 
 /* shared bits */
 .xd-thumb { flex-shrink: 0; width: 64px; height: 64px; border-radius: 6px; border: 1px solid #ebeef5; background: #fff; overflow: hidden; cursor: zoom-in; }
@@ -872,6 +881,8 @@ export default {
 /* on a pick list, no tracking number yet */
 .xd-todo { padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 17px; color: #b88200; background: #fdf6ec; white-space: nowrap; }
 .xd-loc { font-size: 11px; color: #606266; white-space: nowrap; }
+/* Neto refused the Confirm dispatch update */
+.xd-failed { padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 17px; color: #f56c6c; background: #fef0f0; white-space: nowrap; }
 /* the Process popup */
 .xd-ph { padding: 4px 12px; margin-bottom: 10px; border: 1px solid #ebeef5; border-radius: 6px; background: #fafbfc; }
 .xd-pr-hint { margin-bottom: 8px; font-size: 12px; color: #909399; }

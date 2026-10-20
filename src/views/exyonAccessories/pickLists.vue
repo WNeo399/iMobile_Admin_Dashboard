@@ -18,6 +18,14 @@
                         <span v-if="d.day === today" class="xp-today">{{ $tp('Today') }}</span>
                     </div>
                     <div class="xp-day-2">{{ d.orders }} {{ $tp('orders') }} · {{ d.units }} {{ $tp('units') }}</div>
+                    <!-- Confirm dispatch progress -->
+                    <div v-if="d.dispatched || d.held" class="xp-day-3">
+                        <span v-if="!d.toConfirm && !d.held" class="xp-ok"><i class="el-icon-success" /> {{ $tp('All dispatched') }}</span>
+                        <template v-else>
+                            <span v-if="d.dispatched" class="xp-ok">{{ $tp('{n} dispatched', { n: d.dispatched }) }}</span>
+                            <span v-if="d.held" class="xp-held">{{ $tp('{n} not dispatched', { n: d.held }) }}</span>
+                        </template>
+                    </div>
                 </div>
                 <div v-if="!loading && !lists.length" class="xp-days-empty">
                     <i class="el-icon-document" />
@@ -36,6 +44,9 @@
                         </div>
                         <span class="xp-flex" />
                         <el-button size="small" type="primary" plain icon="el-icon-printer" :disabled="!lines.length" @click="openPrint">{{ $tp('Print pick list') }}</el-button>
+                        <!-- the day's orders were picked and shipped: confirm → Neto -->
+                        <el-button v-if="canEdit && notDispatched.length" size="small" type="primary" icon="el-icon-finished" @click="openConfirm(notDispatched)">
+                            {{ $tp('Confirm dispatch') }} ({{ notDispatched.length }})</el-button>
                     </div>
 
                     <div class="xp-stats">
@@ -44,6 +55,8 @@
                         <div class="xp-stat"><span>{{ $tp('Units') }}</span><b>{{ summary.units }}</b>
                             <small>{{ summary.singleUnits }} {{ $tp('single-line') }} · {{ summary.multiUnits }} {{ $tp('multi-line') }}</small></div>
                         <div class="xp-stat"><span>SKUs</span><b>{{ summary.skus }}</b></div>
+                        <div class="xp-stat"><span>{{ $tp('Dispatched') }}</span><b>{{ summary.dispatched || 0 }}</b>
+                            <small>{{ summary.held || 0 }} {{ $tp('not dispatched') }} · {{ summary.toConfirm || 0 }} {{ $tp('to confirm') }}</small></div>
                     </div>
 
                     <div class="xp-sec">{{ $tp('Orders on this list') }} <span class="xp-dim">({{ list.orders.length }})</span></div>
@@ -78,9 +91,29 @@
                         <el-table-column :label="$tp('Placed')" width="95">
                             <template slot-scope="s"><span class="xp-dim">{{ when(s.row.datePlaced) }}</span></template>
                         </el-table-column>
-                        <el-table-column v-if="canEdit" width="44" align="center">
+                        <!-- Confirm dispatch: sent to Neto / held back with a reason /
+                             the push failed / not confirmed yet -->
+                        <el-table-column :label="$tp('Dispatch')" min-width="170">
                             <template slot-scope="s">
-                                <el-tooltip :content="$tp('Take off this list')" placement="top">
+                                <template v-if="dstatus(s.row) === 'dispatched'">
+                                    <span class="xp-dsp xp-dsp-ok"><i class="el-icon-success" /> {{ $tp('Dispatched') }}</span>
+                                    <div class="xp-dsp-sub">{{ s.row.dispatch.neto === 'already' ? $tp('Neto already had it') : $tp('Sent to Neto') }} · {{ time(s.row.dispatch.at) }}{{ s.row.dispatch.by ? ' · ' + s.row.dispatch.by : '' }}</div>
+                                </template>
+                                <template v-else-if="dstatus(s.row) === 'held'">
+                                    <span class="xp-dsp xp-dsp-held"><i class="el-icon-warning" /> {{ $tp('Not dispatched') }}</span>
+                                    <div class="xp-dsp-sub">{{ $tp(s.row.dispatch.reason) }}{{ s.row.dispatch.note ? ' — ' + s.row.dispatch.note : '' }}</div>
+                                </template>
+                                <template v-else-if="dstatus(s.row) === 'failed'">
+                                    <span class="xp-dsp xp-dsp-fail"><i class="el-icon-error" /> {{ $tp('Neto update failed') }}</span>
+                                    <div class="xp-dsp-sub" :title="s.row.dispatch.error">{{ s.row.dispatch.error }}</div>
+                                </template>
+                                <span v-else class="xp-zero">{{ $tp('To confirm') }}</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column v-if="canEdit" width="96" align="center">
+                            <template slot-scope="s">
+                                <el-button v-if="['held', 'failed'].includes(dstatus(s.row))" type="text" size="mini" @click="openConfirm([s.row])">{{ $tp('Dispatch') }}</el-button>
+                                <el-tooltip v-if="dstatus(s.row) !== 'dispatched'" :content="$tp('Take off this list')" placement="top">
                                     <el-button type="text" icon="el-icon-close" class="xp-remove" @click="remove(s.row)" />
                                 </el-tooltip>
                             </template>
@@ -93,6 +126,60 @@
                 </div>
             </div>
         </div>
+
+        <!-- Confirm dispatch: each order dispatched (→ Neto) or held back with a reason -->
+        <el-dialog :title="confirmTitle" :visible.sync="confirmVisible" width="1000px" top="5vh" append-to-body :close-on-click-modal="false">
+            <div class="xp-cf-intro">
+                <i class="el-icon-info" />
+                {{ $tp('Every order on this list is taken as picked and shipped. Switch off an order that is not going out and say why — it stays on the list. The others are set to Dispatched in Neto with their tracking number (Australia Post, no email to the customer).') }}
+            </div>
+            <el-table :data="confirmRows" border size="mini" max-height="520" :row-class-name="r => r.row.dispatch ? '' : 'xp-cf-held'">
+                <el-table-column :label="$tp('Dispatched')" width="96" align="center">
+                    <template slot-scope="s"><el-switch v-model="s.row.dispatch" /></template>
+                </el-table-column>
+                <el-table-column :label="$tp('Order')" min-width="150">
+                    <template slot-scope="s">
+                        <div class="xp-order">{{ s.row.orderId }}</div>
+                        <span :class="['xp-ch', chClass(s.row.channel)]">{{ s.row.channel || '—' }}</span>
+                        <span class="xp-dim xp-cf-cust">{{ s.row.customerName }}</span>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$tp('Items')" min-width="230">
+                    <template slot-scope="s">
+                        <div v-for="it in s.row.items" :key="it.sku" class="xp-item"><span class="xp-item-name">{{ it.productName }}</span><b>× {{ it.quantity }}</b></div>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$tp('Tracking number')" min-width="190">
+                    <template slot-scope="s">
+                        <span v-if="s.row.had" class="xp-tracking">{{ s.row.had }}</span>
+                        <!-- never processed: scan its label here, or switch it off -->
+                        <el-input v-else-if="s.row.dispatch" v-model="s.row.tracking" size="mini" clearable
+                            :class="{ 'xp-cf-bad': !trackingOk(s.row) }" :placeholder="$tp('Scan tracking number')" prefix-icon="el-icon-full-screen" />
+                        <span v-else class="xp-zero">—</span>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$tp('Why not dispatched')" min-width="250">
+                    <template slot-scope="s">
+                        <div v-if="!s.row.dispatch" class="xp-cf-why">
+                            <el-select v-model="s.row.reason" size="mini" :class="{ 'xp-cf-bad': !s.row.reason }" :placeholder="$tp('Reason')">
+                                <el-option v-for="r in holdReasons" :key="r" :label="$tp(r)" :value="r" />
+                            </el-select>
+                            <el-input v-model="s.row.note" size="mini" maxlength="300" :placeholder="$tp('Note (optional)')" />
+                        </div>
+                    </template>
+                </el-table-column>
+            </el-table>
+            <span slot="footer" class="xp-cf-foot">
+                <span class="xp-cf-count">
+                    <b>{{ confirmCounts.dispatch }}</b> {{ $tp('to dispatch') }} · <b>{{ confirmCounts.hold }}</b> {{ $tp('not dispatched') }}
+                    <span v-if="confirmProblems" class="xp-cf-warn"><i class="el-icon-warning" /> {{ $tp('{n} need a tracking number, or a reason', { n: confirmProblems }) }}</span>
+                </span>
+                <span class="xp-flex" />
+                <el-button size="small" @click="confirmVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button size="small" type="primary" icon="el-icon-finished" :loading="confirming"
+                    :disabled="!!confirmProblems || !confirmRows.length" @click="submitConfirm">{{ $tp('Confirm dispatch') }}</el-button>
+            </span>
+        </el-dialog>
 
         <!-- print preview -->
         <el-dialog :title="printTitle" :visible.sync="printVisible" width="60%" top="5vh" custom-class="xp-print-dialog" @close="cleanupPrint">
@@ -107,9 +194,13 @@
 </template>
 
 <script>
-import { getExyonPickLists, getExyonPickList, removeFromPickList } from '@/api/exyonAccessories'
+import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch } from '@/api/exyonAccessories'
 import { buildPickListPdf, pickListFileName } from '@/utils/exyonPickListPdf'
 import { hasPermission } from '@/utils/permission'
+
+// why an order isn't going out (the backend's HOLD_REASONS)
+const HOLD_REASONS = ['Insufficient stock', 'Damaged item', 'Address issue', 'Customer cancelled', 'Other']
+const TRACKING_RE = /^[A-Za-z0-9._/-]{4,60}$/
 
 export default {
     name: 'ExyonAccessoryPickLists',
@@ -125,12 +216,33 @@ export default {
             summary: {},
             printVisible: false,
             printUrl: '',
-            printTitle: ''
+            printTitle: '',
+            holdReasons: HOLD_REASONS,
+            // the Confirm dispatch popup
+            confirmVisible: false,
+            confirmRows: [],
+            confirming: false
         }
     },
     computed: {
         canEdit() {
             return hasPermission(this.$store.getters.permissions, 'exyon:accessory:picklist')
+        },
+        // the day's orders still to go out — to confirm, held back, or a failed push
+        notDispatched() {
+            return ((this.list && this.list.orders) || []).filter(o => this.dstatus(o) !== 'dispatched')
+        },
+        confirmTitle() {
+            return this.list ? `${this.$tp('Confirm dispatch')} — ${this.longDay(this.list.day)}` : ''
+        },
+        confirmCounts() {
+            const dispatch = this.confirmRows.filter(r => r.dispatch).length
+            return { dispatch, hold: this.confirmRows.length - dispatch }
+        },
+        // rows that can't be confirmed yet: going out with no tracking number,
+        // or held back with no reason
+        confirmProblems() {
+            return this.confirmRows.filter(r => (r.dispatch ? !this.trackingOk(r) : !r.reason)).length
         }
     },
     created() {
@@ -186,6 +298,74 @@ export default {
                 await this.reload()
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to remove the order')))
+            }
+        },
+        // ── Confirm dispatch ──
+        dstatus(o) {
+            return (o && o.dispatch && o.dispatch.status) || ''
+        },
+        trackingOk(r) {
+            return TRACKING_RE.test(String(r.had || r.tracking || '').replace(/\s+/g, ''))
+        },
+        // every order goes out unless switched off; one held back before
+        // opens held, with its reason
+        openConfirm(orders) {
+            this.confirmRows = orders.map(o => {
+                const held = this.dstatus(o) === 'held'
+                return {
+                    orderId: o.orderId,
+                    channel: o.channel,
+                    customerName: o.customerName,
+                    items: o.items || [],
+                    had: o.tracking || '',
+                    tracking: '',
+                    // a held order opened on its own (its Dispatch button) is going out now
+                    dispatch: !held || orders.length === 1,
+                    reason: held ? o.dispatch.reason : '',
+                    note: held ? (o.dispatch.note || '') : ''
+                }
+            })
+            this.confirmVisible = true
+        },
+        async submitConfirm() {
+            const go = this.confirmRows.filter(r => r.dispatch)
+            const hold = this.confirmRows.filter(r => !r.dispatch)
+            try {
+                await this.$confirm(
+                    (go.length ? this.$tp('Set {n} order(s) to Dispatched in Neto, with their tracking numbers? No email goes to the customers.', { n: go.length }) : '') +
+                    (hold.length ? ' ' + this.$tp('{n} stay on the list as not dispatched.', { n: hold.length }) : ''),
+                    this.$tp('Confirm dispatch'),
+                    { type: 'warning', confirmButtonText: this.$tp('Confirm'), cancelButtonText: this.$tp('Cancel') })
+            } catch (e) { return }
+            this.confirming = true
+            try {
+                const orders = this.confirmRows.map(r => r.dispatch
+                    ? { orderId: r.orderId, dispatch: true, ...(r.had ? {} : { tracking: String(r.tracking || '').replace(/\s+/g, '') }) }
+                    : { orderId: r.orderId, dispatch: false, reason: r.reason, note: r.note })
+                const res = await confirmExyonDispatch(this.list.day, orders)
+                if (!res || res.success === false) throw new Error((res && res.message) || 'Failed')
+                const by = o => (res.results || []).filter(x => x.outcome === o)
+                const failed = by('failed')
+                const done = by('dispatched').length + by('already').length
+                const msg = [
+                    done ? this.$tp('{n} dispatched', { n: done }) : '',
+                    by('held').length ? this.$tp('{n} not dispatched', { n: by('held').length }) : ''
+                ].filter(Boolean).join(' · ')
+                if (failed.length) {
+                    this.$notify({
+                        type: 'error',
+                        title: this.$tp('{n} could not be updated in Neto', { n: failed.length }),
+                        message: failed.map(f => `${f.orderId}: ${f.message || ''}`).join('\n'),
+                        duration: 0
+                    })
+                }
+                if (msg) this.$message.success(msg)
+                this.confirmVisible = false
+                await this.reload()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to confirm the dispatch')))
+            } finally {
+                this.confirming = false
             }
         },
         // ── printing ──
@@ -291,6 +471,24 @@ export default {
     b { flex-shrink: 0; margin-left: auto; } }
 .xp-item-name { min-width: 0; color: #606266; line-height: 1.35; word-break: normal; }
 .xp-remove { color: #c0c4cc; &:hover { color: #f56c6c; } }
+/* Confirm dispatch */
+.xp-day-3 { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; font-size: 12px; }
+.xp-ok { color: #529b2e; }
+.xp-held { color: #d48806; }
+.xp-dsp { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.xp-dsp-ok { color: #529b2e; }
+.xp-dsp-held { color: #d48806; }
+.xp-dsp-fail { color: #f56c6c; }
+.xp-dsp-sub { font-size: 11px; color: #909399; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xp-cf-intro { display: flex; gap: 6px; margin-bottom: 10px; padding: 8px 12px; border-radius: 6px; background: #f4f8ff; color: #4b5563; font-size: 13px; line-height: 1.5;
+    i { margin-top: 3px; color: #409eff; } }
+.xp-cf-cust { margin-left: 6px; font-size: 12px; }
+.xp-cf-why { display: flex; flex-direction: column; gap: 4px; }
+.xp-cf-bad ::v-deep .el-input__inner { border-color: #f56c6c; }
+::v-deep .el-table .xp-cf-held > td { background: #fdf6ec; }
+.xp-cf-foot { display: flex; align-items: center; gap: 8px; }
+.xp-cf-count { font-size: 13px; color: #606266; b { color: #303133; } }
+.xp-cf-warn { margin-left: 10px; color: #e6a23c; }
 .xp-print-wrap { height: 72vh; background: #f2f3f5; }
 .xp-print-frame { width: 100%; height: 100%; border: none; display: block; }
 
