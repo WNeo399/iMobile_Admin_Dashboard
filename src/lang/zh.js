@@ -1214,6 +1214,8 @@ export default {
     '{n} line(s) left out — no longer pending': '{n} 项已移出 — 已不是待处理',
     'Failed to confirm the order batch': '确认下单批次失败',
     'Delete draft': '删除草稿',
+    // Order Batches: a Special Order / New Product not quoted yet can go on a batch (2026-10-21)
+    'No quote yet': '未报价',
     'Order batch back to draft': '下单批次退回草稿',
     'Click to change the unit price': '点击修改采购单价',
     'Print label': '打印标签',

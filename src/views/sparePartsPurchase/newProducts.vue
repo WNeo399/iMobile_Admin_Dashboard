@@ -501,7 +501,7 @@ import { listNewProducts, addNewProductModel, updateNewProductModel, newProductM
 import { createCategory } from '@/api/website'
 import {
     zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter,
-    PRICE_LISTS, blankPrices, swapModelsInName, blankFollow, modelsNamePartFor, withQualityTag, priceWarningsFor
+    PRICE_LISTS, blankPrices, swapModelsInName, blankFollow, modelsNamePartFor, withQualityTag, priceWarningsFor, newestModelFirst
 } from './shared'
 
 // the order the classifications are shown in after the needed parts
@@ -651,7 +651,15 @@ export default {
                 b.count++
                 if (miss) { s.missing++; b.missing++ }
             }
-            for (const b of brandNodes.values()) if (b.children.length) out.push(b)
+            // the order (user 2026-10-21): the series with the most models first,
+            // and each series' models newest first (shared.js newestModelFirst)
+            const bySize = (a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true })
+            for (const b of brandNodes.values()) {
+                if (!b.children.length) continue
+                b.children.sort(bySize)
+                for (const sn of b.children) sn.children.sort((x, y) => newestModelFirst(x.label, y.label))
+                out.push(b)
+            }
             return out
         },
         // the picked model (its row: coverage, codes, note)
@@ -720,7 +728,7 @@ export default {
                 if (!type) return true
                 if (r.brand !== brand) return false
                 return type !== 'series' || (r.series || 'Other') === series
-            })
+            }).sort((x, y) => newestModelFirst(x.model, y.model)) // as the tree
         },
         seriesTiles() {
             const b = this.tree.find(n => n.id === 'b:' + this.sel.brand)

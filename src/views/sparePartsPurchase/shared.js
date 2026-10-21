@@ -142,6 +142,45 @@ export function categoryPathIn(byId, id) {
 // typing in a category picker searches the whole path, any case
 export const categoryFilter = (node, keyword) => String(node.text || '').toLowerCase().includes(String(keyword || '').toLowerCase())
 
+// ── Listing's tree order (user 2026-10-21: models newest first) ──
+// A model name read for sorting: its line (the name up to its number —
+// "iPhone", "Galaxy A", "Moto G", "MacBook Air"), the number (18 in "iPhone
+// 18 Pro Max", 56 in "A56", 13 in 'MacBook Air 13" A2681'), every number in
+// it, a year in brackets ("iPad 10 (2022)") and the rest ("Pro Max"). "5G" /
+// "4G" are not model numbers; iPhone X / XR / XS count as 10.
+function modelSortKey(name) {
+    const full = String(name || '').trim()
+    const year = (full.match(/\((?:[^)]*?\b)?((?:19|20)\d{2})\b[^)]*\)/) || [])[1]
+    let body = full.replace(/\([^)]*\)/g, ' ').replace(/\b[45]G\b/gi, ' ')
+    body = body.replace(/\biPhone X([RS]?)\b/i, (m, s) => `iPhone 10${s}`).replace(/\s+/g, ' ').trim()
+    const m = body.match(/^(.*?)(\d+(?:\.\d+)?)(.*)$/)
+    return {
+        line: (m ? m[1] : body).replace(/["\s]+$/, '').trim().toLowerCase(),
+        num: m ? parseFloat(m[2]) : -1,
+        nums: (body.match(/\d+(?:\.\d+)?/g) || []).map(Number),
+        year: year ? Number(year) : 0,
+        rest: (m ? m[3] : '').replace(/^["\s]+/, '').trim().toLowerCase(),
+        full: full.toLowerCase()
+    }
+}
+// Newest first: line A–Z (iPad, iPad Air, iPad Pro …), then the number, the
+// year and the other numbers highest first, then the variants of one model
+// together — the plain one first (Pixel 11, 11 Pro, 11 Pro XL).
+export function newestModelFirst(a, b) {
+    const x = modelSortKey(a)
+    const y = modelSortKey(b)
+    if (x.line !== y.line) return x.line.localeCompare(y.line, undefined, { numeric: true })
+    if (x.num !== y.num) return y.num - x.num
+    if (x.year !== y.year) return y.year - x.year
+    for (let i = 1; i < Math.max(x.nums.length, y.nums.length); i++) {
+        const p = x.nums[i] == null ? -1 : x.nums[i]
+        const q = y.nums[i] == null ? -1 : y.nums[i]
+        if (p !== q) return q - p
+    }
+    if (x.rest !== y.rest) return !x.rest ? -1 : !y.rest ? 1 : x.rest.localeCompare(y.rest, undefined, { numeric: true })
+    return x.full.localeCompare(y.full, undefined, { numeric: true })
+}
+
 // ── An item's details (Listing's Create, and the product dialog shared by
 // Listing and New Products — 2026-10-21) ──
 // a model name reduced to what identifies the phone — the server's modelKey

@@ -101,7 +101,9 @@
                         <div class="spo-line-main">
                             <div class="spo-line-name">{{ r.productName }}</div>
                             <div class="spo-dim">SKU: {{ r.sku || '—' }} · {{ r.orderNo }} · {{ fmtDay(r.createdAt) }}<span v-if="r.status === 'shortage'"
-                                    class="spo-line-short"> · {{ statusLabel(r.status) }}</span><span v-if="r.note"> · {{ r.note }}</span></div>
+                                    class="spo-line-short"> · {{ statusLabel(r.status) }}</span><span v-if="r.note"> · {{ r.note }}</span>
+                                <!-- a Special Order / New Product not quoted yet: it can go on the batch now (2026-10-21) -->
+                                <el-tag v-if="awaitsQuote(r)" size="mini" type="warning" effect="plain" class="spo-noquote">{{ $tp('No quote yet') }}</el-tag></div>
                         </div>
                         <div class="spo-line-qty">× {{ r.orderQty }}</div>
                     </div>
@@ -213,7 +215,7 @@ import {
     listOrderBatches, getOrderBatch, createOrderBatch, updateOrderBatch, confirmOrderBatch, discardOrderBatch,
     listOrders, getMeta
 } from '@/api/sparePartsPurchase'
-import { STATUS_META, CATEGORIES, QUOTE_FIRST, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
+import { STATUS_META, CATEGORIES, awaitsQuote, fmtDay, fmtWhen, yuan, orderListHtml } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 
 export default {
@@ -313,7 +315,7 @@ export default {
         }
     },
     methods: {
-        fmtDay, fmtWhen, yuan,
+        fmtDay, fmtWhen, yuan, awaitsQuote,
         can(p) {
             return hasPermission(this.$store.getters.permissions, p)
         },
@@ -404,9 +406,9 @@ export default {
                     rows.push(...((r && r.rows) || []))
                     if (!r || rows.length >= (r.total || 0) || !(r.rows || []).length) break
                 }
-                // a New Product / Special Order still waiting for its quote / confirmation
-                // cannot be placed yet (the backend refuses it too)
-                this.pending = rows.filter(r => !(QUOTE_FIRST.includes(r.category) && !r.confirmed))
+                // every waiting line — a Special Order / New Product still waiting for
+                // its quote included (user 2026-10-21: they go on an order batch too)
+                this.pending = rows
                 // land on the first category that has something to pick
                 if (!this.pick.category || !this.catCount(this.pick.category)) {
                     this.pick.category = CATEGORIES.find(c => this.catCount(c)) || CATEGORIES[0]
@@ -711,6 +713,7 @@ export default {
 .spo-pname { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; line-height: 1.35; }
 .spo-psku { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spo-line-short { color: #e6a23c; }
+.spo-noquote { margin-left: 6px; vertical-align: 1px; }
 .spo-line-qty { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spo-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }
 .spo-draft-tag { cursor: pointer; }
