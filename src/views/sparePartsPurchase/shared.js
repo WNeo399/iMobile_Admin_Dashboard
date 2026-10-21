@@ -142,6 +142,97 @@ export function categoryPathIn(byId, id) {
 // typing in a category picker searches the whole path, any case
 export const categoryFilter = (node, keyword) => String(node.text || '').toLowerCase().includes(String(keyword || '').toLowerCase())
 
+// ── An item's details (Listing's Create, and the product dialog shared by
+// Listing and New Products — 2026-10-21) ──
+// a model name reduced to what identifies the phone — the server's modelKey
+export const fitKey = s => String(s || '').toLowerCase()
+    .replace(/\b(xt|pb|pa)[-\w]*\d[\w-]*/g, ' ')
+    .replace(/\b(motorola|moto|samsung|galaxy|google|apple|oppo|xiaomi|huawei|sony|nokia|5g|4g|us)\b/g, ' ')
+    .replace(/[^a-z0-9()]+/g, '')
+// the four price lists, as Price Monitoring names them
+export const PRICE_LISTS = [
+    { list: 'platinum', label: 'Platinum' },
+    { list: 'vip', label: 'VIP' },
+    { list: 'svip', label: 'SVIP' },
+    { list: 'wholesale', label: 'Wholesale' }
+]
+export const blankPrices = () => ({ platinum: undefined, vip: undefined, svip: undefined, wholesale: undefined })
+// two prices the same (blank = blank)
+export const samePrice = (a, b) => (a == null || a === '') ? (b == null || b === '') : (b != null && b !== '' && Math.abs(Number(a) - Number(b)) < 0.005)
+// The models in an item name (2026-10-20, "editing compatible models
+// reflects in the product name"): the team's names read "<models> Compatible
+// <part>", so what comes before "Compatible" is swapped for the new list; a
+// name without it follows only while it still starts with the models last put
+// there. null = left as it is (changed by hand).
+export const swapModelsInName = (name, lastPart, part) => {
+    const n = String(name || '')
+    if (!part) return null
+    const m = n.match(/\s+compatible\b/i)
+    if (m && m.index > 0) return part + n.slice(m.index)
+    if (lastPart && n.toLowerCase().startsWith(lastPart.toLowerCase())) return part + n.slice(lastPart.length)
+    return null
+}
+// per dialog: the model part last put in the name, the name before (Undo), the note shown
+export const blankFollow = () => ({ part: '', undo: null, note: '' })
+// The model part of a name for a Compatible Model list, from Listing's brands
+// and models (GET /new-products, or /new-products/edit-context): each model the
+// way the page names it — the first in full ("Samsung Galaxy S24 (S921)"), the
+// rest short ("S24 Plus (S926)"), " / " between. A model not on the page: its
+// Compatible Model without the brand's words, the brand's lead before the
+// first ("MOTO", "Samsung Galaxy").
+export function modelsNamePartFor(brands, rows, brand, models) {
+    const b = (brands || []).find(x => x.value === brand) || {}
+    const own = (rows || []).filter(r => r.brand === brand && r.nameModel)
+    const words = (b.words || []).map(w => String(w).toLowerCase())
+    return (models || []).map((cm, i) => {
+        let row = own.find(r => r.compatibleModel === cm)
+        if (!row) {
+            const k = fitKey(cm)
+            const hits = k ? own.filter(r => [r.compatibleModel, r.model, ...(r.aliases || [])].some(x => fitKey(x) === k)) : []
+            if (hits.length === 1) row = hits[0]
+        }
+        if (row) return i === 0 ? row.nameModel.full : row.nameModel.short
+        let short = String(cm || '').trim()
+        for (let again = true; again;) {
+            again = false
+            for (const w of words) {
+                const rx = new RegExp('^' + w + '\\s+', 'i')
+                if (rx.test(short)) { short = short.replace(rx, ''); again = true }
+            }
+        }
+        if (i > 0 || !b.nameLead || /^(realme|oneplus)\b/i.test(short)) return short
+        return `${b.nameLead} ${short}`
+    }).filter(Boolean).join(' / ')
+}
+// The quality goes at the end of the name in brackets, the way the team's
+// items read ("… Compatible Battery [Original]"); picking another one swaps
+// it, clearing it takes it off. Only a trailing tag that IS a quality (one of
+// `qualities`, or the one put on last) is replaced, so typed wording stays.
+export function withQualityTag(name, quality, applied, qualities) {
+    const known = [...(qualities || []).filter(Boolean), applied].filter(Boolean)
+    let base = String(name || '').trim()
+    for (let m = base.match(/\s*\[([^\]]+)\]$/); m && known.includes(m[1]); m = base.match(/\s*\[([^\]]+)\]$/)) {
+        base = base.slice(0, m.index).trim()
+    }
+    return quality ? `${base} [${quality}]` : base
+}
+// The typed price lists against the tier order (advisory, as on Price
+// Monitoring: SVIP & Wholesale ≤ VIP ≤ Platinum; SVIP vs Wholesale free), and
+// a list under the cost. `tp` = the page's $tp.
+export function priceWarningsFor(prices, costValue, tp) {
+    const p = prices || {}
+    const has = k => p[k] != null && p[k] !== ''
+    const out = []
+    const rule = (low, high, a, b) => { if (has(low) && has(high) && Number(p[low]) > Number(p[high])) out.push(tp('{a} is above {b}', { a, b })) }
+    rule('vip', 'platinum', 'VIP', 'Platinum')
+    rule('svip', 'vip', 'SVIP', 'VIP')
+    rule('wholesale', 'vip', 'Wholesale', 'VIP')
+    if (!has('vip')) { rule('svip', 'platinum', 'SVIP', 'Platinum'); rule('wholesale', 'platinum', 'Wholesale', 'Platinum') }
+    const cost = Number(costValue)
+    if (cost > 0) for (const { list, label } of PRICE_LISTS) if (has(list) && Number(p[list]) < cost) out.push(tp('{a} is below the cost', { a: label }))
+    return out
+}
+
 export const dhlLink = t =>`https://www.dhl.com/au-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encodeURIComponent(t)}`
 export const zohoLink = id => `https://inventory.zoho.com/app/746138234#/inventory/items/${id}`
 export const zohoPoLink = id => `https://inventory.zoho.com/app/746138234#/purchaseorders/${id}`

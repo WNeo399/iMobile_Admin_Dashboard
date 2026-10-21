@@ -219,6 +219,20 @@ export const moduleRoutes = [
         }
       },
       {
+        // New Products (2026-10-21): every product created in the dashboard
+        // (Listing's Create, Purchase Order's "Create in Zoho") — review its
+        // details and prices, tick it Reviewed, order it (Spare Parts
+        // Purchase lines). Admin, iMobile Admin and iMobile Warehouse only.
+        path: "new-items",
+        component: (resolve) => require(["@/views/listing/newItems"], resolve),
+        name: "ListingNewItems",
+        meta: {
+          title: "New Products",
+          icon: "el-icon-present",
+          permissions: ["newproduct:item:view"]
+        }
+      },
+      {
         // The online store's category tree through Zoho Commerce (shared
         // with Zoho Inventory): create / edit categories, see a category's
         // products, move products into it.

@@ -208,6 +208,21 @@ export function updateNewProductItem(itemId, data) {
 export function saveNewProductItemPhotos(itemId, data) {
   return request({ url: `${BASE}/new-products/items/${itemId}/photos`, method: 'post', data, timeout: 120000 })
 }
+// what the product dialog needs around an item (brand = a Device Brand):
+// naming facts, the brand's models, qualities, classifications, formulas
+export function getNewProductEditContext(brand) {
+  return request({ url: `${BASE}/new-products/edit-context`, method: 'get', params: { brand } })
+}
+
+// Listing → New Products (2026-10-21): every product created in the
+// dashboard (search, reviewed=yes|no|changed, by, brand, issues=1, page,
+// pageSize), and the Reviewed tick for some of them.
+export function listNewItems(params) {
+  return request({ url: `${BASE}/new-items`, method: 'get', params, timeout: 60000 })
+}
+export function reviewNewItems(itemIds, reviewed) {
+  return request({ url: `${BASE}/new-items/review`, method: 'post', data: { itemIds, reviewed } })
+}
 export function updateBatch(id, data) {
   return request({ url: `${BASE}/batches/${id}`, method: 'put', data })
 }

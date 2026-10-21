@@ -8,8 +8,8 @@
     -->
     <el-dialog :visible="visible" :width="mobile ? '94%' : '780px'" :top="mobile ? '3vh' : '8vh'" append-to-body
         :custom-class="'spp-add-dlg' + (mobile ? ' spp-dlg-m' : '')" :close-on-click-modal="false"
-        @update:visible="v => $emit('update:visible', v)" @opened="focusSearch" @closed="reset">
-        <div slot="title" class="spp-dlg-head"><i class="el-icon-plus" /> {{ $tp('Add Item') }}
+        @update:visible="v => $emit('update:visible', v)" @open="fillPreset" @opened="focusSearch" @closed="reset">
+        <div slot="title" class="spp-dlg-head"><i class="el-icon-plus" /> {{ $tp(title || 'Add Item') }}
             <span class="spp-dlg-no">{{ $tp('added as Pending') }}</span></div>
 
         <el-autocomplete ref="search" v-model="query" :fetch-suggestions="suggest" :trigger-on-focus="false" :debounce="250"
@@ -82,7 +82,11 @@ export default {
         defaultSea: { type: Boolean, default: false },
         // every line files under this category (the Warranty list, 2026-10-14) — the 空运 / 海运 choice is hidden
         fixedCategory: { type: String, default: '' },
-        mobile: { type: Boolean, default: false }
+        mobile: { type: Boolean, default: false },
+        // items to start with (Listing → New Products' "Create PO", 2026-10-21):
+        // the search's shape — { itemId, sku, name, imageId, imageUrl, suggestedCategory, available }
+        preset: { type: Array, default: () => [] },
+        title: { type: String, default: '' }
     },
     data() {
         // last: the newest search answered, { q, rows }; seq orders the requests
@@ -102,6 +106,20 @@ export default {
             this.query = ''
             this.lines = []
             this.last = { q: '', rows: [] }
+        },
+        // the preset items as lines, with what is on order for them (one call)
+        async fillPreset() {
+            if (!this.preset.length) return
+            this.lines = this.preset.slice(0, MAX_LINES).map(item => ({ ...item, orderQty: 1, sea: this.defaultSea, note: '', onOrder: '' }))
+            try {
+                const r = await purchasesByItemIds(this.lines.map(l => l.itemId))
+                const data = (r && r.data) || {}
+                for (const l of this.lines) {
+                    const o = data[l.itemId]
+                    const parts = o ? STAGES.filter(([k]) => o[k]).map(([k, label]) => `${o[k]} ${this.$tp(label)}`) : []
+                    if (parts.length) l.onOrder = parts.join(' · ')
+                }
+            } catch (e) { /* the warning is a nicety */ }
         },
         taken(item) {
             return this.lines.some(l => l.itemId === item.itemId)
