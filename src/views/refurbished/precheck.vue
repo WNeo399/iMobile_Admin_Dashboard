@@ -25,16 +25,14 @@
             </el-radio-group>
             <span class="rpc-count">{{ $tp('{n} device(s)', { n: total }) }}</span>
             <span class="rpc-spacer" />
-            <el-button v-if="canManage && selected.length" size="small" type="danger" plain icon="el-icon-delete" @click="removeSelected">
-                {{ $tp('Remove {n}', { n: selected.length }) }}</el-button>
+            <!-- Excel (user 2026-10-22): the whole list as filtered, after a confirm -->
+            <el-button size="small" icon="el-icon-download" :loading="exporting" :disabled="!total" @click="exportExcel">{{ $tp('Export') }}</el-button>
             <el-button v-if="canManage" size="small" type="primary" icon="el-icon-plus" @click="openAdd">{{ $tp('Add Device') }}</el-button>
             <el-button size="small" icon="el-icon-refresh" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
 
         <el-table v-loading="loading" :data="rows" border size="mini" height="calc(100vh - 214px)" row-key="_id"
-            :row-class-name="rowClass" :empty-text="$tp('No devices yet — add them with Add Device.')"
-            @selection-change="v => (selected = v)">
-            <el-table-column v-if="canManage" type="selection" width="38" align="center" />
+            :row-class-name="rowClass" :empty-text="$tp('No devices yet — add them with Add Device.')">
             <el-table-column :label="$tp('IMEI')" min-width="170">
                 <template slot-scope="s"><b class="rpc-mono">{{ s.row.imei }}</b></template>
             </el-table-column>
@@ -74,8 +72,12 @@
                 </template>
             </el-table-column>
         </el-table>
-        <el-pagination v-if="total > query.pageSize" class="rpc-pager" small background layout="total, prev, pager, next"
-            :total="total" :page-size="query.pageSize" :current-page.sync="query.page" @current-change="load" />
+        <!-- the Stock page's pager: page size + jump to a page (user 2026-10-22) -->
+        <div class="rpc-pager">
+            <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                :total="total" :page-size="query.pageSize" :page-sizes="[25, 50, 100, 200]"
+                :current-page="query.page" @current-change="onPage" @size-change="onSize" />
+        </div>
 
         <!-- Add Device / Edit (user 2026-10-20: "make the add device a dialog").
              Adding keeps the dialog open for the next one — scan or type the
@@ -197,9 +199,11 @@
 </template>
 
 <script>
-import { getPrecheck, addPrecheck, updatePrecheck, deletePrecheck, deletePrechecks, getRefurbSuppliers,
+import { getPrecheck, addPrecheck, updatePrecheck, deletePrecheck, getRefurbSuppliers,
     lookupRefurbDevice, createRefurbDevice } from '@/api/refurbished'
 import { hasPermission } from '@/utils/permission'
+// xlsx-js-style — the styled SheetJS fork the other dashboard exports use
+import * as XLSX from 'xlsx-js-style'
 
 const blankForm = () => ({ imei: '', device: '', supplierId: '', assign: '', note: '' })
 // as on the Stock page's add form (views/refurbished/stock.vue)
@@ -219,9 +223,9 @@ export default {
             loading: false,
             rows: [],
             total: 0,
-            selected: [],
             query: { search: '', supplierId: '', added: '', page: 1, pageSize: 50 },
             justAdded: '',
+            exporting: false,
             mySuppliers: [],
             // the Add Device / Edit dialog
             dialogVisible: false,
@@ -293,6 +297,8 @@ export default {
             this.query.page = 1
             this.load()
         },
+        onPage(p) { this.query.page = p; this.load() },
+        onSize(s) { this.query.pageSize = s; this.query.page = 1; this.load() },
         // the supplier's own suppliers (Suppliers page), for the pickers
         async loadLists() {
             try {
@@ -453,19 +459,66 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to remove the record')))
             }
         },
-        async removeSelected() {
-            const ids = this.selected.map(r => r._id)
-            if (!ids.length) return
-            try {
-                await this.$confirm(this.$tp('Remove {n} device(s) from the list?', { n: ids.length }), this.$tp('Remove'), { type: 'warning', confirmButtonText: this.$tp('Remove'), cancelButtonText: this.$tp('Cancel') })
-            } catch (e) { return }
-            try {
-                const r = await deletePrechecks(ids)
+        // ── Export (user 2026-10-22) ──
+        // the whole list under the current search / filters, a page of 500 at a time
+        async allRows() {
+            const out = []
+            for (let page = 1; ; page++) {
+                const r = await getPrecheck({ ...this.query, page, pageSize: 500 })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.$message.success(this.$tp('{n} removed', { n: r.removed }))
-                this.load()
+                const rows = r.rows || []
+                out.push(...rows)
+                if (!rows.length || out.length >= (r.total || 0)) return out
+            }
+        },
+        // a full date for the sheet: 21/10/2026 14:05
+        sheetWhen(v) {
+            if (!v) return ''
+            const d = new Date(v)
+            return d.toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })
+        },
+        async exportExcel() {
+            if (this.exporting || !this.total) return
+            try {
+                await this.$confirm(this.$tp('Export {n} device(s) to Excel?', { n: this.total }), this.$tp('Export'),
+                    { type: 'info', confirmButtonText: this.$tp('Export'), cancelButtonText: this.$tp('Cancel') })
+            } catch (e) { return }
+            this.exporting = true
+            try {
+                const rows = await this.allRows()
+                if (!rows.length) { this.$message.warning(this.$tp('Nothing to export')); return }
+                const header = ['IMEI', 'Device', 'Supplier', 'Assign', 'Note', 'Added to Stock', 'Added to Stock on', 'Added', 'Added By']
+                const aoa = [header.map(h => this.$tp(h)), ...rows.map(x => [
+                    x.imei,
+                    this.oneLine(x.device),
+                    (x.supplier && x.supplier.name) || '',
+                    x.assign || '',
+                    x.note || '',
+                    this.$tp(x.addedToStock ? 'Yes' : 'No'),
+                    x.addedToStock ? this.sheetWhen(x.addedToStock.at) : '',
+                    this.sheetWhen(x.createdAt),
+                    x.createdBy || ''
+                ])]
+                // IMEIs are strings, so Excel keeps them as text (every digit)
+                const ws = XLSX.utils.aoa_to_sheet(aoa)
+                const headerStyle = {
+                    font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+                    fill: { fgColor: { rgb: '409EFF' } },
+                    alignment: { horizontal: 'center', vertical: 'center' }
+                }
+                header.forEach((h, c) => { const addr = XLSX.utils.encode_cell({ r: 0, c }); if (ws[addr]) ws[addr].s = headerStyle })
+                ws['!cols'] = [{ wch: 20 }, { wch: 34 }, { wch: 18 }, { wch: 14 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 16 }]
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, 'Pending Stock')
+                const d = new Date()
+                const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                XLSX.writeFile(wb, `Pending Stock ${day}.xlsx`)
+                this.$message.success(this.$tp('{n} device(s) exported', { n: rows.length }))
             } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Failed to remove the records')))
+                console.error('Pending Stock export failed:', e)
+                this.$message.error(this.msg(e, this.$tp('Failed to export the list')))
+            } finally {
+                this.exporting = false
             }
         }
     }
@@ -508,5 +561,7 @@ export default {
 @media (max-width: 767px) {
     .rpc-filters .f-search, .rpc-filters .f-supplier { width: 100%; }
     .rpc-added { margin-left: 0; }
+    /* the full pager wraps on a phone instead of running off the side */
+    .rpc-pager ::v-deep .el-pagination { white-space: normal; }
 }
 </style>
