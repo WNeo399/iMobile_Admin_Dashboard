@@ -98,6 +98,7 @@
                                 <div class="xd-skus">
                                     <span v-if="g.zohoSku" class="xd-sku xd-sku-zoho" :title="g.zohoName"><em>Zoho</em>{{ g.zohoSku }}</span>
                                     <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span>
+                                    <span v-if="g.location" class="xd-loc" :title="$tp('Location')"><i class="el-icon-location-outline" /> {{ g.location }}</span>
                                 </div>
                             </div>
                         </div>
@@ -151,7 +152,8 @@
                                 <div class="xd-i-info">
                                     <div class="xd-i-name" :title="it.productName">{{ it.productName || '—' }}</div>
                                     <div class="xd-skus"><span class="xd-sku" :title="$tp('Neto SKU')"><em>SKU</em>{{ it.sku }}</span>
-                                        <span v-if="it.zohoSku" class="xd-sku xd-sku-zoho" :title="it.zohoName"><em>Zoho</em>{{ it.zohoSku }}</span></div>
+                                        <span v-if="it.zohoSku" class="xd-sku xd-sku-zoho" :title="it.zohoName"><em>Zoho</em>{{ it.zohoSku }}</span>
+                                        <span v-if="it.location" class="xd-loc" :title="$tp('Location')"><i class="el-icon-location-outline" /> {{ it.location }}</span></div>
                                 </div>
                                 <b class="xd-i-qty">× {{ it.quantity }}</b>
                             </div>
@@ -180,7 +182,8 @@
                                 <div class="xd-name">{{ g.productName || '—' }}</div>
                                 <div class="xd-skus"><span class="xd-sku" :title="$tp('Neto SKU')"><em>SKU</em>{{ g.sku }}</span></div>
                                 <div class="xd-skus"><span v-if="g.zohoSku" class="xd-sku xd-sku-zoho" :title="g.zohoName"><em>Zoho</em>{{ g.zohoSku }}</span>
-                                    <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span></div>
+                                    <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span>
+                                    <span v-if="g.location" class="xd-loc" :title="$tp('Location')"><i class="el-icon-location-outline" /> {{ g.location }}</span></div>
                             </div>
                             <span class="xd-flex" />
                             <span class="xd-count">{{ g.orders.length }} {{ $tp(g.orders.length === 1 ? 'order' : 'orders') }}</span>
@@ -227,7 +230,8 @@
                                 <div class="xd-i-info">
                                     <div class="xd-i-name">{{ it.productName || '—' }}</div>
                                     <div class="xd-skus"><span class="xd-sku" :title="$tp('Neto SKU')"><em>SKU</em>{{ it.sku }}</span>
-                                        <span v-if="it.zohoSku" class="xd-sku xd-sku-zoho" :title="it.zohoName"><em>Zoho</em>{{ it.zohoSku }}</span></div>
+                                        <span v-if="it.zohoSku" class="xd-sku xd-sku-zoho" :title="it.zohoName"><em>Zoho</em>{{ it.zohoSku }}</span>
+                                        <span v-if="it.location" class="xd-loc" :title="$tp('Location')"><i class="el-icon-location-outline" /> {{ it.location }}</span></div>
                                 </div>
                                 <b class="xd-i-qty">× {{ it.quantity }}</b>
                             </div>
@@ -361,21 +365,27 @@ const TABS = [
     { key: 'multi', label: 'Multiple line items', icon: 'el-icon-files', empty: 'No multi-line orders to process' },
     { key: 'onlist', label: 'On pick list', icon: 'el-icon-document', empty: 'No orders on a pick list' }
 ]
-// Sort by — per tab (the first is the default)
+// Sort by — per tab (the first is the default; Location, the walk
+// through the warehouse — user 2026-10-21)
 const SORTS = {
     sku: [
+        { value: 'location', label: 'Location' },
         { value: 'units', label: 'Most units' },
         { value: 'orders', label: 'Most orders' },
         { value: 'oldest', label: 'Oldest first' },
         { value: 'name', label: 'Product A–Z' }
     ],
     multi: [
+        { value: 'location', label: 'Location' },
         { value: 'oldest', label: 'Oldest first' },
         { value: 'newest', label: 'Newest first' },
         { value: 'units', label: 'Most units' }
     ]
 }
 SORTS.onlist = SORTS.multi
+// Shelf locations in the walk's order (A2 before A10, as the pick list),
+// no location last
+const byLocation = (a, b) => (a ? 0 : 1) - (b ? 0 : 1) || String(a || '').localeCompare(String(b || ''), undefined, { numeric: true })
 const SIZE_RANK = { small: 0, medium: 1, large: 2, other: 3 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const placedOf = o => String((o && o.datePlaced) || '')
@@ -482,7 +492,8 @@ export default {
                 units: (a, b) => b.units - a.units || b.orders.length - a.orders.length,
                 orders: (a, b) => b.orders.length - a.orders.length || b.units - a.units,
                 oldest: (a, b) => oldest(a).localeCompare(oldest(b)),
-                name: (a, b) => String(a.productName || '').localeCompare(String(b.productName || ''))
+                name: (a, b) => String(a.productName || '').localeCompare(String(b.productName || '')),
+                location: (a, b) => byLocation(a.location, b.location) || String(a.productName || '').localeCompare(String(b.productName || ''))
             }[this.sortBy.sku] || (() => 0)
             return groups.sort((a, b) => by(a, b) || String(a.sku).localeCompare(String(b.sku)))
         },
@@ -927,15 +938,20 @@ export default {
                 this.$set(row, 'apBusy', false)
             }
         },
-        // one-order tiles in Sort by order: oldest / newest placed, most units
+        // one-order tiles in Sort by order: oldest / newest placed, most units,
+        // location (the first shelf of its items)
         sortOrders(list, by) {
             const units = o => this.orderUnits(o)
             const cmp = {
                 oldest: (a, b) => placedOf(a).localeCompare(placedOf(b)),
                 newest: (a, b) => placedOf(b).localeCompare(placedOf(a)),
-                units: (a, b) => units(b) - units(a) || placedOf(a).localeCompare(placedOf(b))
+                units: (a, b) => units(b) - units(a) || placedOf(a).localeCompare(placedOf(b)),
+                location: (a, b) => byLocation(this.firstLocation(a), this.firstLocation(b)) || placedOf(a).localeCompare(placedOf(b))
             }[by] || (() => 0)
             return list.slice().sort((a, b) => cmp(a, b) || String(a.orderId).localeCompare(String(b.orderId)))
+        },
+        firstLocation(o) {
+            return (o.items || []).map(it => it.location).filter(Boolean).sort(byLocation)[0] || ''
         },
         orderUnits(o) {
             return (o.items || []).reduce((t, it) => t + (Number(it.quantity) || 0), 0)

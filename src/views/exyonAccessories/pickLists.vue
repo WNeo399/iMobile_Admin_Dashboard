@@ -300,9 +300,18 @@ export default {
         vsummary() {
             return this.viewed.summary || {}
         },
+        // the not dispatched ones on top (user 2026-10-21), then a failed Neto
+        // push, then the ones still to confirm, the dispatched last — each part
+        // in the list's own order
         viewedOrders() {
             const ids = new Set(this.viewed.orderIds)
-            return ((this.list && this.list.orders) || []).filter(o => ids.has(o.orderId))
+            const RANK = { held: 0, failed: 1, dispatched: 3 }
+            const rank = o => (this.dstatus(o) in RANK ? RANK[this.dstatus(o)] : 2)
+            return ((this.list && this.list.orders) || [])
+                .map((o, i) => ({ o, i }))
+                .filter(x => ids.has(x.o.orderId))
+                .sort((a, b) => rank(a.o) - rank(b.o) || a.i - b.i)
+                .map(x => x.o)
         },
         viewHint() {
             if (this.view === 'open') return this.$tp('Not printed yet — printing makes it batch {n}; orders added after go into the next batch', { n: this.nextBatchNo })
