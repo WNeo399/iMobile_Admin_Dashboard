@@ -36,6 +36,17 @@ export function findOnPickLists(q) {
 export function getExyonPickList(day) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}`, method: 'get' })
 }
+// Australia Post labels (2026-10-21) for Large / Other envelopes:
+// orders [{ orderId, parcel? }] → { results, pdf (base64), labelError };
+// dryRun = AusPost's price check only. An order's label made already is
+// reprinted. Cancel deletes the shipment (before it is lodged).
+// reprintOnly: only labels made already — never a new shipment
+export function createAuspostLabels(orders, dryRun, reprintOnly) {
+  return request({ url: '/exyon-accessories/auspost/labels', method: 'post', data: { orders, dryRun: !!dryRun, reprintOnly: !!reprintOnly }, timeout: 180000 })
+}
+export function cancelAuspostLabel(orderId) {
+  return request({ url: `/exyon-accessories/auspost/labels/${encodeURIComponent(orderId)}/cancel`, method: 'post', timeout: 60000 })
+}
 // Printing (2026-10-21): { orderIds } — the new orders printed, closed as the
 // day's next batch; { batch } — that batch printed again
 export function printExyonPickList(day, data) {

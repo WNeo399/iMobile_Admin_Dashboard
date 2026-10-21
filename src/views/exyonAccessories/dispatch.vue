@@ -52,8 +52,9 @@
                 </div>
             </div>
             <span class="xd-flex" />
+            <!-- every processed order's label in one print: ours, then the AusPost ones (2026-10-21) -->
             <el-button v-if="tab === 'onlist' && processedOnList.length" size="small" icon="el-icon-printer" :loading="labelLoading === 'all'"
-                @click="printLabels(processedOnList.map(o => o.orderId))">{{ $tp('Print all labels') }} ({{ processedOnList.length }})</el-button>
+                @click="printAllLabels(processedOnList)">{{ $tp('Print all labels') }} ({{ processedOnList.length }})</el-button>
             <el-button v-if="view === 'list' && tab === 'sku' && currentGroups.length" type="text" size="small" @click="toggleAll">
                 {{ allCollapsed ? $tp('Expand all') : $tp('Collapse all') }}</el-button>
             <span class="xd-sort-label">{{ $tp('Sort by') }}</span>
@@ -215,7 +216,9 @@
                             <span class="xd-o-when">{{ when(o.datePlaced) }}</span>
                             <el-tag size="mini" :type="statusTag(o.status)">{{ o.status }}</el-tag>
                             <el-button v-if="canProcess && !o.tracking" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" @click="openProcess('multi', o)">{{ $tp('Process') }}</el-button>
-                            <el-button v-if="o.tracking" size="mini" plain icon="el-icon-printer" class="xd-process" :loading="labelLoading === o.orderId" @click="printLabels([o.orderId], o.orderId)">{{ $tp('Label') }}</el-button>
+                            <!-- an AusPost label is printed again from AusPost; the others are ours -->
+                            <el-button v-if="o.auspost" size="mini" plain icon="el-icon-printer" class="xd-process" :loading="!!o.apBusy" @click="makeAuspost([o])">{{ $tp('AusPost label') }}</el-button>
+                            <el-button v-else-if="o.tracking" size="mini" plain icon="el-icon-printer" class="xd-process" :loading="labelLoading === o.orderId" @click="printLabels([o.orderId], o.orderId)">{{ $tp('Label') }}</el-button>
                         </div>
                         <div class="xd-ilist xd-ilist-list">
                             <div v-for="it in o.items" :key="it.sku" class="xd-i">
@@ -245,7 +248,7 @@
         <el-dialog :title="$tp('Process orders')" :visible.sync="processVisible" width="720px" top="6vh" append-to-body
             custom-class="xd-process-dialog" @opened="focusScan(0)">
             <div v-if="processItems.length" class="xd-ph">
-                <div v-for="it in processItems" :key="it.sku" class="xd-i">
+                <div v-for="(it, k) in processItems" :key="it.sku" class="xd-i">
                     <el-image v-if="it.image" :src="it.image" fit="contain" :preview-src-list="[it.image]" class="xd-thumb xd-thumb-sm" />
                     <div v-else class="xd-thumb xd-thumb-sm xd-thumb-none"><i class="el-icon-picture-outline" /></div>
                     <div class="xd-i-info">
@@ -255,9 +258,13 @@
                             <span v-if="it.location" class="xd-loc"><i class="el-icon-location-outline" /> {{ it.location }}</span></div>
                     </div>
                     <b v-if="it.quantity" class="xd-i-qty">× {{ it.quantity }}</b>
+                    <!-- the package, once (user 2026-10-21: a SKU's orders all ship in the same one) -->
+                    <span v-if="k === 0 && processPkg" :class="['xd-env', 'xd-env-' + envSize(processPkg)]" :title="envTitle(processPkg)">
+                        <i class="el-icon-message" />{{ envLabel(processPkg) }}</span>
                 </div>
             </div>
-            <div class="xd-pr-hint"><i class="el-icon-full-screen" /> {{ $tp('Scan the tracking label of each order — the cursor moves to the next order by itself') }}</div>
+            <div v-if="processRows.some(r => !auspostOk(r))" class="xd-pr-hint"><i class="el-icon-full-screen" /> {{ $tp('Scan the tracking label of each order — the cursor moves to the next order by itself') }}</div>
+            <div v-if="processRows.some(r => auspostOk(r))" class="xd-pr-hint"><i class="el-icon-s-promotion" /> {{ $tp('Large and Other envelopes: create the AusPost label — its tracking number is filled in, no scan') }}</div>
             <div class="xd-pr-list">
                 <div v-for="(r, i) in processRows" :key="r.orderId" :class="['xd-pr', { done: !!clean(r.tracking), dup: isDup(r) }]">
                     <span class="xd-pr-n">{{ i + 1 }}</span>
@@ -269,9 +276,41 @@
                             <span class="xd-o-when">{{ when(r.datePlaced) }}</span>
                         </div>
                     </div>
-                    <span :class="['xd-env', 'xd-env-' + envSize(r)]" :title="envTitle(r)"><i class="el-icon-message" />{{ envLabel(r) }}</span>
                     <span v-if="r.quantity" class="xd-pr-qty">× {{ r.quantity }}</span>
-                    <el-input :ref="'scan' + i" v-model="r.tracking" size="small" clearable class="xd-pr-input"
+                    <!-- Large / Other: no scan — an AusPost eParcel label (user 2026-10-21), in the
+                         scan box's place: the button and its parcel (click to change), then once
+                         made its tracking number with reprint / cancel -->
+                    <div v-if="auspostOk(r)" :class="['xd-ap-box', { made: !!r.auspost }]">
+                        <template v-if="r.auspost">
+                            <i class="el-icon-s-promotion xd-ap-mark" />
+                            <span class="xd-ap-track" :title="$tp('AusPost tracking number')">{{ clean(r.tracking) || r.auspost.articleId }}</span>
+                            <el-tooltip :content="$tp('Print the AusPost label again')" placement="top">
+                                <el-button size="mini" icon="el-icon-printer" circle :loading="r.apBusy" @click="makeAuspost([r])" />
+                            </el-tooltip>
+                            <el-tooltip :content="$tp('Cancel this AusPost label (before it is lodged)')" placement="top">
+                                <el-button size="mini" icon="el-icon-close" circle class="xd-ap-x" :disabled="r.apBusy" @click="cancelAuspost(r)" />
+                            </el-tooltip>
+                        </template>
+                        <template v-else>
+                            <el-button size="small" type="warning" plain icon="el-icon-s-promotion" :loading="r.apBusy" @click="makeAuspost([r])">{{ $tp('AusPost label') }}</el-button>
+                            <el-popover placement="bottom-end" width="290" trigger="click">
+                                <div class="xd-ap-form">
+                                    <el-select v-model="r.parcel.productId" size="mini" style="width:100%">
+                                        <el-option :label="$tp('Parcel Post')" value="3D55" />
+                                        <el-option :label="$tp('Express Post')" value="3J55" />
+                                    </el-select>
+                                    <div class="xd-ap-row"><span>{{ $tp('Weight') }}</span>
+                                        <el-input-number v-model="r.parcel.weight" size="mini" :min="0.01" :max="22" :step="0.1" :precision="2" controls-position="right" /> kg</div>
+                                    <div class="xd-ap-row"><span>{{ $tp('Size') }}</span>
+                                        <el-input-number v-model="r.parcel.length" size="mini" :min="1" :max="105" :controls="false" class="xd-ap-cm" /> ×
+                                        <el-input-number v-model="r.parcel.width" size="mini" :min="1" :max="105" :controls="false" class="xd-ap-cm" /> ×
+                                        <el-input-number v-model="r.parcel.height" size="mini" :min="1" :max="105" :controls="false" class="xd-ap-cm" /> cm</div>
+                                </div>
+                                <span slot="reference" class="xd-ap-parcel" :title="$tp('Change the parcel')">{{ parcelText(r.parcel) }} <i class="el-icon-edit-outline" /></span>
+                            </el-popover>
+                        </template>
+                    </div>
+                    <el-input v-else :ref="'scan' + i" v-model="r.tracking" size="small" clearable class="xd-pr-input"
                         :placeholder="$tp('Scan tracking number')" prefix-icon="el-icon-full-screen"
                         @keydown.native.enter.prevent="nextScan(i, $event)" @focus="selectAll" />
                     <i :class="['xd-pr-ok', clean(r.tracking) ? 'el-icon-success' : 'el-icon-time']" />
@@ -281,6 +320,12 @@
             <span slot="footer" class="xd-pr-foot">
                 <span class="xd-pr-count">{{ $tp('{n} of {m} scanned', { n: scannedCount, m: processRows.length }) }}</span>
                 <span class="xd-flex" />
+                <!-- every order's AusPost label in one go (user 2026-10-21): the missing ones
+                     made, the made ones printed again — one PDF to print -->
+                <el-button v-if="auspostRows.length" size="small" type="warning" icon="el-icon-printer" :loading="apAll"
+                    @click="makeAuspost(auspostRows)">{{ auspostTodo.length
+                        ? $tp('Create & print all labels ({n})', { n: auspostRows.length })
+                        : $tp('Print all labels') + ' (' + auspostRows.length + ')' }}</el-button>
                 <el-button size="small" @click="processVisible = false">{{ $tp('Cancel') }}</el-button>
                 <el-button ref="processSubmit" size="small" type="primary" icon="el-icon-check" :disabled="!scannedCount || !!dupTracking"
                     :loading="processing" @click="submitProcess">{{ $tp('Add to pick list') }}</el-button>
@@ -300,9 +345,16 @@
 </template>
 
 <script>
-import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels } from '@/api/exyonAccessories'
+import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel } from '@/api/exyonAccessories'
 import { buildShippingLabelsPdf, shippingLabelsFileName } from '@/utils/exyonShippingLabelPdf'
+import { mergePdfs, bytesOfBase64 } from '@/utils/mergePdfs'
 import { hasPermission } from '@/utils/permission'
+
+// An AusPost label for these envelopes only (user 2026-10-21), and the parcel
+// unless changed per order (the backend's utils/auspost DEFAULT_PARCEL):
+// Parcel Post with Authority to Leave, 0.49 kg, 30 × 25 × 5 cm
+const AUSPOST_SIZES = ['large', 'other']
+const DEFAULT_PARCEL = { productId: '3D55', weight: 0.49, length: 30, width: 25, height: 5 }
 
 const TABS = [
     { key: 'sku', label: 'Single line items', icon: 'el-icon-box', empty: 'No single-line orders to process' },
@@ -395,6 +447,8 @@ export default {
             // the Process popup
             processVisible: false,
             processItems: [],
+            // the dialog's package (one envelope for a SKU's orders, user 2026-10-21) — an order-like { envelope }
+            processPkg: null,
             processRows: [],
             processing: false,
             // the shipping-label preview
@@ -402,7 +456,13 @@ export default {
             labelUrl: '',
             labelTitle: '',
             labelData: [],
-            labelLoading: ''
+            labelLoading: '',
+            // the label popup shows our labels (jsPDF) or an AusPost PDF
+            labelKind: '',
+            labelBlob: null,
+            labelFile: '',
+            // "AusPost labels (n)" running
+            apAll: false
         }
     },
     computed: {
@@ -485,6 +545,14 @@ export default {
         // On pick list: the orders with a tracking number (their labels can print)
         processedOnList() {
             return this.onPickList.filter(o => o.tracking)
+        },
+        // the popup's Large / Other orders with neither a label nor a scan yet
+        auspostTodo() {
+            return this.processRows.filter(r => this.auspostOk(r) && !r.auspost && !this.clean(r.tracking))
+        },
+        // the popup's orders that take an AusPost label (made or not)
+        auspostRows() {
+            return this.processRows.filter(r => this.auspostOk(r))
         },
         canProcess() {
             return hasPermission(this.$store.getters.permissions, 'exyon:accessory:picklist')
@@ -602,9 +670,12 @@ export default {
             const pick =({ sku, productName, image, zohoSku, zohoName, location, quantity }) => ({ sku, productName, image, zohoSku, zohoName, location, quantity })
             if (kind === 'sku') {
                 this.processItems = [pick({ ...g, quantity: null })]
-                this.processRows = g.orders.map(o => this.processRow(o, o.quantity))
+                // one package for every order of the SKU (user 2026-10-21): the tile's
+                this.processPkg = { envelope: this.groupEnv(g).envelope || null }
+                this.processRows = g.orders.map(o => this.processRow({ ...o, envelope: this.processPkg.envelope }, o.quantity))
             } else {
                 this.processItems = g.items.map(pick)
+                this.processPkg = { envelope: g.envelope || null }
                 this.processRows = [this.processRow(g, null)]
             }
             this.processVisible = true
@@ -612,7 +683,12 @@ export default {
             this.focusScan(0)
         },
         processRow(o, quantity) {
-            return { orderId: o.orderId, channel: o.channel, customerName: o.customerName, datePlaced: o.datePlaced, quantity, envelope: o.envelope || null, tracking: o.tracking || '', had: o.tracking || '' }
+            return {
+                orderId: o.orderId, channel: o.channel, customerName: o.customerName, datePlaced: o.datePlaced, quantity, envelope: o.envelope || null,
+                // an AusPost label made already: its tracking number is in the box
+                tracking: o.tracking || (o.auspost && o.auspost.articleId) || '', had: o.tracking || '',
+                auspost: o.auspost || null, parcel: { ...DEFAULT_PARCEL }, apBusy: false
+            }
         },
         // a scanned value as it will be saved (scanners may add spaces)
         clean(v) {
@@ -626,7 +702,8 @@ export default {
         // or to the submit button once every order has its number
         focusScan(from) {
             this.$nextTick(() => {
-                const i = this.processRows.findIndex((r, k) => k >= from && !this.clean(r.tracking))
+                // (a Large / Other order has no box — its AusPost label fills it)
+                const i = this.processRows.findIndex((r, k) => k >= from && !this.clean(r.tracking) && !this.auspostOk(r))
                 if (i === -1) {
                     const b = this.$refs.processSubmit
                     if (b && b.$el) b.$el.focus()
@@ -671,7 +748,9 @@ export default {
                 }
                 this.processVisible = false
                 this.load()
-                this.printLabels(orders.map(o => o.orderId))
+                // our labels for the rest — an AusPost one was printed with it
+                const ours = orders.filter(o => !(this.processRows.find(r => r.orderId === o.orderId) || {}).auspost)
+                if (ours.length) this.printLabels(ours.map(o => o.orderId))
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to process the orders')))
             } finally {
@@ -689,6 +768,7 @@ export default {
                 }
                 this.labelData = r.labels || []
                 this.cleanupLabel()
+                this.labelKind = 'ours'
                 this.labelUrl = buildShippingLabelsPdf(this.labelData).output('bloburl') + '#toolbar=0'
                 this.labelTitle = this.$tp('Shipping labels') + ' — ' + (this.labelData.length === 1 ? this.labelData[0].orderId : this.$tp('{n} orders', { n: this.labelData.length }))
                 this.labelVisible = true
@@ -699,12 +779,21 @@ export default {
             }
         },
         labelPrintNow() {
+            if (this.labelKind === 'auspost') return this.printBlob(this.labelBlob)
             const doc = buildShippingLabelsPdf(this.labelData)
             doc.autoPrint()
             const w = window.open(doc.output('bloburl'))
             if (!w) this.$message.warning(this.$tp('Pop-up blocked — use Download instead'))
         },
         labelDownload() {
+            if (this.labelKind === 'auspost') {
+                const a = document.createElement('a')
+                a.href = URL.createObjectURL(this.labelBlob)
+                a.download = this.labelFile
+                a.click()
+                setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+                return
+            }
             buildShippingLabelsPdf(this.labelData).save(shippingLabelsFileName(this.labelData))
         },
         cleanupLabel() {
@@ -712,6 +801,131 @@ export default {
                 try { URL.revokeObjectURL(this.labelUrl.replace('#toolbar=0', '')) } catch (e) { /* ignore */ }
             }
             this.labelUrl = ''
+            this.labelKind = ''
+            this.labelBlob = null
+        },
+        // ── Australia Post labels (2026-10-21) ──
+        auspostOk(o) {
+            return this.canProcess && AUSPOST_SIZES.includes(this.envSize(o))
+        },
+        parcelText(p) {
+            return `${p.productId === '3J55' ? this.$tp('Express') + ' · ' : ''}${p.weight} kg · ${p.length}×${p.width}×${p.height} cm`
+        },
+        // Make (or reprint) the AusPost labels of these orders — rows of the
+        // Process popup or cards of On pick list: each gets its label's
+        // tracking number; one PDF of them all opens to print.
+        async makeAuspost(rows) {
+            const list = rows.filter(r => !r.apBusy)
+            if (!list.length) return
+            list.forEach(r => this.$set(r, 'apBusy', true))
+            if (list.length > 1) this.apAll = true
+            try {
+                // all made already = a reprint, which must never make a new shipment
+                const reprint = list.every(r => r.auspost)
+                const res = await createAuspostLabels(list.map(r => ({ orderId: r.orderId, envelope: this.envSize(r), ...(r.auspost || !r.parcel ? {} : { parcel: r.parcel }) })), false, reprint)
+                if (!res || res.success === false) throw new Error((res && res.message) || 'Failed')
+                const failed = []
+                const made = []
+                for (const x of res.results || []) {
+                    const row = list.find(r => r.orderId === x.orderId)
+                    if (!row) continue
+                    if (!x.ok) { failed.push(`${x.orderId}: ${x.error}`); continue }
+                    this.$set(row, 'auspost', { articleId: x.articleId, cost: x.cost })
+                    if ('tracking' in row && !this.clean(row.tracking)) row.tracking = x.articleId
+                    made.push(x.orderId)
+                }
+                if (failed.length) this.$notify({ type: 'error', title: this.$tp('AusPost label not made'), message: failed.join('\n'), duration: 0 })
+                if (res.labelError) this.$message.error(res.labelError)
+                if (res.pdf) this.showAuspostPdf(res.pdf, made)
+                if (this.processVisible) this.focusScan(0)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to create the AusPost labels')))
+            } finally {
+                list.forEach(r => this.$set(r, 'apBusy', false))
+                this.apAll = false
+            }
+        },
+        showAuspostPdf(b64, orderIds) {
+            this.showPdfBytes(bytesOfBase64(b64),
+                this.$tp('AusPost label') + ' — ' + (orderIds.length === 1 ? orderIds[0] : this.$tp('{n} orders', { n: orderIds.length })),
+                `auspost-label_${orderIds.length === 1 ? orderIds[0] : orderIds.length + '-orders'}.pdf`)
+        },
+        // a ready PDF in the label popup (printed / downloaded as it is)
+        showPdfBytes(bytes, title, file) {
+            this.cleanupLabel()
+            this.labelKind = 'auspost'
+            this.labelBlob = new Blob([bytes], { type: 'application/pdf' })
+            this.labelUrl = URL.createObjectURL(this.labelBlob) + '#toolbar=0'
+            this.labelFile = file
+            this.labelTitle = title
+            this.labelVisible = true
+        },
+        // Every processed order's label in one print (user 2026-10-21): ours
+        // for Small / Medium, then the AusPost ones for Large / Other (printed
+        // again from AusPost — never a new shipment), merged into one PDF.
+        async printAllLabels(orders) {
+            if (this.labelLoading) return
+            this.labelLoading = 'all'
+            try {
+                const ours = orders.filter(o => !o.auspost).map(o => o.orderId)
+                const ap = orders.filter(o => o.auspost).map(o => o.orderId)
+                const parts = []
+                const problems = []
+                if (ours.length) {
+                    const r = await getExyonLabels(ours)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    if (r.missing && r.missing.length) problems.push(this.$tp('No address in Neto for {ids}', { ids: r.missing.join(', ') }))
+                    if ((r.labels || []).length) parts.push(buildShippingLabelsPdf(r.labels).output('arraybuffer'))
+                }
+                for (let i = 0; i < ap.length; i += 20) {
+                    const r = await createAuspostLabels(ap.slice(i, i + 20).map(orderId => ({ orderId })), false, true)
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    for (const x of r.results || []) if (!x.ok) problems.push(`${x.orderId}: ${x.error}`)
+                    if (r.labelError) problems.push(r.labelError)
+                    if (r.pdf) parts.push(bytesOfBase64(r.pdf))
+                }
+                if (problems.length) this.$notify({ type: 'warning', title: this.$tp('Some labels are missing'), message: problems.join('\n'), duration: 0 })
+                if (!parts.length) { this.$message.warning(this.$tp('No labels to print')); return }
+                const pdf = parts.length === 1 && parts[0] instanceof Uint8Array ? parts[0] : await mergePdfs(parts)
+                this.showPdfBytes(pdf, this.$tp('All labels') + ' — ' + this.$tp('{n} orders', { n: orders.length }) +
+                    (ap.length ? ` (${this.$tp('{n} AusPost', { n: ap.length })})` : ''), `labels_${orders.length}-orders.pdf`)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to load the labels')))
+            } finally {
+                this.labelLoading = ''
+            }
+        },
+        // a PDF printed from a hidden frame (same-origin blob)
+        printBlob(blob) {
+            const url = URL.createObjectURL(blob)
+            const frame = document.createElement('iframe')
+            frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+            frame.src = url
+            frame.onload = () => {
+                try { frame.contentWindow.focus(); frame.contentWindow.print() } catch (e) { window.open(url) }
+                setTimeout(() => { frame.remove(); URL.revokeObjectURL(url) }, 60000)
+            }
+            document.body.appendChild(frame)
+        },
+        // a wrong label, before it is lodged: deleted in AusPost
+        async cancelAuspost(row) {
+            try {
+                await this.$confirm(this.$tp('Cancel the AusPost label of {no}? The shipment is deleted in AusPost (only before it is lodged).', { no: row.orderId }),
+                    this.$tp('AusPost label'), { type: 'warning', confirmButtonText: this.$tp('Cancel label'), cancelButtonText: this.$tp('Keep') })
+            } catch (e) { return }
+            this.$set(row, 'apBusy', true)
+            try {
+                const r = await cancelAuspostLabel(row.orderId)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const was = row.auspost && row.auspost.articleId
+                row.auspost = null
+                if (was && this.clean(row.tracking) === was) row.tracking = ''
+                this.$message.success(this.$tp('AusPost label of {no} cancelled', { no: row.orderId }))
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to cancel the AusPost label')))
+            } finally {
+                this.$set(row, 'apBusy', false)
+            }
         },
         // one-order tiles in Sort by order: oldest / newest placed, most units
         sortOrders(list, by) {
@@ -895,6 +1109,19 @@ export default {
 .xd-pr-order { flex: 1; min-width: 0; b { font-size: 13px; color: #303133; } }
 .xd-pr-qty { flex-shrink: 0; font-weight: 600; color: #303133; }
 .xd-pr-input { width: 240px; flex-shrink: 0; ::v-deep input { font-family: Menlo, Consolas, monospace; } }
+/* AusPost label (2026-10-21): one box in the scan box's place — the button and
+   its parcel, then the tracking number with reprint / cancel */
+.xd-ap-box { width: 300px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; min-height: 32px;
+    .el-button { margin: 0; }
+    &.made { padding: 0 6px 0 10px; border: 1px solid #f5dab1; border-radius: 4px; background: #fdf6ec; } }
+.xd-ap-mark { color: #e6a23c; font-size: 14px; }
+.xd-ap-track { flex: 1; min-width: 0; font-family: Menlo, Consolas, monospace; font-size: 12px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xd-ap-x:hover { color: #f56c6c; border-color: #fbc4c4; }
+.xd-ap-parcel { font-size: 12px; color: #909399; cursor: pointer; white-space: nowrap;
+    i { margin-left: 2px; } &:hover { color: #409eff; } }
+.xd-ap-form { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #606266; }
+.xd-ap-row { display: flex; align-items: center; gap: 4px; span:first-child { width: 46px; flex-shrink: 0; } }
+.xd-ap-cm { width: 46px; ::v-deep .el-input__inner { padding: 0 4px; text-align: center; } }
 .xd-pr-ok { flex-shrink: 0; font-size: 18px; color: #c0c4cc;
     &.el-icon-success { color: #67c23a; } }
 .xd-pr-warn { margin-top: 8px; font-size: 12px; color: #f56c6c; }
