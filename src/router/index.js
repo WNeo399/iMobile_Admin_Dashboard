@@ -590,7 +590,7 @@ export const moduleRoutes = [
   {
     // Exyon Accessories (2026-10-08) — Exyon's accessory orders, read from
     // their MySQL table exyon.accessory_orders: Orders, Dispatch, Pick Lists.
-    // Admin and the Exyon roles only (nobody else holds exyon:*).
+    // Admin, the Exyon roles and iMobile Warehouse (exyon:accessory:*, 2026-10-21).
     path: "/exyonAccessories",
     component: Layout,
     redirect: "noRedirect",
