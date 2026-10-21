@@ -3,8 +3,9 @@
 // Zoho item, in shelf-location order: the Product Name with its Zoho SKU
 // under it, Location, then the units from single-line orders, from
 // multi-line orders, and in all — no Neto SKU (user 2026-10-08).
-// buildPickListPdf({ day, lines, summary }) — `lines` / `summary` as the
-// GET /exyon-accessories/pick-lists/:day reply.
+// buildPickListPdf({ day, lines, summary, batch }) — `lines` / `summary` as the
+// GET /exyon-accessories/pick-lists/:day reply: one batch's (2026-10-21, the
+// list is printed batch by batch; `batch` = its number, printed under the date).
 
 import { jsPDF } from 'jspdf'
 
@@ -43,7 +44,7 @@ function fmtNow() {
 // a zero quantity prints as a dash, so the numbers that matter stand out
 const qty = (n) => (Number(n) ? String(n) : '–')
 
-export function buildPickListPdf({ day, lines, summary }) {
+export function buildPickListPdf({ day, lines, summary, batch }) {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' })
     const s = summary || {}
 
@@ -71,6 +72,7 @@ export function buildPickListPdf({ day, lines, summary }) {
             y += 17
         }
         pair('Date', fmtDay(day))
+        if (batch) pair('Batch', String(batch))
         pair('Orders', `${s.orders || 0}   (${s.singleOrders || 0} single-line, ${s.multiOrders || 0} multi-line)`)
         pair('Units', `${s.units || 0}   (${(lines || []).length} items)`)
         pair('Printed', fmtNow())
@@ -176,6 +178,6 @@ export function buildPickListPdf({ day, lines, summary }) {
     return doc
 }
 
-export function pickListFileName(day) {
-    return `pick-list_${String(day || 'day').replace(/[^\w.-]+/g, '_')}.pdf`
+export function pickListFileName(day, batch) {
+    return `pick-list_${String(day || 'day').replace(/[^\w.-]+/g, '_')}${batch ? '_batch-' + batch : ''}.pdf`
 }

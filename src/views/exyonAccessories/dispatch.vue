@@ -141,7 +141,7 @@
                             <span v-if="o.dispatch && o.dispatch.status === 'held'" class="xd-todo" :title="o.dispatch.note || ''">{{ $tp('Not dispatched') }}: {{ $tp(o.dispatch.reason) }}</span>
                             <span v-else-if="o.dispatch && o.dispatch.status === 'failed'" class="xd-failed" :title="o.dispatch.error || ''">{{ $tp('Neto update failed') }}</span>
                             <span class="xd-flex" />
-                            <span class="xd-dim">{{ $tp('Pick list') }} {{ longDm(o.pickDay) }}</span>
+                            <span class="xd-dim">{{ $tp('Pick list') }} {{ longDm(o.pickDay) }} · {{ o.pickBatch ? $tp('Batch {n}', { n: o.pickBatch }) : $tp('new batch') }}</span>
                         </div>
                         <div class="xd-ilist">
                             <div v-for="it in o.items" :key="it.sku" class="xd-i">

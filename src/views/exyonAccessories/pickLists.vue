@@ -32,6 +32,11 @@
                         <span v-if="d.day === today" class="xp-today">{{ $tp('Today') }}</span>
                     </div>
                     <div class="xp-day-2">{{ d.orders }} {{ $tp('orders') }} · {{ d.units }} {{ $tp('units') }}</div>
+                    <!-- batches printed, and the orders waiting for the next print -->
+                    <div v-if="d.batches || d.unprinted" class="xp-day-b">
+                        <span v-if="d.batches">{{ $tp('{n} batch(es)', { n: d.batches }) }}</span>
+                        <span v-if="d.unprinted" class="xp-day-new">{{ $tp('{n} new', { n: d.unprinted }) }}</span>
+                    </div>
                     <!-- Confirm dispatch progress -->
                     <div v-if="d.dispatched || d.held" class="xp-day-3">
                         <span v-if="!d.toConfirm && !d.held" class="xp-ok"><i class="el-icon-success" /> {{ $tp('All dispatched') }}</span>
@@ -57,30 +62,48 @@
                             <div class="xp-sub">{{ $tp('Started {when} by {by}', { when: time(list.createdAt), by: list.createdBy || '—' }) }}</div>
                         </div>
                         <span class="xp-flex" />
-                        <el-button size="small" type="primary" plain icon="el-icon-printer" :disabled="!lines.length" @click="openPrint">{{ $tp('Print pick list') }}</el-button>
-                        <!-- the day's orders were picked and shipped: confirm → Neto -->
+                        <!-- the new batch: printing closes it (orders added after go into the
+                             next one); a printed batch prints again as it is -->
+                        <el-button v-if="view !== 'all' && (view !== 'open' || canEdit)" size="small" type="primary" plain icon="el-icon-printer"
+                            :disabled="!viewed.lines.length" @click="openPrint">{{ view === 'open' ? $tp('Print pick list') : $tp('Print again') }}</el-button>
+                        <!-- the batch's orders were picked and shipped: confirm → Neto -->
                         <el-button v-if="canEdit && notDispatched.length" size="small" type="primary" icon="el-icon-finished" @click="openConfirm(notDispatched)">
                             {{ $tp('Confirm dispatch') }} ({{ notDispatched.length }})</el-button>
                     </div>
 
-                    <div class="xp-stats">
-                        <div class="xp-stat"><span>{{ $tp('Orders') }}</span><b>{{ summary.orders }}</b>
-                            <small>{{ summary.singleOrders }} {{ $tp('single-line') }} · {{ summary.multiOrders }} {{ $tp('multi-line') }}</small></div>
-                        <div class="xp-stat"><span>{{ $tp('Units') }}</span><b>{{ summary.units }}</b>
-                            <small>{{ summary.singleUnits }} {{ $tp('single-line') }} · {{ summary.multiUnits }} {{ $tp('multi-line') }}</small></div>
-                        <div class="xp-stat"><span>SKUs</span><b>{{ summary.skus }}</b></div>
-                        <div class="xp-stat"><span>{{ $tp('Dispatched') }}</span><b>{{ summary.dispatched || 0 }}</b>
-                            <small>{{ summary.held || 0 }} {{ $tp('not dispatched') }} · {{ summary.toConfirm || 0 }} {{ $tp('to confirm') }}</small></div>
+                    <!-- the day's batches (2026-10-21): one per print, then the orders not printed yet -->
+                    <div class="xp-batches">
+                        <el-radio-group v-model="view" size="small">
+                            <el-radio-button v-for="b in batches" :key="b.no" :label="b.no">{{ $tp('Batch {n}', { n: b.no }) }}
+                                <span class="xp-b-sub">{{ b.legacy ? $tp('earlier') : time(b.printedAt) }}</span></el-radio-button>
+                            <el-radio-button v-if="openBatch.orderIds.length" label="open"><i class="el-icon-plus" /> {{ $tp('New batch') }}
+                                <span class="xp-b-sub">{{ openBatch.orderIds.length }}</span></el-radio-button>
+                            <el-radio-button v-if="batches.length + (openBatch.orderIds.length ? 1 : 0) > 1" label="all">{{ $tp('Whole day') }}</el-radio-button>
+                        </el-radio-group>
+                        <span class="xp-dim xp-b-hint">{{ viewHint }}</span>
                     </div>
 
-                    <div class="xp-sec">{{ $tp('Orders on this list') }} <span class="xp-dim">({{ list.orders.length }})</span></div>
-                    <el-table :data="list.orders" border size="mini" class="xp-table"
+                    <div class="xp-stats">
+                        <div class="xp-stat"><span>{{ $tp('Orders') }}</span><b>{{ vsummary.orders || 0 }}</b>
+                            <small>{{ vsummary.singleOrders || 0 }} {{ $tp('single-line') }} · {{ vsummary.multiOrders || 0 }} {{ $tp('multi-line') }}</small></div>
+                        <div class="xp-stat"><span>{{ $tp('Units') }}</span><b>{{ vsummary.units || 0 }}</b>
+                            <small>{{ vsummary.singleUnits || 0 }} {{ $tp('single-line') }} · {{ vsummary.multiUnits || 0 }} {{ $tp('multi-line') }}</small></div>
+                        <div class="xp-stat"><span>SKUs</span><b>{{ vsummary.skus || 0 }}</b></div>
+                        <div class="xp-stat"><span>{{ $tp('Dispatched') }}</span><b>{{ vsummary.dispatched || 0 }}</b>
+                            <small>{{ vsummary.held || 0 }} {{ $tp('not dispatched') }} · {{ vsummary.toConfirm || 0 }} {{ $tp('to confirm') }}</small></div>
+                    </div>
+
+                    <div class="xp-sec">{{ view === 'all' ? $tp('Orders on this list') : $tp('Orders in this batch') }} <span class="xp-dim">({{ viewedOrders.length }})</span></div>
+                    <el-table :data="viewedOrders" border size="mini" class="xp-table"
                         :row-class-name="r => (r.row.orderId === foundOrder ? 'xp-row-found' : '')">
                         <el-table-column :label="$tp('Order')" min-width="130">
                             <template slot-scope="s">
                                 <div class="xp-order">{{ s.row.orderId }}</div>
                                 <span :class="['xp-ch', chClass(s.row.channel)]">{{ s.row.channel || '—' }}</span>
                             </template>
+                        </el-table-column>
+                        <el-table-column v-if="view === 'all'" :label="$tp('Batch')" width="70" align="center">
+                            <template slot-scope="s"><span :class="{ 'xp-day-new': !s.row.batch }">{{ s.row.batch || $tp('new') }}</span></template>
                         </el-table-column>
                         <el-table-column :label="$tp('Customer')" min-width="130" show-overflow-tooltip>
                             <template slot-scope="s">{{ s.row.customerName || '—' }}</template>
@@ -218,7 +241,7 @@
 </template>
 
 <script>
-import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch, findOnPickLists } from '@/api/exyonAccessories'
+import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch, findOnPickLists, printExyonPickList } from '@/api/exyonAccessories'
 import { buildPickListPdf, pickListFileName } from '@/utils/exyonPickListPdf'
 import { hasPermission } from '@/utils/permission'
 
@@ -238,6 +261,15 @@ export default {
             list: null,
             lines: [],
             summary: {},
+            // the day's batches (printed) and the orders not printed yet — the
+            // one shown: a batch number, 'open' (the new batch) or 'all'
+            batches: [],
+            openBatch: { orderIds: [], lines: [], summary: {} },
+            view: 'open',
+            // the print preview: which batch it prints, and whether this
+            // preview's print is recorded (the new batch closed / a reprint noted)
+            printBatch: null,
+            printRecorded: false,
             printVisible: false,
             printUrl: '',
             printTitle: '',
@@ -259,12 +291,41 @@ export default {
         canEdit() {
             return hasPermission(this.$store.getters.permissions, 'exyon:accessory:picklist')
         },
-        // the day's orders still to go out — to confirm, held back, or a failed push
+        // what is shown: one batch, the new orders, or the whole day
+        viewed() {
+            if (this.view === 'all') return { orderIds: ((this.list && this.list.orders) || []).map(o => o.orderId), lines: this.lines, summary: this.summary }
+            if (this.view === 'open') return this.openBatch
+            return this.batches.find(b => b.no === this.view) || { orderIds: [], lines: [], summary: {} }
+        },
+        vsummary() {
+            return this.viewed.summary || {}
+        },
+        viewedOrders() {
+            const ids = new Set(this.viewed.orderIds)
+            return ((this.list && this.list.orders) || []).filter(o => ids.has(o.orderId))
+        },
+        viewHint() {
+            if (this.view === 'open') return this.$tp('Not printed yet — printing makes it batch {n}; orders added after go into the next batch', { n: this.nextBatchNo })
+            if (this.view === 'all') return this.$tp('Every batch of the day')
+            const b = this.batches.find(x => x.no === this.view)
+            if (!b) return ''
+            if (b.legacy) return this.$tp('The orders from before batches')
+            return this.$tp('Printed {when} by {by}', { when: this.time(b.printedAt), by: b.printedBy || '—' }) + (b.reprints ? ' · ' + this.$tp('printed again {n}×', { n: b.reprints }) : '')
+        },
+        nextBatchNo() {
+            return Math.max(0, ...this.batches.map(b => b.no)) + 1
+        },
+        // the shown orders still to go out — to confirm, held back, or a failed push
         notDispatched() {
-            return ((this.list && this.list.orders) || []).filter(o => this.dstatus(o) !== 'dispatched')
+            return this.viewedOrders.filter(o => this.dstatus(o) !== 'dispatched')
+        },
+        viewLabel() {
+            if (this.view === 'open') return this.$tp('New batch')
+            if (this.view === 'all') return ''
+            return this.$tp('Batch {n}', { n: this.view })
         },
         confirmTitle() {
-            return this.list ? `${this.$tp('Confirm dispatch')} — ${this.longDay(this.list.day)}` : ''
+            return this.list ? `${this.$tp('Confirm dispatch')} — ${this.longDay(this.list.day)}${this.viewLabel ? ' · ' + this.viewLabel : ''}` : ''
         },
         // the popup's rows: the not dispatched ones first (user 2026-10-20) —
         // the one switched off last on top — then the rest in list order
@@ -316,9 +377,18 @@ export default {
             try {
                 const r = await getExyonPickList(day)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const sameDay = this.list && this.list.day === r.list.day
                 this.list = r.list
                 this.lines = r.lines || []
                 this.summary = r.summary || {}
+                this.batches = r.batches || []
+                this.openBatch = r.open || { orderIds: [], lines: [], summary: {} }
+                // the same day again: the same view while it still exists; else
+                // the new orders, the last batch, or the whole day
+                const has = v => v === 'all' || (v === 'open' ? this.openBatch.orderIds.length > 0 : this.batches.some(b => b.no === v))
+                if (!(sameDay && has(this.view))) {
+                    this.view = this.openBatch.orderIds.length ? 'open' : this.batches.length ? this.batches[this.batches.length - 1].no : 'all'
+                }
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to load the pick list')))
             } finally {
@@ -379,6 +449,8 @@ export default {
             this.foundOrder = hit.orderId
             this.findQ = hit.orderId
             if (this.day !== hit.day || !this.list) await this.open(hit.day)
+            const on = ((this.list && this.list.orders) || []).find(o => o.orderId === hit.orderId)
+            if (on) this.view = on.batch || 'open'
             // a moment's wait: the dropdown closing would cut a scroll short
             setTimeout(() => {
                 const row = this.$el.querySelector('.xp-row-found')
@@ -506,23 +578,59 @@ export default {
             }
         },
         // ── printing ──
+        // the shown batch (the new one is numbered as it will be once printed)
         buildPdf() {
-            return buildPickListPdf({ day: this.list.day, lines: this.lines, summary: this.summary })
+            return buildPickListPdf({ day: this.list.day, lines: this.viewed.lines, summary: this.viewed.summary, batch: this.printBatch })
         },
         openPrint() {
             this.cleanupPrint()
+            this.printBatch = this.view === 'open' ? this.nextBatchNo : this.view
+            this.printRecorded = false
             this.printUrl = this.buildPdf().output('bloburl') + '#toolbar=0'
-            this.printTitle = `${this.$tp('Pick list')} — ${this.longDay(this.list.day)}`
+            this.printTitle = `${this.$tp('Pick list')} — ${this.longDay(this.list.day)} · ${this.$tp('Batch {n}', { n: this.printBatch })}`
             this.printVisible = true
         },
-        printNow() {
+        // Print / Download count as printed (user 2026-10-21): the new batch
+        // closes — exactly the orders in this preview — or a reprint is noted.
+        // false = not printed (the reason shown).
+        async recordPrint() {
+            if (this.printRecorded) return true
+            const day = this.list.day
+            try {
+                if (this.view === 'open') {
+                    const r = await printExyonPickList(day, { orderIds: this.openBatch.orderIds })
+                    if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                    this.printRecorded = true
+                    this.printBatch = r.batch
+                    this.$message.success(this.$tp('Batch {n} printed — orders added from now go into the next batch', { n: r.batch }))
+                    // the list again, on the batch just made (the preview stays)
+                    await this.loadLists()
+                    await this.open(day)
+                    this.view = r.batch
+                    return true
+                }
+                if (this.canEdit) await printExyonPickList(day, { batch: this.view })
+                this.printRecorded = true
+                return true
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Could not record the print')))
+                // a batch closed elsewhere meanwhile: show the list as it is now
+                await this.reload()
+                return false
+            }
+        },
+        async printNow() {
+            // the window opens on the click (a pop-up blocker would stop it after the wait)
+            const w = window.open('', '_blank')
+            if (!(await this.recordPrint())) { if (w) w.close(); return }
             const doc = this.buildPdf()
             doc.autoPrint()
-            const w = window.open(doc.output('bloburl'))
-            if (!w) this.$message.warning(this.$tp('Pop-up blocked — use Download instead'))
+            if (w) w.location.href = doc.output('bloburl')
+            else this.$message.warning(this.$tp('Pop-up blocked — use Download instead'))
         },
-        download() {
-            this.buildPdf().save(pickListFileName(this.list.day))
+        async download() {
+            if (!(await this.recordPrint())) return
+            this.buildPdf().save(pickListFileName(this.list.day, this.printBatch))
         },
         cleanupPrint() {
             if (this.printUrl) {
@@ -579,6 +687,12 @@ export default {
     &.on { border-color: #409eff; background: #ecf5ff; } }
 .xp-day-1 { display: flex; align-items: center; gap: 6px; b { font-size: 13px; color: #303133; } }
 .xp-day-2 { margin-top: 2px; font-size: 12px; color: #909399; }
+/* batches (2026-10-21): printed ones, and the orders waiting for the next print */
+.xp-day-b { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; font-size: 12px; color: #606266; }
+.xp-day-new { color: #e6a23c; font-weight: 600; }
+.xp-batches { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.xp-b-sub { margin-left: 4px; font-size: 11px; opacity: .75; }
+.xp-b-hint { font-size: 12px; }
 .xp-today { padding: 0 6px; border-radius: 9px; background: #67c23a; color: #fff; font-size: 11px; line-height: 17px; }
 .xp-days-empty, .xp-detail-empty { padding: 40px 10px; text-align: center; color: #909399; font-size: 13px;
     i { display: block; font-size: 32px; color: #c0c4cc; margin-bottom: 8px; }

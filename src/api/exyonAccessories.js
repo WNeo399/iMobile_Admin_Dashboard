@@ -36,6 +36,11 @@ export function findOnPickLists(q) {
 export function getExyonPickList(day) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}`, method: 'get' })
 }
+// Printing (2026-10-21): { orderIds } — the new orders printed, closed as the
+// day's next batch; { batch } — that batch printed again
+export function printExyonPickList(day, data) {
+  return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/print`, method: 'post', data })
+}
 // processed on the Dispatch page: [{ orderId, tracking }] → today's pick list
 export function processExyonOrders(orders) {
   return request({ url: '/exyon-accessories/pick-lists/today/process', method: 'post', data: { orders }, timeout: 60000 })
