@@ -7,6 +7,10 @@
             <el-select v-model="query.grade" size="small" clearable :placeholder="$tp('Grade')" class="f-sel" @change="reload">
                 <el-option v-for="g in gradeFilterOptions" :key="g" :label="g" :value="g" />
             </el-select>
+            <el-select v-model="query.storage" size="small" clearable :placeholder="$tp('Storage')" class="f-sel" @change="reload">
+                <el-option v-for="s in storageFilterOptions" :key="s" :label="s" :value="s" />
+                <el-option :label="$tp('Not set')" value="none" />
+            </el-select>
             <!-- A supplier's register is all one source, so that filter
                  stays ours — but their devices move between shelf, road and
                  iMobile, so location is worth filtering for everyone. -->
@@ -753,7 +757,7 @@ export default {
             filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [], supplyBatches: [] },
             query: {
                 page: 1, pageSize: 25, search: '',
-                grade: '', stockSource: '', location: '', status: '', supplierId: '', supplyBatchId: '',
+                grade: '', storage: '', stockSource: '', location: '', status: '', supplierId: '', supplyBatchId: '',
                 sort: 'createdAt', order: 'desc'
             },
             // Bulk Add — scan many codes, create them together.
@@ -868,6 +872,11 @@ export default {
         },
         gradeFilterOptions() {
             return [...new Set(GRADES.concat(this.filters.grades))]
+        },
+        // the storages the register holds, smallest first (32GB … 1TB)
+        storageFilterOptions() {
+            const gb = s => { const m = String(s).match(/([\d.]+)\s*(TB|GB)/i); return m ? Number(m[1]) * (/tb/i.test(m[2]) ? 1024 : 1) : Infinity }
+            return this.filters.storages.slice().sort((a, b) => gb(a) - gb(b) || String(a).localeCompare(String(b)))
         },
         deviceHistory() {
             const h = (this.editRow && this.editRow.history) || []
