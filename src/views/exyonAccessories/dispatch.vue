@@ -97,7 +97,15 @@
                                 </div>
                                 <div class="xd-skus">
                                     <span v-if="g.zohoSku" class="xd-sku xd-sku-zoho" :title="g.zohoName"><em>Zoho</em>{{ g.zohoSku }}</span>
-                                    <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span>
+                                    <!-- the item's envelope, changeable (user 2026-10-22) -->
+                                    <el-dropdown v-if="canProcess" trigger="click" class="xd-env-dd" @command="v => setEnvelope(g, v)" @click.native.stop>
+                                        <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g)), 'xd-env-edit']" :title="envTitle(groupEnv(g)) + ' · ' + $tp('Change the envelope')"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}<i v-if="g.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                                        <el-dropdown-menu slot="dropdown">
+                                            <el-dropdown-item v-for="e in ENVELOPES" :key="e.value" :command="e.value" :class="{ 'xd-env-cur': g.envelopeSet === e.value }">{{ $tp(e.label) }}</el-dropdown-item>
+                                            <el-dropdown-item command="auto" divided :disabled="!g.envelopeSet">{{ $tp('Automatic') }}</el-dropdown-item>
+                                        </el-dropdown-menu>
+                                    </el-dropdown>
+                                    <span v-else :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span>
                                     <span v-if="g.location" class="xd-loc" :title="$tp('Location')"><i class="el-icon-location-outline" /> {{ g.location }}</span>
                                 </div>
                             </div>
@@ -182,7 +190,15 @@
                                 <div class="xd-name">{{ g.productName || '—' }}</div>
                                 <div class="xd-skus"><span class="xd-sku" :title="$tp('Neto SKU')"><em>SKU</em>{{ g.sku }}</span></div>
                                 <div class="xd-skus"><span v-if="g.zohoSku" class="xd-sku xd-sku-zoho" :title="g.zohoName"><em>Zoho</em>{{ g.zohoSku }}</span>
-                                    <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span>
+                                    <!-- the item's envelope, changeable (user 2026-10-22) -->
+                                    <el-dropdown v-if="canProcess" trigger="click" class="xd-env-dd" @command="v => setEnvelope(g, v)" @click.native.stop>
+                                        <span :class="['xd-env', 'xd-env-' + envSize(groupEnv(g)), 'xd-env-edit']" :title="envTitle(groupEnv(g)) + ' · ' + $tp('Change the envelope')"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}<i v-if="g.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                                        <el-dropdown-menu slot="dropdown">
+                                            <el-dropdown-item v-for="e in ENVELOPES" :key="e.value" :command="e.value" :class="{ 'xd-env-cur': g.envelopeSet === e.value }">{{ $tp(e.label) }}</el-dropdown-item>
+                                            <el-dropdown-item command="auto" divided :disabled="!g.envelopeSet">{{ $tp('Automatic') }}</el-dropdown-item>
+                                        </el-dropdown-menu>
+                                    </el-dropdown>
+                                    <span v-else :class="['xd-env', 'xd-env-' + envSize(groupEnv(g))]" :title="envTitle(groupEnv(g))"><i class="el-icon-message" />{{ envLabel(groupEnv(g)) }}</span>
                                     <span v-if="g.location" class="xd-loc" :title="$tp('Location')"><i class="el-icon-location-outline" /> {{ g.location }}</span></div>
                             </div>
                             <span class="xd-flex" />
@@ -263,7 +279,14 @@
                     </div>
                     <b v-if="it.quantity" class="xd-i-qty">× {{ it.quantity }}</b>
                     <!-- the package, once (user 2026-10-21: a SKU's orders all ship in the same one) -->
-                    <span v-if="k === 0 && processPkg" :class="['xd-env', 'xd-env-' + envSize(processPkg)]" :title="envTitle(processPkg)">
+                    <el-dropdown v-if="k === 0 && processPkg && processPkg.sku && canProcess" trigger="click" class="xd-env-dd" @command="v => setEnvelope(processPkg, v)">
+                        <span :class="['xd-env', 'xd-env-' + envSize(processPkg), 'xd-env-edit']" :title="envTitle(processPkg) + ' · ' + $tp('Change the envelope')"><i class="el-icon-message" />{{ envLabel(processPkg) }}<i v-if="processPkg.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item v-for="e in ENVELOPES" :key="e.value" :command="e.value" :class="{ 'xd-env-cur': processPkg.envelopeSet === e.value }">{{ $tp(e.label) }}</el-dropdown-item>
+                            <el-dropdown-item command="auto" divided :disabled="!processPkg.envelopeSet">{{ $tp('Automatic') }}</el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
+                    <span v-else-if="k === 0 && processPkg" :class="['xd-env', 'xd-env-' + envSize(processPkg)]" :title="envTitle(processPkg)">
                         <i class="el-icon-message" />{{ envLabel(processPkg) }}</span>
                 </div>
             </div>
@@ -350,7 +373,7 @@
 </template>
 
 <script>
-import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel } from '@/api/exyonAccessories'
+import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel, setExyonEnvelope } from '@/api/exyonAccessories'
 import { buildShippingLabelsPdf, shippingLabelsFileName } from '@/utils/exyonShippingLabelPdf'
 import { mergePdfs, bytesOfBase64 } from '@/utils/mergePdfs'
 import { hasPermission } from '@/utils/permission'
@@ -436,6 +459,7 @@ export default {
         try { if (localStorage.getItem(VIEW_KEY) === 'list') view = 'list' } catch (e) { /* storage blocked */ }
         return {
             LIMIT,
+            ENVELOPES,
             // Sort by, per tab
             sortBy: { sku: SORTS.sku[0].value, multi: SORTS.multi[0].value, onlist: SORTS.onlist[0].value },
             loading: false,
@@ -683,7 +707,7 @@ export default {
             if (kind === 'sku') {
                 this.processItems = [pick({ ...g, quantity: null })]
                 // one package for every order of the SKU (user 2026-10-21): the tile's
-                this.processPkg = { envelope: this.groupEnv(g).envelope || null }
+                this.processPkg = { envelope: this.groupEnv(g).envelope || null, sku: g.sku, envelopeSet: g.envelopeSet || null }
                 this.processRows = g.orders.map(o => this.processRow({ ...o, envelope: this.processPkg.envelope }, o.quantity))
             } else {
                 this.processItems = g.items.map(pick)
@@ -983,6 +1007,33 @@ export default {
             return true
         },
         // ── envelope ──
+        // an item's envelope chosen by hand (user 2026-10-22) — for every order
+        // of it from now on; 'auto' = back to the rules. target: a SKU tile or
+        // the Process dialog's package ({ sku, envelopeSet })
+        async setEnvelope(target, v) {
+            const sku = target && target.sku
+            const size = v === 'auto' ? '' : v
+            if (!sku || (target.envelopeSet || '') === size) return
+            try {
+                const r = await setExyonEnvelope(sku, size)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const e = ENVELOPES.find(x => x.value === size)
+                this.$message.success(size ? this.$tp('{sku}: {size} envelope from now on', { sku, size: this.$tp(e ? e.label : size) })
+                    : this.$tp('{sku}: envelope back to automatic', { sku }))
+                await this.load()
+                // the open Process dialog follows
+                if (this.processVisible && this.processPkg && this.processPkg.sku === sku) {
+                    const g = this.rawBySku.find(x => x.sku === sku)
+                    if (g) {
+                        const env = this.groupEnv(g).envelope || null
+                        this.processPkg = { ...this.processPkg, envelope: env, envelopeSet: g.envelopeSet || null }
+                        this.processRows.forEach(row => { row.envelope = env })
+                    }
+                }
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to change the envelope')))
+            }
+        },
         envSize(o) {
             return (o && o.envelope && o.envelope.size) || 'small'
         },
@@ -998,6 +1049,7 @@ export default {
                 if (r.code === 'cases') return this.$tp('{n} phone case(s)', { n: r.n })
                 if (r.code === 'screenProtectors') return this.$tp('{n} screen protector(s)', { n: r.n })
                 if (r.code === 'unknown') return this.$tp('Not recognised — choose the envelope: {names}', { names: (r.names || []).join(' + ') })
+                if (r.code === 'set') return this.$tp('Chosen by hand')
                 return ''
             }).filter(Boolean)
             return this.$tp('{size} envelope', { size: this.envLabel(o) }) + (reasons.length ? ' — ' + reasons.join(' · ') : '')
@@ -1166,6 +1218,12 @@ export default {
     &.xd-env-medium { color: #b88200; background: #fdf6ec; border-color: #faecd8; }
     &.xd-env-large { color: #c45656; background: #fef0f0; border-color: #fde2e2; }
     &.xd-env-other { color: #6b4fbb; background: #f4f0ff; border-color: #e4dcfb; } }
+/* changeable (2026-10-22): a caret, and a pencil once chosen by hand */
+.xd-env-dd { line-height: normal; }
+.xd-env-edit { cursor: pointer; &:hover { filter: brightness(.95); } }
+.xd-env-caret { font-size: 10px; margin-left: 1px; opacity: .7; }
+.xd-env-pin { font-size: 11px; }
+.xd-env-cur { color: #409eff; font-weight: 600; }
 .xd-o-cust { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #606266; }
 .xd-o-when { font-size: 12px; color: #909399; white-space: nowrap; }
 .xd-o-qty { font-weight: 600; color: #303133; white-space: nowrap; }

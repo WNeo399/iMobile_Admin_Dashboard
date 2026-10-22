@@ -69,3 +69,7 @@ export function confirmExyonDispatch(day, orders, dryRun) {
 export function removeFromPickList(day, orderId) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/remove`, method: 'post', data: { orderId } })
 }
+// An item's envelope chosen by hand on Dispatch (size '' = back to the rules)
+export function setExyonEnvelope(sku, size) {
+  return request({ url: `/exyon-accessories/envelopes/${encodeURIComponent(sku)}`, method: 'put', data: { size: size || '' } })
+}
