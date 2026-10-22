@@ -295,7 +295,8 @@
                                 <el-button size="mini" icon="el-icon-close" circle class="xd-ap-x" :disabled="r.apBusy" @click="cancelAuspost(r)" />
                             </el-tooltip>
                         </template>
-                        <template v-else>
+                        <!-- the button, its parcel as a small line under it (user 2026-10-22) -->
+                        <div v-else class="xd-ap-new">
                             <el-button size="small" type="warning" plain icon="el-icon-s-promotion" :loading="r.apBusy" @click="makeAuspost([r])">{{ $tp('AusPost label') }}</el-button>
                             <el-popover placement="bottom-end" width="290" trigger="click">
                                 <div class="xd-ap-form">
@@ -312,7 +313,7 @@
                                 </div>
                                 <span slot="reference" class="xd-ap-parcel" :title="$tp('Change the parcel')">{{ parcelText(r.parcel) }} <i class="el-icon-edit-outline" /></span>
                             </el-popover>
-                        </template>
+                        </div>
                     </div>
                     <el-input v-else :ref="'scan' + i" v-model="r.tracking" size="small" clearable class="xd-pr-input"
                         :placeholder="$tp('Scan tracking number')" prefix-icon="el-icon-full-screen"
@@ -1133,7 +1134,9 @@ export default {
 .xd-ap-mark { color: #e6a23c; font-size: 14px; }
 .xd-ap-track { flex: 1; min-width: 0; font-family: Menlo, Consolas, monospace; font-size: 12px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xd-ap-x:hover { color: #f56c6c; border-color: #fbc4c4; }
-.xd-ap-parcel { font-size: 12px; color: #909399; cursor: pointer; white-space: nowrap;
+/* at the box's right end, by the status icon (user 2026-10-22) */
+.xd-ap-new { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-left: auto; }
+.xd-ap-parcel { font-size: 11px; line-height: 14px; color: #909399; cursor: pointer; white-space: nowrap;
     i { margin-left: 2px; } &:hover { color: #409eff; } }
 .xd-ap-form { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #606266; }
 .xd-ap-row { display: flex; align-items: center; gap: 4px; span:first-child { width: 46px; flex-shrink: 0; } }
