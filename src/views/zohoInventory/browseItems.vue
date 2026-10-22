@@ -40,6 +40,8 @@
                     <el-radio-button label="grid" title="Grid"><i class="el-icon-menu" /><span class="bi-view-t"> Grid</span></el-radio-button>
                 </el-radio-group>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" title="Refresh" @click="refreshAll" />
+                <!-- Excel (user 2026-10-22): the whole list as filtered, after a confirm -->
+                <el-button size="small" icon="el-icon-download" :loading="exporting" :disabled="!total" @click="exportExcel">Export</el-button>
                 <!-- tick rows (list view; the header box takes the page, kept
                      across pages) and file them under 海运 (user ask 2026-10-13) -->
                 <el-button v-if="selection.length" size="small" plain type="primary" icon="el-icon-ship" :loading="seaBusy"
@@ -142,7 +144,9 @@ import BrandIcon from './components/BrandIcon'
 import liveStockMixin from './liveStockMixin'
 import priceEditMixin from './priceEditing'
 import PriceQueueZone from './components/PriceQueueZone'
-import { getModelTree, getBrowseItems } from '@/api/stockMonitor'
+import { getModelTree, getBrowseItems, exportBrowseItems } from '@/api/stockMonitor'
+// xlsx-js-style — the styled SheetJS fork the other dashboard exports use
+import * as XLSX from 'xlsx-js-style'
 import { addSeaFreightItems, seaAddMessage } from '@/api/zoho/stockMonitoring'
 
 const NONE = '__none__'
@@ -198,6 +202,7 @@ export default {
             // and the bulk 海运 add in flight
             selection: [],
             seaBusy: false,
+            exporting: false,
             classes: [],
             qualities: [],
             page: 1,
@@ -526,6 +531,61 @@ export default {
         onSize(s) {
             this.pageSize = s
             this.reload()
+        },
+        // ── Export (user 2026-10-22) ──────────────────────────────────
+        // every part under the tree node, type chips, device pick, quality,
+        // stock filter, search and sort — the server caps it at 5,000
+        async exportExcel() {
+            if (this.exporting || !this.total) return
+            const n = this.total
+            try {
+                await this.$confirm(`Export ${n.toLocaleString()} part${n === 1 ? '' : 's'} to Excel?`, 'Export',
+                    { type: 'info', confirmButtonText: 'Export', cancelButtonText: 'Cancel' })
+            } catch (e) { return }
+            this.exporting = true
+            try {
+                const r = await exportBrowseItems(this.params())
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const rows = r.rows || []
+                if (!rows.length) { this.$message.warning('Nothing to export'); return }
+                // prices only when the server sent them (who may see them)
+                const prices = GRID_PRICES.filter(p => rows.some(x => p.prop in x))
+                const days = this.salesDays
+                const header = ['SKU', 'Product', 'Type', 'Quality', 'Brand', 'Series', 'Compatible Models', 'Location',
+                    'Stock', `Sold ${days}d`, 'On order', ...prices.map(p => p.label)]
+                const aoa = [header, ...rows.map(x => [
+                    x.sku || '', x.productName || '', this.typeOf(x) || '', x.quality || '', x.deviceBrand || '',
+                    String(x.deviceSeries || '').split(/\s*;\s*/).filter(Boolean).join(', '),
+                    (x.compatibleModels || []).join(', '), x.location || '',
+                    Number(x.stock) || 0, this.soldOf(x), Number(x.openPoQty) || 0,
+                    ...prices.map(p => (x[p.prop] == null || x[p.prop] === '' ? '' : Number(x[p.prop])))
+                ])]
+                const ws = XLSX.utils.aoa_to_sheet(aoa)
+                const headStyle = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '409EFF' } }, alignment: { horizontal: 'center', vertical: 'center' } }
+                header.forEach((h, c) => { const a = XLSX.utils.encode_cell({ r: 0, c }); if (ws[a]) ws[a].s = headStyle })
+                // prices as money
+                for (let r0 = 1; r0 < aoa.length; r0++) {
+                    for (let c = 11; c < header.length; c++) {
+                        const a = XLSX.utils.encode_cell({ r: r0, c })
+                        if (ws[a] && ws[a].t === 'n') ws[a].z = '0.00'
+                    }
+                }
+                ws['!cols'] = [{ wch: 12 }, { wch: 60 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 40 }, { wch: 14 },
+                    { wch: 8 }, { wch: 9 }, { wch: 9 }, ...prices.map(() => ({ wch: 11 }))]
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, 'Parts')
+                const d = new Date()
+                const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                const where = (this.nodePath.length ? this.nodePath.join(' - ') : 'All parts').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80)
+                XLSX.writeFile(wb, `Browse Items ${where} ${day}.xlsx`)
+                if (r.capped) this.$message.warning(`Exported the first ${rows.length.toLocaleString()} — narrow the list for the rest`)
+                else this.$message.success(`${rows.length.toLocaleString()} part${rows.length === 1 ? '' : 's'} exported`)
+            } catch (e) {
+                console.error('Browse Items export failed:', e)
+                this.$message.error((e && e.response && e.response.data && e.response.data.message) || (e && e.message) || 'Export failed')
+            } finally {
+                this.exporting = false
+            }
         }
     }
 }

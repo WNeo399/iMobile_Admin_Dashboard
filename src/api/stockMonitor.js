@@ -113,6 +113,10 @@ export function getBrowseTree(params) {
 export function getBrowseItems(params) {
   return request({ url: '/stock-monitor/browse-items', method: 'get', params })
 }
+// every row under the same filters, for the Excel export (the server caps it at 5,000)
+export function exportBrowseItems(params) {
+  return request({ url: '/stock-monitor/browse-items', method: 'get', params: { ...params, all: 1 }, timeout: 120000 })
+}
 
 // Browse Items: the catalogue as Device Brand → Series → Model with counts.
 export function getModelTree(params) {
