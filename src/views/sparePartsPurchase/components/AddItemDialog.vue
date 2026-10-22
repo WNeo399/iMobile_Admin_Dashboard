@@ -21,7 +21,7 @@
                     <img v-if="item.imageUrl" :src="item.imageUrl" class="ai-sug-img" alt="" loading="lazy">
                     <div v-else class="ai-sug-img ai-img-none"><i class="el-icon-picture-outline" /></div>
                     <div class="ai-sug-main">
-                        <div class="ai-sug-name">{{ item.name }}</div>
+                        <div class="ai-sug-name"><span v-if="item.scope && item.scope !== 'parts'" class="ai-scope">{{ item.scope === 'te' ? 'TE' : $tp('Accessory') }}</span> {{ item.name }}</div>
                         <div class="ai-sug-meta">SKU {{ item.sku || '—' }} · {{ $tp(item.suggestedCategory) }} ·
                             <span :class="{ 'ai-zero': !item.available }">{{ $tp('Stock') }} {{ item.available == null ? '—' : item.available }}</span>
                             <span v-if="taken(item)" class="ai-taken"> · {{ $tp('in the list') }}</span></div>
@@ -41,7 +41,7 @@
                 <img v-if="l.imageUrl" :src="l.imageUrl" class="ai-img" alt="" loading="lazy">
                 <div v-else class="ai-img ai-img-none"><i class="el-icon-picture-outline" /></div>
                 <div class="ai-main">
-                    <div class="ai-name" :title="l.name">{{ l.name }}</div>
+                    <div class="ai-name" :title="l.name"><span v-if="l.scope && l.scope !== 'parts'" class="ai-scope">{{ l.scope === 'te' ? 'TE' : $tp('Accessory') }}</span> {{ l.name }}</div>
                     <div class="ai-meta">SKU {{ l.sku || '—' }} · {{ $tp(l.suggestedCategory) }} ·
                         <span :class="{ 'ai-zero': !l.available }">{{ $tp('Stock') }} {{ l.available == null ? '—' : l.available }}</span></div>
                     <!-- open lines for it already: easy to double-order otherwise -->
@@ -257,4 +257,7 @@ export default {
     .ai-zero { color: #f56c6c; }
     .ai-taken { color: #409eff; } }
 @media (max-width: 767px) { .spp-add-suggest { min-width: 0 !important; } }
+/* an accessory / TE item among the parts (the search takes every active Zoho item) */
+.ai-scope { display: inline-block; padding: 0 5px; margin-right: 2px; border-radius: 3px; font-size: 10px; line-height: 16px; vertical-align: 1px;
+    color: #6b4fbb; background: #f4f0ff; border: 1px solid #e4dcfb; }
 </style>
