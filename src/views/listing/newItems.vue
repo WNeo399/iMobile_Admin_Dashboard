@@ -14,11 +14,28 @@
             Item, as Pending lines (user's pick over a Zoho PO).
         Backend: GET /sparePartsPurchase/new-items, POST …/new-items/review.
     -->
-    <div class="app-container ni">
+    <div class="ni-page">
+        <!-- Brand › Series › Model (user 2026-10-22), counted over the list as the
+             other filters and the Reviewed tab leave it; a node filters the table -->
+        <tree-panel :tree-data="treeNodes" :title="$tp('Device Model')" title-icon-class="el-icon-mobile-phone" node-key="id"
+            :show-search="true" :search-placeholder="$tp('Find a brand, series or model')" storage-key="new-items-tree-width"
+            :default-expanded-keys="expandedKeys" :default-width="250" :default-collapsed="mobile" :accordion="true" @node-click="onNode">
+            <template #node="{ data }">
+                <span :class="['ni-node', 'is-' + data.type, { 'is-current': data.id === nodeId }]">
+                    <brand-icon v-if="data.type === 'brand' && data.sel.brand !== NONE" :brand="data.sel.brand" :label="data.label" :size="16" class="ni-node-icon" />
+                    <span class="ni-node-label" :title="data.label">{{ data.label }}</span>
+                    <span class="ni-node-count">{{ data.count }}</span>
+                </span>
+            </template>
+        </tree-panel>
+    <div class="app-container ni ni-main">
         <div class="ni-head">
             <div>
                 <h2 class="ni-title">{{ $tp('New Products') }}</h2>
-                <div class="ni-sub">{{ $tp('Products created in the dashboard — review their details and prices, then order them.') }}</div>
+                <div class="ni-sub">{{ $tp('Products created in the dashboard — review their details and prices, then order them') }}</div>
+                <!-- the picked node, with a way back to all -->
+                <div v-if="node" class="ni-where"><i class="el-icon-mobile-phone" /> {{ nodePath }}
+                    <el-button type="text" size="mini" icon="el-icon-close" @click="clearNode">{{ $tp('Show all') }}</el-button></div>
             </div>
             <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="load">{{ $tp('Refresh') }}</el-button>
         </div>
@@ -34,9 +51,6 @@
             </el-radio-group>
             <el-select v-model="query.by" size="small" clearable :placeholder="$tp('Created by')" class="ni-sel" @change="reload">
                 <el-option v-for="c in creators" :key="c" :label="c" :value="c" />
-            </el-select>
-            <el-select v-if="brands.length > 1 || query.brand" v-model="query.brand" size="small" clearable :placeholder="$tp('Brand')" class="ni-sel" @change="reload">
-                <el-option v-for="b in brands" :key="b" :label="b" :value="b" />
             </el-select>
             <el-select v-model="query.order" size="small" clearable :placeholder="$tp('On order?')" class="ni-sel" @change="reload">
                 <el-option :label="$tp('Not on order')" value="no" />
@@ -158,17 +172,20 @@
             </template>
         </product-edit-dialog>
     </div>
+    </div>
 </template>
 
 <script>
 import ProductThumb from '@/components/ProductThumb'
+import TreePanel from '@/components/TreePanel'
+import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import auth from '@/plugins/auth'
 import priceEditMixin from '../zohoInventory/priceEditing'
 import PriceCell from '../zohoInventory/components/PriceCell'
 import PriceQueueZone from '../zohoInventory/components/PriceQueueZone'
 import AddItemDialog from '../sparePartsPurchase/components/AddItemDialog'
 import ProductEditDialog from '../sparePartsPurchase/components/ProductEditDialog'
-import { zohoLink } from '../sparePartsPurchase/shared'
+import { zohoLink, newestModelFirst } from '../sparePartsPurchase/shared'
 import { listNewItems, reviewNewItems } from '@/api/sparePartsPurchase'
 
 const ISSUE_LABELS = {
@@ -181,16 +198,19 @@ const ISSUE_LABELS = {
     noCategory: 'No category'
 }
 const ISSUE_TYPES = { noCost: 'danger', missingPrice: 'danger', belowCost: 'danger' }
+// the server's "none" (no brand / no series)
+const NONE = '__none__'
 const ORDER_STAGES = [['pending', 'pending'], ['toConfirm', 'to confirm'], ['ordered', 'ordered'], ['shipped', 'shipped'], ['shortage', 'shortage']]
 
 export default {
     name: 'ListingNewItems',
-    components: { ProductThumb, PriceCell, PriceQueueZone, AddItemDialog, ProductEditDialog },
+    components: { ProductThumb, TreePanel, BrandIcon, PriceCell, PriceQueueZone, AddItemDialog, ProductEditDialog },
     mixins: [priceEditMixin],
     data() {
         return {
             ISSUE_LABELS,
             ISSUE_TYPES,
+            NONE,
             loading: false,
             loaded: false,
             seq: 0,
@@ -198,8 +218,11 @@ export default {
             total: 0,
             counts: { all: 0, notReviewed: 0, reviewed: 0, changed: 0 },
             creators: [],
-            brands: [],
-            query: { search: '', reviewed: 'no', by: '', brand: '', order: '', page: 1, pageSize: 50 },
+            // the tree as the server counted it, and the picked node (null = all)
+            tree: [],
+            node: null,
+            expandedKeys: [],
+            query: { search: '', reviewed: 'no', by: '', order: '', page: 1, pageSize: 50 },
             selected: [],
             reviewing: false,
             poVisible: false,
@@ -214,7 +237,30 @@ export default {
     computed: {
         canReview() { return auth.hasPermi('newproduct:item:review') },
         canOrder() { return auth.hasPermiOr(['spp:order:create', 'spp:order:add']) },
-        canEditListing() { return auth.hasPermi('listing:product:create') }
+        canEditListing() { return auth.hasPermi('listing:product:create') },
+        nodeId() { return this.node ? this.node.id : 'all' },
+        nodePath() {
+            if (!this.node) return ''
+            const sel = this.node.sel
+            return [this.noneLabel(sel.brand, 'brand'), sel.series && this.noneLabel(sel.series, 'series'), sel.model].filter(Boolean).join(' › ')
+        },
+        // All, then the brands (most products first); in a brand the series
+        // with the most models first, each one's models newest first — as on
+        // Listing's tree
+        treeNodes() {
+            const total = this.tree.reduce((t, b) => t + b.n, 0)
+            const bySize = (a, b) => b.n - a.n || String(a.label).localeCompare(String(b.label), undefined, { numeric: true })
+            const brands = this.tree.map(b => ({
+                id: 'b|' + b.brand, type: 'brand', label: this.noneLabel(b.brand, 'brand'), count: b.n, n: b.n, sel: { brand: b.brand },
+                children: b.series.map(sr => ({
+                    id: 's|' + b.brand + '|' + sr.series, type: 'series', label: this.noneLabel(sr.series, 'series'), count: sr.n, n: sr.models.length || 0, items: sr.n,
+                    sel: { brand: b.brand, series: sr.series },
+                    children: sr.models.map(m => ({ id: 'm|' + b.brand + '|' + sr.series + '|' + m.model, type: 'model', label: m.model, count: m.n, sel: { brand: b.brand, series: sr.series, model: m.model } }))
+                        .sort((x, y) => newestModelFirst(x.label, y.label))
+                })).sort((x, y) => y.n - x.n || y.items - x.items || String(x.label).localeCompare(String(y.label), undefined, { numeric: true }))
+            })).sort(bySize)
+            return [{ id: 'all', type: 'all', label: this.$tp('All products'), count: total, sel: {} }, ...brands]
+        }
     },
     created() {
         this.load()
@@ -230,6 +276,24 @@ export default {
         msg(e, fallback) {
             return (e && e.response && e.response.data && e.response.data.message) || (e && e.message) || fallback
         },
+        // the tree's node: All clears it
+        onNode(data) {
+            this.node = !data || data.id === 'all' ? null : data
+            // keep its branch open when the tree comes back with the list
+            if (this.node) {
+                const sel = this.node.sel
+                this.expandedKeys = ['b|' + sel.brand].concat(sel.model ? ['s|' + sel.brand + '|' + sel.series] : [])
+            }
+            if (this.$refs.table) this.$refs.table.clearSelection()
+            this.reload()
+        },
+        clearNode() {
+            this.onNode(null)
+        },
+        noneLabel(v, kind) {
+            if (v !== NONE) return v
+            return kind === 'brand' ? this.$tp('No brand') : this.$tp('No series')
+        },
         onSearch() {
             clearTimeout(this.searchTimer)
             this.searchTimer = setTimeout(this.reload, 350)
@@ -243,8 +307,10 @@ export default {
             this.loading = true
             try {
                 const q = this.query
+                const sel = (this.node && this.node.sel) || {}
                 const r = await listNewItems({
-                    search: q.search || undefined, reviewed: q.reviewed || undefined, by: q.by || undefined, brand: q.brand || undefined,
+                    search: q.search || undefined, reviewed: q.reviewed || undefined, by: q.by || undefined,
+                    brand: sel.brand || undefined, series: sel.series || undefined, model: sel.model || undefined,
                     order: q.order || undefined, page: q.page, pageSize: q.pageSize
                 })
                 if (seq !== this.seq) return
@@ -253,7 +319,12 @@ export default {
                 this.total = r.total || 0
                 this.counts = r.counts || this.counts
                 this.creators = r.creators || []
-                this.brands = r.brands || []
+                this.tree = r.tree || []
+                // the biggest brand open to start with
+                if (!this.expandedKeys.length && this.tree.length) {
+                    const top = this.tree.slice().sort((a, b) => b.n - a.n)[0]
+                    this.expandedKeys = ['b|' + top.brand]
+                }
                 this.loaded = true
             } catch (e) {
                 if (seq === this.seq) this.$message.error(this.msg(e, this.$tp('Failed to load the new products')))
@@ -368,6 +439,17 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+/* the tree on the left, the page scrolling beside it */
+.ni-page { display: flex; height: calc(100vh - 84px); overflow: hidden; }
+.ni-main { flex: 1; min-width: 0; overflow: auto; }
+.ni-node { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.ni-node.is-brand .ni-node-label, .ni-node.is-all .ni-node-label { font-weight: 600; color: #303133; }
+.ni-node.is-current .ni-node-label { color: #409eff; font-weight: 600; }
+.ni-node-icon { flex-shrink: 0; }
+.ni-node-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ni-node-count { flex-shrink: 0; margin-left: 8px; font-size: 11px; color: #909399; font-variant-numeric: tabular-nums; }
+.ni-where { margin-top: 6px; font-size: 13px; color: #409eff; font-weight: 500; i { margin-right: 2px; }
+    .el-button { margin-left: 6px; padding: 0; } }
 .ni-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .ni-title { margin: 0; font-size: 20px; font-weight: 600; color: #303133; line-height: 1.2; }
 .ni-sub { color: #909399; font-size: 13px; margin-top: 4px; }
