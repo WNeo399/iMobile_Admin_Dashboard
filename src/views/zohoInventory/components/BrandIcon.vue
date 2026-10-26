@@ -41,6 +41,7 @@ const MARKS = {
     realme: { color: '#d4a200', text: 'R' },
     honor: { color: '#0a6cff', text: 'H' },
     nintendo: { color: '#e60012', text: 'N' },
+    asus: { color: '#00539b', text: 'A' },
     // the tree's own buckets
     __tool__: { icon: 'el-icon-s-tools' },
     __none__: { icon: 'el-icon-remove-outline' },
