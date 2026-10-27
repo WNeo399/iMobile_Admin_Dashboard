@@ -73,3 +73,11 @@ export function removeFromPickList(day, orderId) {
 export function setExyonEnvelope(sku, size) {
   return request({ url: `/exyon-accessories/envelopes/${encodeURIComponent(sku)}`, method: 'put', data: { size: size || '' } })
 }
+// Neto's current lines for these orders, kept; Dispatch uses them from then on
+export function syncExyonNeto(orderIds) {
+  return request({ url: '/exyon-accessories/neto-sync', method: 'post', data: { orderIds }, timeout: 120000 })
+}
+// A processed order's tracking number changed (not once it's dispatched)
+export function changeExyonTracking(day, orderId, tracking) {
+  return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/tracking`, method: 'post', data: { orderId, tracking } })
+}

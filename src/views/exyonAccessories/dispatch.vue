@@ -113,13 +113,16 @@
                         <div class="xd-tile-stats">
                             <div class="xd-stat-pick"><b>{{ g.units }}</b><span>{{ $tp('units to pick') }}</span></div>
                             <div class="xd-stat-orders"><b>{{ g.orders.length }}</b><span>{{ $tp(g.orders.length === 1 ? 'order' : 'orders') }}</span></div>
+                            <!-- Neto's lines for this SKU's orders (user 2026-10-27) -->
+                            <el-button v-if="canProcess" plain icon="el-icon-refresh" class="xd-neto-btn" :loading="!!netoBusy[g.key]"
+                                :title="$tp('Sync these orders\' lines with Neto')" @click="syncNeto(g.orders.map(o => o.orderId), g.key)">Neto</el-button>
                             <el-button v-if="canProcess" type="primary" class="xd-process-btn" @click="openProcess('sku', g)">
                                 {{ $tp('Process') }}<i class="el-icon-right el-icon--right" /></el-button>
                         </div>
                         <div class="xd-olist">
                             <div v-for="o in shown(g)" :key="o.orderId" class="xd-o">
                                 <div class="xd-o-main">
-                                    <b class="xd-o-id">{{ o.orderId }}</b>
+                                    <b class="xd-o-id">{{ o.orderId }}</b><i v-if="o.netoSynced" class="el-icon-circle-check xd-neto-ok" :title="netoTitle(o)" />
                                     <div class="xd-o-meta" :title="[o.channel, o.customerName].filter(Boolean).join(' · ')"><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span> {{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
                                 </div>
                                 <!-- only an order whose quantity takes another envelope than the item's -->
@@ -139,13 +142,13 @@
                     <div v-for="o in col" :key="o.orderId" class="xd-tile">
                         <div class="xd-tile-head">
                             <div class="xd-o-main">
-                                <b class="xd-o-id xd-o-id-lg">{{ o.orderId }}</b>
+                                <b class="xd-o-id xd-o-id-lg">{{ o.orderId }}</b><i v-if="o.netoSynced" class="el-icon-circle-check xd-neto-ok" :title="netoTitle(o)" />
                                 <div class="xd-o-meta" :title="[o.channel, o.customerName].filter(Boolean).join(' · ')"><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span> {{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
                             </div>
                             <span :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
                         </div>
                         <div v-if="tab === 'onlist'" class="xd-tile-sub">
-                            <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}</span>
+                            <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}<el-button v-if="canEditTracking(o)" type="text" icon="el-icon-edit" class="xd-track-edit" :title="$tp('Change the tracking number')" @click.stop="editTracking(o)" /></span>
                             <span v-else class="xd-todo">{{ $tp('Not processed') }}</span>
                             <!-- held back at Confirm dispatch, or Neto refused the update -->
                             <span v-if="o.dispatch && o.dispatch.status === 'held'" class="xd-todo" :title="o.dispatch.note || ''">{{ $tp('Not dispatched') }}: {{ $tp(o.dispatch.reason) }}</span>
@@ -169,6 +172,8 @@
                         <div class="xd-tile-foot">
                             <span class="xd-foot-n">{{ orderUnits(o) }} {{ $tp(orderUnits(o) === 1 ? 'unit' : 'units') }} · {{ o.items.length }} {{ $tp(o.items.length === 1 ? 'item' : 'items') }}</span>
                             <span class="xd-flex" />
+                            <el-button v-if="canProcess && tab !== 'onlist'" plain icon="el-icon-refresh" class="xd-neto-btn" :loading="!!netoBusy[o.orderId]"
+                                :title="$tp('Sync this order\'s lines with Neto')" @click="syncNeto([o.orderId], o.orderId)">Neto</el-button>
                             <el-button v-if="canProcess && !o.tracking" type="primary" class="xd-process-btn" @click="openProcess('multi', o)">
                                 {{ $tp('Process') }}<i class="el-icon-right el-icon--right" /></el-button>
                             <el-button v-if="o.tracking" plain icon="el-icon-printer" class="xd-process-btn" :loading="labelLoading === o.orderId" @click="printLabels([o.orderId], o.orderId)">{{ $tp('Label') }}</el-button>
@@ -204,11 +209,13 @@
                             <span class="xd-flex" />
                             <span class="xd-count">{{ g.orders.length }} {{ $tp(g.orders.length === 1 ? 'order' : 'orders') }}</span>
                             <span class="xd-units">{{ g.units }} {{ $tp(g.units === 1 ? 'unit' : 'units') }}</span>
+                            <el-button v-if="canProcess" size="mini" plain icon="el-icon-refresh" class="xd-process" :loading="!!netoBusy[g.key]"
+                                :title="$tp('Sync these orders\' lines with Neto')" @click.stop="syncNeto(g.orders.map(o => o.orderId), g.key)">Neto</el-button>
                             <el-button v-if="canProcess" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" @click.stop="openProcess('sku', g)">{{ $tp('Process') }}</el-button>
                         </div>
                         <div v-show="!collapsed[g.key]" class="xd-rows">
                             <div v-for="o in g.orders" :key="o.orderId" class="xd-row">
-                                <span class="xd-order">{{ o.orderId }}</span>
+                                <span class="xd-order">{{ o.orderId }}<i v-if="o.netoSynced" class="el-icon-circle-check xd-neto-ok" :title="netoTitle(o)" /></span>
                                 <span><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span></span>
                                 <span class="xd-o-cust" :title="o.customerName">{{ o.customerName || '—' }}</span>
                                 <span class="xd-o-qty">× {{ o.quantity }}</span>
@@ -223,10 +230,10 @@
                 <template v-else>
                     <div v-for="o in (tab === 'onlist' ? onPickList : multiLine)" :key="o.orderId" class="xd-card">
                         <div class="xd-card-head xd-card-head-static">
-                            <span class="xd-order">{{ o.orderId }}</span>
+                            <span class="xd-order">{{ o.orderId }}<i v-if="o.netoSynced" class="el-icon-circle-check xd-neto-ok" :title="netoTitle(o)" /></span>
                             <span :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
                             <template v-if="tab === 'onlist'">
-                                <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}</span>
+                                <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}<el-button v-if="canEditTracking(o)" type="text" icon="el-icon-edit" class="xd-track-edit" :title="$tp('Change the tracking number')" @click.stop="editTracking(o)" /></span>
                                 <span v-else class="xd-todo">{{ $tp('Not processed') }}</span>
                             </template>
                             <span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span>
@@ -234,6 +241,8 @@
                             <span class="xd-flex" />
                             <span class="xd-o-when">{{ when(o.datePlaced) }}</span>
                             <el-tag size="mini" :type="statusTag(o.status)">{{ o.status }}</el-tag>
+                            <el-button v-if="canProcess && tab !== 'onlist'" size="mini" plain icon="el-icon-refresh" class="xd-process" :loading="!!netoBusy[o.orderId]"
+                                :title="$tp('Sync this order\'s lines with Neto')" @click="syncNeto([o.orderId], o.orderId)">Neto</el-button>
                             <el-button v-if="canProcess && !o.tracking" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" @click="openProcess('multi', o)">{{ $tp('Process') }}</el-button>
                             <!-- an AusPost label is printed again from AusPost; the others are ours -->
                             <el-button v-if="o.auspost" size="mini" plain icon="el-icon-printer" class="xd-process" :loading="!!o.apBusy" @click="makeAuspost([o])">{{ $tp('AusPost label') }}</el-button>
@@ -373,7 +382,7 @@
 </template>
 
 <script>
-import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel, setExyonEnvelope } from '@/api/exyonAccessories'
+import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel, setExyonEnvelope, syncExyonNeto, changeExyonTracking } from '@/api/exyonAccessories'
 import { buildShippingLabelsPdf, shippingLabelsFileName } from '@/utils/exyonShippingLabelPdf'
 import { mergePdfs, bytesOfBase64 } from '@/utils/mergePdfs'
 import { hasPermission } from '@/utils/permission'
@@ -497,7 +506,9 @@ export default {
             labelBlob: null,
             labelFile: '',
             // "AusPost labels (n)" running
-            apAll: false
+            apAll: false,
+            // Neto syncs running, by SKU tile key / order id
+            netoBusy: {}
         }
     },
     computed: {
@@ -1006,6 +1017,80 @@ export default {
             if (this.envelope && skip !== 'envelope' && this.envSize(o) !== this.envelope) return false
             return true
         },
+        // ── Neto's lines (user 2026-10-27) ──
+        // Exyon's table keeps a line Neto cancelled; this reads the orders'
+        // lines from Neto (a SKU tile: all its orders — an order tile: that
+        // one), keeps them, says what changed, and reloads the page
+        async syncNeto(orderIds, key) {
+            if (!orderIds.length || this.netoBusy[key]) return
+            this.$set(this.netoBusy, key, true)
+            try {
+                const r = await syncExyonNeto(orderIds)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const res = r.results || []
+                const name = l => l.productName || l.sku
+                const notes = []
+                for (const x of res) {
+                    if (x.notInNeto) { notes.push(`${x.orderId}: ${this.$tp('not found in Neto')}`); continue }
+                    const parts = [
+                        ...(x.removed || []).map(l => this.$tp('removed {name} ×{n}', { name: name(l), n: l.quantity })),
+                        ...(x.added || []).map(l => this.$tp('added {name} ×{n}', { name: name(l), n: l.quantity })),
+                        ...(x.qty || []).map(l => this.$tp('{name}: ×{from} → ×{to}', { name: name(l), from: l.from, to: l.to }))
+                    ]
+                    if (['Dispatched', 'Cancelled'].includes(x.status)) parts.push(this.$tp('{status} in Neto', { status: this.$tp(x.status) }))
+                    if (parts.length) notes.push(`${x.orderId}: ${parts.join('; ')}`)
+                }
+                if (!notes.length) {
+                    this.$message.success(this.$tp('{n} order(s) match Neto', { n: res.length }))
+                } else {
+                    const h = this.$createElement
+                    this.$msgbox({
+                        title: this.$tp('Synced with Neto'),
+                        message: h('div', { style: 'word-break: normal' }, notes.map(t => h('div', { style: 'margin: 4px 0' }, t))),
+                        confirmButtonText: this.$tp('Close')
+                    }).catch(() => {})
+                }
+                await this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to sync with Neto')))
+            } finally {
+                this.$set(this.netoBusy, key, false)
+            }
+        },
+        // ── tracking number (user 2026-10-27) ──
+        // a processed order on a pick list, not dispatched yet, whose number
+        // isn't an AusPost label (that one is cancelled instead)
+        canEditTracking(o) {
+            if (!this.canProcess || this.tab !== 'onlist' || !o.tracking || !o.pickDay) return false
+            if (o.dispatch && o.dispatch.status === 'dispatched') return false
+            return !(o.auspost && o.auspost.articleId === o.tracking)
+        },
+        async editTracking(o) {
+            let value
+            try {
+                const r = await this.$prompt(this.$tp('New tracking number for {no} — type or scan it', { no: o.orderId }), this.$tp('Change the tracking number'), {
+                    inputValue: o.tracking,
+                    inputPattern: /^\s*[A-Za-z0-9._/-]{4,60}\s*$/,
+                    inputErrorMessage: this.$tp('That doesn\'t look like a tracking number'),
+                    confirmButtonText: this.$tp('Save'),
+                    cancelButtonText: this.$tp('Cancel')
+                })
+                value = String(r.value || '').replace(/\s+/g, '')
+            } catch (e) { return }
+            if (!value || value === o.tracking) return
+            try {
+                const r = await changeExyonTracking(o.pickDay, o.orderId, value)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(this.$tp('{no}: tracking number now {t}', { no: o.orderId, t: value }))
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to change the tracking number')))
+            }
+        },
+        netoTitle(o) {
+            const n = o.netoSynced || {}
+            return this.$tp('Lines synced with Neto') + (n.at ? ' · ' + this.when(n.at) : '') + (n.by ? ' · ' + n.by : '')
+        },
         // ── envelope ──
         // an item's envelope chosen by hand (user 2026-10-22) — for every order
         // of it from now on; 'auto' = back to the rules. target: a SKU tile or
@@ -1220,6 +1305,10 @@ export default {
     &.xd-env-other { color: #6b4fbb; background: #f4f0ff; border-color: #e4dcfb; } }
 /* changeable (2026-10-22): a caret, and a pencil once chosen by hand */
 .xd-env-dd { line-height: normal; }
+/* Neto sync (2026-10-27): the button beside Process, a check on synced orders */
+.xd-neto-btn { padding-left: 10px; padding-right: 10px; }
+.xd-neto-ok { margin-left: 4px; color: #67c23a; font-size: 12px; }
+.xd-track-edit { padding: 0 0 0 4px; font-size: 12px; }
 .xd-env-edit { cursor: pointer; &:hover { filter: brightness(.95); } }
 .xd-env-caret { font-size: 10px; margin-left: 1px; opacity: .7; }
 .xd-env-pin { font-size: 11px; }
