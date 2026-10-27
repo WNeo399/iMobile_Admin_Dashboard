@@ -14,6 +14,17 @@ export function listRepairTickets() {
     })
 }
 
+// A ticket-number search over every RepairDesk ticket (the list above only
+// holds the saved filter's 60-day window) — same { ticketGrouped } shape.
+export function searchRepairTickets(q) {
+    return request({
+        url: '/repair/tickets/search',
+        method: 'get',
+        params: { q },
+        timeout: 30000
+    })
+}
+
 // Single-ticket detail for the dialog. Backend surfaces RepairDesk's
 // "No Result Found" as a 404.
 export function getRepairTicketDetail(id) {

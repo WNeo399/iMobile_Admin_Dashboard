@@ -38,34 +38,32 @@
         <div class="tree-sidebar-content">
             <div class="content-inner">
                 <div class="filter-bar">
-                    <!-- Repaired views swap the ticket-number search for
-                         a date-range picker; same behavior for all three
-                         repaired sub-groups. -->
-                    <template v-if="isRepairedView">
-                        <el-date-picker
-                            v-model="repairedDateRange"
-                            type="daterange"
-                            range-separator="to"
-                            start-placeholder="Repaired from"
-                            end-placeholder="Repaired to"
-                            value-format="timestamp"
-                            size="small"
-                            class="filter-date"
-                            @change="onDateRangeChange"
-                        />
-                    </template>
-                    <template v-else>
-                        <el-input
-                            v-model="ticketSearch"
-                            placeholder="Ticket Number"
-                            clearable
-                            size="small"
-                            prefix-icon="el-icon-search"
-                            class="filter-search"
-                            @keyup.enter.native="onSearch"
-                            @clear="onSearch"
-                        />
-                    </template>
+                    <!-- The ticket search on every status (2026-10-27: the
+                         tree counts follow it, so it stays put); the repaired
+                         sub-groups add a date-range picker beside it. -->
+                    <el-input
+                        v-model="ticketSearch"
+                        placeholder="Ticket Number"
+                        clearable
+                        size="small"
+                        prefix-icon="el-icon-search"
+                        class="filter-search"
+                        @keyup.enter.native="onSearch"
+                        @clear="onSearch"
+                        @input="onSearch"
+                    />
+                    <el-date-picker
+                        v-if="isRepairedView"
+                        v-model="repairedDateRange"
+                        type="daterange"
+                        range-separator="to"
+                        start-placeholder="Repaired from"
+                        end-placeholder="Repaired to"
+                        value-format="timestamp"
+                        size="small"
+                        class="filter-date"
+                        @change="onDateRangeChange"
+                    />
 
                     <el-select
                         v-model="assignedFilter"
@@ -83,6 +81,28 @@
                             :label="name"
                             :value="name"
                         />
+                    </el-select>
+
+                    <!-- by customer (user ask 2026-10-27): type to find one;
+                         kept across status clicks, like Assigned to -->
+                    <el-select
+                        v-model="customerFilter"
+                        placeholder="Customer"
+                        size="small"
+                        clearable
+                        filterable
+                        class="filter-customer"
+                        @change="onCustomerChange"
+                    >
+                        <el-option
+                            v-for="c in customerOptions"
+                            :key="c.name"
+                            :label="c.name"
+                            :value="c.name"
+                        >
+                            <span>{{ c.name }}</span>
+                            <span class="customer-count">{{ c.count }}</span>
+                        </el-option>
                     </el-select>
 
                     <div class="filter-actions">
@@ -135,6 +155,12 @@
                         <span v-if="currentGroupLabel" class="filter-summary-scope">
                             · {{ currentGroupLabel }}
                         </span>
+                        <span v-if="remoteSearching" class="filter-summary-refresh">
+                            · <i class="el-icon-loading" /> searching RepairDesk…
+                        </span>
+                        <span v-else-if="olderShown" class="filter-summary-refresh">
+                            · {{ olderShown }} older from RepairDesk
+                        </span>
                         <span v-if="lastRefreshLabel" class="filter-summary-refresh">
                             · updated {{ lastRefreshLabel }}
                         </span>
@@ -157,6 +183,8 @@
                                 rel="noopener noreferrer"
                                 class="row-link"
                             >{{ scope.row.ticketNumber }}</a>
+                            <el-tag v-if="scope.row.older" size="mini" type="info" effect="plain" class="older-tag"
+                                title="Older than the 60-day list — found by searching RepairDesk">older</el-tag>
                         </template>
                     </el-table-column>
                     <el-table-column label="Device" min-width="220">
@@ -237,7 +265,7 @@
 </template>
 
 <script>
-import { listRepairTickets } from '@/api/repair/tickets'
+import { listRepairTickets, searchRepairTickets } from '@/api/repair/tickets'
 import TreePanel from '@/components/TreePanel'
 import TicketDetail from './components/TicketDetail.vue'
 import QCGenerator from './components/QCGenerator.vue'
@@ -296,6 +324,11 @@ export default {
 
             ticketSearch: '',
             assignedFilter: '__all',
+            // '' = every customer; otherwise a customer's full name
+            customerFilter: '',
+            // the RepairDesk-wide ticket search (2026-10-27) in flight, and its order
+            remoteSearching: false,
+            remoteSeq: 0,
             repairedDateRange: null,
 
             pageNum: 1,
@@ -324,11 +357,15 @@ export default {
         // live on each node and feed the el-badge in the slot template.
         treeData() {
             const grouped = this.ticketGrouped
+            // Each status counts what its table would show with the filter
+            // bar as it stands — search, Assigned to, Customer, and (repaired
+            // statuses) the date range (user 2026-10-27)
+            const counts = Object.fromEntries(STATUS_GROUPS.map(g => [
+                g.key, (grouped[g.key] || []).filter(this.ticketFilter(g.key)).length
+            ]))
             // Sum every visible status, not a hand-listed set, so adding a
             // bucket to STATUS_GROUPS automatically rolls into the total.
-            const total = STATUS_GROUPS.reduce(
-                (sum, g) => sum + ((grouped[g.key] || []).length), 0
-            )
+            const total = STATUS_GROUPS.reduce((sum, g) => sum + counts[g.key], 0)
             return [
                 {
                     id: 'all',
@@ -337,10 +374,38 @@ export default {
                     children: STATUS_GROUPS.map(g => ({
                         id: g.key,
                         label: g.label,
-                        count: (grouped[g.key] || []).length
+                        count: counts[g.key]
                     }))
                 }
             ]
+        },
+        // The filter bar as one test, for a status group ('' = All): the
+        // table and the tree counts both use it. The repaired date range
+        // only narrows the repaired groups (the others have no repaired date).
+        ticketFilter() {
+            const q = String(this.ticketSearch || '').trim().toLowerCase()
+            const assigned = this.assignedFilter && this.assignedFilter !== '__all' ? this.assignedFilter : ''
+            const who = this.customerFilter
+            const range = Array.isArray(this.repairedDateRange) && this.repairedDateRange.length === 2 ? this.repairedDateRange : null
+            const fromSec = range && range[0] ? Math.floor(range[0] / 1000) : null
+            const toSec = range && range[1] ? Math.floor(range[1] / 1000) : null
+            const assigneeOf = t => (t.devices[0] && t.devices[0].assigned_to && t.devices[0].assigned_to.fullname) || ''
+            return groupKey => {
+                const byDate = range && REPAIRED_VIEW_KEYS.has(groupKey)
+                return t => {
+                    if (q && !String(t.ticketNumber || '').toLowerCase().includes(q)) return false
+                    if (assigned === '__unassigned' && assigneeOf(t)) return false
+                    if (assigned && assigned !== '__unassigned' && !assigneeOf(t).includes(assigned)) return false
+                    if (who && String(t.customer || '').trim() !== who) return false
+                    if (byDate) {
+                        const d = t.repaired_date
+                        if (!d) return false
+                        if (fromSec !== null && d < fromSec) return false
+                        if (toSec !== null && d > toSec) return false
+                    }
+                    return true
+                }
+            }
         },
         currentGroupLabel() {
             if (!this.currentGroup) return 'All Tickets'
@@ -373,54 +438,7 @@ export default {
             } else {
                 pool = this.ticketGrouped[this.currentGroup] || []
             }
-
-            // Ticket-number search is suppressed in the repaired views in
-            // favour of the date range — same as the original page.
-            if (!this.isRepairedView && this.ticketSearch) {
-                const q = this.ticketSearch.trim().toLowerCase()
-                if (q) {
-                    pool = pool.filter(t =>
-                        String(t.ticketNumber || '').toLowerCase().includes(q)
-                    )
-                }
-            }
-
-            if (this.assignedFilter && this.assignedFilter !== '__all') {
-                if (this.assignedFilter === '__unassigned') {
-                    pool = pool.filter(t =>
-                        !(t.devices[0] && t.devices[0].assigned_to && t.devices[0].assigned_to.fullname)
-                    )
-                } else {
-                    const target = this.assignedFilter
-                    pool = pool.filter(t =>
-                        t.devices[0] &&
-                        t.devices[0].assigned_to &&
-                        t.devices[0].assigned_to.fullname &&
-                        t.devices[0].assigned_to.fullname.includes(target)
-                    )
-                }
-            }
-
-            // Date range applies to every repaired sub-group since they
-            // all carry a `repaired_date` from the invoice join.
-            if (
-                this.isRepairedView &&
-                Array.isArray(this.repairedDateRange) &&
-                this.repairedDateRange.length === 2
-            ) {
-                const [fromMs, toMs] = this.repairedDateRange
-                const fromSec = fromMs ? Math.floor(fromMs / 1000) : null
-                const toSec = toMs ? Math.floor(toMs / 1000) : null
-                pool = pool.filter(t => {
-                    const d = t.repaired_date
-                    if (!d) return false
-                    if (fromSec !== null && d < fromSec) return false
-                    if (toSec !== null && d > toSec) return false
-                    return true
-                })
-            }
-
-            return pool
+            return pool.filter(this.ticketFilter(this.currentGroup))
         },
         lastRefreshLabel() {
             if (!this.lastRefreshAt) return ''
@@ -447,6 +465,21 @@ export default {
                 if (name) set.add(name)
             }
             return Array.from(set).sort((a, b) => a.localeCompare(b))
+        },
+        // Every customer on the loaded tickets with how many tickets they
+        // have (all statuses), A–Z — the Customer filter's options
+        customerOptions() {
+            const counts = new Map()
+            for (const t of this.allTickets) {
+                const name = String(t.customer || '').trim()
+                if (name) counts.set(name, (counts.get(name) || 0) + 1)
+            }
+            return Array.from(counts, ([name, count]) => ({ name, count }))
+                .sort((a, b) => a.name.localeCompare(b.name))
+        },
+        // tickets on screen found by the RepairDesk search (older than the list)
+        olderShown() {
+            return this.filteredTickets.filter(t => t.older).length
         },
         // Current page of `filteredTickets`. Computed so any change to
         // pageNum, pageSize, or the underlying filtered set auto-renders
@@ -505,6 +538,7 @@ export default {
         }, REFRESH_INTERVAL_MS)
     },
     beforeDestroy() {
+        clearTimeout(this.searchTimer)
         if (this.refreshTimer) {
             clearInterval(this.refreshTimer)
             this.refreshTimer = null
@@ -525,6 +559,8 @@ export default {
                 const data = (res && res.data) || {}
                 this.ticketGrouped = data.ticketGrouped || this.ticketGrouped
                 this.lastRefreshAt = Date.now()
+                // a refresh replaces the list — find an older searched ticket again
+                if (String(this.ticketSearch || '').trim().length >= 3) this.remoteSearch(this.ticketSearch.trim())
             } catch (e) {
                 console.error('Failed to load repair tickets:', e)
                 const msg = (e.response && e.response.data && e.response.data.message)
@@ -539,17 +575,52 @@ export default {
         handleStatusClick(data) {
             if (!data) return
             this.currentGroup = data.id === 'all' ? '' : data.id
-            // A user-initiated scope change resets cross-group filters
-            // and page number. Page resets only ever happen here and in
-            // the filter handlers below — never on data refresh, so the
-            // 10-min auto-refresh doesn't yank the user back to page 1.
-            this.ticketSearch = ''
+            // A user-initiated scope change resets the repaired date range
+            // and page number; the search stays (2026-10-27: the tree counts
+            // follow it, so the number clicked is what the table shows).
+            // Page resets only ever happen here and in the filter handlers
+            // below — never on data refresh, so the 10-min auto-refresh
+            // doesn't yank the user back to page 1.
             this.repairedDateRange = null
             this.pageNum = 1
         },
         // ── Filters ───────────────────────────────────────────────
-        onSearch() { this.pageNum = 1 },
+        onSearch() {
+            this.pageNum = 1
+            // and, after a pause, RepairDesk's own search over every ticket
+            clearTimeout(this.searchTimer)
+            const q = String(this.ticketSearch || '').trim()
+            if (q.length >= 3) this.searchTimer = setTimeout(() => this.remoteSearch(q), 600)
+        },
+        // A ticket-number search over every RepairDesk ticket (user
+        // 2026-10-27: "in case it is older than 60 days but is in
+        // RepairDesk"): what it finds that the list doesn't hold joins its
+        // status group, tagged older — so the table, the tree counts and the
+        // detail dialog take it like any other ticket (until the next refresh).
+        async remoteSearch(q) {
+            const seq = ++this.remoteSeq
+            this.remoteSearching = true
+            try {
+                const res = await searchRepairTickets(q)
+                if (seq !== this.remoteSeq) return
+                const found = (res && res.data && res.data.ticketGrouped) || {}
+                const have = new Set(this.allTickets.map(t => String(t.id)))
+                for (const [key, list] of Object.entries(found)) {
+                    const bucket = this.ticketGrouped[key] || this.ticketGrouped.fullfilled
+                    for (const t of list || []) {
+                        if (have.has(String(t.id))) continue
+                        have.add(String(t.id))
+                        bucket.push({ ...t, older: true })
+                    }
+                }
+            } catch (e) {
+                if (seq === this.remoteSeq) console.warn('RepairDesk search failed:', e)
+            } finally {
+                if (seq === this.remoteSeq) this.remoteSearching = false
+            }
+        },
         onAssignedChange() { this.pageNum = 1 },
+        onCustomerChange() { this.pageNum = 1 },
         onDateRangeChange() { this.pageNum = 1 },
         // ── Row actions ───────────────────────────────────────────
         openDetail(id) {
@@ -703,6 +774,9 @@ export default {
 .filter-search { width: 220px; max-width: 100%; }
 .filter-date { width: 320px; max-width: 100%; }
 .filter-assigned { width: 160px; max-width: 100%; }
+.filter-customer { width: 200px; max-width: 100%; }
+.older-tag { margin-left: 6px; }
+.customer-count { float: right; margin-left: 12px; color: #909399; font-size: 12px; }
 .filter-actions {
     display: flex;
     gap: 6px;
