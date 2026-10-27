@@ -230,7 +230,18 @@
                                     size="mini"
                                     effect="dark"
                                 >Overdue</el-tag>
+                                <!-- click to change it in RepairDesk (repair:ticket:status) -->
+                                <status-menu
+                                    v-if="canChangeStatus && statuses.length"
+                                    :value="scope.row.devices[0].status.name"
+                                    :statuses="statuses"
+                                    :mixed="hasMixedStatus(scope.row)"
+                                    :tag-type="statusTagType(scope.row.devices[0].status.name)"
+                                    :busy="statusBusy === String(scope.row.id)"
+                                    @pick="name => changeStatus(scope.row, name)"
+                                />
                                 <el-tag
+                                    v-else
                                     :type="statusTagType(scope.row.devices[0].status.name)"
                                     size="mini"
                                     effect="plain"
@@ -238,7 +249,7 @@
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Action" align="center" width="100">
+                    <el-table-column label="Action" align="center" :width="canAddNote ? 150 : 100">
                         <template slot-scope="scope">
                             <el-button
                                 size="mini"
@@ -246,6 +257,14 @@
                                 icon="el-icon-view"
                                 @click.stop="openDetail(scope.row.id)"
                             >Detail</el-button>
+                            <!-- a note on the RepairDesk ticket (repair:ticket:note) -->
+                            <el-button
+                                v-if="canAddNote"
+                                size="mini"
+                                type="text"
+                                icon="el-icon-edit-outline"
+                                @click.stop="openNote(scope.row)"
+                            >Note</el-button>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -259,16 +278,27 @@
             </div>
         </div>
 
-        <ticket-detail ref="detailDialog" />
+        <ticket-detail
+            ref="detailDialog"
+            :statuses="canChangeStatus ? statuses : []"
+            :busy-id="statusBusy"
+            :can-add-note="canAddNote"
+            @change-status="onDetailStatus"
+            @add-note="t => $refs.noteDialog.open(t)"
+        />
+        <note-dialog ref="noteDialog" @saved="onNoteSaved" />
         <q-c-generator ref="qcDialog" />
     </div>
 </template>
 
 <script>
-import { listRepairTickets, searchRepairTickets } from '@/api/repair/tickets'
+import { listRepairTickets, searchRepairTickets, listRepairStatuses, setRepairTicketStatus } from '@/api/repair/tickets'
+import { checkPermi } from '@/utils/permission'
 import TreePanel from '@/components/TreePanel'
 import TicketDetail from './components/TicketDetail.vue'
 import QCGenerator from './components/QCGenerator.vue'
+import StatusMenu from './components/StatusMenu.vue'
+import NoteDialog from './components/NoteDialog.vue'
 // xlsx-js-style is the styled fork of SheetJS xlsx, already used by the
 // Stock Monitoring export. Keeps headers/widths consistent across the
 // dashboard's downloads.
@@ -308,7 +338,7 @@ const REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
 export default {
     name: 'ImobileRepair',
-    components: { TreePanel, TicketDetail, 'q-c-generator': QCGenerator },
+    components: { TreePanel, TicketDetail, StatusMenu, NoteDialog, 'q-c-generator': QCGenerator },
     data() {
         return {
             loading: false,
@@ -330,6 +360,10 @@ export default {
             remoteSearching: false,
             remoteSeq: 0,
             repairedDateRange: null,
+            // RepairDesk's statuses for the status menu, and the ticket id
+            // whose change is being saved ('' = none)
+            statuses: [],
+            statusBusy: '',
 
             pageNum: 1,
             pageSize: 20,
@@ -345,6 +379,15 @@ export default {
         }
     },
     computed: {
+        // Status changes write to RepairDesk — Admin, iMobile Admin and
+        // iMobile Repair Admin (repair:*:*)
+        canChangeStatus() {
+            return checkPermi(['repair:ticket:status'])
+        },
+        // adding a note writes to RepairDesk too — same roles
+        canAddNote() {
+            return checkPermi(['repair:ticket:note'])
+        },
         // True iff the active group renders a Repaired-style column
         // (repaired_date + date-range filter) instead of the due-date
         // default. Shared across the template, filter pipeline, and the
@@ -531,6 +574,7 @@ export default {
     },
     created() {
         this.getTickets()
+        if (this.canChangeStatus) this.loadStatuses()
         // Background refresh keeps the page in sync with RepairDesk without
         // the user having to mash the Refresh button.
         this.refreshTimer = setInterval(() => {
@@ -622,6 +666,97 @@ export default {
         onAssignedChange() { this.pageNum = 1 },
         onCustomerChange() { this.pageNum = 1 },
         onDateRangeChange() { this.pageNum = 1 },
+        // ── Status changes (pushed to RepairDesk) ─────────────────
+        async loadStatuses() {
+            try {
+                const res = await listRepairStatuses()
+                this.statuses = (res && res.data) || []
+            } catch (e) {
+                // without them the status stays a plain tag
+                console.warn('RepairDesk statuses failed:', e)
+            }
+        },
+        hasMixedStatus(ticket) {
+            return new Set((ticket.devices || []).map(d => d.status && d.status.name)).size > 1
+        },
+        // Set a ticket's status in RepairDesk — every device line, or only
+        // deviceIds (the detail dialog's per-line menu) — after a confirm,
+        // then move it to the status group RepairDesk now puts it in.
+        // Resolves true when something changed.
+        async changeStatus(ticket, status, deviceIds, lineName) {
+            const lines = (ticket.devices || []).length
+            const which = lineName ? `the ${lineName} line of ticket`
+                : lines > 1 ? `all ${lines} device lines of ticket` : 'ticket'
+            try {
+                await this.$confirm(
+                    `Set ${which} ${ticket.ticketNumber} to "${status}" in RepairDesk? ` +
+                    'RepairDesk may text or email the customer, depending on its status notification settings. ' +
+                    'A note saying you made the change is added to the ticket.',
+                    'Change status',
+                    { confirmButtonText: 'Change', cancelButtonText: 'Cancel', type: 'warning' }
+                )
+            } catch (e) {
+                return false
+            }
+            this.statusBusy = String(ticket.id)
+            try {
+                const res = await setRepairTicketStatus(ticket.id, status, deviceIds)
+                const d = (res && res.data) || {}
+                if (d.ticket && d.group) this.placeTicket(ticket, d.group, d.ticket)
+                if (d.unchanged) {
+                    this.$message.info(`Ticket ${ticket.ticketNumber} is already "${status}"`)
+                    return false
+                }
+                const failed = d.failed || []
+                if (failed.length) {
+                    this.$message.warning(
+                        `Changed ${(d.changed || []).length} of ${(d.changed || []).length + failed.length} device lines — ` +
+                        `RepairDesk refused ${failed[0].name}: ${failed[0].message}`
+                    )
+                } else if (!d.noteAdded) {
+                    this.$message.warning(`Ticket ${ticket.ticketNumber} → "${status}", but the note couldn't be added`)
+                } else {
+                    this.$message.success(`Ticket ${ticket.ticketNumber} → "${status}"`)
+                }
+                return true
+            } catch (e) {
+                // the request helper has already shown the server's message
+                console.warn('Status change failed:', e)
+                return false
+            } finally {
+                this.statusBusy = ''
+            }
+        },
+        // The ticket re-read from RepairDesk replaces the old copy, in the
+        // group it now falls in (on top, so it's easy to find there)
+        placeTicket(old, group, fresh) {
+            const g = this.ticketGrouped
+            for (const key of Object.keys(g)) {
+                const i = g[key].findIndex(t => String(t.id) === String(old.id))
+                if (i >= 0) g[key].splice(i, 1)
+            }
+            const bucket = g[group] || g.fullfilled
+            bucket.unshift({
+                ...fresh,
+                repaired_date: fresh.repaired_date || old.repaired_date || null,
+                older: old.older
+            })
+        },
+        // a device line's menu in the Detail dialog
+        async onDetailStatus({ id, ticketNumber, deviceId, deviceName, status }) {
+            const ticket = this.allTickets.find(t => String(t.id) === String(id)) ||
+                { id, ticketNumber, devices: [] }
+            const changed = await this.changeStatus(ticket, status, [deviceId], deviceName)
+            if (changed && this.$refs.detailDialog) this.$refs.detailDialog.reload()
+        },
+        // ── Notes (added to the RepairDesk ticket) ────────────────
+        openNote(ticket) {
+            this.$refs.noteDialog.open({ id: ticket.id, ticketNumber: ticket.ticketNumber, devices: ticket.devices })
+        },
+        // an open Detail dialog on that ticket shows the new note
+        onNoteSaved({ id }) {
+            if (this.$refs.detailDialog) this.$refs.detailDialog.reload(id)
+        },
         // ── Row actions ───────────────────────────────────────────
         openDetail(id) {
             if (this.$refs.detailDialog) {

@@ -34,3 +34,35 @@ export function getRepairTicketDetail(id) {
         timeout: 30000
     })
 }
+
+// The statuses a ticket can be set to — [{ name, type, color }], one per name.
+export function listRepairStatuses() {
+    return request({
+        url: '/repair/statuses',
+        method: 'get',
+        timeout: 30000
+    })
+}
+
+// Add a note to a RepairDesk ticket — { note, type: 'internal' | 'diagnostic',
+// deviceId (one device line, optional), flag }. Answers { note }.
+export function addRepairTicketNote(id, data) {
+    return request({
+        url: `/repair/tickets/${id}/notes`,
+        method: 'post',
+        data,
+        timeout: 30000
+    })
+}
+
+// Set a ticket's status in RepairDesk: every device line, or only deviceIds.
+// Answers { changed, failed, noteAdded, group, ticket } — the ticket re-read
+// from RepairDesk in the list's shape and the status group it now falls in.
+export function setRepairTicketStatus(id, status, deviceIds) {
+    return request({
+        url: `/repair/tickets/${id}/status`,
+        method: 'post',
+        data: deviceIds ? { status, deviceIds } : { status },
+        timeout: 60000
+    })
+}

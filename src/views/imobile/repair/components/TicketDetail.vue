@@ -75,7 +75,15 @@
                     </el-table-column>
                     <el-table-column label="Status" min-width="130">
                         <template slot-scope="scope">
-                            <el-tag size="mini" effect="plain">{{ scope.row.status.name }}</el-tag>
+                            <!-- one line's status, changed in RepairDesk by the page -->
+                            <status-menu
+                                v-if="statuses.length"
+                                :value="scope.row.status.name"
+                                :statuses="statuses"
+                                :busy="busyId === String(ticket.summary.id)"
+                                @pick="name => pickStatus(scope.row, name)"
+                            />
+                            <el-tag v-else size="mini" effect="plain">{{ scope.row.status.name }}</el-tag>
                         </template>
                     </el-table-column>
                     <el-table-column label="Action" align="center" width="120">
@@ -89,6 +97,31 @@
                         </template>
                     </el-table-column>
                 </el-table>
+
+                <div class="section-title section-title--action">
+                    <span>Notes</span>
+                    <el-button
+                        v-if="canAddNote"
+                        size="mini"
+                        type="text"
+                        icon="el-icon-edit-outline"
+                        @click="$emit('add-note', { id: ticket.summary.id, ticketNumber: ticket.summary.order_id, devices: ticket.devices || [] })"
+                    >Add note</el-button>
+                </div>
+                <ul class="message-list note-list">
+                    <li v-for="n in notes" :key="n.id" class="message-item">
+                        <div class="message-date">
+                            {{ formatDate(n.created_on * 1000) }} · {{ n.user || '—' }}
+                            <el-tag size="mini" :type="String(n.type) === '1' ? 'warning' : 'info'" effect="plain" class="note-tag">
+                                {{ String(n.type) === '1' ? 'Diagnostic' : 'Internal' }}
+                            </el-tag>
+                            <i v-if="String(n.is_flag) === '1'" class="el-icon-s-flag note-flag" title="Flagged" />
+                            <span v-if="String(n.devicename || '').trim()" class="note-device">{{ n.devicename.trim() }}</span>
+                        </div>
+                        <div class="message-body note-text">{{ n.msg_text }}</div>
+                    </li>
+                    <li v-if="notes.length === 0" class="message-empty">No notes.</li>
+                </ul>
 
                 <div class="section-title">Message Record</div>
                 <ul class="message-list">
@@ -121,9 +154,19 @@
 
 <script>
 import { getRepairTicketDetail } from '@/api/repair/tickets'
+import StatusMenu from './StatusMenu.vue'
 
 export default {
     name: 'TicketDetail',
+    components: { StatusMenu },
+    props: {
+        // RepairDesk's statuses — empty when the user can't change them
+        statuses: { type: Array, default: () => [] },
+        // the ticket id whose status change the page is saving
+        busyId: { type: String, default: '' },
+        // shows the Notes section's Add note (repair:ticket:note)
+        canAddNote: { type: Boolean, default: false }
+    },
     data() {
         return {
             visible: false,
@@ -143,6 +186,11 @@ export default {
         history() {
             if (!this.ticket) return []
             return this.ticket.hostory || this.ticket.history || []
+        },
+        // RepairDesk's notes on the ticket, newest first
+        notes() {
+            const list = (this.ticket && Array.isArray(this.ticket.notes)) ? this.ticket.notes : []
+            return list.slice().sort((a, b) => (b.created_on || 0) - (a.created_on || 0))
         }
     },
     methods: {
@@ -171,6 +219,28 @@ export default {
             } finally {
                 this.loading = false
             }
+        },
+        // Re-read the open ticket after a status change or a new note (only
+        // when it's ticket `id`, if given), keeping it on screen meanwhile
+        async reload(id) {
+            if (!this.visible || !this.ticket) return
+            if (id && String(id) !== String(this.ticket.summary.id)) return
+            try {
+                const res = await getRepairTicketDetail(this.ticket.summary.id)
+                if (res && res.data) this.ticket = res.data
+            } catch (e) {
+                console.warn('Ticket detail reload failed:', e)
+            }
+        },
+        // The parent confirms and saves; RepairDesk keeps a status per line
+        pickStatus(device, status) {
+            this.$emit('change-status', {
+                id: this.ticket.summary.id,
+                ticketNumber: this.ticket.summary.order_id,
+                deviceId: device.id,
+                deviceName: (device.device && device.device.name) || device.name || '',
+                status
+            })
         },
         onClose() {
             // Drop the payload so a re-open doesn't briefly flash stale data.
@@ -294,6 +364,33 @@ export default {
     text-align: center;
     color: #909399;
     font-size: 13px;
+}
+.section-title--action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.section-title--action .el-button {
+    padding: 0;
+}
+.note-list {
+    max-height: 220px;
+}
+.note-list .message-empty {
+    padding: 10px 0;
+}
+.note-tag {
+    margin-left: 6px;
+}
+.note-flag {
+    color: #f56c6c;
+    margin-left: 4px;
+}
+.note-device {
+    margin-left: 6px;
+}
+.note-text {
+    white-space: pre-wrap;
 }
 </style>
 
