@@ -227,68 +227,73 @@ function drawOscarItemLabel(doc, line, pngCache) {
 }
 
 // Label 2 — "Supplier Item Card - Screen": tick-box form with a QR and
-// barcode of the return code. Grid coordinates traced from the sample.
+// barcode of the return code. Grid traced from the sample, then (user
+// 2026-10-27) the header, the Faulty Detail checklist and the hand-filled
+// fields shrunk — smaller fonts, tighter rows — so the return-code band
+// gets about 17 mm and the barcode 12.6 mm of bar height (was 6).
 function drawOscarCardLabel(doc, returnCode, pngCache) {
     const L = 1.5
     const R = OSCAR_W - 1.5
+    const HEAD = 9.8 // header rule
+    const BAND = 31 // top of the return-code band
     doc.setTextColor(0)
     doc.setDrawColor(0)
     doc.setLineWidth(0.35)
 
     // Header + top checkboxes
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text('Supplier Item Card - Screen', OSCAR_W / 2, 6, { align: 'center' })
-    doc.setFontSize(11)
-    for (const [x, label] of [[22, 'Faulty'], [45, 'Warranty'], [70, 'Damage']]) {
-        doc.rect(x, 8.2, 3.4, 3.4)
-        doc.text(label, x + 4.6, 11.1)
+    doc.setFontSize(10)
+    doc.text('Supplier Item Card - Screen', OSCAR_W / 2, 4.4, { align: 'center' })
+    doc.setFontSize(9)
+    for (const [x, label] of [[24, 'Faulty'], [46, 'Warranty'], [70, 'Damage']]) {
+        doc.rect(x, 5.9, 2.6, 2.6)
+        doc.text(label, x + 3.6, 8.2)
     }
-    doc.line(L, 13.2, R, 13.2)
+    doc.line(L, HEAD, R, HEAD)
 
     // Left cell — "Faulty Detail"
-    doc.line(13.5, 13.2, 13.5, 38.5)
-    doc.setFontSize(10)
-    doc.text('Faulty', 7.5, 24.3, { align: 'center' })
-    doc.text('Detail', 7.5, 28.3, { align: 'center' })
+    doc.line(13.5, HEAD, 13.5, BAND)
+    doc.setFontSize(8)
+    doc.text('Faulty', 7.5, 19.5, { align: 'center' })
+    doc.text('Detail', 7.5, 22.6, { align: 'center' })
 
     // Fault checklist
-    doc.line(33.5, 13.2, 33.5, 38.5)
-    doc.setFontSize(7.5)
-    let y = 16.2
+    doc.line(33.5, HEAD, 33.5, BAND)
+    doc.setFontSize(6)
+    let y = 12.1
     for (const item of ['No Display', 'Lifting', 'Screw Holes', 'Touch Issue', 'LCD Issue', 'Frame Fit', 'HB Issue', 'Others']) {
-        doc.rect(15.2, y - 2.1, 2.4, 2.4)
-        doc.text(item, 18.8, y)
-        y += 3.05
+        doc.rect(14.8, y - 1.6, 1.9, 1.9)
+        doc.text(item, 17.6, y)
+        y += 2.5
     }
 
     // Middle fields (hand-filled)
-    doc.setFontSize(9)
-    doc.text('Branch No.:', 35.5, 16.6)
-    doc.text('Transfer out Date:', 58, 16.6)
-    doc.line(34.5, 18.2, R, 18.2)
-    doc.text('Technician Name:', 35.5, 22.8)
-    doc.line(34.5, 24.4, 74.5, 24.4)
-    doc.text('Repair Order No: C-', 35.5, 28.6)
-    doc.line(34.5, 30.2, 74.5, 30.2)
-    doc.text('Comment:', 35.5, 34.2)
+    doc.setFontSize(7)
+    doc.text('Branch No.:', 35.2, 12.6)
+    doc.text('Transfer out Date:', 57, 12.6)
+    doc.line(34.2, 14, R, 14)
+    doc.text('Technician Name:', 35.2, 18.4)
+    doc.line(34.2, 19.8, 79, 19.8)
+    doc.text('Repair Order No: C-', 35.2, 24)
+    doc.line(34.2, 25.4, 79, 25.4)
+    doc.text('Comment:', 35.2, 29.4)
 
     // QR of the return code
-    drawQr(doc, returnCode, 77, 19.4, 18)
+    drawQr(doc, returnCode, 81.5, 15.2, 15)
 
-    // Bottom band — return code barcode. The band is taller than the
-    // sample's so the barcode gets more bar height for hand scanners.
-    doc.line(L, 38.5, R, 38.5)
-    doc.line(13.5, 38.5, 13.5, 48.5)
-    doc.setFontSize(10)
-    doc.text('Return', 7.5, 42.8, { align: 'center' })
-    doc.text('Code', 7.5, 46.8, { align: 'center' })
+    // Bottom band — return code barcode, as tall as the band allows for
+    // hand scanners.
+    doc.line(L, BAND, R, BAND)
+    doc.line(13.5, BAND, 13.5, 48.5)
+    doc.setFontSize(8)
+    doc.text('Return', 7.5, 39, { align: 'center' })
+    doc.text('Code', 7.5, 42.1, { align: 'center' })
     const png = pngCache
         ? pngCache[returnCode] || (pngCache[returnCode] = barcodePng(returnCode))
         : barcodePng(returnCode)
-    doc.addImage(png, 'PNG', 15.5, 39.5, 81, 6)
+    doc.addImage(png, 'PNG', 15.5, 32.2, 81, 12.6)
     doc.setFontSize(7)
-    doc.text(returnCode, 15.5, 48.3)
+    doc.text(returnCode, 15.5, 47.5)
 }
 
 // One line → its label set: TWO copies of the item barcode label (one
