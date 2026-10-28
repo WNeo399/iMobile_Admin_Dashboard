@@ -19,7 +19,7 @@
             <template #node="{ data }">
                 <span class="status-node">
                     <i
-                        :class="data.id === 'all' ? 'el-icon-files' : 'el-icon-collection-tag'"
+                        :class="data.id === 'all' ? 'el-icon-files' : data.children ? 'el-icon-folder-opened' : 'el-icon-collection-tag'"
                         class="status-node-icon"
                         :style="{ color: statusColor(data.id) }"
                     />
@@ -81,6 +81,29 @@
                             :label="name"
                             :value="name"
                         />
+                    </el-select>
+
+                    <!-- by shop group (user ask 2026-10-28): every shop of one
+                         customer — the groups are made on iMobile Repair → Shops -->
+                    <el-select
+                        v-if="shopGroups.length"
+                        v-model="shopGroupId"
+                        placeholder="Shop group"
+                        size="small"
+                        clearable
+                        filterable
+                        class="filter-group"
+                        @change="onShopGroupChange"
+                    >
+                        <el-option
+                            v-for="g in shopGroups"
+                            :key="g.id"
+                            :label="g.name"
+                            :value="g.id"
+                        >
+                            <span>{{ g.name }}</span>
+                            <span class="customer-count">{{ g.customers.length }} {{ g.customers.length === 1 ? 'shop' : 'shops' }}</span>
+                        </el-option>
                     </el-select>
 
                     <!-- by customer (user ask 2026-10-27): type to find one;
@@ -154,6 +177,9 @@
                         {{ filteredTickets.length === 1 ? 'ticket' : 'tickets' }}
                         <span v-if="currentGroupLabel" class="filter-summary-scope">
                             · {{ currentGroupLabel }}
+                        </span>
+                        <span v-if="shopGroup" class="filter-summary-scope">
+                            · {{ shopGroup.name }}
                         </span>
                         <span v-if="remoteSearching" class="filter-summary-refresh">
                             · <i class="el-icon-loading" /> searching RepairDesk…
@@ -293,6 +319,7 @@
 
 <script>
 import { listRepairTickets, searchRepairTickets, listRepairStatuses, setRepairTicketStatus } from '@/api/repair/tickets'
+import { listShopGroups } from '@/api/repair/shops'
 import { checkPermi } from '@/utils/permission'
 import TreePanel from '@/components/TreePanel'
 import TicketDetail from './components/TicketDetail.vue'
@@ -308,30 +335,62 @@ import * as XLSX from 'xlsx-js-style'
 // drives the el-badge color in the tree and the table's status tag.
 //
 // Lifecycle ordering — active work first, then repaired sub-states
-// (green → blue → gray), then unrepairable sub-states (orange → red),
-// then the Other catch-all for any RepairDesk status we don't match.
+// (green → blue → gray), then unrepairable sub-states (orange → red), then
+// warranty, then the Other catch-all for any RepairDesk status we don't match.
+// The order is also the tree's: a status under a parent (TREE_PARENTS) puts
+// the parent where the first of its statuses would be, and is named there by
+// `treeLabel`.
 //
 // `fullfilled` is the catch-all bucket from groupTickets() — anything
 // whose RepairDesk status isn't matched by an explicit branch lands
 // here. Surfaced as "Other" so the count's reachable from the UI and
 // isn't a phantom in the Full-list Excel download.
 const STATUS_GROUPS = [
-    { key: 'pending',    label: 'Pending',  tagType: 'info',    color: '#909399' },
-    { key: 'inProgress', label: 'Received', tagType: 'primary', color: '#409EFF' },
-    { key: 'overDue',    label: 'Over Due', tagType: 'danger',  color: '#F56C6C' },
-    { key: 'onHold',     label: 'On Hold',  tagType: 'warning', color: '#E6A23C' },
-    { key: 'repaired',                label: 'Repaired',                 tagType: 'success', color: '#67C23A' },
-    { key: 'repairedDispatching',     label: 'Repaired and Dispatching', tagType: 'primary', color: '#409EFF' },
-    { key: 'repairedCollected',       label: 'Repaired and Collected',   tagType: 'info',    color: '#909399' },
-    { key: 'unrepairableDispatching', label: 'Unrepairable and Dispatching', tagType: 'warning', color: '#E6A23C' },
-    { key: 'unrepairableReturned',    label: 'Unrepairable & Returned',  tagType: 'danger',  color: '#F56C6C' },
-    { key: 'fullfilled',              label: 'Other',                    tagType: 'info',    color: '#909399' }
+    { key: 'pending',      label: 'Pending',       tagType: 'info',    color: '#909399' },
+    { key: 'inProgress',   label: 'Received',      tagType: 'primary', color: '#409EFF' },
+    // Under Testing: its own node since 2026-10-28 (was in Other)
+    { key: 'underTesting', label: 'Under Testing', tagType: 'primary', color: '#17B5D7' },
+    { key: 'overDue',      label: 'Over Due',      tagType: 'danger',  color: '#F56C6C' },
+    { key: 'onHold',       label: 'On Hold',       tagType: 'warning', color: '#E6A23C' },
+    { key: 'repaired',                label: 'Repaired',                     treeLabel: 'Repaired',     tagType: 'success', color: '#67C23A' },
+    { key: 'repairedDispatching',     label: 'Repaired and Dispatching',     treeLabel: 'Dispatching',  tagType: 'primary', color: '#409EFF' },
+    { key: 'repairedCollected',       label: 'Repaired and Collected',       treeLabel: 'Collected',    tagType: 'info',    color: '#909399' },
+    { key: 'unrepairable',            label: 'Unrepairable',                 treeLabel: 'Unrepairable', tagType: 'danger',  color: '#F56C6C' },
+    { key: 'unrepairableDispatching', label: 'Unrepairable and Dispatching', treeLabel: 'Dispatching',  tagType: 'warning', color: '#E6A23C' },
+    { key: 'unrepairableReturned',    label: 'Unrepairable & Returned',      treeLabel: 'Returned',     tagType: 'danger',  color: '#F56C6C' },
+    { key: 'warrantyRepair',          label: 'Warranty Repair',              treeLabel: 'In Repair',    tagType: 'primary', color: '#17B5D7' },
+    { key: 'warrantyRepaired',        label: 'Warranty Repaired',            treeLabel: 'Repaired',     tagType: 'success', color: '#67C23A' },
+    { key: 'warrantyDispatching',     label: 'Warranty And Dispatching',     treeLabel: 'Dispatching',  tagType: 'primary', color: '#3498DB' },
+    { key: 'warrantyCollected',       label: 'Warranty And Collected',       treeLabel: 'Collected',    tagType: 'info',    color: '#909399' },
+    { key: 'fullfilled',              label: 'Other',                        tagType: 'info',    color: '#909399' }
+]
+
+// Parent nodes in the tree (user 2026-10-28): clicking one lists all of its
+// statuses together.
+const TREE_PARENTS = [
+    { key: 'repairedAll', label: 'Repaired', summaryLabel: 'All repaired', tagType: 'success', color: '#67C23A',
+        children: ['repaired', 'repairedDispatching', 'repairedCollected'] },
+    { key: 'unrepairableAll', label: 'Unrepairable', summaryLabel: 'All unrepairable', tagType: 'danger', color: '#F56C6C',
+        children: ['unrepairable', 'unrepairableDispatching', 'unrepairableReturned'] },
+    { key: 'warrantyAll', label: 'Warranty', summaryLabel: 'All warranty', tagType: 'primary', color: '#17B5D7',
+        children: ['warrantyRepair', 'warrantyRepaired', 'warrantyDispatching', 'warrantyCollected'] }
+]
+const parentByKey = key => TREE_PARENTS.find(p => p.key === key) || null
+const parentOfStatus = key => TREE_PARENTS.find(p => p.children.includes(key)) || null
+
+// "All Tickets" lists the buckets most urgent first
+const ALL_TICKETS_ORDER = [
+    'overDue', 'onHold', 'inProgress', 'underTesting', 'pending',
+    'repaired', 'repairedDispatching', 'repairedCollected',
+    'unrepairable', 'unrepairableDispatching', 'unrepairableReturned',
+    'warrantyRepair', 'warrantyRepaired', 'warrantyDispatching', 'warrantyCollected',
+    'fullfilled'
 ]
 
 // Group keys whose tickets carry a `repaired_date` rather than a `dueDate`.
 // Drives the Date-column header swap and the date-range filter in the
 // toolbar.
-const REPAIRED_VIEW_KEYS = new Set(['repaired', 'repairedDispatching', 'repairedCollected'])
+const REPAIRED_VIEW_KEYS = new Set([...parentByKey('repairedAll').children, 'repairedAll'])
 
 // Auto-refresh interval — same 10-minute cadence as the original page.
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000
@@ -344,10 +403,8 @@ export default {
             loading: false,
             // Whole grouped payload from the backend.
             ticketGrouped: {
-                pending: [], inProgress: [], onHold: [], overDue: [],
-                repaired: [], repairedDispatching: [], repairedCollected: [],
-                unrepairableDispatching: [], unrepairableReturned: [],
-                fullfilled: [], notYetRecive: []
+                ...Object.fromEntries(STATUS_GROUPS.map(g => [g.key, []])),
+                notYetRecive: []
             },
             // '' = All; otherwise one of the STATUS_GROUPS keys.
             currentGroup: '',
@@ -356,6 +413,9 @@ export default {
             assignedFilter: '__all',
             // '' = every customer; otherwise a customer's full name
             customerFilter: '',
+            // the Shops page's groups, and the one picked ('' = none)
+            shopGroups: [],
+            shopGroupId: '',
             // the RepairDesk-wide ticket search (2026-10-27) in flight, and its order
             remoteSearching: false,
             remoteSeq: 0,
@@ -396,8 +456,9 @@ export default {
             return REPAIRED_VIEW_KEYS.has(this.currentGroup)
         },
         // TreePanel data shape: a single root "All" node whose children
-        // are the status leaves (one per STATUS_GROUPS entry). Counts
-        // live on each node and feed the el-badge in the slot template.
+        // are the status leaves (one per STATUS_GROUPS entry), the repaired,
+        // unrepairable and warranty ones under their parent (TREE_PARENTS).
+        // Counts live on each node and feed the el-badge in the slot template.
         treeData() {
             const grouped = this.ticketGrouped
             // Each status counts what its table would show with the filter
@@ -409,26 +470,34 @@ export default {
             // Sum every visible status, not a hand-listed set, so adding a
             // bucket to STATUS_GROUPS automatically rolls into the total.
             const total = STATUS_GROUPS.reduce((sum, g) => sum + counts[g.key], 0)
-            return [
-                {
-                    id: 'all',
-                    label: 'All Tickets',
-                    count: total,
-                    children: STATUS_GROUPS.map(g => ({
-                        id: g.key,
-                        label: g.label,
-                        count: counts[g.key]
-                    }))
+            const leaf = g => ({ id: g.key, label: g.treeLabel || g.label, count: counts[g.key] })
+            const children = []
+            for (const g of STATUS_GROUPS) {
+                const parent = parentOfStatus(g.key)
+                if (!parent) children.push(leaf(g))
+                else if (g.key === parent.children[0]) {
+                    const kids = parent.children.map(k => leaf(STATUS_GROUPS.find(x => x.key === k)))
+                    children.push({
+                        id: parent.key,
+                        label: parent.label,
+                        count: kids.reduce((sum, k) => sum + k.count, 0),
+                        children: kids
+                    })
                 }
-            ]
+            }
+            return [{ id: 'all', label: 'All Tickets', count: total, children }]
         },
         // The filter bar as one test, for a status group ('' = All): the
         // table and the tree counts both use it. The repaired date range
         // only narrows the repaired groups (the others have no repaired date).
+        shopGroup() {
+            return this.shopGroups.find(g => g.id === this.shopGroupId) || null
+        },
         ticketFilter() {
             const q = String(this.ticketSearch || '').trim().toLowerCase()
             const assigned = this.assignedFilter && this.assignedFilter !== '__all' ? this.assignedFilter : ''
             const who = this.customerFilter
+            const shops = this.shopGroup ? new Set(this.shopGroup.customers.map(c => String(c.id))) : null
             const range = Array.isArray(this.repairedDateRange) && this.repairedDateRange.length === 2 ? this.repairedDateRange : null
             const fromSec = range && range[0] ? Math.floor(range[0] / 1000) : null
             const toSec = range && range[1] ? Math.floor(range[1] / 1000) : null
@@ -440,6 +509,7 @@ export default {
                     if (assigned === '__unassigned' && assigneeOf(t)) return false
                     if (assigned && assigned !== '__unassigned' && !assigneeOf(t).includes(assigned)) return false
                     if (who && String(t.customer || '').trim() !== who) return false
+                    if (shops && !shops.has(String(t.customerId || ''))) return false
                     if (byDate) {
                         const d = t.repaired_date
                         if (!d) return false
@@ -452,6 +522,8 @@ export default {
         },
         currentGroupLabel() {
             if (!this.currentGroup) return 'All Tickets'
+            const parent = parentByKey(this.currentGroup)
+            if (parent) return parent.summaryLabel
             const g = STATUS_GROUPS.find(x => x.key === this.currentGroup)
             return g ? g.label : ''
         },
@@ -459,25 +531,16 @@ export default {
         // filter-bar filters in sequence.
         filteredTickets() {
             let pool
+            const parent = parentByKey(this.currentGroup)
             if (!this.currentGroup) {
-                // "All Tickets" — concatenate every bucket that has a
-                // tree node, in priority order: overdue first, then
-                // on-hold, then the working states, then the repaired
-                // sub-states, then the unrepairable sub-states, then
-                // the Other catch-all. Lets the table read most-urgent
-                // first when nothing's filtered.
-                pool = [
-                    ...this.ticketGrouped.overDue,
-                    ...this.ticketGrouped.onHold,
-                    ...this.ticketGrouped.inProgress,
-                    ...this.ticketGrouped.pending,
-                    ...this.ticketGrouped.repaired,
-                    ...this.ticketGrouped.repairedDispatching,
-                    ...this.ticketGrouped.repairedCollected,
-                    ...this.ticketGrouped.unrepairableDispatching,
-                    ...this.ticketGrouped.unrepairableReturned,
-                    ...this.ticketGrouped.fullfilled
-                ]
+                // "All Tickets" — every bucket that has a tree node, most
+                // urgent first (ALL_TICKETS_ORDER): overdue, on hold, the
+                // working states, then repaired, unrepairable, warranty and
+                // the Other catch-all.
+                pool = ALL_TICKETS_ORDER.flatMap(k => this.ticketGrouped[k] || [])
+            } else if (parent) {
+                // a parent node: its statuses, in tree order
+                pool = parent.children.flatMap(k => this.ticketGrouped[k] || [])
             } else {
                 pool = this.ticketGrouped[this.currentGroup] || []
             }
@@ -510,10 +573,13 @@ export default {
             return Array.from(set).sort((a, b) => a.localeCompare(b))
         },
         // Every customer on the loaded tickets with how many tickets they
-        // have (all statuses), A–Z — the Customer filter's options
+        // have (all statuses), A–Z — the Customer filter's options; with a
+        // shop group picked, only that group's shops (user 2026-10-28)
         customerOptions() {
             const counts = new Map()
+            const shops = this.shopGroup ? new Set(this.shopGroup.customers.map(c => String(c.id))) : null
             for (const t of this.allTickets) {
+                if (shops && !shops.has(String(t.customerId || ''))) continue
                 const name = String(t.customer || '').trim()
                 if (name) counts.set(name, (counts.get(name) || 0) + 1)
             }
@@ -536,29 +602,13 @@ export default {
         // `notYetRecive` (currently always empty, defensive include).
         allTickets() {
             const g = this.ticketGrouped
-            return [
-                ...g.overDue,
-                ...g.onHold,
-                ...g.inProgress,
-                ...g.pending,
-                ...g.repaired,
-                ...g.repairedDispatching,
-                ...g.repairedCollected,
-                ...g.unrepairableDispatching,
-                ...g.unrepairableReturned,
-                ...g.fullfilled,
-                ...g.notYetRecive
-            ]
+            return [...ALL_TICKETS_ORDER, 'notYetRecive'].flatMap(k => g[k] || [])
         },
         // Live count for the dropdown badge. Cheaper than building a
         // throwaway array via allTickets just to read its length.
         allTicketsCount() {
             const g = this.ticketGrouped
-            return g.overDue.length + g.onHold.length + g.inProgress.length +
-                g.pending.length + g.repaired.length +
-                g.repairedDispatching.length + g.repairedCollected.length +
-                g.unrepairableDispatching.length + g.unrepairableReturned.length +
-                g.fullfilled.length + g.notYetRecive.length
+            return [...ALL_TICKETS_ORDER, 'notYetRecive'].reduce((n, k) => n + ((g[k] || []).length), 0)
         }
     },
     watch: {
@@ -570,16 +620,26 @@ export default {
         'filteredTickets.length'(newLength) {
             const maxPage = Math.max(1, Math.ceil(newLength / this.pageSize))
             if (this.pageNum > maxPage) this.pageNum = maxPage
+        },
+        // "View tickets" on the Shops page opens this page with ?shopGroup=
+        '$route.query.shopGroup'() {
+            this.applyShopGroupQuery()
         }
     },
     created() {
         this.getTickets()
         if (this.canChangeStatus) this.loadStatuses()
+        this.loadShopGroups()
         // Background refresh keeps the page in sync with RepairDesk without
         // the user having to mash the Refresh button.
         this.refreshTimer = setInterval(() => {
             this.getTickets({ silent: true })
         }, REFRESH_INTERVAL_MS)
+    },
+    // back to the tab (kept alive): the groups may have changed on Shops
+    activated() {
+        if (this.wasShown) this.loadShopGroups()
+        this.wasShown = true
     },
     beforeDestroy() {
         clearTimeout(this.searchTimer)
@@ -665,6 +725,38 @@ export default {
         },
         onAssignedChange() { this.pageNum = 1 },
         onCustomerChange() { this.pageNum = 1 },
+        // ── Shop groups (iMobile Repair → Shops) ──────────────────
+        async loadShopGroups() {
+            if (!checkPermi(['repair:shop:view'])) return
+            try {
+                const res = await listShopGroups()
+                this.shopGroups = (res && res.data) || []
+            } catch (e) {
+                console.warn('Shop groups failed:', e)
+            }
+            this.applyShopGroupQuery()
+        },
+        applyShopGroupQuery() {
+            const id = String((this.$route.query && this.$route.query.shopGroup) || '')
+            if (id && id !== this.shopGroupId && this.shopGroups.some(g => g.id === id)) {
+                this.shopGroupId = id
+                this.customerFilter = ''
+                this.pageNum = 1
+            }
+            // a group deleted meanwhile
+            if (this.shopGroupId && !this.shopGroups.some(g => g.id === this.shopGroupId)) this.shopGroupId = ''
+        },
+        onShopGroupChange() {
+            this.pageNum = 1
+            // a customer picked before that isn't one of the group's shops
+            if (this.customerFilter && !this.customerOptions.some(c => c.name === this.customerFilter)) this.customerFilter = ''
+            // the address stops naming a group once another (or none) is picked
+            if (this.$route.query.shopGroup && this.$route.query.shopGroup !== this.shopGroupId) {
+                const query = { ...this.$route.query }
+                delete query.shopGroup
+                this.$router.replace({ path: this.$route.path, query }).catch(() => {})
+            }
+        },
         onDateRangeChange() { this.pageNum = 1 },
         // ── Status changes (pushed to RepairDesk) ─────────────────
         async loadStatuses() {
@@ -858,10 +950,14 @@ export default {
         // ── Tree helpers (parity with SQT Cases) ──────────────────
         statusColor(id) {
             if (id === 'all') return '#409EFF'
+            const parent = parentByKey(id)
+            if (parent) return parent.color
             const g = STATUS_GROUPS.find(x => x.key === id)
             return g ? g.color : '#909399'
         },
         badgeType(id) {
+            const parent = parentByKey(id)
+            if (parent) return parent.tagType
             const g = STATUS_GROUPS.find(x => x.key === id)
             return g ? g.tagType : 'info'
         },
@@ -910,6 +1006,7 @@ export default {
 .filter-date { width: 320px; max-width: 100%; }
 .filter-assigned { width: 160px; max-width: 100%; }
 .filter-customer { width: 200px; max-width: 100%; }
+.filter-group { width: 180px; max-width: 100%; }
 .older-tag { margin-left: 6px; }
 .customer-count { float: right; margin-left: 12px; color: #909399; font-size: 12px; }
 .filter-actions {

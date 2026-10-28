@@ -161,8 +161,8 @@
             <el-button
                 type="primary"
                 icon="el-icon-s-tools"
-                @click="$router.push('/imobile/repair')"
-            >Open Repair</el-button>
+                @click="$router.push('/imobileRepair/tickets')"
+            >Open Tickets</el-button>
             <el-button
                 icon="el-icon-refresh"
                 :loading="loading"

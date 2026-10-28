@@ -83,6 +83,13 @@ export const constantRoutes = [
       },
     ],
   },
+  {
+    // iMobile → Repair moved to iMobile Repair → Tickets (2026-10-28): old
+    // links and bookmarks land on the new page (its own permission check)
+    path: "/imobile/repair",
+    redirect: "/imobileRepair/tickets",
+    hidden: true,
+  },
 ];
 
 // Permission-gated module routes. These are registered in the router (so they
@@ -104,19 +111,7 @@ export const moduleRoutes = [
       // (The Tencent-sheet Purchase Order page — this role's flattened
       // entry here and the one under iMobile Spare Parts — was retired on
       // 2026-09-23: purchasing runs in Spare Parts Purchase.)
-      {
-        // iMobile Repair — sibling of Inventory under the iMobile group.
-        // Visible to iMobile Admin (zoho:*:* gets repair:*:* alongside) and
-        // iMobile Repair Admin (which is named for this page).
-        path: "repair",
-        component: (resolve) => require(["@/views/imobile/repair/index"], resolve),
-        name: "ImobileRepair",
-        meta: {
-          title: "Repair",
-          icon: "el-icon-s-tools",
-          permissions: ["repair:ticket:list"]
-        }
-      },
+      // (Repair moved to its own iMobile Repair menu on 2026-10-28 — below.)
       {
         // Credit Note — browse / search the imb_credit_note collection
         // built up by the Tools-page Create Credit Note submit flow.
@@ -151,6 +146,33 @@ export const moduleRoutes = [
       // requests in imb_special_orders — was removed on 2026-10-07, unused.)
       // (Serials Lookup — the Apple SVP pages — moved to the iMobile Spare
       // Parts menu on 2026-10-06; their /imobile/svp/... addresses stayed.)
+    ]
+  },
+  {
+    // iMobile Repair (2026-10-28) — split out of the iMobile menu: Tickets
+    // (the RepairDesk ticket list, was iMobile → Repair; the old address
+    // redirects) and Shops (several RepairDesk customers grouped as one
+    // customer). repair:* — Admin, iMobile Admin, iMobile Repair Admin,
+    // iMobile Front Desk.
+    path: "/imobileRepair",
+    component: Layout,
+    redirect: "noRedirect",
+    hidden: false,
+    alwaysShow: true,
+    meta: { title: "iMobile Repair", icon: "el-icon-s-tools" },
+    children: [
+      {
+        path: "/imobileRepair/tickets",
+        component: (resolve) => require(["@/views/imobile/repair/index"], resolve),
+        name: "ImobileRepair",
+        meta: { title: "Tickets", icon: "el-icon-tickets", permissions: ["repair:ticket:list"] }
+      },
+      {
+        path: "/imobileRepair/shops",
+        component: (resolve) => require(["@/views/imobile/repair/shops"], resolve),
+        name: "ImobileRepairShops",
+        meta: { title: "Shops", icon: "el-icon-office-building", permissions: ["repair:shop:view"] }
+      }
     ]
   },
   {

@@ -42,6 +42,8 @@ export default {
     'Dispatch': '发货',
     'Pick Lists': '拣货单',
     'Repair': '维修',
+    'iMobile Repair': 'iMobile 维修',
+    'Tickets': '工单',
     'Credit Note': '贷记单',
     'Screen Buyback': '屏幕回收',
     'Special Order': '特殊订单',
