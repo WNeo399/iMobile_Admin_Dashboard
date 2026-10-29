@@ -552,6 +552,8 @@ export default {
                         const r = await updateNewProductItem(itemId, fields)
                         if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                         done.push(this.$tp('details'))
+                        // the item is renamed; the store product's own name can still fail
+                        if (r.store && r.store.error) failed.push(this.$tp('store product name: {error}', { error: r.store.error }))
                     } catch (e) {
                         // nothing else is sent: the dialog stays open to fix it
                         this.$message.error(this.msg(e, this.$tp('Zoho did not update the item')))

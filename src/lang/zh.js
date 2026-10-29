@@ -1046,6 +1046,7 @@ export default {
     'The models in the name follow the Compatible Models below.': '名称中的机型已随下方的适用机型更新。',
     'Undo': '撤销',
     'This name has no "… Compatible …" — change the models in it by hand.': '该名称不含 "… Compatible …" — 请手动修改其中的机型。',
+    'store product name: {error}': '商城商品名称：{error}',
     '{n} characters — Zoho takes 200 at most': '{n} 个字符 — Zoho 最多 200 个',
     // ── Purchase Order → a New Product line created in Zoho (2026-10-08) ──
     'Create in Zoho': '在 Zoho 中创建',
