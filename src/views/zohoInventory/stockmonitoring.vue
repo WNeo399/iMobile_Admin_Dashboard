@@ -175,7 +175,7 @@
                      extras ride on it: the tick box (Export → Selection) and
                      the Hide / Unhide action. -->
                 <stock-items-table v-if="!isAccessories" ref="table" :rows="showProductList" :loading="loading"
-                    :sort="partsSort" :sales-days.sync="duration" selectable :auto-spp="false" :sea-view="isSeaView"
+                    :sort="partsSort" :sales-days.sync="duration" selectable :auto-spp="false" :sea-view="isSeaView" create-po
                     :hide-mode="showHidden ? 'unhide' : 'hide'"
                     :empty-text="showHidden ? 'Nothing hidden on this list.' : 'Nothing matches these filters.'"
                     @sort-change="onPartsSort" @selection-change="handleSelectionChange"

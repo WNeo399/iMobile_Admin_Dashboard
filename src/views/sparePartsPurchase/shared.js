@@ -15,6 +15,8 @@ export const STATUS_LIST = [
     { value: 'cancelled', label: 'Cancelled', icon: 'el-icon-circle-close', color: '#909399', bg: '#F4F4F5' }
 ]
 export const STATUS_META = STATUS_LIST.reduce((m, s) => ((m[s.value] = s), m), {})
+// still to arrive (the backend's OPEN) — what can be marked urgent
+export const OPEN_STATUSES = ['pending', 'toConfirm', 'ordered', 'shipped', 'shortage']
 
 // Where a line files: its item's register classification (set by the
 // server on create) or one of two channels kept apart — sea-freight orders

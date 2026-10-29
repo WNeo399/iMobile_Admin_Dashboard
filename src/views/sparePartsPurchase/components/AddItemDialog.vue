@@ -37,7 +37,7 @@
         </div>
 
         <div v-else class="ai-lines">
-            <div v-for="(l, i) in lines" :key="l.itemId" class="ai-line">
+            <div v-for="(l, i) in lines" :key="l.itemId" :class="['ai-line', { 'ai-line-urgent': l.urgent }]">
                 <img v-if="l.imageUrl" :src="l.imageUrl" class="ai-img" alt="" loading="lazy">
                 <div v-else class="ai-img ai-img-none"><i class="el-icon-picture-outline" /></div>
                 <div class="ai-main">
@@ -53,6 +53,8 @@
                         <el-radio-button :label="false" :title="$tp('Files under {c}', { c: $tp(l.suggestedCategory) })">空运</el-radio-button>
                         <el-radio-button :label="true">海运</el-radio-button>
                     </el-radio-group>
+                    <!-- urgent from the start: leads the Purchase Order list, highlighted (2026-10-29) -->
+                    <el-checkbox v-if="canUrgent" v-model="l.urgent" size="mini" border class="ai-urgent">{{ $tp('Urgent') }}</el-checkbox>
                     <el-button type="text" icon="el-icon-close" class="ai-remove" :title="$tp('Remove')" @click="lines.splice(i, 1)" />
                 </div>
                 <el-input v-model="l.note" size="mini" maxlength="200" :placeholder="$tp('Note (optional)')" class="ai-note" />
@@ -70,6 +72,7 @@
 
 <script>
 import { searchProducts, purchasesByItemIds, createOrders } from '@/api/sparePartsPurchase'
+import { hasPermission } from '@/utils/permission'
 
 const MAX_LINES = 100
 const STAGES = [['pending', 'pending'], ['toConfirm', 'to confirm'], ['ordered', 'ordered'], ['shipped', 'shipped'], ['shortage', 'shortage']]
@@ -93,6 +96,10 @@ export default {
         return { query: '', lines: [], saving: false, last: { q: '', rows: [] }, seq: 0 }
     },
     computed: {
+        // urgent is iMobile's call — not the parts supplier's (spp:order:add only)
+        canUrgent() {
+            return hasPermission(this.$store.getters.permissions || [], 'spp:order:create')
+        },
         totalUnits() {
             return this.lines.reduce((s, l) => s + (Number(l.orderQty) || 0), 0)
         }
@@ -110,7 +117,7 @@ export default {
         // the preset items as lines, with what is on order for them (one call)
         async fillPreset() {
             if (!this.preset.length) return
-            this.lines = this.preset.slice(0, MAX_LINES).map(item => ({ ...item, orderQty: 1, sea: this.defaultSea, note: '', onOrder: '' }))
+            this.lines = this.preset.slice(0, MAX_LINES).map(item => ({ ...item, orderQty: 1, sea: this.defaultSea, urgent: false, note: '', onOrder: '' }))
             try {
                 const r = await purchasesByItemIds(this.lines.map(l => l.itemId))
                 const data = (r && r.data) || {}
@@ -170,7 +177,7 @@ export default {
                 return
             }
             if (this.lines.length >= MAX_LINES) { this.$message.warning(this.$tp('At most {n} items at a time', { n: MAX_LINES })); return }
-            const line = { ...item, orderQty: 1, sea: this.defaultSea, note: '', onOrder: '' }
+            const line = { ...item, orderQty: 1, sea: this.defaultSea, urgent: false, note: '', onOrder: '' }
             this.lines.push(line)
             // what is already on order for it (best effort)
             try {
@@ -193,7 +200,7 @@ export default {
                     itemId: l.itemId, sku: l.sku, productName: l.name, imageId: l.imageId,
                     // 海运, or the item's own category (the server derives it from the register)
                     category: this.fixedCategory || (l.sea ? '海运' : l.suggestedCategory),
-                    orderQty: Number(l.orderQty), note: (l.note || '').trim()
+                    orderQty: Number(l.orderQty), note: (l.note || '').trim(), urgent: !!l.urgent
                 }))
                 const r = await createOrders(payload)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
@@ -232,6 +239,12 @@ export default {
 .ai-qty { width: 96px; }
 .ai-chan { flex-shrink: 0; display: inline-flex; white-space: nowrap; }
 .ai-remove { color: #c0c4cc; padding: 4px; &:hover { color: #f56c6c; } }
+/* urgent: a red tick box, and a red bar on the line */
+.ai-urgent { margin-right: 0; flex-shrink: 0;
+    &.is-checked { border-color: #f56c6c; background: #fef0f0; }
+    &.is-checked ::v-deep .el-checkbox__label { color: #f56c6c; font-weight: 600; }
+    ::v-deep .el-checkbox__input.is-checked .el-checkbox__inner { background: #f56c6c; border-color: #f56c6c; } }
+.ai-line-urgent { box-shadow: inset 3px 0 0 #f56c6c; background: #fffafa; }
 .ai-note { flex: 0 0 100%; padding-left: 50px; box-sizing: border-box; }
 .ai-total { margin-right: auto; font-size: 12px; color: #606266; align-self: center; }
 .spp-dlg-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; .el-button + .el-button { margin-left: 0; } }

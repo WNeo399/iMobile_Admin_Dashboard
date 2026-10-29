@@ -118,7 +118,8 @@
                     @action="onBoardAction" />
                 <div v-if="!rows.length && !loading" class="spp-empty spp-mempty">{{ $tp('No purchase orders here') }}</div>
             </div>
-            <el-table v-else ref="table" v-loading="loading" :data="rows" size="mini" :height="tableHeight" class="spp-table">
+            <el-table v-else ref="table" v-loading="loading" :data="rows" size="mini" :height="tableHeight" class="spp-table"
+                :row-class-name="rowClass">
                 <!-- The day the line was raised; the SP- number stays internal. -->
                 <el-table-column :label="$tp('Date')" :width="compact ? 92 : 100" align="center" :fixed="!compact">
                     <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
@@ -134,7 +135,8 @@
                             <span v-if="s.row.category" class="spp-cat">{{ catLabel(s.row.category) }}</span>
                             <!-- Special Order: the account that raised it (user 2026-10-08) -->
                             <span v-if="specialBy(s.row)" class="spp-for" :title="$tp('Created by')"><i class="el-icon-user" /> {{ specialBy(s.row) }}</span>
-                            <span v-if="s.row.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
+                            <span v-if="s.row.urgent" class="spp-urgent" :title="s.row.urgentBy ? $tp('Marked urgent by {by}', { by: s.row.urgentBy }) : ''">
+                                <i class="el-icon-warning" /> {{ $tp('Urgent') }}</span>
                             <!-- raised from InFlow for a customer's order (2026-10-14); OSCAR prints Oscar's labels -->
                             <span v-if="s.row.forCustomer" class="spp-tag-for" :title="s.row.dispatchRef && s.row.dispatchRef.invoiceNumber ? $tp('For {c} — {no}', { c: s.row.forCustomer, no: s.row.dispatchRef.invoiceNumber }) : s.row.forCustomer">{{ s.row.forCustomer }}</span>
                             <span v-if="s.row.images && s.row.images.length" class="spp-photos" :title="$tp('Photos')" @click="openDetail(s.row)">
@@ -243,10 +245,14 @@
                         <el-tooltip v-if="canEither && s.row.status === 'toConfirm'" :content="$tp('Confirm')" placement="top" :disabled="!compact">
                             <el-button size="mini" type="text" icon="el-icon-check" class="spp-act-confirm" @click="confirm(s.row)">{{ compact ? '' : $tp('Confirm') }}</el-button>
                         </el-tooltip>
-                        <el-dropdown v-if="['pending', 'toConfirm', 'ordered', 'shortage', 'cancelled'].includes(s.row.status)"
+                        <el-dropdown v-if="['pending', 'toConfirm', 'ordered', 'shortage', 'cancelled'].includes(s.row.status) || canUrgent(s.row)"
                             trigger="click" @command="(cmd) => cmd()">
                             <el-button size="mini" type="text" icon="el-icon-more" class="spp-more" />
                             <el-dropdown-menu slot="dropdown">
+                                <!-- urgent: leads the list, highlighted (2026-10-29) -->
+                                <el-dropdown-item v-if="canUrgent(s.row)" :command="() => toggleUrgent(s.row)"
+                                    :icon="s.row.urgent ? 'el-icon-warning-outline' : 'el-icon-warning'" class="spp-dd-urgent">
+                                    {{ s.row.urgent ? $tp('Not urgent') : $tp('Mark urgent') }}</el-dropdown-item>
                                 <el-dropdown-item v-if="can('spp:order:supply') && ['pending', 'shortage', 'ordered', 'toConfirm'].includes(s.row.status)"
                                     :command="() => openQuote(s.row)" icon="el-icon-price-tag">{{ $tp('Quote') }}</el-dropdown-item>
                                 <el-dropdown-item v-if="canEither && ['pending', 'ordered', 'shortage'].includes(s.row.status) && !awaitsQuote(s.row)"
@@ -493,10 +499,11 @@
                         </el-select>
                         <span v-else>{{ detail.requestedFor || '—' }}</span>
                     </el-descriptions-item>
-                    <el-descriptions-item v-if="isSpecialDetail" :label="$tp('Urgent')">
-                        <el-checkbox v-if="can('spp:order:create')" v-model="detailForm.urgent">{{ $tp('Urgent') }}</el-checkbox>
-                        <span v-else-if="detail.urgent" class="spp-urgent">{{ $tp('Urgent') }}</span>
-                        <span v-else>—</span>
+                    <!-- urgent: any open line (2026-10-29); open urgent lines lead the list -->
+                    <el-descriptions-item v-if="urgentEditable || detail.urgent" :label="$tp('Urgent')">
+                        <el-checkbox v-if="urgentEditable" v-model="detailForm.urgent">{{ $tp('Urgent') }}</el-checkbox>
+                        <span v-else class="spp-urgent">{{ $tp('Urgent') }}</span>
+                        <span v-if="detail.urgent && detail.urgentBy" class="spp-sub"> · {{ detail.urgentBy }} · {{ fmtDay(detail.urgentAt) }}</span>
                     </el-descriptions-item>
                     <el-descriptions-item v-if="isSpecialDetail" :label="$tp('Quote')">
                         <el-checkbox v-if="quoteEditable" v-model="detailForm.needsQuote">{{ $tp('Needs a quote first') }}</el-checkbox>
@@ -628,7 +635,7 @@ import {
     listOrders, getOrder, updateOrder, quoteOrder, placeOrder, priceOrder, shortageOrder,
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders, uploadOrderImage, deleteOrderImage, completeOrder
 } from '@/api/sparePartsPurchase'
-import { STATUS_LIST, STATUS_META, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink, todayYmd } from './shared'
+import { STATUS_LIST, STATUS_META, OPEN_STATUSES, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink, todayYmd } from './shared'
 
 // The channels with a list of their own, pinned above the category tree and
 // left out of the tree and of 空运 / 海运 (user ask 2026-10-06).
@@ -833,6 +840,10 @@ export default {
         // whether it needs a quote first: changeable while it still waits
         quoteEditable() {
             return this.isSpecialDetail && this.can('spp:order:create') && ['pending', 'shortage'].includes(this.detail.status) && !this.detail.confirmed
+        },
+        // any open line can be marked urgent (2026-10-29)
+        urgentEditable() {
+            return !!this.detail && this.canUrgent(this.detail)
         }
     },
     created() {
@@ -991,9 +1002,28 @@ export default {
             const run = {
                 detail: this.openDetail, label: this.printLineLabels, quote: this.openQuote, confirm: this.confirm,
                 place: this.openPlace, shortage: this.markShortage, cancel: this.cancel, reopen: this.reopen,
-                toConfirm: this.toConfirm, price: this.promptPrice, zoho: this.openZohoCreate, complete: this.openComplete
+                toConfirm: this.toConfirm, price: this.promptPrice, zoho: this.openZohoCreate, complete: this.openComplete,
+                urgent: this.toggleUrgent
             }[key]
             if (run) run(row)
+        },
+        // ── Urgent (any open line, 2026-10-29) ─────────────────────
+        canUrgent(row) {
+            return !!row && OPEN_STATUSES.includes(row.status) && this.can('spp:order:create')
+        },
+        // open urgent lines: highlighted (the server puts them first)
+        rowClass({ row }) {
+            return row.urgent && OPEN_STATUSES.includes(row.status) ? 'spp-row-urgent' : ''
+        },
+        async toggleUrgent(row) {
+            try {
+                const r = await updateOrder(row._id, { urgent: !row.urgent })
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                this.$message.success(row.urgent ? this.$tp('No longer urgent') : this.$tp('Marked urgent'))
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to save')))
+            }
         },
         onStatusChange() {
             if (this.activeStatus === 'received' || this.activeStatus === 'cancelled') this.openOnly = false
@@ -1550,9 +1580,9 @@ export default {
             try {
                 const data = { note: this.detailForm.note }
                 if (this.editable) { data.orderQty = this.detailForm.orderQty; data.category = this.detailForm.category }
+                if (this.urgentEditable) data.urgent = !!this.detailForm.urgent
                 if (this.isSpecialDetail) {
                     data.requestedFor = this.detailForm.requestedFor || ''
-                    data.urgent = !!this.detailForm.urgent
                     if (this.nameEditable) {
                         const name = (this.detailForm.productName || '').trim()
                         if (!name) { this.$message.warning(this.$tp('Enter the product name')); return }
@@ -1705,6 +1735,11 @@ export default {
 .spp-name-edit { width: calc(100% - 36px); max-width: 480px; margin-right: 6px; }
 .spp-for { margin-left: 6px; color: #409eff; background: #ecf5ff; border-radius: 10px; padding: 0 6px; white-space: nowrap; }
 .spp-urgent { margin-left: 6px; color: #fff; background: #f56c6c; border-radius: 10px; padding: 0 6px; font-weight: 600; white-space: nowrap; }
+/* an open urgent line (first in the list): red tint + a bar on the left */
+.spp-table ::v-deep .spp-row-urgent > td { background: #fef0f0; }
+.spp-table ::v-deep .spp-row-urgent:hover > td { background: #fde2e2 !important; }
+.spp-table ::v-deep .spp-row-urgent > td:first-child { box-shadow: inset 3px 0 0 #f56c6c; }
+.spp-dd-urgent { color: #f56c6c; }
 .spp-photos { margin-left: 6px; color: #909399; cursor: pointer; white-space: nowrap; &:hover { color: #409eff; } }
 .spp-view { margin-right: auto; flex-shrink: 0; display: inline-flex; white-space: nowrap; }
 .spp-np-types { display: flex; gap: 10px; margin-bottom: 12px; }

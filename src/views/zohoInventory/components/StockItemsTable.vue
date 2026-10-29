@@ -169,10 +169,14 @@
                 </template>
             </el-table-column>
 
-            <!-- (No Create PO button: a PO is raised in the On order cell —
-                 user ask 2026-09-24.) -->
-            <el-table-column label="" :width="hideMode ? 100 : 76" align="center">
+            <!-- Create PO (user ask 2026-10-29, Stock Monitoring only — the
+                 createPo prop): New Products' Create PO dialog, 空运 / 海运 per
+                 line. The On order cell's quick "+ PO" stays. -->
+            <el-table-column label="" :width="(hideMode ? 100 : 76) + (showCreatePo ? 26 : 0)" align="center">
                 <template slot-scope="s">
+                    <el-tooltip v-if="showCreatePo" content="Create PO" placement="left">
+                        <el-button type="text" size="mini" icon="el-icon-shopping-cart-2" @click.stop="openPo(s.row)" />
+                    </el-tooltip>
                     <!-- The item drawer (rows do not open it on click). -->
                     <el-tooltip content="Detail" placement="left">
                         <el-button type="text" size="mini" icon="el-icon-view" @click.stop="openDetail(s.row)" />
@@ -196,6 +200,9 @@
         </el-table>
 
         <stock-item-drawer ref="drawer" />
+        <!-- on the 海运 list the line starts as 海运, elsewhere as 空运 -->
+        <add-item-dialog v-if="showCreatePo" :visible.sync="poVisible" :preset="poItems" :default-sea="seaView"
+            title="Create PO" :mobile="poMobile" @added="onPoAdded" />
     </div>
 </template>
 
@@ -203,6 +210,7 @@
 import ProductThumb from '@/components/ProductThumb'
 import StockItemDrawer from './StockItemDrawer'
 import PriceCell from './PriceCell'
+import AddItemDialog from '../../sparePartsPurchase/components/AddItemDialog'
 import { PRICE_COLS as EDIT_PRICE_COLS } from '../priceEditing'
 import { setStockItemArchived } from '@/api/stockMonitor'
 import { addSeaFreightItems, removeSeaFreightItem } from '@/api/zoho/stockMonitoring'
@@ -246,7 +254,7 @@ const CHANNELS = [
 
 export default {
     name: 'StockItemsTable',
-    components: { ProductThumb, StockItemDrawer, PriceCell },
+    components: { ProductThumb, StockItemDrawer, PriceCell, AddItemDialog },
     directives: {
         // the inline quantity box takes the cursor as soon as it appears
         focus: { inserted(el) { el.focus(); if (el.select) el.select() } }
@@ -270,6 +278,8 @@ export default {
         // Read the open purchase lines for the rows whenever they change.
         // Off when the parent already brings them (row.purchase).
         autoSpp: { type: Boolean, default: true },
+        // A Create PO button in the actions column (Stock Monitoring).
+        createPo: { type: Boolean, default: false },
         // Browse Items (2026-10-07): the part type beside the SKU, the four price columns
         // (rows carry pricePlatinum / priceVip / priceSvip / priceWholesale),
         // and Last sold left out.
@@ -290,12 +300,21 @@ export default {
             SALES_DAYS,
             STAGES,
             CHANNELS,
-            sppSeq: 0
+            sppSeq: 0,
+            // the Create PO dialog: its item, as the dialog's preset
+            poVisible: false,
+            poItems: [],
+            poRow: null,
+            poMobile: false
         }
     },
     computed: {
         canCreatePo() {
             return hasPermission(this.$store.getters.permissions, 'spp:order:create')
+        },
+        // not on the Archive list
+        showCreatePo() {
+            return this.createPo && this.canCreatePo && !this.archivedView
         },
         // The channel a PO raised in this list goes to.
         channel() {
@@ -460,7 +479,25 @@ export default {
             return this.canCreatePo && this.pendingLinesOf(row, ch).length === 1
         },
         poCategoryFor(row) {
-            return this.seaView ? '海运' : (PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other')
+            return this.seaView ? '海运' : this.airCategoryOf(row)
+        },
+        // 空运 files a line under the item's classification
+        airCategoryOf(row) {
+            return PO_CATEGORIES.includes(row.classification) ? row.classification : 'Other'
+        },
+        // The Create PO dialog with this item in it (the Add Item search's shape).
+        openPo(row) {
+            this.poRow = row
+            this.poItems = [{
+                itemId: this.idOf(row), sku: row.sku, name: this.nameOf(row), imageId: row.imageId,
+                imageUrl: row.imageUrl, suggestedCategory: this.airCategoryOf(row), available: this.availOf(row)
+            }]
+            this.poMobile = window.innerWidth < 768
+            this.poVisible = true
+        },
+        // Lines added: the row's On order cell reads them again.
+        onPoAdded() {
+            if (this.poRow) this.refreshSpp(this.poRow)
         },
         // A new PO from the cell whenever the item has no pending line in
         // this list's channel — with nothing on order, or with only ordered /

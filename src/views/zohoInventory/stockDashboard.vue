@@ -109,7 +109,7 @@
                  海运 / Archive actions and the item drawer come with it. -->
             <stock-items-table ref="table" :rows="rows" :loading="loading"
                 :sort="{ prop: query.sort, order: query.order }" :sales-days.sync="salesDays"
-                :archived-view="query.filter === 'archived'" selectable
+                :archived-view="query.filter === 'archived'" selectable create-po
                 @sort-change="onSort" @archived="onArchived" @selection-change="sel => { selection = sel }" />
 
             <div class="sd-pager">

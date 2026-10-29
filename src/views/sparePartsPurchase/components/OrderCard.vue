@@ -58,7 +58,7 @@
 </template>
 
 <script>
-import { STATUS_META, awaitsQuote, fmtDay, yuan, dhlLink } from '../shared'
+import { STATUS_META, OPEN_STATUSES, awaitsQuote, fmtDay, yuan, dhlLink } from '../shared'
 
 const ACT = {
     quote: { key: 'quote', label: 'Quote', icon: 'el-icon-price-tag', type: 'warning' },
@@ -107,6 +107,12 @@ export default {
                 { key: 'detail', label: 'Details', icon: 'el-icon-view' },
                 { key: 'label', label: 'Print label', icon: 'el-icon-printer' }
             ]
+            // urgent: any open line (2026-10-29) — leads the list, highlighted
+            if (OPEN_STATUSES.includes(s) && this.can('spp:order:create')) {
+                m.push(this.row.urgent
+                    ? { key: 'urgent', label: 'Not urgent', icon: 'el-icon-warning-outline' }
+                    : { key: 'urgent', label: 'Mark urgent', icon: 'el-icon-warning' })
+            }
             // a New Product not in Zoho yet → make the item there
             if (this.row.category === 'New Product' && !this.row.itemId && s !== 'cancelled' && this.can('spp:product:create')) m.push({ key: 'zoho', label: 'Create in Zoho', icon: 'el-icon-upload2' })
             if (this.supply && ['pending', 'shortage', 'ordered', 'toConfirm'].includes(s) && main !== 'quote') m.push({ key: 'quote', label: 'Quote', icon: 'el-icon-price-tag' })
