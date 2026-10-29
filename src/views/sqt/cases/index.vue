@@ -214,6 +214,11 @@
                                 <a class="case-link" @click="openDetail(scope.row)">
                                     Case {{ scope.row.caseId || '—' }}
                                 </a>
+                                <el-tag v-if="openEmailCounts[scope.row._id]" size="mini" type="danger" effect="plain"
+                                    class="email-badge" :title="`${openEmailCounts[scope.row._id]} follow-up email(s) need attention`"
+                                    @click.native.stop="goAttention(scope.row)">
+                                    <i class="el-icon-message" /> {{ openEmailCounts[scope.row._id] }}
+                                </el-tag>
                                 <div class="case-sub">
                                     SR {{ scope.row.serviceRequestId || '—' }}
                                 </div>
@@ -340,6 +345,11 @@
                                         Notes<span v-if="scope.row.notes && scope.row.notes.length"
                                             style="color: #909399"> ({{ scope.row.notes.length }})</span>
                                     </el-dropdown-item>
+                                    <el-dropdown-item
+                                        v-if="svcRptInMenu(scope.row)"
+                                        :command="() => openServiceReport(scope.row)"
+                                        icon="el-icon-document"
+                                    >Service Report</el-dropdown-item>
                                 </el-dropdown-menu>
                             </el-dropdown>
                         </template>
@@ -358,7 +368,12 @@
                     <div v-for="row in list" :key="row._id" class="case-card">
                         <div class="card-head" @click="openDetail(row)">
                             <div class="card-id">
-                                <span class="card-id-main">Case {{ row.caseId || '—' }}</span>
+                                <span class="card-id-main">Case {{ row.caseId || '—' }}
+                                    <el-tag v-if="openEmailCounts[row._id]" size="mini" type="danger" effect="plain"
+                                        class="email-badge" @click.native.stop="goAttention(row)">
+                                        <i class="el-icon-message" /> {{ openEmailCounts[row._id] }}
+                                    </el-tag>
+                                </span>
                                 <span class="card-id-sub">SR {{ row.serviceRequestId || '—' }}</span>
                             </div>
                             <el-tag size="mini" :type="badgeType(row.status)" effect="light">
@@ -426,6 +441,11 @@
                                         Notes<span v-if="row.notes && row.notes.length"
                                             style="color: #909399"> ({{ row.notes.length }})</span>
                                     </el-dropdown-item>
+                                    <el-dropdown-item
+                                        v-if="svcRptInMenu(row)"
+                                        :command="() => openServiceReport(row)"
+                                        icon="el-icon-document"
+                                    >Service Report</el-dropdown-item>
                                 </el-dropdown-menu>
                             </el-dropdown>
                         </div>
@@ -1294,11 +1314,13 @@
             </div>
         </el-dialog>
 
-        <!-- Service Report dialog (Completed action, ADMIN only).
+        <!-- Service Report dialog (Completed action; ⋯ menu on Repaired /
+             Repaired & Collected — ADMIN only).
              Everything the case already knows is prefilled; Inspection
              Findings and Labour Performed are typed by the admin, the
-             Parts Used lines start from the case's selected parts and
-             stay editable, and attached images fill the second page. -->
+             Parts Used lines start from the case's selected parts (or the
+             parts sent, before any are selected) and stay editable, and
+             attached images fill the second page. -->
         <el-dialog
             :title="svcRptCase ? `Service Report — Case ${svcRptCase.caseId}` : 'Service Report'"
             :visible.sync="svcRptOpen"
@@ -1820,6 +1842,18 @@
                     <input ref="attInput" type="file" accept="image/*" multiple
                         style="display:none" @change="onAttachmentsPicked" />
                 </el-tab-pane>
+
+                <!-- SquareTrade follow-up emails (Need Attention), sqt:email:view -->
+                <el-tab-pane v-if="canViewEmails" name="emails">
+                    <span slot="label">
+                        Emails
+                        <span v-if="openEmailCounts[detailCase._id]" class="tab-count">
+                            ({{ openEmailCounts[detailCase._id] }})
+                        </span>
+                    </span>
+                    <email-thread v-if="detailActiveTab === 'emails'" :sqt-case-id="String(detailCase._id)"
+                        compact @changed="loadOpenEmailCounts" />
+                </el-tab-pane>
             </el-tabs>
 
             <div slot="footer">
@@ -1842,6 +1876,8 @@ import { listCases, getCaseCounts, getCase, addCaseNote, updateCaseDevice, sendC
 import { buildServiceReportPdf, serviceReportFileName, DEFAULT_LABOUR } from '@/utils/sqtServiceReportPdf'
 import { checkPermi } from '@/utils/permission'
 import { buildCaseLabelDoc } from '@/utils/sqtCaseLabel'
+import { getOpenEmailCounts } from '@/api/sqtCaseEmails'
+import EmailThread from '@/views/sqt/attention/components/EmailThread'
 import { listShops, listShopGroups } from '@/api/sqt/shops'
 import { listParts, createPart } from '@/api/sqt/parts'
 import { listModels } from '@/api/sqt/models'
@@ -1901,7 +1937,7 @@ const GST_RATE = 0.1
 
 export default {
     name: 'SqtCases',
-    components: { TreePanel },
+    components: { TreePanel, EmailThread },
     data() {
         return {
             // Reactive viewport width — drives the responsive switches below.
@@ -1977,6 +2013,8 @@ export default {
             reviewUnrepSubmitting: false,
             reviewUnrepForm: { reason: '' },
             // Service Report (Completed cases, admin only)
+            // open follow-up emails per case on this page (Need Attention)
+            openEmailCounts: {},
             svcRptOpen: false,
             svcRptCase: null,
             svcRptForm: { device: '', fault: '', findings: '', parts: '', labour: '' },
@@ -2267,6 +2305,9 @@ export default {
         },
         // Who may review an unrepairable case's reason (mirrors the backend's
         // UNREPAIRABLE_REVIEW_ROLES): the admin-side roles.
+        canViewEmails() {
+            return this.canDo({ permission: 'sqt:email:view' })
+        },
         canReviewUnrepairable() {
             const roles = (this.$store.getters.roles) || []
             return roles.some(r => SQT_ADMIN_SIDE_ROLES.includes(r))
@@ -2592,12 +2633,29 @@ export default {
                 const res = await listCases(params)
                 this.list = res.data || []
                 this.total = res.totalDocs || 0
+                this.loadOpenEmailCounts()
             } catch (e) {
                 console.error(e)
                 this.$message.error('Failed to load cases')
             } finally {
                 this.loading = false
             }
+        },
+        // The envelope badge — open follow-up emails on the rows shown.
+        async loadOpenEmailCounts() {
+            if (!this.canViewEmails || !this.list.length) {
+                this.openEmailCounts = {}
+                return
+            }
+            try {
+                const res = await getOpenEmailCounts(this.list.map(c => c._id))
+                this.openEmailCounts = (res && res.data) || {}
+            } catch (e) {
+                this.openEmailCounts = {}
+            }
+        },
+        goAttention(row) {
+            this.$router.push({ path: '/sqt/attention', query: { case: String(row._id) } })
         },
         async loadCounts() {
             try {
@@ -3338,6 +3396,11 @@ export default {
             return (entry && entry.note) || ''
         },
         // ── Service Report (Completed cases, admin only) ─────────────
+        // Repaired and Repaired & Collected cases get it in the ⋯ menu
+        // (Completed has it as the row's button).
+        svcRptInMenu(row) {
+            return this.isAdmin && !!row && ['repaired', 'repaired-and-collected'].includes(row.status)
+        },
         // "SAMSUNG GALAXY Z FOLD7 1TB BLACK" + modelName "Samsung Z Fold 7
         // (F966)" → "Samsung Galaxy Z Fold7 (F966) 1TB Black" — the way the
         // approved example writes the device line. Editable in the dialog.
@@ -3381,10 +3444,17 @@ export default {
             this.svcRptCase = row
             const d = row.device || {}
             const model = String(d.modelName || '').trim()
-            const parts = (row.partsForInvoice || []).map(p => {
+            let parts = (row.partsForInvoice || []).map(p => {
                 const name = p.partName || p.name || ''
                 return (model ? model + ' ' : '') + name + (p.sku ? ' (SKU ' + p.sku + ')' : '')
             })
+            // A Repaired case usually has no parts selected yet — start from
+            // the parts sent (Zoho item names already carry the model).
+            if (!parts.length) {
+                parts = (row.zohoOrders || []).flatMap(o => o.lineItems || [])
+                    .filter(li => li && li.partName)
+                    .map(li => li.partName + (li.sku ? ' (SKU ' + li.sku + ')' : ''))
+            }
             this.svcRptForm = {
                 device: this.svcRptDevice(d),
                 fault: String(row.describedFault || '').replace(/^['"]|['"]$/g, ''),
@@ -3428,7 +3498,7 @@ export default {
                 const doc = buildServiceReportPdf({
                     caseId: row.caseId || '',
                     serviceRequest: row.serviceRequestId || '',
-                    status: 'Completed',
+                    status: this.statusLabel(row.status),
                     repairShop: row.shopName || '',
                     createdAt: this.svcRptDateStr(row.createdAt),
                     repairedAt: this.svcRptRepairedStr(row),
@@ -4063,6 +4133,12 @@ export default {
     &:hover {
         text-decoration: underline;
     }
+}
+/* open follow-up emails on the case → Need Attention */
+.email-badge {
+    margin-left: 6px;
+    cursor: pointer;
+    vertical-align: 1px;
 }
 /* Secondary lines stacked under the Case ID in the Case column —
    SR id, shop name, customer phone, IMEI. Kept consistent so the column

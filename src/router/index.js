@@ -689,6 +689,21 @@ export const moduleRoutes = [
         }
       },
       {
+        // Need Attention (2026-10-28): SquareTrade follow-up emails the
+        // user's automation picks up from the mailbox — read them (from the
+        // mailbox) and reply from here. sqt:email:* = the sqt:*:* roles
+        // (Admin, TechElite Admin, iMobile Front Desk, Exyon Admin).
+        // Backend routes/sqtRoutes/caseEmails.
+        path: "attention",
+        component: (resolve) => require(["@/views/sqt/attention/index"], resolve),
+        name: "SqtAttention",
+        meta: {
+          title: "Need Attention",
+          icon: "el-icon-message",
+          permissions: ["sqt:email:view"]
+        }
+      },
+      {
         // Call Center (2026-10-13): the cases still to phone, the customer's
         // details, mark as contacted, notes. The SQT Call Center role holds
         // only sqt:callcenter:*, so this is its whole menu; Admin / TechElite
