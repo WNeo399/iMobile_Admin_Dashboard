@@ -113,11 +113,9 @@
                         <div class="xd-tile-stats">
                             <div class="xd-stat-pick"><b>{{ g.units }}</b><span>{{ $tp('units to pick') }}</span></div>
                             <div class="xd-stat-orders"><b>{{ g.orders.length }}</b><span>{{ $tp(g.orders.length === 1 ? 'order' : 'orders') }}</span></div>
-                            <!-- Neto's lines for this SKU's orders (user 2026-10-27) -->
-                            <el-button v-if="canProcess" plain icon="el-icon-refresh" class="xd-neto-btn" :loading="!!netoBusy[g.key]"
-                                :title="$tp('Sync these orders\' lines with Neto')" @click="syncNeto(g.orders.map(o => o.orderId), g.key)">Neto</el-button>
-                            <el-button v-if="canProcess" type="primary" class="xd-process-btn" @click="openProcess('sku', g)">
-                                {{ $tp('Process') }}<i class="el-icon-right el-icon--right" /></el-button>
+                            <!-- checks the orders with Neto first (user 2026-10-29) -->
+                            <el-button v-if="canProcess" type="primary" class="xd-process-btn" :loading="processOpening === g.key" @click="openProcess('sku', g)">
+                                {{ processOpening === g.key ? $tp('Checking Neto…') : $tp('Process') }}<i v-if="processOpening !== g.key" class="el-icon-right el-icon--right" /></el-button>
                         </div>
                         <div class="xd-olist">
                             <div v-for="o in shown(g)" :key="o.orderId" class="xd-o">
@@ -128,6 +126,7 @@
                                 <!-- only an order whose quantity takes another envelope than the item's -->
                                 <span v-if="envSize(o) !== envSize(groupEnv(g))" :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
                                 <span class="xd-o-qty">× {{ o.quantity }}</span>
+                                <el-button v-if="canCancelOrder(o)" type="text" icon="el-icon-circle-close" class="xd-o-cancel" :title="$tp('Cancel this order in Neto')" @click="openCancel(o, g)" />
                             </div>
                             <div v-if="g.orders.length > LIMIT" class="xd-more" @click="toggleMore(g.key)">
                                 {{ more[g.key] ? $tp('Show less') : $tp('Show all {n} orders', { n: g.orders.length }) }}
@@ -146,6 +145,7 @@
                                 <div class="xd-o-meta" :title="[o.channel, o.customerName].filter(Boolean).join(' · ')"><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span> {{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
                             </div>
                             <span :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
+                            <el-button v-if="canCancelOrder(o)" type="text" icon="el-icon-circle-close" class="xd-o-cancel" :title="$tp('Cancel this order in Neto')" @click="openCancel(o)" />
                         </div>
                         <div v-if="tab === 'onlist'" class="xd-tile-sub">
                             <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}<el-button v-if="canEditTracking(o)" type="text" icon="el-icon-edit" class="xd-track-edit" :title="$tp('Change the tracking number')" @click.stop="editTracking(o)" /></span>
@@ -172,10 +172,8 @@
                         <div class="xd-tile-foot">
                             <span class="xd-foot-n">{{ orderUnits(o) }} {{ $tp(orderUnits(o) === 1 ? 'unit' : 'units') }} · {{ o.items.length }} {{ $tp(o.items.length === 1 ? 'item' : 'items') }}</span>
                             <span class="xd-flex" />
-                            <el-button v-if="canProcess && tab !== 'onlist'" plain icon="el-icon-refresh" class="xd-neto-btn" :loading="!!netoBusy[o.orderId]"
-                                :title="$tp('Sync this order\'s lines with Neto')" @click="syncNeto([o.orderId], o.orderId)">Neto</el-button>
-                            <el-button v-if="canProcess && !o.tracking" type="primary" class="xd-process-btn" @click="openProcess('multi', o)">
-                                {{ $tp('Process') }}<i class="el-icon-right el-icon--right" /></el-button>
+                            <el-button v-if="canProcess && !o.tracking" type="primary" class="xd-process-btn" :loading="processOpening === o.orderId" @click="openProcess('multi', o)">
+                                {{ processOpening === o.orderId ? $tp('Checking Neto…') : $tp('Process') }}<i v-if="processOpening !== o.orderId" class="el-icon-right el-icon--right" /></el-button>
                             <el-button v-if="o.tracking" plain icon="el-icon-printer" class="xd-process-btn" :loading="labelLoading === o.orderId" @click="printLabels([o.orderId], o.orderId)">{{ $tp('Label') }}</el-button>
                         </div>
                     </div>
@@ -209,9 +207,8 @@
                             <span class="xd-flex" />
                             <span class="xd-count">{{ g.orders.length }} {{ $tp(g.orders.length === 1 ? 'order' : 'orders') }}</span>
                             <span class="xd-units">{{ g.units }} {{ $tp(g.units === 1 ? 'unit' : 'units') }}</span>
-                            <el-button v-if="canProcess" size="mini" plain icon="el-icon-refresh" class="xd-process" :loading="!!netoBusy[g.key]"
-                                :title="$tp('Sync these orders\' lines with Neto')" @click.stop="syncNeto(g.orders.map(o => o.orderId), g.key)">Neto</el-button>
-                            <el-button v-if="canProcess" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" @click.stop="openProcess('sku', g)">{{ $tp('Process') }}</el-button>
+                            <el-button v-if="canProcess" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" :loading="processOpening === g.key"
+                                @click.stop="openProcess('sku', g)">{{ processOpening === g.key ? $tp('Checking Neto…') : $tp('Process') }}</el-button>
                         </div>
                         <div v-show="!collapsed[g.key]" class="xd-rows">
                             <div v-for="o in g.orders" :key="o.orderId" class="xd-row">
@@ -221,7 +218,8 @@
                                 <span class="xd-o-qty">× {{ o.quantity }}</span>
                                 <span><span v-if="envSize(o) !== envSize(groupEnv(g))" :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span></span>
                                 <span class="xd-o-when">{{ when(o.datePlaced) }}</span>
-                                <span class="xd-st"><el-tag size="mini" :type="statusTag(o.status)">{{ o.status }}</el-tag></span>
+                                <span class="xd-st"><el-tag size="mini" :type="statusTag(o.status)">{{ o.status }}</el-tag>
+                                    <el-button v-if="canCancelOrder(o)" type="text" icon="el-icon-circle-close" class="xd-o-cancel" :title="$tp('Cancel this order in Neto')" @click="openCancel(o, g)" /></span>
                             </div>
                         </div>
                     </div>
@@ -241,9 +239,9 @@
                             <span class="xd-flex" />
                             <span class="xd-o-when">{{ when(o.datePlaced) }}</span>
                             <el-tag size="mini" :type="statusTag(o.status)">{{ o.status }}</el-tag>
-                            <el-button v-if="canProcess && tab !== 'onlist'" size="mini" plain icon="el-icon-refresh" class="xd-process" :loading="!!netoBusy[o.orderId]"
-                                :title="$tp('Sync this order\'s lines with Neto')" @click="syncNeto([o.orderId], o.orderId)">Neto</el-button>
-                            <el-button v-if="canProcess && !o.tracking" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" @click="openProcess('multi', o)">{{ $tp('Process') }}</el-button>
+                            <el-button v-if="canCancelOrder(o)" type="text" icon="el-icon-circle-close" class="xd-o-cancel" :title="$tp('Cancel this order in Neto')" @click="openCancel(o)" />
+                            <el-button v-if="canProcess && !o.tracking" size="mini" type="primary" plain icon="el-icon-finished" class="xd-process" :loading="processOpening === o.orderId"
+                                @click="openProcess('multi', o)">{{ processOpening === o.orderId ? $tp('Checking Neto…') : $tp('Process') }}</el-button>
                             <!-- an AusPost label is printed again from AusPost; the others are ours -->
                             <el-button v-if="o.auspost" size="mini" plain icon="el-icon-printer" class="xd-process" :loading="!!o.apBusy" @click="makeAuspost([o])">{{ $tp('AusPost label') }}</el-button>
                             <el-button v-else-if="o.tracking" size="mini" plain icon="el-icon-printer" class="xd-process" :loading="labelLoading === o.orderId" @click="printLabels([o.orderId], o.orderId)">{{ $tp('Label') }}</el-button>
@@ -276,6 +274,16 @@
              today's pick list (Exyon / Neto untouched for now). -->
         <el-dialog :title="$tp('Process orders')" :visible.sync="processVisible" width="720px" top="6vh" append-to-body
             custom-class="xd-process-dialog" @opened="focusScan(0)">
+            <!-- the check with Neto as the popup opened (user 2026-10-29) -->
+            <div v-if="processNeto" :class="['xd-pr-neto', !processNeto.ok ? 'err' : processNeto.notes.length ? 'warn' : 'ok']">
+                <template v-if="!processNeto.ok"><i class="el-icon-warning" /> {{ $tp('Could not check with Neto — the lines are as last known') }}<span v-if="processNeto.error" class="xd-pr-neto-err"> · {{ processNeto.error }}</span></template>
+                <template v-else-if="!processNeto.notes.length"><i class="el-icon-circle-check" /> {{ $tp('Checked with Neto — the lines match') }}</template>
+                <template v-else>
+                    <div class="xd-pr-neto-h"><i class="el-icon-warning" /> {{ $tp('Checked with Neto — these orders changed:') }}</div>
+                    <div v-for="n in processNeto.notes" :key="n.orderId" class="xd-pr-neto-n">
+                        <b>{{ n.orderId }}</b> {{ n.text }}<span v-if="n.out" class="xd-pr-neto-out">{{ $tp('not in this popup') }}</span></div>
+                </template>
+            </div>
             <div v-if="processItems.length" class="xd-ph">
                 <div v-for="(it, k) in processItems" :key="it.sku" class="xd-i">
                     <el-image v-if="it.image" :src="it.image" fit="contain" :preview-src-list="[it.image]" class="xd-thumb xd-thumb-sm" />
@@ -369,6 +377,9 @@
             </span>
         </el-dialog>
 
+        <!-- Cancel order in Neto (user 2026-10-29); the page reloads after -->
+        <cancel-order-dialog :visible.sync="cancelVisible" :order="cancelOrder" @cancelled="load" />
+
         <!-- shipping labels (100 × 150 mm), one page per order -->
         <el-dialog :title="labelTitle" :visible.sync="labelVisible" width="560px" top="4vh" append-to-body @close="cleanupLabel">
             <div class="xd-label-wrap"><iframe v-if="labelUrl" :src="labelUrl" class="xd-label-frame" title="Shipping labels" /></div>
@@ -386,6 +397,7 @@ import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAu
 import { buildShippingLabelsPdf, shippingLabelsFileName } from '@/utils/exyonShippingLabelPdf'
 import { mergePdfs, bytesOfBase64 } from '@/utils/mergePdfs'
 import { hasPermission } from '@/utils/permission'
+import CancelOrderDialog from './components/CancelOrderDialog'
 
 // An AusPost label for these envelopes only (user 2026-10-21), and the parcel
 // unless changed per order (the backend's utils/auspost DEFAULT_PARCEL):
@@ -463,6 +475,7 @@ function tileHeight(tab, t) {
 
 export default {
     name: 'ExyonAccessoryDispatch',
+    components: { CancelOrderDialog },
     data() {
         let view = 'grid'
         try { if (localStorage.getItem(VIEW_KEY) === 'list') view = 'list' } catch (e) { /* storage blocked */ }
@@ -495,6 +508,13 @@ export default {
             processPkg: null,
             processRows: [],
             processing: false,
+            // the SKU tile key / order id whose Process is checking Neto
+            processOpening: '',
+            // that check, for the popup: { ok, error, notes: [{ orderId, text, out }] }
+            processNeto: null,
+            // the Cancel order dialog
+            cancelVisible: false,
+            cancelOrder: null,
             // the shipping-label preview
             labelVisible: false,
             labelUrl: '',
@@ -506,9 +526,7 @@ export default {
             labelBlob: null,
             labelFile: '',
             // "AusPost labels (n)" running
-            apAll: false,
-            // Neto syncs running, by SKU tile key / order id
-            netoBusy: {}
+            apAll: false
         }
     },
     computed: {
@@ -603,6 +621,9 @@ export default {
         },
         canProcess() {
             return hasPermission(this.$store.getters.permissions, 'exyon:accessory:picklist')
+        },
+        canCancel() {
+            return hasPermission(this.$store.getters.permissions, 'exyon:accessory:cancel')
         },
         scannedCount() {
             return this.processRows.filter(r => this.clean(r.tracking)).length
@@ -709,11 +730,24 @@ export default {
             this.currentGroups.forEach(g => this.$set(this.collapsed, g.key, to))
         },
         // ── Process orders (scan tracking numbers) ──
-        // kind: 'sku' (a SKU tile) or 'multi' (one order)
-        openProcess(kind, g) {
+        // kind: 'sku' (a SKU tile) or 'multi' (one order). Orders on no pick
+        // list yet are checked with Neto first (user 2026-10-29).
+        async openProcess(kind, g) {
             // a scanner's Enter must not land on the Process button behind the popup
-            if (this.processVisible) return
+            if (this.processVisible || this.processOpening) return
             if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+            this.processNeto = null
+            if (kind === 'sku' || !g.pickDay) {
+                this.processOpening = kind === 'sku' ? g.key : g.orderId
+                try {
+                    const fresh = await this.checkNeto(kind, g)
+                    if (!fresh || this.processVisible) return
+                    kind = fresh.kind
+                    g = fresh.g
+                } finally {
+                    this.processOpening = ''
+                }
+            }
             const pick =({ sku, productName, image, zohoSku, zohoName, location, quantity }) => ({ sku, productName, image, zohoSku, zohoName, location, quantity })
             if (kind === 'sku') {
                 this.processItems = [pick({ ...g, quantity: null })]
@@ -1017,45 +1051,76 @@ export default {
             if (this.envelope && skip !== 'envelope' && this.envSize(o) !== this.envelope) return false
             return true
         },
-        // ── Neto's lines (user 2026-10-27) ──
-        // Exyon's table keeps a line Neto cancelled; this reads the orders'
-        // lines from Neto (a SKU tile: all its orders — an order tile: that
-        // one), keeps them, says what changed, and reloads the page
-        async syncNeto(orderIds, key) {
-            if (!orderIds.length || this.netoBusy[key]) return
-            this.$set(this.netoBusy, key, true)
+        // ── Neto's lines (user 2026-10-27; on Process since 2026-10-29) ──
+        // Exyon's table keeps a line Neto cancelled. Before the Process popup
+        // opens, the orders' lines are read from Neto (kept). Nothing changed
+        // → it opens as it is. Else the page reloads and the tile / order is
+        // found again with only the orders that were clicked (a new order of
+        // the SKU waits for the next Process). → { kind, g } to open — an
+        // order down to one item opens as a single-line one — or null when
+        // none is left (said in a box). Neto out of reach: the popup opens as
+        // it was, with a warning.
+        async checkNeto(kind, g) {
+            const ids = kind === 'sku' ? g.orders.map(o => o.orderId) : [g.orderId]
+            let res
             try {
-                const r = await syncExyonNeto(orderIds)
+                const r = await syncExyonNeto(ids)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                const res = r.results || []
-                const name = l => l.productName || l.sku
-                const notes = []
-                for (const x of res) {
-                    if (x.notInNeto) { notes.push(`${x.orderId}: ${this.$tp('not found in Neto')}`); continue }
-                    const parts = [
-                        ...(x.removed || []).map(l => this.$tp('removed {name} ×{n}', { name: name(l), n: l.quantity })),
-                        ...(x.added || []).map(l => this.$tp('added {name} ×{n}', { name: name(l), n: l.quantity })),
-                        ...(x.qty || []).map(l => this.$tp('{name}: ×{from} → ×{to}', { name: name(l), from: l.from, to: l.to }))
-                    ]
-                    if (['Dispatched', 'Cancelled'].includes(x.status)) parts.push(this.$tp('{status} in Neto', { status: this.$tp(x.status) }))
-                    if (parts.length) notes.push(`${x.orderId}: ${parts.join('; ')}`)
-                }
-                if (!notes.length) {
-                    this.$message.success(this.$tp('{n} order(s) match Neto', { n: res.length }))
-                } else {
-                    const h = this.$createElement
-                    this.$msgbox({
-                        title: this.$tp('Synced with Neto'),
-                        message: h('div', { style: 'word-break: normal' }, notes.map(t => h('div', { style: 'margin: 4px 0' }, t))),
-                        confirmButtonText: this.$tp('Close')
-                    }).catch(() => {})
-                }
-                await this.load()
+                res = r.results || []
             } catch (e) {
-                this.$message.error(this.msg(e, this.$tp('Failed to sync with Neto')))
-            } finally {
-                this.$set(this.netoBusy, key, false)
+                this.processNeto = { ok: false, error: this.msg(e, ''), notes: [] }
+                return { kind, g }
             }
+            if (!res.some(x => x.changed || ['Dispatched', 'Cancelled'].includes(x.status))) {
+                this.processNeto = { ok: true, notes: this.netoNotes(ids, res, ids) }
+                return { kind, g }
+            }
+            await this.load()
+            const units = orders => orders.reduce((t, o) => t + (Number(o.quantity) || 0), 0)
+            const skuOf = (sg, keep) => {
+                const orders = sg ? sg.orders.filter(o => keep.includes(o.orderId)) : []
+                return orders.length ? { kind: 'sku', g: { ...sg, orders, units: units(orders) } } : null
+            }
+            let fresh
+            if (kind === 'sku') {
+                fresh = skuOf(this.rawBySku.find(x => x.key === g.key), ids)
+            } else {
+                const o = this.rawMultiLine.find(x => x.orderId === g.orderId)
+                fresh = o ? { kind, g: o } : skuOf(this.rawBySku.find(x => x.orders.some(y => y.orderId === g.orderId)), ids)
+            }
+            const kept = !fresh ? [] : fresh.kind === 'sku' ? fresh.g.orders.map(o => o.orderId) : [fresh.g.orderId]
+            const notes = this.netoNotes(ids, res, kept)
+            if (!fresh) {
+                const h = this.$createElement
+                this.$msgbox({
+                    title: this.$tp('Nothing left to process'),
+                    message: h('div', { style: 'word-break: normal' }, notes.map(n => h('div', { style: 'margin: 4px 0' }, [h('b', n.orderId), ' ' + n.text]))),
+                    confirmButtonText: this.$tp('Close')
+                }).catch(() => {})
+                return null
+            }
+            this.processNeto = { ok: true, notes }
+            return fresh
+        },
+        // what the check found, per clicked order: Neto's changes since the
+        // page last showed it, and whether it left the popup (`out`)
+        netoNotes(ids, res, kept) {
+            const name = l => l.productName || l.sku
+            const byId = new Map(res.map(x => [x.orderId, x]))
+            const notes = []
+            for (const id of ids) {
+                const x = byId.get(id) || {}
+                const out = !kept.includes(id)
+                const parts = x.notInNeto ? [this.$tp('not found in Neto')] : [
+                    ...(x.removed || []).map(l => this.$tp('removed {name} ×{n}', { name: name(l), n: l.quantity })),
+                    ...(x.added || []).map(l => this.$tp('added {name} ×{n}', { name: name(l), n: l.quantity })),
+                    ...(x.qty || []).map(l => this.$tp('{name}: ×{from} → ×{to}', { name: name(l), from: l.from, to: l.to }))
+                ]
+                if (['Dispatched', 'Cancelled'].includes(x.status)) parts.push(this.$tp('{status} in Neto', { status: this.$tp(x.status) }))
+                if (out && !parts.length) parts.push(this.$tp('no longer waiting to be processed'))
+                if (parts.length) notes.push({ orderId: id, text: parts.join('; '), out })
+            }
+            return notes
         },
         // ── tracking number (user 2026-10-27) ──
         // a processed order on a pick list, not dispatched yet, whose number
@@ -1086,6 +1151,18 @@ export default {
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to change the tracking number')))
             }
+        },
+        // ── Cancel order in Neto (user 2026-10-29) ──
+        // not one a pick list dispatched (the server checks Neto too)
+        canCancelOrder(o) {
+            return this.canCancel && !(o.dispatch && o.dispatch.status === 'dispatched')
+        },
+        // o: an order of a SKU tile (g) or a one-order tile
+        openCancel(o, g) {
+            const items = g ? [{ sku: g.sku, productName: g.productName, quantity: o.quantity }]
+                : (o.items || []).map(it => ({ sku: it.sku, productName: it.productName, quantity: it.quantity }))
+            this.cancelOrder = { orderId: o.orderId, channel: o.channel, customerName: o.customerName, items }
+            this.cancelVisible = true
         },
         netoTitle(o) {
             const n = o.netoSynced || {}
@@ -1305,9 +1382,18 @@ export default {
     &.xd-env-other { color: #6b4fbb; background: #f4f0ff; border-color: #e4dcfb; } }
 /* changeable (2026-10-22): a caret, and a pencil once chosen by hand */
 .xd-env-dd { line-height: normal; }
-/* Neto sync (2026-10-27): the button beside Process, a check on synced orders */
-.xd-neto-btn { padding-left: 10px; padding-right: 10px; }
+/* Neto sync (2026-10-27): a check on synced orders; the Process popup's notice (2026-10-29) */
 .xd-neto-ok { margin-left: 4px; color: #67c23a; font-size: 12px; }
+/* Cancel order in Neto (2026-10-29): a quiet ⊗ that turns red */
+.xd-o-cancel { padding: 0; margin-left: 2px; font-size: 15px; color: #c0c4cc; &:hover, &:focus { color: #f56c6c; } }
+.xd-pr-neto { margin-bottom: 10px; padding: 7px 10px; border-radius: 6px; font-size: 12px; line-height: 1.5; }
+.xd-pr-neto.ok { color: #529b2e; background: #f0f9eb; }
+.xd-pr-neto.warn { color: #8a5a00; background: #fdf6ec; border: 1px solid #f5dab1; }
+.xd-pr-neto.err { color: #c45656; background: #fef0f0; }
+.xd-pr-neto-h { font-weight: 600; margin-bottom: 2px; }
+.xd-pr-neto-n { padding-left: 18px; }
+.xd-pr-neto-out { margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #e6a23c; color: #fff; font-size: 11px; }
+.xd-pr-neto-err { color: #909399; }
 .xd-track-edit { padding: 0 0 0 4px; font-size: 12px; }
 .xd-env-edit { cursor: pointer; &:hover { filter: brightness(.95); } }
 .xd-env-caret { font-size: 10px; margin-left: 1px; opacity: .7; }

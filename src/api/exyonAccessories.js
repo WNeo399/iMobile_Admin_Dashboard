@@ -73,6 +73,10 @@ export function removeFromPickList(day, orderId) {
 export function setExyonEnvelope(sku, size) {
   return request({ url: `/exyon-accessories/envelopes/${encodeURIComponent(sku)}`, method: 'put', data: { size: size || '' } })
 }
+// The whole order Cancelled in Neto (reason required; off its pick list, AusPost label deleted)
+export function cancelExyonOrder(orderId, data) {
+  return request({ url: `/exyon-accessories/orders/${encodeURIComponent(orderId)}/cancel`, method: 'post', data, timeout: 60000 })
+}
 // Neto's current lines for these orders, kept; Dispatch uses them from then on
 export function syncExyonNeto(orderIds) {
   return request({ url: '/exyon-accessories/neto-sync', method: 'post', data: { orderIds }, timeout: 120000 })

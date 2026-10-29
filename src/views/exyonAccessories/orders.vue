@@ -87,14 +87,23 @@
             <el-table-column :label="$tp('Line total')" width="100" align="right">
                 <template slot-scope="s"><b>{{ money(lineTotal(s.row)) }}</b></template>
             </el-table-column>
-            <el-table-column :label="$tp('Status')" width="110" align="center">
+            <el-table-column :label="$tp('Status')" width="130" align="center">
                 <template slot-scope="s">
                     <el-tag v-if="s.row.status" size="mini" :type="statusTag(s.row.status)">{{ s.row.status }}</el-tag>
                     <span v-else class="xa-dim">—</span>
+                    <!-- Exyon keeps Pick for good: Neto's final status, or a cancel from here (2026-10-29) -->
+                    <div v-if="s.row.cancelled" class="xa-neto xa-neto-x" :title="cancelTitle(s.row.cancelled)">{{ $tp('Cancelled in Neto') }}</div>
+                    <div v-else-if="s.row.netoStatus" :class="['xa-neto', s.row.netoStatus === 'Cancelled' ? 'xa-neto-x' : 'xa-neto-ok']">
+                        {{ $tp('{status} in Neto', { status: $tp(s.row.netoStatus) }) }}</div>
                 </template>
             </el-table-column>
             <el-table-column :label="$tp('Customer')" min-width="150" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.customerName || '—' }}</template>
+            </el-table-column>
+            <el-table-column v-if="canCancel" width="110" align="center">
+                <template slot-scope="s">
+                    <el-button v-if="cancellable(s.row)" type="text" size="mini" icon="el-icon-circle-close" class="xa-cancel" @click="openCancel(s.row)">{{ $tp('Cancel order') }}</el-button>
+                </template>
             </el-table-column>
             <template slot="empty">
                 <span class="xa-empty">{{ filtered ? $tp('No orders match the filters') : $tp('No accessory orders yet') }}</span>
@@ -104,11 +113,15 @@
         <el-pagination v-if="total > 10" background small class="xa-pager"
             layout="total, sizes, prev, pager, next" :total="total" :page-sizes="[20, 50, 100]"
             :page-size="pageSize" :current-page="page" @current-change="onPage" @size-change="onSize" />
+
+        <cancel-order-dialog :visible.sync="cancelVisible" :order="cancelOrder" @cancelled="load" />
     </div>
 </template>
 
 <script>
 import { getExyonAccessoryOrders } from '@/api/exyonAccessories'
+import { hasPermission } from '@/utils/permission'
+import CancelOrderDialog from './components/CancelOrderDialog'
 
 // a date `days` ago (0 = today), as yyyy-MM-dd
 function dayAgo(days) {
@@ -119,8 +132,12 @@ function dayAgo(days) {
 
 export default {
     name: 'ExyonAccessoryOrders',
+    components: { CancelOrderDialog },
     data() {
         return {
+            // the Cancel order dialog
+            cancelVisible: false,
+            cancelOrder: null,
             loading: false,
             rows: [],
             total: 0,
@@ -137,6 +154,9 @@ export default {
         }
     },
     computed: {
+        canCancel() {
+            return hasPermission(this.$store.getters.permissions, 'exyon:accessory:cancel')
+        },
         filtered() {
             return !!(this.search.trim() || this.channel || this.status || (this.range && this.range.length))
         },
@@ -208,6 +228,21 @@ export default {
             this.range = null
             this.reload()
         },
+        // ── Cancel order in Neto (user 2026-10-29) ──
+        // an order still open in Exyon that Neto hasn't closed, as far as we know
+        // (the server asks Neto again)
+        cancellable(r) {
+            return !r.cancelled && !r.netoStatus && /^(pick|new)$/i.test(String(r.status || '').trim())
+        },
+        // the whole order — its lines on this page shown in the dialog
+        openCancel(r) {
+            const items = this.rows.filter(x => x.orderId === r.orderId).map(x => ({ sku: x.sku, productName: x.productName, quantity: x.quantity }))
+            this.cancelOrder = { orderId: r.orderId, channel: r.channel, customerName: r.customerName, items }
+            this.cancelVisible = true
+        },
+        cancelTitle(c) {
+            return [this.$tp(c.reason), c.note, c.by, c.at ? new Date(c.at).toLocaleString() : ''].filter(Boolean).join(' · ')
+        },
         lineTotal(r) {
             const n = Number(r.unitPrice) * (Number(r.quantity) || 0)
             return isFinite(n) && r.unitPrice != null ? n : null
@@ -270,6 +305,11 @@ export default {
 .xa-zoho { display: inline-block; margin-top: 2px; padding: 0 5px; border-radius: 3px; background: #ecf5ff; color: #1f6fd1; font-size: 11px; line-height: 17px; white-space: nowrap; }
 .xa-empty { color: #909399; font-size: 13px; }
 .xa-pager { margin-top: 10px; text-align: right; }
+/* Neto's status under Exyon's, and Cancel order (2026-10-29) */
+.xa-neto { margin-top: 3px; font-size: 11px; line-height: 1.3; white-space: nowrap; }
+.xa-neto-ok { color: #529b2e; }
+.xa-neto-x { color: #f56c6c; font-weight: 600; cursor: default; }
+.xa-cancel { color: #f56c6c; &:hover, &:focus { color: #f78989; } }
 .xa-more { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; padding: 4px 12px; font-size: 12px; color: #303133;
     span { display: inline-block; min-width: 96px; margin-right: 6px; color: #909399; } }
 .xa-more-notes { grid-column: 1 / -1; white-space: pre-line; }
