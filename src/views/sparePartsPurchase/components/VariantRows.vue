@@ -20,11 +20,12 @@
                 <div class="vr-line">
                     <el-input :value="c.name" size="small" :disabled="disabled" :maxlength="30"
                         :placeholder="$tp('Variant, e.g. Black or 10pc')" class="vr-name" @input="v => set(i, { name: v })" />
-                    <el-button type="text" size="mini" icon="el-icon-delete" class="vr-del" :disabled="disabled" :title="$tp('Remove this variant')" @click="remove(i)" />
+                    <span v-if="isItem(i)" class="vr-this">{{ $tp('this item') }}</span>
+                    <el-button v-else type="text" size="mini" icon="el-icon-delete" class="vr-del" :disabled="disabled" :title="$tp('Remove this variant')" @click="remove(i)" />
                 </div>
                 <!-- its SKU in Zoho and its own photos -->
                 <div class="vr-line vr-line2">
-                    <span class="vr-sku" :title="$tp('The SKU this variant gets in Zoho')">{{ skuOf(c) }}</span>
+                    <span class="vr-sku" :title="isItem(i) ? $tp('This item keeps its SKU') : $tp('The SKU this variant gets in Zoho')">{{ skuOf(c, i) }}</span>
                     <div class="vr-photos">
                         <div v-for="(f, j) in c.files" :key="f.key" class="vr-thumb">
                             <img :src="f.url" alt="" :title="f.name || (f.file && f.file.name) || ''" @click="view(c, j)">
@@ -60,6 +61,9 @@ export default {
         value: { type: Array, default: () => [] },
         // the SKU typed / found for the product — each variant's is <base>-<variant>
         baseSku: { type: String, default: '' },
+        // Edit → a single product (2026-10-30): the first row is the item itself,
+        // which keeps this SKU and can't be removed
+        firstSku: { type: String, default: '' },
         disabled: { type: Boolean, default: false },
         max: { type: Number, default: 10 },
         maxVariants: { type: Number, default: 20 }
@@ -72,7 +76,11 @@ export default {
         }
     },
     methods: {
-        skuOf(c) {
+        isItem(i) {
+            return i === 0 && !!this.firstSku
+        },
+        skuOf(c, i) {
+            if (this.isItem(i)) return this.firstSku
             const name = String(c.name || '').replace(/\s+/g, ' ').trim()
             return `${this.baseSku || '…'}-${name || '…'}`
         },
@@ -172,4 +180,5 @@ export default {
     &:hover { border-color: #409eff; color: #409eff; }
 }
 .vr-del { flex: none; padding: 0 2px; color: #909399; &:hover { color: #f56c6c; } }
+.vr-this { flex: none; font-size: 11px; color: #409eff; white-space: nowrap; }
 </style>

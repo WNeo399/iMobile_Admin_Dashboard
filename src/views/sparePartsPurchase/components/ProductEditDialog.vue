@@ -12,7 +12,7 @@
     -->
     <el-dialog :visible="visible" :width="narrow ? '96%' : '860px'" top="5vh" append-to-body
         :close-on-click-modal="false" custom-class="ped-dlg" @update:visible="v => $emit('update:visible', v)"
-        @open="open" @closed="clearEditFiles">
+        @open="open" @closed="clearEditFiles(); clearNewVariants()">
         <div slot="title" class="spn-ct">
             <div class="spn-ct-title"><i class="el-icon-edit" /> {{ $tp(title) }}
                 <el-tag v-if="editItem && editItem.status && editItem.status !== 'active'" size="mini" type="info">{{ editItem.status }}</el-tag></div>
@@ -145,7 +145,38 @@
                 <div class="spn-cf-side">
                     <div class="spn-sec">{{ $tp('Photos') }}<span v-if="editPhotos.length" class="spn-sec-n">{{ editPhotos.length }}</span>
                         <span v-if="editPhotosChanged" class="spn-photos-changed">{{ $tp('changed') }}</span></div>
-                    <image-picker ref="editPhotoPicker" v-model="editPhotos" :max="editPhotoMax" :disabled="editSaving" keep-saved compact />
+                    <image-picker ref="editPhotoPicker" v-model="editPhotos" :max="editPhotoMax" :disabled="editSaving" :item-id="editItem.itemId" keep-saved compact />
+
+                    <!-- its product's variants, and more added here (2026-10-30): a single
+                         product becomes one with variants — this item keeps its SKU,
+                         stock and store page, and gets its own variant title -->
+                    <template v-if="editItem.variants">
+                        <div v-if="hasVariants" class="spn-sec">{{ $tp('Variants') }}<span class="spn-sec-n">{{ editItem.variants.items.length }}</span></div>
+                        <!-- a single product: the switch, as on Create (user 2026-10-30) -->
+                        <div v-else class="spn-sec ped-variant-sec">
+                            <span>{{ $tp('Variants') }}
+                                <el-tooltip :content="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')" placement="top">
+                                    <i class="el-icon-info ped-help" /></el-tooltip></span>
+                            <el-switch :value="variantMode" :disabled="variantsSaving" :active-text="$tp('This product has variants')" @change="onVariantMode" />
+                        </div>
+                        <div v-if="hasVariants" class="ped-variants">
+                            <div v-for="v in editItem.variants.items" :key="v.itemId" :class="['ped-variant', { current: v.itemId === editItem.itemId }]">
+                                <span class="ped-variant-name">{{ v.variant || '—' }}</span>
+                                <span class="ped-variant-sku">{{ v.sku }}</span>
+                                <span v-if="v.itemId === editItem.itemId" class="ped-variant-this">{{ $tp('this item') }}</span>
+                            </div>
+                        </div>
+                        <!-- a single product, switched on: two rows to fill in, the first is
+                             this item (its SKU stays — user 2026-10-30) -->
+                        <variant-rows v-if="hasVariants || variantMode" v-model="newVariants" :base-sku="editItem.variants.baseSku" :first-sku="hasVariants ? '' : editItem.sku"
+                            :disabled="variantsSaving" :max="10" />
+                        <div v-if="namedNewVariants.length" class="ped-add">
+                            <el-tooltip :disabled="!editChangeCount" :content="$tp('Save the changes above first')" placement="top">
+                                <span><el-button type="primary" plain size="small" icon="el-icon-plus" :loading="variantsSaving" :disabled="editSaving || editChangeCount > 0"
+                                    @click="addVariants">{{ $tp('Add {n} variant(s) to Zoho', { n: namedNewVariants.length }) }}</el-button></span>
+                            </el-tooltip>
+                        </div>
+                    </template>
                 </div>
             </el-form>
         </div>
@@ -163,12 +194,13 @@
 
 <script>
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
+import VariantRows from './VariantRows'
 import { hasPermission } from '@/utils/permission'
-import { getNewProductItem, updateNewProductItem, saveNewProductItemPhotos, getNewProductEditContext, newProductCategories } from '@/api/sparePartsPurchase'
+import { getNewProductItem, updateNewProductItem, saveNewProductItemPhotos, addNewProductVariants, getNewProductEditContext, newProductCategories } from '@/api/sparePartsPurchase'
 import { getStockItemPrices, pushStockItemPrices } from '@/api/stockMonitor'
 import {
     zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter,
-    fitKey, PRICE_LISTS, blankPrices, samePrice, swapModelsInName, blankFollow, modelsNamePartFor, withQualityTag, priceWarningsFor
+    fitKey, PRICE_LISTS, blankPrices, samePrice, swapModelsInName, blankFollow, modelsNamePartFor, withQualityTag, priceWarningsFor, blankVariant
 } from '../shared'
 
 const CLASS_LABELS = { BackCover: 'Back Cover', '': 'Unclassified' }
@@ -181,7 +213,7 @@ const cache = { categories: [], categoriesAt: 0, contexts: {} }
 
 export default {
     name: 'ProductEditDialog',
-    components: { ImagePicker },
+    components: { ImagePicker, VariantRows },
     props: {
         visible: { type: Boolean, default: false },
         itemId: { type: String, default: '' },
@@ -218,6 +250,12 @@ export default {
             editPhotosOrig: '',
             editSaving: false,
             editSeq: 0,
+            // more variants for its product (2026-10-30): the rows (components/VariantRows) —
+            // a single product's first row is this item itself
+            newVariants: [],
+            // a single product: its Variants switch (off until turned on)
+            variantMode: false,
+            variantsSaving: false,
             // the name following the Compatible Models
             nameFollow: blankFollow()
         }
@@ -323,6 +361,18 @@ export default {
             const saved = this.editPhotos.filter(p => !p.file).length
             return Math.max(saved, Math.min(15, saved + 10))
         },
+        // its product has variants already (an attribute in Zoho)
+        hasVariants() {
+            const v = this.editItem && this.editItem.variants
+            return !!(v && v.attribute)
+        },
+        // the rows that become new items — a single product's first row is this item
+        addedRows() {
+            return this.hasVariants ? this.newVariants : this.newVariants.slice(1)
+        },
+        namedNewVariants() {
+            return this.addedRows.filter(c => String(c.name || '').trim())
+        },
         editChangeCount() {
             return Object.keys(this.editFieldChanges).length + this.editPriceChanges.length + (this.editPhotosChanged ? 1 : 0)
         },
@@ -394,6 +444,8 @@ export default {
         async open() {
             const seq = ++this.editSeq
             this.clearEditFiles()
+            this.clearNewVariants()
+            this.variantMode = false
             this.editPhotosOrig = ''
             this.editItem = null
             this.editError = ''
@@ -527,6 +579,83 @@ export default {
             for (const x of this.editPhotos) { if (x.file && x.url && x.url.startsWith('blob:')) { try { URL.revokeObjectURL(x.url) } catch (e) { /* ignore */ } } }
             this.editPhotos = []
         },
+        clearNewVariants() {
+            for (const c of this.newVariants) {
+                for (const f of c.files) { if (f.file && f.url && f.url.startsWith('blob:')) { try { URL.revokeObjectURL(f.url) } catch (e) { /* ignore */ } } }
+            }
+            this.newVariants = []
+        },
+        // A single product's switch: on → two rows (the first is this item);
+        // off → the rows go (asked first when filled in) — as on Create
+        async onVariantMode(on) {
+            if (on) {
+                this.variantMode = true
+                if (!this.newVariants.length) this.newVariants = [blankVariant(), blankVariant()]
+                return
+            }
+            if (this.newVariants.some(c => String(c.name || '').trim() || c.files.length)) {
+                try {
+                    await this.$confirm(this.$tp('Turn Variants off? The variants and their photos are taken out of the dialog.'), this.$tp('Variants'),
+                        { type: 'warning', confirmButtonText: this.$tp('Turn off'), cancelButtonText: this.$tp('Keep') })
+                } catch (e) { return }
+            }
+            this.clearNewVariants()
+            this.variantMode = false
+        },
+        // Add the new variants to this item's product in Zoho (asked first —
+        // they are made there now), then read the item again to show them
+        async addVariants() {
+            if (!this.editItem || this.variantsSaving || this.editChangeCount) return
+            const warn = (text, v) => this.$message.warning(this.$tp(text, v))
+            const clean = s => String(s || '').replace(/\s+/g, ' ').trim()
+            if (this.newVariants.some(c => !clean(c.name) && c.files.length)) return warn('Name every variant that has photos')
+            const named = this.namedNewVariants.map(c => ({ ...c, name: clean(c.name) }))
+            const ownRow = this.hasVariants ? null : this.newVariants[0]
+            const own = ownRow ? clean(ownRow.name) : ''
+            if (ownRow && !own) return warn('Fill in the first variant — it is this item (e.g. Black)')
+            const taken = new Set([...this.editItem.variants.items.map(v => clean(v.variant).toLowerCase()), own.toLowerCase()].filter(Boolean))
+            for (const c of named) {
+                if (/[[\]]/.test(c.name)) return warn('{variant}: a variant can\'t contain [ or ]', { variant: c.name })
+                if (taken.has(c.name.toLowerCase())) return warn('{variant} is in the list twice', { variant: c.name })
+                taken.add(c.name.toLowerCase())
+            }
+            if (/[[\]]/.test(own)) return warn('{variant}: a variant can\'t contain [ or ]', { variant: own })
+            const base = this.editItem.variants.baseSku
+            const skus = named.map(c => `${base}-${c.name}`).join(', ')
+            const text = this.hasVariants
+                ? this.$tp('Add {n} variant(s) to "{product}" in Zoho now? New SKUs: {skus}.', { n: named.length, product: this.editItem.variants.productName, skus })
+                : this.$tp('Make "{product}" a product with variants? This item becomes "{own}" (its SKU {sku} stays) and {n} new variant(s) are made in Zoho now: {skus}.', { product: this.editItem.variants.productName, own, sku: this.editItem.sku, n: named.length, skus })
+            try {
+                await this.$confirm(text, this.$tp('Add variants'), { type: 'warning', confirmButtonText: this.$tp('Add to Zoho'), cancelButtonText: this.$tp('Cancel') })
+            } catch (e) { return }
+            const data = new FormData()
+            data.append('variants', JSON.stringify(named.map(c => ({ name: c.name }))))
+            if (own) data.append('itemVariant', own)
+            // the first row's photos go on this item, each other row's on its new item
+            const photos = [...(ownRow ? [{ ...ownRow, name: own }] : []), ...named].flatMap(c => c.files.filter(f => f.file).map(f => ({ f, variant: c.name })))
+            photos.forEach(x => data.append('images', x.f.file, x.f.file.name))
+            data.append('photoVariants', JSON.stringify(photos.map(x => x.variant)))
+            const itemId = this.editItem.itemId
+            const sku = this.editItem.sku
+            this.variantsSaving = true
+            try {
+                const r = await addNewProductVariants(itemId, data)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const made = (r.added || []).map(a => a.sku).join(', ')
+                this.$message.success(this.$tp('Added to Zoho: {skus}', { skus: made }))
+                if ((r.problems || []).length) {
+                    this.$alert(this.$tp('The variants were added, but some of it did not save: {list}. Fix it from Listing → Edit, Missing Images or Price Monitoring.', { list: r.problems.join('; ') }),
+                        this.$tp('Check the new variants'), { type: 'warning' })
+                }
+                this.$emit('saved', { itemId, sku, done: [this.$tp('variants')], failed: r.problems || [] })
+                // read again: the variants as Zoho has them now
+                this.open()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Zoho did not add the variants')))
+            } finally {
+                this.variantsSaving = false
+            }
+        },
         // Save: the item's fields (one Zoho update), then the prices, then the
         // photos — a step that fails is said so; the ones before it are saved
         async saveEdit() {
@@ -605,6 +734,20 @@ export default {
 .spn-dim { font-size: 11px; color: #909399; line-height: 1.4; }
 .spn-link { color: #409eff; text-decoration: none; font-weight: 600; font-variant-numeric: tabular-nums; &:hover { text-decoration: underline; } }
 .spn-edit-body { min-height: 120px; }
+/* its product's variants (2026-10-30); a single product's switch sits on the section's line */
+.ped-variant-sec { justify-content: space-between; flex-wrap: wrap;
+    ::v-deep .el-switch__label span { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+}
+.ped-help { color: #c0c4cc; cursor: help; font-weight: 400; }
+.ped-variants { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.ped-variant {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid #ebeef5; border-radius: 4px; background: #fafbfc; font-size: 12px;
+    &.current { border-color: #b3d8ff; background: #ecf5ff; }
+}
+.ped-variant-name { flex: 1; min-width: 0; font-weight: 600; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ped-variant-sku { font-family: Menlo, Consolas, monospace; color: #606266; }
+.ped-variant-this { color: #409eff; font-size: 11px; }
+.ped-add { margin-top: 8px; }
 .spn-none { padding: 14px 12px; font-size: 12px; color: #b88230; }
 .spn-row { display: flex; gap: 12px; }
 .spn-col { flex: 1; }

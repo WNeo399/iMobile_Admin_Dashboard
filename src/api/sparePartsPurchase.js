@@ -209,6 +209,12 @@ export function getNewProductItem(itemId) {
 export function updateNewProductItem(itemId, data) {
   return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'put', data, timeout: 60000, ...asForm(data) })
 }
+// more variants for an existing product (2026-10-30) — FormData: variants
+// (JSON [{ name }]), itemVariant (the item's own title, for a single
+// product), photoVariants (JSON, one per file) + images
+export function addNewProductVariants(itemId, data) {
+  return request({ url: `${BASE}/new-products/items/${itemId}/variants`, method: 'post', data, timeout: 180000, ...asForm(data) })
+}
 export function saveNewProductItemPhotos(itemId, data) {
   return request({ url: `${BASE}/new-products/items/${itemId}/photos`, method: 'post', data, timeout: 120000, ...asForm(data) })
 }

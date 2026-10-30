@@ -2114,6 +2114,21 @@ export default {
     'The SKU this variant gets in Zoho': '此选项在 Zoho 中的 SKU',
     'Add photos of this variant (or drop them on the row)': '添加此选项的图片（或拖到这一行）',
     'Remove this variant': '删除此选项',
-    'Add variant': '添加选项'
+    'Add variant': '添加选项',
+    // Listing → Edit: more variants for an existing product (2026-10-30)
+    'this item': '此商品',
+    'This item keeps its SKU': '此商品保留原 SKU',
+    'Fill in the first variant — it is this item (e.g. Black)': '请填写第一个选项 — 它就是此商品（例如 Black）',
+    'Save the changes above first': '请先保存上面的修改',
+    'Add {n} variant(s) to Zoho': '添加 {n} 个选项到 Zoho',
+    'Add {n} variant(s) to "{product}" in Zoho now? New SKUs: {skus}.': '现在在 Zoho 中为“{product}”添加 {n} 个选项？新 SKU：{skus}。',
+    'Make "{product}" a product with variants? This item becomes "{own}" (its SKU {sku} stays) and {n} new variant(s) are made in Zoho now: {skus}.': '将“{product}”改为多选项产品？此商品成为“{own}”（SKU {sku} 不变），并在 Zoho 中新建 {n} 个选项：{skus}。',
+    'Add variants': '添加选项',
+    'Add to Zoho': '添加到 Zoho',
+    'Added to Zoho: {skus}': '已添加到 Zoho：{skus}',
+    'The variants were added, but some of it did not save: {list}. Fix it from Listing → Edit, Missing Images or Price Monitoring.': '选项已添加，但部分内容未保存：{list}。请在 Listing → 编辑、缺图或价格监控中修正。',
+    'Check the new variants': '检查新选项',
+    'variants': '选项',
+    'Zoho did not add the variants': 'Zoho 未添加选项'
   }
 }
