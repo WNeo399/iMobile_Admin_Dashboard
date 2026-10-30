@@ -5,7 +5,8 @@
 // to the label (QR on every size since 2026-10-05 — it replaced the Code 128
 // barcode), stacked and centred (user asks 2026-10-05): the QR at the top as
 // large as the room allows, the name bold under it (at most 3 lines), the SKU
-// digits bold at the bottom, the date code bottom-right on the SKU's row.
+// digits bold at the bottom, the date code (bold since 2026-10-30)
+// bottom-right on the SKU's row.
 //
 // buildSppLineLabelsPdf(line, copies, orientation, size)  — one line, `copies` identical labels
 // buildSppBatchLabelsPdf(batch, orientation, size)        — every line, one label per unit
@@ -202,7 +203,7 @@ function drawLabel(doc, line, pngCache, orientation, size, dateCode, col = 0) {
     if (sku) {
         let dateW = 0
         if (dateCode) {
-            doc.setFont('helvetica', 'normal')
+            doc.setFont('helvetica', 'bold')
             doc.setFontSize(L.dateFont)
             dateW = doc.getTextWidth(dateCode) + L.gap
         }
@@ -259,8 +260,9 @@ function drawLabel(doc, line, pngCache, orientation, size, dateCode, col = 0) {
         y += lineH(fontSize)
     }
 
+    // the date code bold (user 2026-10-30)
     if (dateCode) {
-        doc.setFont('helvetica', 'normal')
+        doc.setFont('helvetica', 'bold')
         doc.setFontSize(L.dateFont)
         p.text(dateCode, W - M, H - L.dateBase, 'right')
     }
@@ -336,13 +338,15 @@ function drawSpecialLabel(doc, line, pngCache, orientation, size, dateCode, col 
 
     // the bottom row: who placed it (left), the date code (right)
     const bottom = H - L.dateBase
-    doc.setFont('helvetica', 'normal')
     doc.setFontSize(L.dateFont)
     let dateW = 0
     if (dateCode) {
+        // the date code bold (user 2026-10-30)
+        doc.setFont('helvetica', 'bold')
         p.text(dateCode, W - M, bottom, 'right')
         dateW = doc.getTextWidth(dateCode) + L.gap * 2
     }
+    doc.setFont('helvetica', 'normal')
     if (by) {
         let s = by
         while (s.length > 1 && doc.getTextWidth(s) > W - M * 2 - dateW) s = s.slice(0, -1)
