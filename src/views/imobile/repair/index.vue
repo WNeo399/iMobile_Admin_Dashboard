@@ -224,7 +224,17 @@
                     <el-table-column label="Customer" prop="customer" min-width="140" show-overflow-tooltip />
                     <el-table-column label="Assigned To" min-width="120">
                         <template slot-scope="scope">
-                            <span :class="{ 'unassigned': !scope.row.devices[0].assigned_to.fullname }">
+                            <!-- click to assign it in RepairDesk (repair:ticket:status) -->
+                            <assign-menu
+                                v-if="canChangeStatus && employees.length"
+                                :value="scope.row.devices[0].assigned_to.fullname || ''"
+                                :value-id="String(scope.row.devices[0].assigned_to.id || '')"
+                                :employees="employees"
+                                :mixed="hasMixedAssignee(scope.row)"
+                                :busy="assignBusy === String(scope.row.id)"
+                                @pick="e => changeAssignee(scope.row, e)"
+                            />
+                            <span v-else :class="{ 'unassigned': !scope.row.devices[0].assigned_to.fullname }">
                                 {{ scope.row.devices[0].assigned_to.fullname || 'Unassigned' }}
                             </span>
                         </template>
@@ -308,8 +318,11 @@
             ref="detailDialog"
             :statuses="canChangeStatus ? statuses : []"
             :busy-id="statusBusy"
+            :employees="canChangeStatus ? employees : []"
+            :assign-busy-id="assignBusy"
             :can-add-note="canAddNote"
             @change-status="onDetailStatus"
+            @change-assignee="onDetailAssignee"
             @add-note="t => $refs.noteDialog.open(t)"
         />
         <note-dialog ref="noteDialog" @saved="onNoteSaved" />
@@ -318,13 +331,14 @@
 </template>
 
 <script>
-import { listRepairTickets, searchRepairTickets, listRepairStatuses, setRepairTicketStatus } from '@/api/repair/tickets'
+import { listRepairTickets, searchRepairTickets, listRepairStatuses, setRepairTicketStatus, listRepairEmployees, setRepairTicketAssignee } from '@/api/repair/tickets'
 import { listShopGroups } from '@/api/repair/shops'
 import { checkPermi } from '@/utils/permission'
 import TreePanel from '@/components/TreePanel'
 import TicketDetail from './components/TicketDetail.vue'
 import QCGenerator from './components/QCGenerator.vue'
 import StatusMenu from './components/StatusMenu.vue'
+import AssignMenu from './components/AssignMenu.vue'
 import NoteDialog from './components/NoteDialog.vue'
 // xlsx-js-style is the styled fork of SheetJS xlsx, already used by the
 // Stock Monitoring export. Keeps headers/widths consistent across the
@@ -397,7 +411,7 @@ const REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
 export default {
     name: 'ImobileRepair',
-    components: { TreePanel, TicketDetail, StatusMenu, NoteDialog, 'q-c-generator': QCGenerator },
+    components: { TreePanel, TicketDetail, StatusMenu, AssignMenu, NoteDialog, 'q-c-generator': QCGenerator },
     data() {
         return {
             loading: false,
@@ -424,6 +438,10 @@ export default {
             // whose change is being saved ('' = none)
             statuses: [],
             statusBusy: '',
+            // RepairDesk's employees for the Assigned To menu, and the ticket
+            // id whose assignment is being saved ('' = none)
+            employees: [],
+            assignBusy: '',
 
             pageNum: 1,
             pageSize: 20,
@@ -439,8 +457,8 @@ export default {
         }
     },
     computed: {
-        // Status changes write to RepairDesk — Admin, iMobile Admin and
-        // iMobile Repair Admin (repair:*:*)
+        // Status changes write to RepairDesk — Admin, iMobile Admin, iMobile
+        // Repair Admin, Front Desk (repair:*:*) and iMobile Repair
         canChangeStatus() {
             return checkPermi(['repair:ticket:status'])
         },
@@ -628,7 +646,10 @@ export default {
     },
     created() {
         this.getTickets()
-        if (this.canChangeStatus) this.loadStatuses()
+        if (this.canChangeStatus) {
+            this.loadStatuses()
+            this.loadEmployees()
+        }
         this.loadShopGroups()
         // Background refresh keeps the page in sync with RepairDesk without
         // the user having to mash the Refresh button.
@@ -834,11 +855,97 @@ export default {
                 older: old.older
             })
         },
-        // a device line's menu in the Detail dialog
+        // the Detail dialog's menus: a device line's, or the whole ticket's
+        // (its Ticket Details card — no deviceId)
         async onDetailStatus({ id, ticketNumber, deviceId, deviceName, status }) {
             const ticket = this.allTickets.find(t => String(t.id) === String(id)) ||
                 { id, ticketNumber, devices: [] }
-            const changed = await this.changeStatus(ticket, status, [deviceId], deviceName)
+            const changed = deviceId
+                ? await this.changeStatus(ticket, status, [deviceId], deviceName)
+                : await this.changeStatus(ticket, status)
+            if (changed && this.$refs.detailDialog) this.$refs.detailDialog.reload()
+        },
+        // ── Assignee changes (pushed to RepairDesk) ───────────────
+        async loadEmployees() {
+            try {
+                const res = await listRepairEmployees()
+                this.employees = (res && res.data) || []
+            } catch (e) {
+                // without them Assigned To stays plain text
+                console.warn('RepairDesk employees failed:', e)
+            }
+        },
+        hasMixedAssignee(ticket) {
+            return new Set((ticket.devices || []).map(d => String((d.assigned_to && d.assigned_to.id) || ''))).size > 1
+        },
+        // Assign a ticket in RepairDesk — every device line, or only
+        // deviceIds (the detail dialog's per-line menu) — after a confirm.
+        // RepairDesk has no assign call, so the backend goes through its
+        // general ticket update and compares the ticket before / after:
+        // anything else RepairDesk changed is shown here. Resolves true
+        // when the assignee changed.
+        async changeAssignee(ticket, employee, deviceIds, lineName) {
+            if (!employee) return false
+            const lines = (ticket.devices || []).length
+            const which = lineName ? `the ${lineName} line of ticket`
+                : lines > 1 ? `all ${lines} device lines of ticket` : 'ticket'
+            try {
+                await this.$confirm(
+                    `Assign ${which} ${ticket.ticketNumber} to ${employee.name} in RepairDesk? ` +
+                    'A note saying you made the change is added to the ticket.',
+                    'Assign ticket',
+                    { confirmButtonText: 'Assign', cancelButtonText: 'Cancel', type: 'warning' }
+                )
+            } catch (e) {
+                return false
+            }
+            this.assignBusy = String(ticket.id)
+            try {
+                const res = await setRepairTicketAssignee(ticket.id, employee.id, deviceIds)
+                const d = (res && res.data) || {}
+                if (d.ticket && d.group) this.placeTicket(ticket, d.group, d.ticket)
+                if (d.unchanged) {
+                    this.$message.info(`Ticket ${ticket.ticketNumber} is already assigned to ${employee.name}`)
+                    return false
+                }
+                const side = d.sideEffects || []
+                if (side.length) {
+                    // RepairDesk changed more than the assignee — say exactly what
+                    const h = this.$createElement
+                    this.$alert(
+                        h('div', null, [
+                            h('p', null, `Ticket ${ticket.ticketNumber} is now assigned to ${employee.name}, but RepairDesk also changed:`),
+                            h('ul', { style: 'margin: 8px 0 0; padding-left: 18px' },
+                                side.map(s => h('li', null, `${s.field}: "${s.from}" → "${s.to}"`))),
+                            h('p', { style: 'margin-top: 8px' }, 'Check the ticket in RepairDesk.')
+                        ]),
+                        'Check this ticket',
+                        { type: 'warning', confirmButtonText: 'OK' }
+                    )
+                } else if ((d.failed || []).length) {
+                    this.$message.warning(
+                        `Assigned ${(d.changed || []).length} of ${(d.changed || []).length + d.failed.length} device lines to ${employee.name} — ` +
+                        `RepairDesk kept ${d.failed[0].name} as it was`
+                    )
+                } else if (!d.noteAdded) {
+                    this.$message.warning(`Ticket ${ticket.ticketNumber} → ${employee.name}, but the note couldn't be added`)
+                } else {
+                    this.$message.success(`Ticket ${ticket.ticketNumber} → ${employee.name}`)
+                }
+                return true
+            } catch (e) {
+                // the request helper has already shown the server's message
+                console.warn('Assign failed:', e)
+                return false
+            } finally {
+                this.assignBusy = ''
+            }
+        },
+        // a device line's menu in the Detail dialog
+        async onDetailAssignee({ id, ticketNumber, deviceId, deviceName, employee }) {
+            const ticket = this.allTickets.find(t => String(t.id) === String(id)) ||
+                { id, ticketNumber, devices: [] }
+            const changed = await this.changeAssignee(ticket, employee, [deviceId], deviceName)
             if (changed && this.$refs.detailDialog) this.$refs.detailDialog.reload()
         },
         // ── Notes (added to the RepairDesk ticket) ────────────────

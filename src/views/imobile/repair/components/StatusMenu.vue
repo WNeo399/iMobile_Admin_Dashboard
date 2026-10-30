@@ -10,7 +10,18 @@
         :disabled="busy"
         @command="name => $emit('pick', name)"
     >
+        <!-- `pill`: the outlined button look of the ticket detail dialog -->
+        <span
+            v-if="appearance === 'pill'"
+            class="status-menu-pill"
+            :class="{ 'status-menu-pill--large': large }"
+            :title="busy ? 'Saving to RepairDesk…' : 'Change status'"
+        >
+            {{ value || '—' }}
+            <i :class="busy ? 'el-icon-loading' : 'el-icon-arrow-down'" />
+        </span>
         <el-tag
+            v-else
             :type="tagType"
             size="mini"
             effect="plain"
@@ -57,7 +68,11 @@ export default {
         // the ticket's device lines don't all share `value`, so it stays pickable
         mixed: { type: Boolean, default: false },
         busy: { type: Boolean, default: false },
-        tagType: { type: String, default: '' }
+        tagType: { type: String, default: '' },
+        // 'tag' (the Tickets table) or 'pill' (the ticket detail dialog)
+        appearance: { type: String, default: 'tag' },
+        // the bigger pill (the dialog's Ticket Details card)
+        large: { type: Boolean, default: false }
     },
     computed: {
         groups() {
@@ -84,6 +99,29 @@ export default {
 }
 .status-menu-tag i {
     margin-left: 2px;
+}
+.status-menu-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    border: 1px solid #409eff;
+    border-radius: 6px;
+    background: #fff;
+    color: #1677ff;
+    font-size: 12px;
+    line-height: 18px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+.status-menu-pill:hover {
+    background: #ecf5ff;
+}
+.status-menu-pill--large {
+    padding: 5px 14px;
+    font-size: 14px;
+    line-height: 20px;
 }
 </style>
 

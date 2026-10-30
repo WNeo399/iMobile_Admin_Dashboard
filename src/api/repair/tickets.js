@@ -55,6 +55,27 @@ export function addRepairTicketNote(id, data) {
     })
 }
 
+// The people a ticket can be assigned to — [{ id, name, role, image }].
+export function listRepairEmployees() {
+    return request({
+        url: '/repair/employees',
+        method: 'get',
+        timeout: 30000
+    })
+}
+
+// Assign a ticket in RepairDesk: every device line, or only deviceIds.
+// Answers { changed, failed, sideEffects, noteAdded, group, ticket } —
+// sideEffects = what RepairDesk changed besides the assignee.
+export function setRepairTicketAssignee(id, employeeId, deviceIds) {
+    return request({
+        url: `/repair/tickets/${id}/assign`,
+        method: 'post',
+        data: deviceIds ? { employeeId, deviceIds } : { employeeId },
+        timeout: 60000
+    })
+}
+
 // Set a ticket's status in RepairDesk: every device line, or only deviceIds.
 // Answers { changed, failed, noteAdded, group, ticket } — the ticket re-read
 // from RepairDesk in the list's shape and the status group it now falls in.
