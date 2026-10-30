@@ -166,7 +166,7 @@
             <!-- drop zone + the picked images in upload order (shared with the
                  New Products create dialog) -->
             <image-picker v-model="upload.files" :max="MAX_UPLOAD" :has-image="upload.hasImage"
-                :current-url="(upload.row && upload.row.imageUrl) || ''" :disabled="upload.busy" />
+                :current-url="(upload.row && upload.row.imageUrl) || ''" :item-id="(upload.row && upload.row.itemId) || ''" :disabled="upload.busy" />
 
             <span slot="footer">
                 <el-button size="small" :disabled="upload.busy" @click="upload.visible = false">{{ $tp('Cancel') }}</el-button>

@@ -38,7 +38,7 @@
                     <span class="ip-pos">{{ i + 1 }}</span>
                     <i v-if="!(keepSaved && !f.file)" class="el-icon-close ip-remove" :title="$tp('Remove')" @click="remove(i)" />
                     <div class="ip-thumb" :title="$tp('Click to enlarge')" @click="view(i)">
-                        <img :src="f.url" alt="" draggable="false">
+                        <img v-zoho-img="itemId" :src="f.url" alt="" draggable="false">
                     </div>
                     <div class="ip-name" :title="nameOf(f)">{{ nameOf(f) }}</div>
                     <div class="ip-foot">
@@ -50,7 +50,7 @@
             </draggable>
         </template>
         <div v-if="hasImage" class="ip-note">
-            <img v-if="currentUrl" :src="currentUrl" :title="$tp('Current main image')" class="ip-current" alt="" @click="viewCurrent">
+            <img v-if="currentUrl" v-zoho-img="itemId" :src="currentUrl" :title="$tp('Current main image')" class="ip-current" alt="" @click="viewCurrent">
             <i v-else class="el-icon-info" />
             <span>{{ $tp('This product already has a main image — these are added after it.') }}</span>
         </div>
@@ -83,7 +83,10 @@ export default {
         disabled: { type: Boolean, default: false },
         compact: { type: Boolean, default: false },
         // saved photos (no file) stay: they can be reordered, not removed
-        keepSaved: { type: Boolean, default: false }
+        keepSaved: { type: Boolean, default: false },
+        // the Zoho item the saved photos are of — a product the store hides
+        // shows them through the backend instead (v-zoho-img, 2026-10-30)
+        itemId: { type: String, default: '' }
     },
     data() {
         return {

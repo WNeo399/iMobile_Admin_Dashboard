@@ -103,7 +103,7 @@
                 <div v-else v-loading="loading" class="bi-grid">
                     <div v-for="r in rows" :key="r.itemId" class="bi-card" @click="$refs.drawer.open(r)">
                         <div class="bi-card-img">
-                            <img v-if="r.imageUrl" :src="r.imageUrl" alt="" loading="lazy">
+                            <img v-if="r.imageUrl" v-zoho-img="r.itemId" :src="r.imageUrl" alt="" loading="lazy">
                             <i v-else class="el-icon-picture-outline" />
                         </div>
                         <div class="bi-card-name" :title="r.productName">{{ r.productName }}</div>

@@ -18,7 +18,7 @@
             @select="pick">
             <template slot-scope="{ item }">
                 <div class="ai-sug">
-                    <img v-if="item.imageUrl" :src="item.imageUrl" class="ai-sug-img" alt="" loading="lazy">
+                    <img v-if="item.imageUrl" v-zoho-img="item.itemId" :src="item.imageUrl" class="ai-sug-img" alt="" loading="lazy">
                     <div v-else class="ai-sug-img ai-img-none"><i class="el-icon-picture-outline" /></div>
                     <div class="ai-sug-main">
                         <div class="ai-sug-name"><span v-if="item.scope && item.scope !== 'parts'" class="ai-scope">{{ item.scope === 'te' ? 'TE' : $tp('Accessory') }}</span> {{ item.name }}</div>
@@ -38,7 +38,7 @@
 
         <div v-else class="ai-lines">
             <div v-for="(l, i) in lines" :key="l.itemId" :class="['ai-line', { 'ai-line-urgent': l.urgent }]">
-                <img v-if="l.imageUrl" :src="l.imageUrl" class="ai-img" alt="" loading="lazy">
+                <img v-if="l.imageUrl" v-zoho-img="l.itemId" :src="l.imageUrl" class="ai-img" alt="" loading="lazy">
                 <div v-else class="ai-img ai-img-none"><i class="el-icon-picture-outline" /></div>
                 <div class="ai-main">
                     <div class="ai-name" :title="l.name"><span v-if="l.scope && l.scope !== 'parts'" class="ai-scope">{{ l.scope === 'te' ? 'TE' : $tp('Accessory') }}</span> {{ l.name }}</div>

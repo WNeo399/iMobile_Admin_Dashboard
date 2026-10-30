@@ -117,7 +117,7 @@
                             </div>
                             <div v-for="it in g.items" :key="it.itemId" class="spn-item">
                                 <div class="spn-thumb">
-                                    <img v-if="it.imageUrl" :src="it.imageUrl" alt="" loading="lazy">
+                                    <img v-if="it.imageUrl" v-zoho-img="it.itemId" :src="it.imageUrl" alt="" loading="lazy">
                                     <i v-else class="el-icon-picture-outline" />
                                 </div>
                                 <div class="spn-item-main">

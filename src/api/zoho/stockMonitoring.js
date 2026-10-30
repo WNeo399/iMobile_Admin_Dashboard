@@ -51,6 +51,16 @@ export function unhideStockItem(itemId) {
 
 // Item's product image, proxied through the backend (Zoho needs OAuth).
 // Resolves to a Blob; an empty blob (204) means the item has no image.
+// one of the item's photos (its document id) out of Zoho — for a product the
+// store hides, whose store image URL comes back empty (v-zoho-img, 2026-10-30)
+export function getItemPhoto(itemId, docId) {
+  return request({
+    url: `/zoho/items/${itemId}/images/${docId}`,
+    method: 'get',
+    responseType: 'blob',
+    timeout: 30000
+  })
+}
 export function getItemImage(itemId) {
   return request({
     url: `/zoho/items/${itemId}/image`,

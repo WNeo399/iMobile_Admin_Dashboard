@@ -371,7 +371,7 @@
                 <div v-if="!createForm.warranty.length" class="spb-dim spb-special-empty">{{ $tp('None on this batch') }}</div>
                 <div v-else class="spb-special-lines">
                     <div v-for="(l, i) in createForm.warranty" :key="l.orderId || l.key" :class="['spb-slrow', { 'spb-slrow-bad': l.unmatched && !l.itemId }]">
-                        <img v-if="l.imageUrl" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
+                        <img v-if="l.imageUrl" v-zoho-img="l.itemId" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
                         <div class="spb-slrow-main">
                             <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
                             <div class="spb-dim spb-slrow-sub">
@@ -408,7 +408,7 @@
                 <div v-if="!createForm.extra.length" class="spb-dim spb-special-empty">{{ $tp('Scanned items with no order behind them land here') }}</div>
                 <div v-else class="spb-special-lines">
                     <div v-for="(l, i) in createForm.extra" :key="l.key" :class="['spb-slrow', { 'spb-slrow-bad': !l.itemId }]">
-                        <img v-if="l.imageUrl" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
+                        <img v-if="l.imageUrl" v-zoho-img="l.itemId" :src="l.imageUrl" class="spb-slrow-img" alt="" loading="lazy">
                         <div class="spb-slrow-main">
                             <!-- the product as text; "Choose product" beside the label opens the search for this line -->
                             <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
@@ -497,7 +497,7 @@
                 :placeholder="$tp('Search by SKU or product name')" @select="pickProductFor">
                 <template slot-scope="{ item }">
                     <div class="spb-sug">
-                        <img v-if="item.imageUrl" :src="item.imageUrl" class="spb-sug-img" alt="" loading="lazy">
+                        <img v-if="item.imageUrl" v-zoho-img="item.itemId" :src="item.imageUrl" class="spb-sug-img" alt="" loading="lazy">
                         <div v-else class="spb-sug-img spb-sug-none"><i class="el-icon-picture-outline" /></div>
                         <div class="spb-sug-main">
                             <div class="spb-sug-name">{{ item.name }}</div>
