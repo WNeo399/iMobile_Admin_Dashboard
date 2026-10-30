@@ -4,6 +4,10 @@ import request from '@/utils/request'
 // batches PB-…). Backend: routes/sparePartsPurchaseRoutes.
 
 const BASE = '/sparePartsPurchase'
+// A FormData body goes as multipart: the shared JSON Content-Type default
+// (utils/request) makes axios turn it into JSON — the photo files dropped
+// (Listing's Create / drafts / Edit photos sent none until 2026-10-30).
+const asForm = data => (data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {})
 
 // The pick lists: categories and the 供应商 options.
 export function getMeta() {
@@ -166,15 +170,15 @@ export function getZohoItemCategories(refresh) {
   return request({ url: `${BASE}/zoho-item/categories`, method: 'get', params: refresh ? { refresh: 1 } : {}, timeout: 60000 })
 }
 export function createZohoItemForOrder(id, data) {
-  return request({ url: `${BASE}/orders/${id}/zoho-item`, method: 'post', data, timeout: 120000 })
+  return request({ url: `${BASE}/orders/${id}/zoho-item`, method: 'post', data, timeout: 120000, ...asForm(data) })
 }
 // Drafts of the create dialog (kept in our DB, not in Zoho until submitted);
 // save / update take FormData (fields, JSON prices / compatibleModels / order, photos)
 export function saveNewProductDraft(data) {
-  return request({ url: `${BASE}/new-products/drafts`, method: 'post', data, timeout: 120000 })
+  return request({ url: `${BASE}/new-products/drafts`, method: 'post', data, timeout: 120000, ...asForm(data) })
 }
 export function updateNewProductDraft(id, data) {
-  return request({ url: `${BASE}/new-products/drafts/${id}`, method: 'put', data, timeout: 120000 })
+  return request({ url: `${BASE}/new-products/drafts/${id}`, method: 'put', data, timeout: 120000, ...asForm(data) })
 }
 export function getNewProductDraft(id) {
   return request({ url: `${BASE}/new-products/drafts/${id}`, method: 'get' })
@@ -193,7 +197,7 @@ export function newProductCategories(refresh) {
 // { modelId, part, cost, categoryId, name, sku, quality, rate, prices, compatibleModels }
 // → one Zoho Inventory item; a FormData with "images" also uploads its photos
 export function createNewProductItem(data) {
-  return request({ url: `${BASE}/new-products/items`, method: 'post', data, timeout: 120000 })
+  return request({ url: `${BASE}/new-products/items`, method: 'post', data, timeout: 120000, ...asForm(data) })
 }
 // an existing item (the Edit dialog): read live from Zoho, change it (only
 // the fields sent: name, quality, classification, subClassification,
@@ -203,10 +207,10 @@ export function getNewProductItem(itemId) {
   return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'get', timeout: 30000 })
 }
 export function updateNewProductItem(itemId, data) {
-  return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'put', data, timeout: 60000 })
+  return request({ url: `${BASE}/new-products/items/${itemId}`, method: 'put', data, timeout: 60000, ...asForm(data) })
 }
 export function saveNewProductItemPhotos(itemId, data) {
-  return request({ url: `${BASE}/new-products/items/${itemId}/photos`, method: 'post', data, timeout: 120000 })
+  return request({ url: `${BASE}/new-products/items/${itemId}/photos`, method: 'post', data, timeout: 120000, ...asForm(data) })
 }
 // what the product dialog needs around an item (brand = a Device Brand):
 // naming facts, the brand's models, qualities, classifications, formulas

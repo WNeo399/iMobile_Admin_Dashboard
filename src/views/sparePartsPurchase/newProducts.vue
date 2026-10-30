@@ -191,7 +191,7 @@
 
         <!-- ── Create one Zoho item ──────────────────────────────────── -->
         <el-dialog :visible.sync="createVisible" :width="createNarrow ? '96%' : '860px'" top="5vh" append-to-body
-            :close-on-click-modal="false" custom-class="spn-create-dlg" @opened="onCreateOpened" @closed="clearCreateFiles">
+            :close-on-click-modal="false" custom-class="spn-create-dlg" @opened="onCreateOpened" @closed="clearCreateFiles(); clearVariants()">
             <!-- what is being made: the model, the part and its Zoho fields -->
             <div slot="title" class="spn-ct">
                 <div class="spn-ct-title"><i class="el-icon-plus" /> {{ $tp('Create in Zoho Inventory') }}
@@ -326,8 +326,22 @@
                 <!-- the Missing Images picker (compact); uploaded to the item
                      once it exists, the first becomes its main image -->
                 <div class="spn-cf-side">
-                    <div class="spn-sec">{{ $tp('Photos') }}<span v-if="createFiles.length" class="spn-sec-n">{{ createFiles.length }}</span></div>
+                    <div class="spn-sec">{{ variantMode ? $tp('Product photos') : $tp('Photos') }}<span v-if="createFiles.length" class="spn-sec-n">{{ createFiles.length }}</span></div>
+                    <div v-if="variantMode" class="spn-variant-hint spn-variant-hint-side">{{ $tp('Shown in listings, search and for every variant. None? The first variant\'s first photo is used.') }}</div>
                     <image-picker ref="photoPicker" v-model="createFiles" :max="MAX_PHOTOS" :disabled="creating" compact />
+
+                    <!-- a product with variants (2026-10-30; under the product photos, and
+                         not only colours — user 2026-10-30): a Zoho item group, one item
+                         per variant, one product with a picker in the store -->
+                    <div class="spn-sec spn-variant-sec">
+                        <span>{{ $tp('Variants') }}
+                            <el-tooltip :content="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')" placement="top">
+                                <i class="el-icon-info spn-help" /></el-tooltip></span>
+                        <el-switch :value="variantMode" :disabled="creating" :active-text="$tp('This product has variants')" @change="onVariantMode" />
+                    </div>
+                    <template v-if="variantMode">
+                        <variant-rows v-model="createVariants" :base-sku="String(createForm.sku || '').trim()" :disabled="creating" :max="MAX_PHOTOS" />
+                    </template>
                 </div>
             </el-form>
 
@@ -340,7 +354,7 @@
                 <el-button size="small" icon="el-icon-document" :loading="draftSaving" :disabled="creating" @click="saveDraft()">{{ $tp('Save draft') }}</el-button>
                 <!-- a model without a store category creates nothing until it is linked -->
                 <el-button type="primary" size="small" icon="el-icon-check" :loading="creating" :disabled="draftSaving || (skuLoading && !createForm.sku) || !(createRow && createRow.categoryId)"
-                    @click="submitCreate">{{ $tp('Create item') }}</el-button>
+                    @click="submitCreate">{{ variantMode ? $tp('Create {n} variants', { n: namedVariants.length }) : $tp('Create item') }}</el-button>
             </div>
         </el-dialog>
 
@@ -496,12 +510,13 @@ import TreePanel from '@/components/TreePanel'
 import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import ProductEditDialog from './components/ProductEditDialog'
+import VariantRows from './components/VariantRows'
 import { hasPermission } from '@/utils/permission'
 import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { createCategory } from '@/api/website'
 import {
     zohoLink, formulaPricesFor, priceFamilyOf, CATEGORY_PROPS, categoryIndex, pickableCategories as pickableOf, categoryTreeOf, categoryPathIn, categoryFilter,
-    PRICE_LISTS, blankPrices, swapModelsInName, blankFollow, modelsNamePartFor, withQualityTag, priceWarningsFor, newestModelFirst
+    PRICE_LISTS, blankPrices, swapModelsInName, blankFollow, modelsNamePartFor, withQualityTag, priceWarningsFor, newestModelFirst, blankVariant
 } from './shared'
 
 // the order the classifications are shown in after the needed parts
@@ -527,6 +542,8 @@ const looseName = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 // PRICE_LISTS, blankPrices, swapModelsInName, blankFollow (and fitKey): ./shared since 2026-10-21 — the product dialog uses them too
 // photos on a new item — as on Missing Images (types / 7 MB: ImagePicker)
 const MAX_PHOTOS = 10
+// the create / draft fields sent as JSON in a multipart form
+const JSON_FIELDS = ['compatibleModels', 'prices', 'variants']
 // a brand's own short name in the store's category names ("MOTO G57")
 const BRAND_SHORT = { Motorola: ['moto'] }
 // the category list is read again after this long
@@ -534,7 +551,7 @@ const CATEGORIES_TTL = 10 * 60 * 1000
 
 export default {
     name: 'SppNewProducts',
-    components: { TreePanel, BrandIcon, ImagePicker, ProductEditDialog },
+    components: { TreePanel, BrandIcon, ImagePicker, ProductEditDialog, VariantRows },
     data() {
         return {
             loading: false,
@@ -564,6 +581,9 @@ export default {
             createDefaults: null,
             skuLoading: false,
             createFiles: [],
+            // a product with variants (2026-10-30): the rows — title + photos (components/VariantRows)
+            variantMode: false,
+            createVariants: [],
             createNarrow: false,
             // the quality whose [tag] is on the name now
             appliedQuality: '',
@@ -777,13 +797,20 @@ export default {
             const bits = []
             const sku = String(this.createForm.sku || '').trim()
             bits.push(sku ? this.$tp('SKU {sku}', { sku }) : (this.skuLoading ? this.$tp('Finding the next free SKU…') : this.$tp('No SKU yet')))
-            if (this.createFiles.length) bits.push(this.$tp('{n} photo(s)', { n: this.createFiles.length }))
+            if (this.variantMode) bits.push(this.$tp('{n} variant(s)', { n: this.namedVariants.length }))
+            const photos = this.createFiles.length + (this.variantMode ? this.createVariants.reduce((n, c) => n + c.files.length, 0) : 0)
+            if (photos) bits.push(this.$tp('{n} photo(s)', { n: photos }))
             const cost = Number(this.createForm.cost)
             if (cost > 0) bits.push(this.$tp('Cost {cost}', { cost: '$' + cost.toFixed(2) }))
             const prices = Object.values(this.createForm.prices || {}).filter(v => v != null && v !== '').length
             if (prices) bits.push(this.$tp('{n} price list(s)', { n: prices }))
             if (this.createRow && this.createRow.categoryId) bits.push(this.createRow.categoryName || this.categoryPathOf(this.createRow))
             return bits.join(' · ')
+        },
+        // ── a product with variants ──
+        // the variant rows with a name (the ones that become items)
+        namedVariants() {
+            return this.createVariants.filter(c => String(c.name || '').trim())
         },
         // ── any other product ──
         isOther() {
@@ -1094,6 +1121,8 @@ export default {
         openCreate(row, part) {
             const brand = this.brands.find(b => b.value === row.brand) || {}
             this.clearCreateFiles()
+            this.clearVariants()
+            this.variantMode = false
             this.createDraftId = null
             this.appliedQuality = ''
             this.createNarrow = window.innerWidth < 900
@@ -1341,7 +1370,75 @@ export default {
             if (!/^\d{4,6}$/.test(String(this.createForm.sku || '').trim())) return warn('SKU must be a number')
             if (!this.createForm.compatibleModels.length) return warn('Pick every model this part fits')
             if (!this.createRow || !this.createRow.categoryId) return warn('Link the model to a store category first')
+            if (this.variantMode && !this.checkVariants()) return false
             return true
+        },
+        // a product with variants: two at least, each named once, no [ ]
+        checkVariants() {
+            const warn = (text, v) => { this.$message.warning(this.$tp(text, v)); return false }
+            const unnamed = this.createVariants.find(c => !String(c.name || '').trim() && c.files.length)
+            if (unnamed) return warn('Name every variant that has photos')
+            const named = this.namedVariants
+            if (named.length < 2) return warn('A product with variants needs two at least — or turn Variants off')
+            const seen = new Set()
+            for (const c of named) {
+                const name = String(c.name).replace(/\s+/g, ' ').trim()
+                if (/[[\]]/.test(name)) return warn('{variant}: a variant can\'t contain [ or ]', { variant: name })
+                if (seen.has(name.toLowerCase())) return warn('{variant} is in the list twice', { variant: name })
+                seen.add(name.toLowerCase())
+                if (`${String(this.createForm.name || '').trim()} [${name}]`.length > 200) return warn('The name with [{variant}] is over 200 characters', { variant: name })
+            }
+            return true
+        },
+        // Variants on: two rows to fill in. Off: the rows go (asked first when filled in).
+        async onVariantMode(on) {
+            if (on) {
+                this.variantMode = true
+                if (!this.createVariants.length) this.createVariants = [blankVariant(), blankVariant()]
+                return
+            }
+            const filled = this.createVariants.some(c => String(c.name || '').trim() || c.files.length)
+            if (filled) {
+                try {
+                    await this.$confirm(this.$tp('Turn Variants off? The variants and their photos are taken out of the dialog.'), this.$tp('Variants'),
+                        { type: 'warning', confirmButtonText: this.$tp('Turn off'), cancelButtonText: this.$tp('Keep') })
+                } catch (e) { return }
+            }
+            this.clearVariants()
+            this.variantMode = false
+        },
+        clearVariants() {
+            for (const c of this.createVariants) {
+                for (const f of c.files) { if (f.url && f.url.startsWith('blob:')) { try { URL.revokeObjectURL(f.url) } catch (e) { /* ignore */ } } }
+            }
+            this.createVariants = []
+        },
+        // every photo the dialog sends, in order: the product's, then each variant's
+        // → [{ f, variant }] (variant "" = the product's own)
+        createPhotoList() {
+            const out = this.createFiles.map(f => ({ f, variant: '' }))
+            if (this.variantMode) {
+                for (const c of this.namedVariants) {
+                    const variant = String(c.name).replace(/\s+/g, ' ').trim()
+                    for (const f of c.files) out.push({ f, variant })
+                }
+            }
+            return out
+        },
+        // a saved draft's variants and photos back into the dialog: the product's, and each variant's into its row
+        placeDraftPhotos(d) {
+            const asFile = im => ({ key: im.id, id: im.id, url: im.url, name: im.name })
+            const rows = (d.variants || []).map(c => ({ ...blankVariant(), name: c.name }))
+            const rowOf = name => rows.find(r => r.name.toLowerCase() === String(name || '').toLowerCase())
+            const product = []
+            for (const im of d.images || []) {
+                const row = im.variant ? rowOf(im.variant) : null
+                if (row) row.files.push(asFile(im))
+                else product.push(asFile(im))
+            }
+            this.createFiles = product
+            this.createVariants = rows
+            this.variantMode = rows.length > 0
         },
         async loadNextSku() {
             const seq = ++this.skuSeq
@@ -1391,13 +1488,15 @@ export default {
             this.creating = true
             try {
                 const fields = this.createFields()
-                // with photos: one multipart request (the item, then its photos)
-                const files = this.createFiles.map(x => x.file)
+                // with photos: one multipart request (the item, then its photos);
+                // with variants, each file's variant goes alongside ("" = the product's)
+                const photos = this.createPhotoList().filter(x => x.f.file)
                 let data = fields
-                if (files.length) {
+                if (photos.length) {
                     data = new FormData()
-                    Object.keys(fields).forEach(k => data.append(k, k === 'compatibleModels' || k === 'prices' ? JSON.stringify(fields[k]) : (fields[k] == null ? '' : fields[k])))
-                    files.forEach(f => data.append('images', f, f.name))
+                    Object.keys(fields).forEach(k => data.append(k, JSON_FIELDS.includes(k) ? JSON.stringify(fields[k]) : (fields[k] == null ? '' : fields[k])))
+                    photos.forEach(x => data.append('images', x.f.file, x.f.file.name))
+                    if (this.variantMode) data.append('photoVariants', JSON.stringify(photos.map(x => x.variant)))
                 }
                 const r = await createNewProductItem(data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
@@ -1410,6 +1509,7 @@ export default {
         },
         // After Zoho made the item (fresh or from a draft): say so, and what didn't make it.
         afterCreated(r) {
+            if (r.group) return this.afterCreatedVariants(r)
             // the item exists either way; a photo that didn't make it is said so
             if (r.photos && r.photos.error) {
                 this.$message.warning(this.$tp('{sku} created, but the photos did not upload: {error} — add them from Missing Images', { sku: r.item.sku, error: r.photos.error }))
@@ -1427,6 +1527,30 @@ export default {
                 title: this.$tp('Created in Zoho'),
                 message: h('span', [`${r.item.sku} · ${r.item.name}${r.countedFor > 1 ? ' · ' + this.$tp('counts for {n} models', { n: r.countedFor }) : ''} `, h('a', { attrs: { href: zohoLink(r.item.itemId), target: '_blank', rel: 'noopener' } }, this.$tp('Open in Zoho'))]),
                 type: 'success', duration: 8000
+            })
+            this.createVisible = false
+            this.refresh()
+        },
+        // A product with variants was made: the variants and their SKUs, and what didn't make it.
+        afterCreatedVariants(r) {
+            const g = r.group
+            const problems = [...(r.problems || [])]
+            if (r.photos && r.photos.error) problems.push(this.$tp('photos: {error}', { error: r.photos.error }))
+            const priceErrors = Object.keys((r.prices && r.prices.errors) || {})
+            if (priceErrors.length) problems.push(this.$tp('prices not saved: {lists}', { lists: priceErrors.map(k => (PRICE_LISTS.find(p => p.list === k) || { label: k }).label).join(', ') }))
+            if (r.category && r.category.error) problems.push(this.$tp('category: {error}', { error: r.category.error }))
+            if (problems.length) {
+                this.$alert(this.$tp('{name} was created in {n} variants, but some of it did not save: {list}. Fix it from Listing → Edit, Missing Images or Price Monitoring.', { name: g.name, n: g.items.length, list: problems.join('; ') }),
+                    this.$tp('Check the new product'), { type: 'warning' })
+            }
+            const h = this.$createElement
+            this.$notify({
+                title: this.$tp('Created in Zoho — {n} variants', { n: g.items.length }),
+                message: h('div', [
+                    h('div', `${g.name}${r.countedFor > 1 ? ' · ' + this.$tp('counts for {n} models', { n: r.countedFor }) : ''}`),
+                    h('div', { style: 'margin-top:4px' }, g.items.map((it, i) => h('span', [i ? ' · ' : '', h('a', { attrs: { href: zohoLink(it.itemId), target: '_blank', rel: 'noopener' } }, it.sku)])))
+                ]),
+                type: 'success', duration: 10000
             })
             this.createVisible = false
             this.refresh()
@@ -1465,29 +1589,38 @@ export default {
                 // only the lists given
                 prices: Object.fromEntries(Object.entries(this.createForm.prices || {}).filter(([, v]) => v != null && v !== '')),
                 // any other product: the classification picked
-                ...(this.isOther ? { classification: this.createClass.classification, subClassification: this.createClass.subClassification } : {})
+                ...(this.isOther ? { classification: this.createClass.classification, subClassification: this.createClass.subClassification } : {}),
+                // a product with variants: the named ones (each takes the product's prices)
+                ...(this.variantMode ? { variants: this.namedVariants.map(c => ({ name: String(c.name).replace(/\s+/g, ' ').trim() })) } : {})
             }
         },
         // Save the dialog as a draft (new or the one open). The photos go as
         // an order list: saved ones by id, new files by their index.
         async saveDraft({ keepOpen = false } = {}) {
             if (!this.createRow || !this.createPart || this.draftSaving) return null
+            if (this.variantMode && this.createVariants.some(c => !String(c.name || '').trim() && c.files.length)) {
+                this.$message.warning(this.$tp('Name every variant that has photos'))
+                return null
+            }
             const fields = this.createFields()
             const data = new FormData()
-            Object.keys(fields).forEach(k => data.append(k, k === 'compatibleModels' || k === 'prices' ? JSON.stringify(fields[k]) : (fields[k] == null ? '' : fields[k])))
+            Object.keys(fields).forEach(k => data.append(k, JSON_FIELDS.includes(k) ? JSON.stringify(fields[k]) : (fields[k] == null ? '' : fields[k])))
+            // the photos in order — the product's, then each variant's (named with it)
+            const photos = this.createPhotoList()
             let n = 0
-            const order = this.createFiles.map(f => (f.file ? { new: n++ } : { id: f.id }))
+            const order = photos.map(x => ({ ...(x.f.file ? { new: n++ } : { id: x.f.id }), ...(x.variant ? { variant: x.variant } : {}) }))
             data.append('order', JSON.stringify(order))
-            this.createFiles.filter(f => f.file).forEach(f => data.append('images', f.file, f.file.name))
+            photos.filter(x => x.f.file).forEach(x => data.append('images', x.f.file, x.f.file.name))
             this.draftSaving = true
             try {
                 const r = this.createDraftId ? await updateNewProductDraft(this.createDraftId, data) : await saveNewProductDraft(data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const d = r.draft
                 this.createDraftId = d._id
-                // the photos are saved now: keep them as saved ones
+                // the photos are saved now: keep them as saved ones (each variant's in its row)
                 this.clearCreateFiles()
-                this.createFiles = (d.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
+                this.clearVariants()
+                this.placeDraftPhotos(d)
                 if (!keepOpen) {
                     this.$message.success(this.$tp('Draft saved — it is not in Zoho until you submit it'))
                     this.createVisible = false
@@ -1533,7 +1666,8 @@ export default {
             this.nameFollow.create = { ...blankFollow(), part: this.modelsNamePart(row.brand, this.createForm.compatibleModels) }
             // the saved prices stand; a quality change re-prices them only while they are the formula's
             this.lastAuto = this.formulaPrices && !this.formulaOff ? { ...this.formulaPrices } : null
-            this.createFiles = (d.images || []).map(im => ({ key: im.id, id: im.id, url: im.url, name: im.name }))
+            // the photos: the product's, and each variant's in its row (Variants on when the draft has any)
+            this.placeDraftPhotos(d)
             // a SKU saved with the draft stands; none → the next free one, as for a new item
             if (d.sku) { this.skuSeq++; this.skuLoading = false } else this.loadNextSku()
         },
@@ -1812,6 +1946,12 @@ export default {
 .spn-sec { display: flex; align-items: center; gap: 4px; margin: 2px 0 8px; font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .4px; }
 .spn-sec:not(:first-child) { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }
 .spn-sec-n { margin-left: 4px; padding: 0 7px; border-radius: 9px; background: #f0f2f5; color: #606266; font-weight: 500; text-transform: none; }
+/* a product with variants: the switch sits on the section's line */
+.spn-variant-sec { justify-content: space-between; flex-wrap: wrap;
+    ::v-deep .el-switch__label span { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+}
+.spn-variant-hint { margin: 4px 0 8px; font-size: 12px; color: #909399; line-height: 1.6; i { margin-right: 2px; } }
+.spn-variant-hint-side { margin-top: -4px; }
 .spn-help { color: #c0c4cc; cursor: help; font-size: 12px; font-weight: normal; &:hover { color: #409eff; } }
 .spn-cf ::v-deep .el-form-item { margin-bottom: 12px; }
 .spn-cf ::v-deep .el-form-item__label { padding-bottom: 2px; line-height: 22px; }

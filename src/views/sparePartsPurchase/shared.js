@@ -215,6 +215,9 @@ export const swapModelsInName = (name, lastPart, part) => {
 }
 // per dialog: the model part last put in the name, the name before (Undo), the note shown
 export const blankFollow = () => ({ part: '', undo: null, note: '' })
+// Listing → Create, a product with variants (2026-10-30): one variant row
+// (components/VariantRows.vue) — files as ImagePicker's [{ key, file?, id?, url, name }]
+export const blankVariant = () => ({ key: `${Date.now()}-${Math.random()}`, name: '', files: [] })
 // The model part of a name for a Compatible Model list, from Listing's brands
 // and models (GET /new-products, or /new-products/edit-context): each model the
 // way the page names it — the first in full ("Samsung Galaxy S24 (S921)"), the
