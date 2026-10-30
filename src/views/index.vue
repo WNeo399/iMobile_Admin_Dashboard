@@ -70,6 +70,8 @@ const ROLE_TO_COMPONENT = {
     admin: 'AdminHome',
     'imobile-admin': 'IMobileAdminHome',
     'imobile-repair-admin': 'IMobileRepairAdminHome',
+    // iMobile Repair staff (2026-10-30): the same repair overview
+    'imobile-repair': 'IMobileRepairAdminHome',
     'techelite-admin': 'TechEliteAdminHome',
     'shop-owner': 'ShopOwnerHome',
     'repair-shop': 'RepairShopHome',
