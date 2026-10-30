@@ -123,7 +123,7 @@
                                 <span v-else class="td-pill td-pill--small" :class="`td-pill--${statusTone(scope.row.status.name)}`">{{ scope.row.status.name }}</span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="Action" align="center" width="100">
+                        <el-table-column label="Action" align="center" width="110">
                             <template slot-scope="scope">
                                 <el-button
                                     size="mini"
@@ -131,7 +131,7 @@
                                     icon="el-icon-document"
                                     class="td-action"
                                     @click="onChecklist(scope.row)"
-                                >Check In</el-button>
+                                >Checklist</el-button>
                             </template>
                         </el-table-column>
                     </el-table>
@@ -334,10 +334,21 @@ export default {
             this.ticket = null
             this.error = ''
         },
+        // The page opens the Repair Service Checklist (QCGenerator) with this
+        // ticket and device line filled in — the shape its open(seed) takes
         onChecklist(device) {
-            // Bubble out — the parent listens via ref and opens the QC dialog
-            // seeded with this device's info.
-            this.$emit('checklist', device)
+            const c = this.ticket.summary.customer || {}
+            this.$emit('checklist', {
+                ticketNumber: this.ticket.summary.order_id,
+                customer: this.customerName,
+                contact: c.mobile || '',
+                device: {
+                    device: (device.device && device.device.name) || device.name || '',
+                    imei: device.imei || '',
+                    status: (device.status && device.status.name) || '',
+                    repairProdItems: (device.repairProdItems || []).map(p => p.name).filter(Boolean).join(', ')
+                }
+            })
         },
         formatDate(ms) {
             if (!ms) return ''

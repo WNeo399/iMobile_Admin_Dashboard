@@ -323,6 +323,7 @@
             :can-add-note="canAddNote"
             @change-status="onDetailStatus"
             @change-assignee="onDetailAssignee"
+            @checklist="openQC"
             @add-note="t => $refs.noteDialog.open(t)"
         />
         <note-dialog ref="noteDialog" @saved="onNoteSaved" />
