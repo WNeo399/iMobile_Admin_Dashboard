@@ -233,6 +233,19 @@ export const blankFollow = () => ({ part: '', undo: null, note: '' })
 // Listing → Create, a product with variants (2026-10-30): one variant row
 // (components/VariantRows.vue) — files as ImagePicker's [{ key, file?, id?, url, name }]
 export const blankVariant = () => ({ key: `${Date.now()}-${Math.random()}`, name: '', files: [] })
+// A variant with no photo of its own shows the colour its title names
+// (components/VariantThumb.vue): the last colour word — "Midnight Blue" is blue —
+// or '' (a "10pc" has none)
+const SWATCHES = new Map(Object.entries({
+    black: '#2b2d31', graphite: '#4a4d52', grey: '#9aa1ab', gray: '#9aa1ab', silver: '#d3d7dc', titanium: '#b8b4ab', white: '#fafafa', starlight: '#f1ebdf',
+    cream: '#f4ecd8', beige: '#e3d5bd', brown: '#8a5a3c', gold: '#e0c07a', yellow: '#f5d76e', orange: '#f2994a', peach: '#f9c9a3', coral: '#f28b74',
+    red: '#d9463d', rose: '#eeb4b4', pink: '#f4a9c4', purple: '#9b7ad0', violet: '#9b7ad0', lavender: '#c9b8e8', blue: '#3a68a8', navy: '#23375e',
+    midnight: '#27304a', teal: '#3aa3a0', mint: '#b4e6d0', green: '#b5e3a1'
+}))
+export const variantSwatch = name => {
+    const word = String(name || '').toLowerCase().split(/[^a-z]+/).reverse().find(w => SWATCHES.has(w))
+    return word ? SWATCHES.get(word) : ''
+}
 // The model part of a name for a Compatible Model list, from Listing's brands
 // and models (GET /new-products, or /new-products/edit-context): each model the
 // way the page names it — the first in full ("Samsung Galaxy S24 (S921)"), the

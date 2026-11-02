@@ -190,31 +190,36 @@
         </div>
 
         <!-- ── Create one Zoho item ──────────────────────────────────── -->
-        <el-dialog :visible.sync="createVisible" :width="createNarrow ? '96%' : '860px'" top="5vh" append-to-body
-            :close-on-click-modal="false" custom-class="spn-create-dlg" @opened="onCreateOpened" @closed="clearCreateFiles(); clearVariants()">
+        <el-dialog :visible.sync="createVisible" width="min(1040px, 96vw)" top="3vh" append-to-body
+            :close-on-click-modal="false" custom-class="ped-dlg" @opened="onCreateOpened" @closed="clearCreateFiles(); clearVariants()">
             <!-- what is being made: the model, the part and its Zoho fields -->
-            <div slot="title" class="spn-ct">
-                <div class="spn-ct-title"><i class="el-icon-plus" /> {{ $tp('Create in Zoho Inventory') }}
-                    <span v-if="createDraftId" class="spn-draft-tag">{{ $tp('Draft') }}</span></div>
-                <div v-if="createRow" class="spn-ct-sub">
-                    <b>{{ createRow.compatibleModel }}</b>
-                    <span v-if="createPart" class="spn-ct-part">{{ $tp(createPart.label) }}</span>
-                    <span v-if="createDefaults" class="spn-dim">
-                        <template v-if="createClass.classification">{{ $tp('Classification') }}: {{ createClass.classification }}<template v-if="createClass.subClassification"> / {{ createClass.subClassification }}</template> · </template>
-                        {{ $tp('Device Brand') }}: {{ createDefaults.deviceBrand }}
-                        <template v-if="createSeries"> · {{ $tp('Device Series') }}: {{ createSeries }}</template>
-                    </span>
+            <div slot="title" class="pd-head">
+                <span class="pd-head-icon"><line-icon name="plus" /></span>
+                <div class="pd-head-main">
+                    <div class="pd-head-title">{{ $tp('Create in Zoho Inventory') }}
+                        <span v-if="createDraftId" class="spn-draft-tag">{{ $tp('Draft') }}</span></div>
+                    <div v-if="createRow" class="pd-head-sub">
+                        <b>{{ createRow.compatibleModel }}</b>
+                        <span v-if="createPart" class="spn-ct-part">{{ $tp(createPart.label) }}</span>
+                        <template v-if="createDefaults">
+                            <span v-if="createClass.classification" class="pd-meta">{{ $tp('Classification') }}: <b>{{ createClass.classification }}<template v-if="createClass.subClassification"> / {{ createClass.subClassification }}</template></b></span>
+                            <span class="pd-meta">{{ $tp('Device Brand') }}: <b>{{ createDefaults.deviceBrand }}</b></span>
+                            <span v-if="createSeries" class="pd-meta">{{ $tp('Device Series') }}: <b>{{ createSeries }}</b></span>
+                        </template>
+                    </div>
                 </div>
             </div>
 
             <!-- a screenshot pasted anywhere in the form becomes a photo -->
             <el-form label-position="top" size="small" class="spn-cf" @submit.native.prevent @paste.native="onCreatePaste">
                 <div class="spn-cf-main">
-                    <div class="spn-sec">{{ $tp('Item') }}</div>
-                    <el-form-item :label="$tp('Item name')">
+                    <form-card icon="book" :title="$tp('Basic Information')" :sub="$tp('Core product details and classification.')">
+                    <el-form-item>
+                        <span slot="label">{{ $tp('Item name') }} <span class="spn-req">*</span></span>
                         <!-- long names (models, codes, quality) read whole; Enter doesn't break the line -->
-                        <el-input ref="nameInput" v-model="createForm.name" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" resize="none"
+                        <el-input ref="nameInput" v-model="createForm.name" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" resize="none"
                             maxlength="200" show-word-limit class="spn-name" @keydown.native.enter.prevent />
+                        <div class="pd-help">{{ $tp('Product name as it will appear in inventory (max 200 characters).') }}</div>
                     </el-form-item>
                     <!-- the models in the name follow the Compatible Models (2026-10-20) -->
                     <div v-if="nameFollow.create.note === 'updated'" class="spn-follow"><i class="el-icon-refresh" />
@@ -278,10 +283,10 @@
                             <el-button type="primary" plain size="mini" icon="el-icon-link" @click="openLink(createRow)">{{ $tp('Link a category') }}</el-button>
                         </div>
                     </el-form-item>
+                    </form-card>
 
-                    <div class="spn-sec">{{ $tp('Prices') }}
-                        <el-tooltip :content="$tp('The price lists are written to Zoho after the item is made; blank ones stay unset.')" placement="top">
-                            <i class="el-icon-info spn-help" /></el-tooltip></div>
+                    <form-card icon="coins" :title="$tp('Pricing')" :sub="$tp('Cost, selling price, and tier pricing with formula helpers.')"
+                        :hint="$tp('The price lists are written to Zoho after the item is made; blank ones stay unset.')">
                     <!-- the cost: Zoho's purchase price, and what the four lists are worked out from -->
                     <div class="spn-cost">
                         <div class="spn-price">
@@ -297,7 +302,7 @@
                                     <i class="el-icon-info spn-help" /></el-tooltip></span>
                             <el-input-number v-model="createForm.rate" size="small" :min="0" :precision="2" :controls="false" class="spn-money" style="width:100%" />
                         </div>
-                        <el-button v-if="formulaOff" type="text" size="mini" icon="el-icon-refresh" class="spn-formula" @click="applyFormula(true)">{{ $tp('Use the formula prices') }}</el-button>
+                        <el-button v-if="formulaOff" size="small" class="pd-formula" @click="applyFormula(true)"><line-icon name="calculator" /> {{ $tp('Use the formula prices') }}</el-button>
                     </div>
                     <div class="spn-prices">
                         <div v-for="p in PRICE_LISTS" :key="p.list" class="spn-price">
@@ -310,10 +315,10 @@
                         </div>
                     </div>
                     <div v-for="w in priceWarnings" :key="w" class="spn-price-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
+                    </form-card>
 
-                    <div class="spn-sec">{{ $tp('Compatible Models') }}
-                        <el-tooltip :content="$tp('Goes into the Compatible Model field in Zoho. One item can fit several models — it then counts for each of them.')" placement="top">
-                            <i class="el-icon-info spn-help" /></el-tooltip></div>
+                    <form-card icon="phone" :title="$tp('Compatible Models')" :sub="$tp('Device models that this part is compatible with.')"
+                        :hint="$tp('Goes into the Compatible Model field in Zoho. One item can fit several models — it then counts for each of them.')">
                     <!-- every model of the brand on the page; the part counts for each one picked -->
                     <el-form-item class="spn-fits-item">
                         <el-select v-model="createForm.compatibleModels" multiple filterable style="width:100%"
@@ -321,34 +326,35 @@
                             <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
                         </el-select>
                     </el-form-item>
+                    </form-card>
                 </div>
 
                 <!-- the Missing Images picker (compact); uploaded to the item
                      once it exists, the first becomes its main image -->
                 <div class="spn-cf-side">
-                    <div class="spn-sec">{{ variantMode ? $tp('Product photos') : $tp('Photos') }}<span v-if="createFiles.length" class="spn-sec-n">{{ createFiles.length }}</span></div>
-                    <div v-if="variantMode" class="spn-variant-hint spn-variant-hint-side">{{ $tp('Shown in listings, search and for every variant. None? The first variant\'s first photo is used.') }}</div>
-                    <image-picker ref="photoPicker" v-model="createFiles" :max="MAX_PHOTOS" :disabled="creating" compact />
+                    <form-card icon="image" :title="variantMode ? $tp('Product photos') : $tp('Photos')" :count="createFiles.length"
+                        :sub="variantMode ? $tp('Shown in listings, search and for every variant. None? The first variant\'s first photo is used.') : $tp('Add product photos (up to {n}).', { n: MAX_PHOTOS })">
+                        <image-picker ref="photoPicker" v-model="createFiles" :max="MAX_PHOTOS" :disabled="creating" compact />
+                    </form-card>
 
                     <!-- a product with variants (2026-10-30; under the product photos, and
                          not only colours — user 2026-10-30): a Zoho item group, one item
                          per variant, one product with a picker in the store -->
-                    <div class="spn-sec spn-variant-sec">
-                        <span>{{ $tp('Variants') }}
-                            <el-tooltip :content="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')" placement="top">
-                                <i class="el-icon-info spn-help" /></el-tooltip></span>
-                        <el-switch :value="variantMode" :disabled="creating" :active-text="$tp('This product has variants')" @change="onVariantMode" />
-                    </div>
-                    <template v-if="variantMode">
-                        <variant-rows v-model="createVariants" :base-sku="String(createForm.sku || '').trim()" :disabled="creating" :max="MAX_PHOTOS" />
-                    </template>
+                    <form-card icon="layers" :title="$tp('Variants')" :sub="$tp('Other color/style variants of this item.')"
+                        :hint="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')"
+                        :count="variantMode ? createVariants.length : 0">
+                        <div class="pd-switch">
+                            <el-switch :value="variantMode" :disabled="creating" :active-text="$tp('This product has variants')" @change="onVariantMode" />
+                        </div>
+                        <variant-rows v-if="variantMode" v-model="createVariants" :base-sku="String(createForm.sku || '').trim()" :disabled="creating" :max="MAX_PHOTOS" />
+                    </form-card>
                 </div>
             </el-form>
 
-            <div slot="footer" class="spn-cfoot">
+            <div slot="footer" class="pd-foot">
                 <el-button v-if="createDraftId" type="text" size="small" icon="el-icon-delete" class="spn-dl-del" :disabled="creating || draftSaving"
                     @click="deleteDraft({ _id: createDraftId, name: createForm.name })">{{ $tp('Delete draft') }}</el-button>
-                <span class="spn-cfoot-sum">{{ createSummary }}</span>
+                <div class="pd-status"><span>{{ createSummary }}</span></div>
                 <el-button size="small" :disabled="creating || draftSaving" @click="createVisible = false">{{ $tp('Cancel') }}</el-button>
                 <!-- kept here, not in Zoho: open it again later to change or submit -->
                 <el-button size="small" icon="el-icon-document" :loading="draftSaving" :disabled="creating" @click="saveDraft()">{{ $tp('Save draft') }}</el-button>
@@ -511,6 +517,8 @@ import BrandIcon from '@/views/zohoInventory/components/BrandIcon'
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import ProductEditDialog from './components/ProductEditDialog'
 import VariantRows from './components/VariantRows'
+import FormCard from './components/FormCard'
+import LineIcon from './components/LineIcon'
 import { hasPermission } from '@/utils/permission'
 import { listNewProducts, addNewProductModel, updateNewProductModel, newProductModelItems, newProductModelOptions, nextNewProductSku, newProductCategories, createNewProductItem, saveNewProductDraft, updateNewProductDraft, getNewProductDraft, deleteNewProductDraft } from '@/api/sparePartsPurchase'
 import { createCategory } from '@/api/website'
@@ -551,7 +559,7 @@ const CATEGORIES_TTL = 10 * 60 * 1000
 
 export default {
     name: 'SppNewProducts',
-    components: { TreePanel, BrandIcon, ImagePicker, ProductEditDialog, VariantRows },
+    components: { TreePanel, BrandIcon, ImagePicker, ProductEditDialog, VariantRows, FormCard, LineIcon },
     data() {
         return {
             loading: false,
@@ -1851,6 +1859,8 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+@import './productDialog.scss';
+
 .spn-page { display: flex; height: calc(100vh - 84px); overflow: hidden; }
 .spn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px 8px; background: #fff; }
 /* tree */
@@ -1904,9 +1914,6 @@ export default {
 .spn-fits { color: #909399; cursor: default; }
 .spn-fits-btn { padding: 0 !important; flex-shrink: 0; }
 .spn-edit-body { min-height: 120px; }
-.spn-follow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -6px 0 10px; font-size: 12px; color: #67c23a; line-height: 1.5;
-    .el-button { padding: 0; } }
-.spn-photos-changed { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: #fdf6ec; color: #e6a23c; font-weight: 500; text-transform: none; }
 .spn-good { color: #67c23a; }
 .spn-warn { color: #e6a23c; }
 /* a brand / series: tiles */
@@ -1936,44 +1943,7 @@ export default {
 .spn-dim { font-size: 11px; color: #909399; line-height: 1.4; }
 /* dialogs */
 .spn-dlg-head { font-size: 15px; font-weight: 600; color: #303133; i { color: #409eff; margin-right: 4px; } }
-.spn-row { display: flex; gap: 12px; }
-/* the create dialog */
-.spn-ct-title { font-size: 15px; font-weight: 600; color: #303133; i { color: #409eff; margin-right: 4px; } }
-.spn-ct-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; font-size: 13px; color: #303133; }
-.spn-ct-part { padding: 0 8px; border-radius: 10px; font-size: 12px; color: #409eff; background: #ecf5ff; border: 1px solid #d9ecff; }
-.spn-cf { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0 20px; }
-.spn-cf-side { border-left: 1px solid #ebeef5; padding-left: 20px; min-width: 0; }
-.spn-sec { display: flex; align-items: center; gap: 4px; margin: 2px 0 8px; font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .4px; }
-.spn-sec:not(:first-child) { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }
-.spn-sec-n { margin-left: 4px; padding: 0 7px; border-radius: 9px; background: #f0f2f5; color: #606266; font-weight: 500; text-transform: none; }
-/* a product with variants: the switch sits on the section's line */
-.spn-variant-sec { justify-content: space-between; flex-wrap: wrap;
-    ::v-deep .el-switch__label span { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
-}
-.spn-variant-hint { margin: 4px 0 8px; font-size: 12px; color: #909399; line-height: 1.6; i { margin-right: 2px; } }
-.spn-variant-hint-side { margin-top: -4px; }
-.spn-help { color: #c0c4cc; cursor: help; font-size: 12px; font-weight: normal; &:hover { color: #409eff; } }
-.spn-cf ::v-deep .el-form-item { margin-bottom: 12px; }
-.spn-cf ::v-deep .el-form-item__label { padding-bottom: 2px; line-height: 22px; }
-.spn-fits-item { margin-bottom: 0 !important; }
-.spn-name ::v-deep .el-textarea__inner { padding-bottom: 18px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; /* as the inputs */ }
-.spn-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.spn-price { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.spn-price-label { font-size: 12px; color: #606266; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* a $ in front of a price (el-input-number has no prefix slot) */
-.spn-money::before { content: "$"; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); z-index: 1; font-size: 12px; color: #909399; pointer-events: none; }
-.spn-money ::v-deep .el-input__inner { padding-left: 20px; text-align: left; }
-.spn-price-warn { margin-top: 4px; font-size: 12px; color: #e6a23c; line-height: 1.6; i { margin-right: 2px; } }
-/* the cost (the four lists are priced from it) */
 .spn-req { color: #f56c6c; font-weight: normal; }
-/* cost + selling price on the same columns as the four lists below */
-.spn-cost { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: end; margin-bottom: 10px; }
-.spn-formula { grid-column: span 2; justify-self: start; padding: 0 0 8px; }
-.spn-ref { font-size: 11px; line-height: 16px; color: #409eff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; &:hover { text-decoration: underline; } }
-/* the store category */
-.spn-cat { display: flex; gap: 6px; }
-.spn-cat-pick { flex: 1; min-width: 0; }
-.spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } .el-button { padding: 0; } }
 .spn-cat-warn { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #b88230; i { color: #e6a23c; } .el-button { padding: 0; } }
 /* the model's linked store category (2026-10-16): on the model, its tile, the create dialog */
 .spn-cat-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; }
@@ -1984,9 +1954,9 @@ export default {
 .spn-catline-none { color: #e6a23c; }
 .spn-tile-cat { font-size: 11px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     i { color: #409eff; } &.is-unlinked { color: #e6a23c; i { color: #e6a23c; } } }
-.spn-cat-linked { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 32px; border: 1px solid #dcdfe6; border-radius: 4px; background: #f5f7fa; font-size: 13px;
+.spn-cat-linked { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 32px; border: 1px solid #dcdfe6; border-radius: 7px; background: #f5f7fa; font-size: 13px;
     i { color: #409eff; } .spn-cat-path { flex: 1; } }
-.spn-cat-unlinked { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding: 6px 10px; border: 1px dashed #f5c36b; border-radius: 4px; background: #fdf6ec; font-size: 12px; color: #b26b00; }
+.spn-cat-unlinked { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding: 6px 10px; border: 1px dashed #f5c36b; border-radius: 7px; background: #fdf6ec; font-size: 12px; color: #b26b00; }
 .spn-link-text { margin-bottom: 10px; font-size: 13px; color: #606266; }
 .spn-link-mode { margin-bottom: 12px; }
 .spn-link-new ::v-deep .el-form-item { margin-bottom: 10px; }
@@ -1994,13 +1964,6 @@ export default {
 .spn-cfoot-sum { flex: 1; min-width: 0; text-align: left; font-size: 12px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spn-cfoot .el-button + .el-button { margin-left: 0; }
 
-.spn-col { flex: 1; }
-@media (max-width: 899px) {
-    .spn-cf { grid-template-columns: 1fr; }
-    .spn-cf-side { border-left: 0; padding-left: 0; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }
-    .spn-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .spn-cost { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 767px) {
     .spn-main { padding: 8px 10px 4px; }
     .spn-head { flex-wrap: wrap; }
@@ -2019,11 +1982,6 @@ export default {
     .spn-dl-main { flex: 1; min-width: 0; }
     .spn-dl-name { font-size: 12px; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .spn-dl-del { color: #c0c4cc; &:hover { color: #f56c6c; } } }
-/* the create dialog is appended to <body>: its body scrolls, the footer stays */
-.spn-create-dlg { display: flex; flex-direction: column; max-height: 90vh; margin-bottom: 0 !important;
-    .el-dialog__header { padding: 16px 20px 10px; border-bottom: 1px solid #ebeef5; }
-    .el-dialog__body { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px 6px; word-break: normal; }
-    .el-dialog__footer { padding: 10px 20px; border-top: 1px solid #ebeef5; } }
 /* Add Model's Model list (appended to <body>): the code dimmed, the part count on the right */
 .spn-model-pop {
     .spn-dim { font-size: 12px; color: #909399; }

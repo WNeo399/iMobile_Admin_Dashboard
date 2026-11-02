@@ -1,0 +1,123 @@
+// Listing's Create dialog (newProducts.vue) and the product dialog
+// (components/ProductEditDialog.vue) look the same (user's design 2026-11-02):
+// imported into both scoped styles. The dialog's own shell is appended to
+// <body>: that part is in ProductEditDialog.vue's unscoped style.
+$ink: #10213f;
+$text: #3b4a63;
+$dim: #66758c;
+$line: #e3e8f1;
+$blue: #1890ff; // the theme's primary
+$blue-soft: #e8f2ff;
+
+/* the head */
+.pd-head { display: flex; align-items: center; gap: 12px; padding-right: 34px; }
+.pd-head-icon {
+    flex: none; width: 42px; height: 42px; border-radius: 11px; background: $blue-soft; color: $blue;
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+}
+.pd-head-main { flex: 1; min-width: 0; }
+.pd-head-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; line-height: 24px; color: $ink; }
+.pd-head-sub {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; margin-top: 2px; font-size: 13px; line-height: 18px; color: $dim;
+    b { color: $ink; font-weight: 600; }
+}
+.pd-meta b { color: $text; font-weight: 500; }
+.pd-meta::before { content: "·"; margin-right: 8px; color: #b6c0cf; }
+.pd-open {
+    flex: none; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+    border: 1px solid #d3e4fb; border-radius: 8px; background: #f2f7ff; color: $blue; font-size: 13px; font-weight: 500; text-decoration: none;
+    &:hover { background: $blue-soft; }
+}
+.spn-ct-part { padding: 0 8px; border-radius: 10px; font-size: 12px; color: $blue; background: $blue-soft; border: 1px solid #d3e4fb; }
+
+/* the cards: two columns, Photos and Variants on the right */
+.spn-cf { display: grid; grid-template-columns: minmax(0, 1.72fr) minmax(0, 1fr); gap: 12px; }
+.spn-cf-main, .spn-cf-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.spn-cf-side > :last-child { flex: 1; }
+.spn-cf ::v-deep .el-form-item { margin-bottom: 8px; }
+.spn-cf ::v-deep .el-form-item:last-child { margin-bottom: 0; }
+.spn-cf ::v-deep .el-form-item__label { padding-bottom: 1px; font-size: 13px; font-weight: 600; line-height: 20px; color: $ink; }
+.spn-cf ::v-deep .el-input__inner, .spn-cf ::v-deep .el-textarea__inner { border-radius: 7px; }
+/* the models, as pills */
+.spn-cf ::v-deep .el-select__tags .el-tag { border-radius: 12px; background: $blue-soft; color: $ink; }
+/* the drop zone */
+.spn-cf ::v-deep .ip.is-compact .ip-drop {
+    padding: 16px 10px; border-color: #c9d3e1; border-radius: 10px; font-size: 13px; color: $text;
+    i { font-size: 34px; color: #7f93b2; }
+    em { color: $blue; }
+    &:hover, &.over { border-color: $blue; }
+}
+/* "In Zoho" and "Main image" on one line under a small thumbnail */
+.spn-cf ::v-deep .ip.is-compact .ip-foot { gap: 4px; white-space: nowrap;
+    .ip-dim { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+    .ip-main { flex: none; }
+}
+.spn-row { display: flex; gap: 12px; }
+.spn-col { flex: 1; min-width: 0; }
+.spn-help { color: #a9b4c4; cursor: help; font-size: 12px; font-weight: normal; &:hover { color: $blue; } }
+.spn-cf .spn-req { color: #f56c6c; font-size: inherit; font-weight: normal; }
+.spn-fits-item { margin-bottom: 0 !important; }
+.spn-photos-changed { padding: 0 7px; border-radius: 10px; background: #fdf6ec; color: #e6a23c; font-size: 12px; font-weight: 500; line-height: 20px; }
+
+/* the name */
+.spn-name ::v-deep .el-textarea__inner { padding-bottom: 18px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; /* as the inputs */ }
+.pd-help { margin-top: 2px; font-size: 12px; line-height: 16px; color: $dim; }
+.spn-follow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -6px 0 10px; font-size: 12px; color: #67c23a; line-height: 1.5;
+    .el-button { padding: 0; } }
+
+/* the prices: cost, selling and the formula button; the four lists under them */
+.spn-cost { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; align-items: end; margin-bottom: 8px; }
+.spn-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; }
+.spn-price { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.spn-price-label { font-size: 13px; font-weight: 600; line-height: 20px; color: $ink; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a $ in front of a price (el-input-number has no prefix slot) */
+.spn-money::before { content: "$"; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); z-index: 1; font-size: 12px; color: #909399; pointer-events: none; }
+.spn-money ::v-deep .el-input__inner { padding-left: 20px; text-align: left; }
+.spn-price-warn { margin-top: 4px; font-size: 12px; color: #e6a23c; line-height: 1.6; i { margin-right: 2px; } }
+.spn-ref { font-size: 12px; line-height: 16px; color: $blue; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; &:hover { text-decoration: underline; } }
+.pd-formula.el-button {
+    height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: $blue-soft; color: $blue; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis;
+    &:hover, &:focus { background: #d9e9ff; color: $blue; }
+}
+
+/* the store category */
+.spn-cat { display: flex; gap: 6px; }
+.spn-cat-pick { flex: 1; min-width: 0; }
+.spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } .el-button { padding: 0; } }
+
+/* the variants: a thumbnail, the title and SKU */
+.pd-switch { margin-bottom: 10px;
+    ::v-deep .el-switch__label span { font-size: 13px; font-weight: 400; }
+}
+.pd-variants { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.pd-variant {
+    display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid $line; border-radius: 9px; background: #fff;
+    &.current { border-color: #cfe0fb; background: #eff5ff; }
+}
+.pd-variant-text { flex: 1; min-width: 0; }
+.pd-variant-name, .pd-variant-sku { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-variant-name { font-size: 13px; font-weight: 600; line-height: 18px; color: $ink; }
+.pd-variant-sku { font-size: 12px; line-height: 16px; color: $dim; }
+.pd-variant-this { flex: none; padding: 2px 9px; border-radius: 6px; background: #dce9fd; color: $blue; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.pd-add { margin-top: 8px; }
+
+/* the foot: what will happen on the left, the buttons on the right */
+.pd-foot { display: flex; align-items: center; gap: 10px;
+    ::v-deep .el-button { height: 36px; padding: 0 18px; border-radius: 8px; font-size: 13px; }
+    ::v-deep .el-button--text { padding: 0; }
+    ::v-deep .el-button + .el-button { margin-left: 0; }
+}
+.pd-status {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; text-align: left; font-size: 13px; color: $dim;
+    i { flex: none; font-size: 17px; color: #22b573; }
+    &.changed i { color: $blue; }
+    span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+@media (max-width: 899px) {
+    .spn-cf { grid-template-columns: 1fr; }
+    .spn-prices, .spn-cost { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pd-formula.el-button { grid-column: span 2; }
+    .pd-open { width: 34px; padding: 0; justify-content: center; span { display: none; } }
+}

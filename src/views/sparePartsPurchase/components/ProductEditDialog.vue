@@ -10,28 +10,33 @@
         qualities, classifications and formulas: `context` from the page that
         has them (Listing), else GET /new-products/edit-context?brand=.
     -->
-    <el-dialog :visible="visible" :width="narrow ? '96%' : '860px'" top="5vh" append-to-body
+    <el-dialog :visible="visible" width="min(1040px, 96vw)" top="3vh" append-to-body
         :close-on-click-modal="false" custom-class="ped-dlg" @update:visible="v => $emit('update:visible', v)"
         @open="open" @closed="clearEditFiles(); clearNewVariants()">
-        <div slot="title" class="spn-ct">
-            <div class="spn-ct-title"><i class="el-icon-edit" /> {{ $tp(title) }}
-                <el-tag v-if="editItem && editItem.status && editItem.status !== 'active'" size="mini" type="info">{{ editItem.status }}</el-tag></div>
-            <div v-if="editItem" class="spn-ct-sub">
-                <b>{{ $tp('SKU {sku}', { sku: editItem.sku || '—' }) }}</b>
-                <span class="spn-dim">{{ $tp('Device Brand') }}: {{ editItem.deviceBrand || '—' }}
-                    <template v-if="editItem.deviceSeries"> · {{ $tp('Device Series') }}: {{ editItem.deviceSeries }}</template></span>
-                <a class="spn-link" :href="zohoLink(editItem.itemId)" target="_blank" rel="noopener">{{ $tp('Open in Zoho') }}</a>
+        <div slot="title" class="pd-head">
+            <span class="pd-head-icon"><line-icon name="pencil" /></span>
+            <div class="pd-head-main">
+                <div class="pd-head-title">{{ $tp(title) }}
+                    <el-tag v-if="editItem && editItem.status && editItem.status !== 'active'" size="mini" type="info">{{ editItem.status }}</el-tag></div>
+                <div v-if="editItem" class="pd-head-sub">
+                    <b>{{ $tp('SKU {sku}', { sku: editItem.sku || '—' }) }}</b>
+                    <span class="pd-meta">{{ $tp('Device Brand') }}: <b>{{ editItem.deviceBrand || '—' }}</b></span>
+                    <span v-if="editItem.deviceSeries" class="pd-meta">{{ $tp('Device Series') }}: <b>{{ editItem.deviceSeries }}</b></span>
+                </div>
             </div>
+            <a v-if="editItem" class="pd-open" :href="zohoLink(editItem.itemId)" target="_blank" rel="noopener"><line-icon name="external" /><span>{{ $tp('Open in Zoho') }}</span></a>
         </div>
 
         <div v-loading="editLoading" class="spn-edit-body">
             <div v-if="editError" class="spn-none">{{ editError }}</div>
             <el-form v-if="editItem" label-position="top" size="small" class="spn-cf" @submit.native.prevent @paste.native="onEditPaste">
                 <div class="spn-cf-main">
-                    <div class="spn-sec">{{ $tp('Item') }}</div>
-                    <el-form-item :label="$tp('Item name')">
-                        <el-input v-model="editForm.name" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" resize="none"
+                    <form-card icon="book" :title="$tp('Basic Information')" :sub="$tp('Core product details and classification.')">
+                    <el-form-item>
+                        <span slot="label">{{ $tp('Item name') }} <span class="spn-req">*</span></span>
+                        <el-input v-model="editForm.name" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" resize="none"
                             maxlength="200" show-word-limit class="spn-name" @keydown.native.enter.prevent />
+                        <div class="pd-help">{{ $tp('Product name as it will appear in inventory (max 200 characters).') }}</div>
                     </el-form-item>
                     <!-- the models in the name follow the Compatible Models (2026-10-20) -->
                     <div v-if="nameFollow.note === 'updated'" class="spn-follow"><i class="el-icon-refresh" />
@@ -42,7 +47,8 @@
                     <div v-if="editForm.name.length > 200" class="spn-price-warn"><i class="el-icon-warning-outline" />
                         {{ $tp('{n} characters — Zoho takes 200 at most', { n: editForm.name.length }) }}</div>
                     <div class="spn-row">
-                        <el-form-item class="spn-col" :label="$tp('Classification')">
+                        <el-form-item class="spn-col">
+                            <span slot="label">{{ $tp('Classification') }} <span class="spn-req">*</span></span>
                             <el-select v-model="editForm.classification" filterable style="width:100%" @change="onEditClassification">
                                 <el-option v-for="c in ctx.classifications" :key="c.value" :label="classLabel(c.value)" :value="c.value" />
                             </el-select>
@@ -72,7 +78,7 @@
                         </el-form-item>
                     </div>
                     <el-form-item>
-                        <span slot="label">{{ $tp('Category') }}
+                        <span slot="label">{{ $tp('Category') }} <span class="spn-req">*</span>
                             <el-tooltip :content="$tp('The store category the item is filed under.')" placement="top">
                                 <i class="el-icon-info spn-help" /></el-tooltip></span>
                         <div class="spn-cat">
@@ -86,12 +92,11 @@
                         <div v-if="model && model.categoryId && editForm.categoryId !== model.categoryId" class="spn-cat-hint">
                             {{ $tp('This model\'s category') }}: <el-button type="text" size="mini" @click="editForm.categoryId = model.categoryId">{{ categoryPathOf(model) }}</el-button></div>
                     </el-form-item>
+                    </form-card>
 
                     <!-- the cost and prices: with the Price Monitoring right only, read live -->
-                    <template v-if="editCanPrice">
-                        <div class="spn-sec">{{ $tp('Prices') }}
-                            <el-tooltip :content="$tp('Read live from Zoho. Only the prices you change are saved, as on Price Monitoring.')" placement="top">
-                                <i class="el-icon-info spn-help" /></el-tooltip></div>
+                    <form-card v-if="editCanPrice" icon="coins" :title="$tp('Pricing')" :sub="$tp('Cost, selling price, and tier pricing with formula helpers.')"
+                        :hint="$tp('Read live from Zoho. Only the prices you change are saved, as on Price Monitoring.')">
                         <div v-if="editPricesError" class="spn-price-warn"><i class="el-icon-warning-outline" /> {{ editPricesError }}</div>
                         <div v-loading="editPricesLoading">
                             <div class="spn-cost">
@@ -108,8 +113,8 @@
                                             <i class="el-icon-info spn-help" /></el-tooltip></span>
                                     <el-input-number v-model="editForm.rate" size="small" :min="0" :precision="2" :controls="false" class="spn-money" style="width:100%" />
                                 </div>
-                                <el-button v-if="editFormulaOff && editPricesReady" type="text" size="mini" icon="el-icon-refresh" class="spn-formula"
-                                    @click="editForm.prices = { ...editFormula }">{{ $tp('Use the formula prices') }}</el-button>
+                                <el-button v-if="editFormulaOff && editPricesReady" size="small" class="pd-formula"
+                                    @click="editForm.prices = { ...editFormula }"><line-icon name="calculator" /> {{ $tp('Use the formula prices') }}</el-button>
                             </div>
                             <div class="spn-prices">
                                 <div v-for="p in PRICE_LISTS" :key="p.list" class="spn-price">
@@ -122,11 +127,10 @@
                             </div>
                             <div v-for="w in editPriceWarnings" :key="w" class="spn-price-warn"><i class="el-icon-warning-outline" /> {{ w }}</div>
                         </div>
-                    </template>
+                    </form-card>
 
-                    <div class="spn-sec">{{ $tp('Compatible Models') }}
-                        <el-tooltip :content="$tp('Goes into the Compatible Model field in Zoho. One item can fit several models — it then counts for each of them.')" placement="top">
-                            <i class="el-icon-info spn-help" /></el-tooltip></div>
+                    <form-card icon="phone" :title="$tp('Compatible Models')" :sub="$tp('Device models that this part is compatible with.')"
+                        :hint="$tp('Goes into the Compatible Model field in Zoho. One item can fit several models — it then counts for each of them.')">
                     <!-- the brand's models on Listing, or typed ("A; B" adds both) -->
                     <el-form-item class="spn-fits-item">
                         <el-select v-model="editForm.compatibleModels" multiple filterable allow-create default-first-option style="width:100%"
@@ -137,52 +141,57 @@
                     <div v-if="editDropsOpen" class="spn-price-warn"><i class="el-icon-warning-outline" />
                         {{ $tp('{model} is not on the list — this part will no longer show for it', { model: model.compatibleModel || model.model }) }}</div>
                     <div v-if="editModelsChanged" class="spn-cat-hint">{{ $tp('The Device Series follows the models when saved.') }}</div>
+                    </form-card>
                 </div>
 
                 <!-- its photos and new ones in one list (2026-10-20): drag to
                      reorder, the first is the main image; the ones in Zoho
                      stay (removing needs a Zoho right we don't hold) -->
                 <div class="spn-cf-side">
-                    <div class="spn-sec">{{ $tp('Photos') }}<span v-if="editPhotos.length" class="spn-sec-n">{{ editPhotos.length }}</span>
-                        <span v-if="editPhotosChanged" class="spn-photos-changed">{{ $tp('changed') }}</span></div>
-                    <image-picker ref="editPhotoPicker" v-model="editPhotos" :max="editPhotoMax" :disabled="editSaving" :item-id="editItem.itemId" keep-saved compact />
+                    <form-card icon="image" :title="$tp('Photos')" :sub="$tp('Add product photos (up to {n}).', { n: editPhotoMax })" :count="editPhotos.length">
+                        <span v-if="editPhotosChanged" slot="title" class="spn-photos-changed">{{ $tp('changed') }}</span>
+                        <image-picker ref="editPhotoPicker" v-model="editPhotos" :max="editPhotoMax" :disabled="editSaving" :item-id="editItem.itemId" keep-saved compact />
+                    </form-card>
 
                     <!-- its product's variants, and more added here (2026-10-30): a single
                          product becomes one with variants — this item keeps its SKU,
                          stock and store page, and gets its own variant title -->
-                    <template v-if="editItem.variants">
-                        <div v-if="hasVariants" class="spn-sec">{{ $tp('Variants') }}<span class="spn-sec-n">{{ editItem.variants.items.length }}</span></div>
+                    <form-card v-if="editItem.variants" icon="layers" :title="$tp('Variants')" :sub="$tp('Other color/style variants of this item.')"
+                        :hint="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')"
+                        :count="hasVariants ? editItem.variants.items.length : 0">
                         <!-- a single product: the switch, as on Create (user 2026-10-30) -->
-                        <div v-else class="spn-sec ped-variant-sec">
-                            <span>{{ $tp('Variants') }}
-                                <el-tooltip :content="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')" placement="top">
-                                    <i class="el-icon-info ped-help" /></el-tooltip></span>
+                        <div v-if="!hasVariants" class="pd-switch">
                             <el-switch :value="variantMode" :disabled="variantsSaving" :active-text="$tp('This product has variants')" @change="onVariantMode" />
                         </div>
-                        <div v-if="hasVariants" class="ped-variants">
-                            <div v-for="v in editItem.variants.items" :key="v.itemId" :class="['ped-variant', { current: v.itemId === editItem.itemId }]">
-                                <span class="ped-variant-name">{{ v.variant || '—' }}</span>
-                                <span class="ped-variant-sku">{{ v.sku }}</span>
-                                <span v-if="v.itemId === editItem.itemId" class="ped-variant-this">{{ $tp('this item') }}</span>
+                        <div v-else class="pd-variants">
+                            <div v-for="v in editItem.variants.items" :key="v.itemId" :class="['pd-variant', { current: v.itemId === editItem.itemId }]">
+                                <variant-thumb :url="v.imageUrl" :name="v.variant" :item-id="v.itemId" />
+                                <div class="pd-variant-text">
+                                    <div class="pd-variant-name">{{ v.variant || '—' }}</div>
+                                    <div class="pd-variant-sku">{{ v.sku }}</div>
+                                </div>
+                                <span v-if="v.itemId === editItem.itemId" class="pd-variant-this">{{ $tp('This item') }}</span>
                             </div>
                         </div>
                         <!-- a single product, switched on: two rows to fill in, the first is
                              this item (its SKU stays — user 2026-10-30) -->
                         <variant-rows v-if="hasVariants || variantMode" v-model="newVariants" :base-sku="editItem.variants.baseSku" :first-sku="hasVariants ? '' : editItem.sku"
-                            :disabled="variantsSaving" :max="10" />
-                        <div v-if="namedNewVariants.length" class="ped-add">
+                            :first-image="hasVariants ? '' : editMainPhoto" :first-item-id="editItem.itemId" :disabled="variantsSaving" :max="10" />
+                        <div v-if="namedNewVariants.length" class="pd-add">
                             <el-tooltip :disabled="!editChangeCount" :content="$tp('Save the changes above first')" placement="top">
                                 <span><el-button type="primary" plain size="small" icon="el-icon-plus" :loading="variantsSaving" :disabled="editSaving || editChangeCount > 0"
                                     @click="addVariants">{{ $tp('Add {n} variant(s) to Zoho', { n: namedNewVariants.length }) }}</el-button></span>
                             </el-tooltip>
                         </div>
-                    </template>
+                    </form-card>
                 </div>
             </el-form>
         </div>
 
-        <div slot="footer" class="spn-cfoot">
-            <span class="spn-cfoot-sum">{{ editSummary }}</span>
+        <div slot="footer" class="pd-foot">
+            <div :class="['pd-status', { changed: editChangeCount > 0 }]">
+                <i v-if="editSummary" :class="editChangeCount ? 'el-icon-edit-outline' : 'el-icon-success'" /><span>{{ editSummary }}</span>
+            </div>
             <!-- the host's own buttons (New Products: Approve) -->
             <slot name="footer-extra" :item="editItem" :changed="editChangeCount > 0" />
             <el-button size="small" :disabled="editSaving" @click="$emit('update:visible', false)">{{ $tp('Cancel') }}</el-button>
@@ -195,6 +204,9 @@
 <script>
 import ImagePicker from '@/views/zohoInventory/components/ImagePicker'
 import VariantRows from './VariantRows'
+import VariantThumb from './VariantThumb'
+import FormCard from './FormCard'
+import LineIcon from './LineIcon'
 import { hasPermission } from '@/utils/permission'
 import { getNewProductItem, updateNewProductItem, saveNewProductItemPhotos, addNewProductVariants, getNewProductEditContext, newProductCategories } from '@/api/sparePartsPurchase'
 import { getStockItemPrices, pushStockItemPrices } from '@/api/stockMonitor'
@@ -213,7 +225,7 @@ const cache = { categories: [], categoriesAt: 0, contexts: {} }
 
 export default {
     name: 'ProductEditDialog',
-    components: { ImagePicker, VariantRows },
+    components: { ImagePicker, VariantRows, VariantThumb, FormCard, LineIcon },
     props: {
         visible: { type: Boolean, default: false },
         itemId: { type: String, default: '' },
@@ -230,7 +242,6 @@ export default {
         return {
             PRICE_LISTS,
             CATEGORY_PROPS,
-            narrow: false,
             ownContext: blankContext(),
             categories: cache.categories,
             categoriesLoading: false,
@@ -361,6 +372,10 @@ export default {
             const saved = this.editPhotos.filter(p => !p.file).length
             return Math.max(saved, Math.min(15, saved + 10))
         },
+        // the item's main photo (a single product's first variant row shows it)
+        editMainPhoto() {
+            return this.editPhotos.length ? this.editPhotos[0].url : ''
+        },
         // its product has variants already (an attribute in Zoho)
         hasVariants() {
             const v = this.editItem && this.editItem.variants
@@ -454,7 +469,6 @@ export default {
             this.editPricesReady = false
             this.editPricesError = ''
             this.nameFollow = blankFollow()
-            this.narrow = window.innerWidth < 900
             this.editLoading = true
             if (!this.itemId) { this.editError = this.$tp('No product picked'); this.editLoading = false; return }
             if (!cache.categories.length || Date.now() - cache.categoriesAt > CATEGORIES_TTL) this.loadCategories()
@@ -728,71 +742,17 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-/* the same look as Listing's create dialog (newProducts.vue) */
-.spn-ct-title { font-size: 15px; font-weight: 600; color: #303133; i { color: #409eff; margin-right: 4px; } }
-.spn-ct-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; font-size: 13px; color: #303133; }
-.spn-dim { font-size: 11px; color: #909399; line-height: 1.4; }
-.spn-link { color: #409eff; text-decoration: none; font-weight: 600; font-variant-numeric: tabular-nums; &:hover { text-decoration: underline; } }
+@import '../productDialog.scss';
+
 .spn-edit-body { min-height: 120px; }
-/* its product's variants (2026-10-30); a single product's switch sits on the section's line */
-.ped-variant-sec { justify-content: space-between; flex-wrap: wrap;
-    ::v-deep .el-switch__label span { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
-}
-.ped-help { color: #c0c4cc; cursor: help; font-weight: 400; }
-.ped-variants { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-.ped-variant {
-    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid #ebeef5; border-radius: 4px; background: #fafbfc; font-size: 12px;
-    &.current { border-color: #b3d8ff; background: #ecf5ff; }
-}
-.ped-variant-name { flex: 1; min-width: 0; font-weight: 600; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ped-variant-sku { font-family: Menlo, Consolas, monospace; color: #606266; }
-.ped-variant-this { color: #409eff; font-size: 11px; }
-.ped-add { margin-top: 8px; }
 .spn-none { padding: 14px 12px; font-size: 12px; color: #b88230; }
-.spn-row { display: flex; gap: 12px; }
-.spn-col { flex: 1; }
-.spn-cf { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0 20px; }
-.spn-cf-side { border-left: 1px solid #ebeef5; padding-left: 20px; min-width: 0; }
-.spn-sec { display: flex; align-items: center; gap: 4px; margin: 2px 0 8px; font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .4px; }
-.spn-sec:not(:first-child) { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }
-.spn-sec-n { margin-left: 4px; padding: 0 7px; border-radius: 9px; background: #f0f2f5; color: #606266; font-weight: 500; text-transform: none; }
-.spn-photos-changed { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: #fdf6ec; color: #e6a23c; font-weight: 500; text-transform: none; }
-.spn-help { color: #c0c4cc; cursor: help; font-size: 12px; font-weight: normal; &:hover { color: #409eff; } }
-.spn-cf ::v-deep .el-form-item { margin-bottom: 12px; }
-.spn-cf ::v-deep .el-form-item__label { padding-bottom: 2px; line-height: 22px; }
-.spn-fits-item { margin-bottom: 0 !important; }
-.spn-name ::v-deep .el-textarea__inner { padding-bottom: 18px; line-height: 1.5; font-family: Arial, Helvetica, sans-serif; /* as the inputs */ }
-.spn-follow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -6px 0 10px; font-size: 12px; color: #67c23a; line-height: 1.5;
-    .el-button { padding: 0; } }
-.spn-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.spn-price { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.spn-price-label { font-size: 12px; color: #606266; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* a $ in front of a price (el-input-number has no prefix slot) */
-.spn-money::before { content: "$"; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); z-index: 1; font-size: 12px; color: #909399; pointer-events: none; }
-.spn-money ::v-deep .el-input__inner { padding-left: 20px; text-align: left; }
-.spn-price-warn { margin-top: 4px; font-size: 12px; color: #e6a23c; line-height: 1.6; i { margin-right: 2px; } }
-/* cost + selling price on the same columns as the four lists below */
-.spn-cost { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: end; margin-bottom: 10px; }
-.spn-formula { grid-column: span 2; justify-self: start; padding: 0 0 8px; }
-.spn-ref { font-size: 11px; line-height: 16px; color: #409eff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; &:hover { text-decoration: underline; } }
-.spn-cat { display: flex; gap: 6px; }
-.spn-cat-pick { flex: 1; min-width: 0; }
-.spn-cat-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #909399; i { color: #67c23a; } .el-button { padding: 0; } }
-.spn-cfoot { display: flex; align-items: center; gap: 8px; }
-.spn-cfoot-sum { flex: 1; min-width: 0; text-align: left; font-size: 12px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.spn-cfoot .el-button + .el-button { margin-left: 0; }
-@media (max-width: 899px) {
-    .spn-cf { grid-template-columns: 1fr; }
-    .spn-cf-side { border-left: 0; padding-left: 0; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ebeef5; }
-    .spn-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .spn-cost { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 </style>
 
 <style lang="scss">
-/* appended to <body>: its body scrolls, the footer stays (as Listing's .spn-create-dlg) */
-.ped-dlg { display: flex; flex-direction: column; max-height: 90vh; margin-bottom: 0 !important;
-    .el-dialog__header { padding: 16px 20px 10px; border-bottom: 1px solid #ebeef5; }
-    .el-dialog__body { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px 6px; word-break: normal; }
-    .el-dialog__footer { padding: 10px 20px; border-top: 1px solid #ebeef5; } }
+/* appended to <body>, and Listing's Create dialog too: its body scrolls, the footer stays */
+.ped-dlg { display: flex; flex-direction: column; max-height: 94vh; margin-bottom: 0 !important; border-radius: 14px; overflow: hidden;
+    .el-dialog__header { padding: 12px 20px; border-bottom: 1px solid #e9edf3; }
+    .el-dialog__headerbtn { top: 24px; right: 20px; font-size: 18px; .el-dialog__close { color: #3b4a63; } }
+    .el-dialog__body { flex: 1; min-height: 0; overflow: auto; padding: 12px 20px; word-break: normal; }
+    .el-dialog__footer { padding: 10px 20px; border-top: 1px solid #e9edf3; } }
 </style>
