@@ -209,6 +209,18 @@ export const moduleRoutes = [
           icon: "el-icon-message",
           permissions: ["web:campaign:view"]
         }
+      },
+      {
+        // The popup when a shopper opens the website, during its time
+        // period (user ask 2026-11-02).
+        path: "notification",
+        component: (resolve) => require(["@/views/website/notification"], resolve),
+        name: "WebsiteNotification",
+        meta: {
+          title: "Notification",
+          icon: "el-icon-bell",
+          permissions: ["web:notification:view"]
+        }
       }
     ]
   },

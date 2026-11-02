@@ -42,6 +42,22 @@ export function saveBannerSettings(data) {
   return request({ url: '/website/banner-settings', method: 'put', data })
 }
 
+// The popup on the website (iMobile Website → Notification); public read in
+// routes/widgetRoutes/notification.
+export function listNotifications() {
+  return request({ url: '/website/notifications', method: 'get' })
+}
+export function createNotification(data) {
+  return request({ url: '/website/notifications', method: 'post', data })
+}
+// The fields sent change, the rest stay.
+export function updateNotification(id, data) {
+  return request({ url: `/website/notifications/${id}`, method: 'put', data })
+}
+export function deleteNotification(id) {
+  return request({ url: `/website/notifications/${id}`, method: 'delete' })
+}
+
 // What the Spare Parts widget holds (counts, brands → series); the widget
 // itself reads the public feed routes/widgetRoutes/spareParts.
 export function sparePartsSummary() {

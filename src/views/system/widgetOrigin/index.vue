@@ -265,6 +265,12 @@ const KNOWN_WIDGETS = [
         label: 'Listing',
         description:
             "The spare parts browser on the iMobile website: shoppers pick a brand, series and model (or search) and see the parts, each linking to its store page — no prices. The parts come from the stock register (see iMobile Website → Listing Widget); the allowlist controls which sites' browsers may load them."
+    },
+    {
+        value: 'notification',
+        label: 'Notification',
+        description:
+            "The popup on the iMobile website: what shoppers see on opening the site, during each notification's time period. Notifications are managed under iMobile Website → Notification; the allowlist controls which sites' browsers may load them."
     }
 ]
 
