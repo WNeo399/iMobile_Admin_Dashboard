@@ -635,7 +635,7 @@ import {
     listOrders, getOrder, updateOrder, quoteOrder, placeOrder, priceOrder, shortageOrder,
     cancelOrder, reopenOrder, toConfirmOrder, confirmOrder, createOrders, uploadOrderImage, deleteOrderImage, completeOrder
 } from '@/api/sparePartsPurchase'
-import { STATUS_LIST, STATUS_META, OPEN_STATUSES, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink, todayYmd } from './shared'
+import { STATUS_LIST, STATUS_META, ACTION_LABELS, OPEN_STATUSES, CATEGORIES, REQUESTED_FOR, MAX_IMAGES, awaitsQuote as needsQuote, fmtDay, fmtWhen, yuan, dhlLink, zohoLink, detailText, todayYmd } from './shared'
 
 // The channels with a list of their own, pinned above the category tree and
 // left out of the tree and of 空运 / 海运 (user ask 2026-10-06).
@@ -663,13 +663,6 @@ import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, sppLabelFileName, wit
 import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
 // What each audit entry did — English source, translated through $tp.
-const ACTION_LABELS = {
-    created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
-    cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
-    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft',
-    priced: 'Unit price set', photo: 'Photo', completed: 'Marked as completed'
-}
-
 export default {
     name: 'SppOrders',
     components: { TreePanel, ChannelBoard, OrderCard, AddItemDialog, CreateZohoItemDialog },
@@ -873,7 +866,7 @@ export default {
         this.$nextTick(this.fitTable)
     },
     methods: {
-        fmtDay, fmtWhen, yuan, dhlLink, zohoLink,
+        fmtDay, fmtWhen, yuan, dhlLink, zohoLink, detailText,
         // ── Fit the screen ─────────────────────────────────────────
         onResize() {
             this.compact = window.innerWidth < 1440
@@ -914,14 +907,6 @@ export default {
         },
         actionLabel(a) {
             return this.$tp(ACTION_LABELS[a] || a)
-        },
-        detailText(d) {
-            if (!d || typeof d !== 'object') return String(d)
-            return Object.keys(d).map(k => {
-                const v = d[k]
-                if (v && typeof v === 'object' && 'from' in v) return `${k}: ${v.from} → ${v.to}`
-                return `${k}: ${v}`
-            }).join(' · ')
         },
         msg(e, fallback) {
             return (e && (e.message || (e.response && e.response.data && e.response.data.message))) || fallback

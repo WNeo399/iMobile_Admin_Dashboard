@@ -121,6 +121,10 @@ export function setInflowDispatchCustomer(id, data) {
 export function getInflowDispatchPoLines(id) {
   return request({ url: `/inflow/dispatch/${id}/po-lines`, method: 'get' })
 }
+// One of those lines in full, for the popup on the dispatch dialog
+export function getInflowDispatchPoLine(id, orderNo) {
+  return request({ url: `/inflow/dispatch/${id}/po-lines/${encodeURIComponent(orderNo)}`, method: 'get' })
+}
 // Oscar Mobile return-code prefix (supplier cards print SS-<prefix>-<barcode>)
 export function setInflowDispatchReturnCode(id, data) {
   return request({ url: `/inflow/dispatch/manual/${id}/return-code`, method: 'post', data })

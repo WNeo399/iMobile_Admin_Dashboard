@@ -15,6 +15,21 @@ export const STATUS_LIST = [
     { value: 'cancelled', label: 'Cancelled', icon: 'el-icon-circle-close', color: '#909399', bg: '#F4F4F5' }
 ]
 export const STATUS_META = STATUS_LIST.reduce((m, s) => ((m[s.value] = s), m), {})
+// A line's history: what each action reads as, and its details as text
+export const ACTION_LABELS = {
+    created: 'Created', edited: 'Edited', quoted: 'Quoted', ordered: 'Placed with supplier', shortage: 'Marked shortage',
+    cancelled: 'Cancelled', reopened: 'Reopened', shipped: 'Shipped', received: 'Received', unshipped: 'Batch cancelled',
+    toConfirm: 'Moved to To Confirm', confirmed: 'Confirmed', unplaced: 'Order batch back to draft',
+    priced: 'Unit price set', photo: 'Photo', completed: 'Marked as completed'
+}
+export function detailText(d) {
+    if (!d || typeof d !== 'object') return String(d)
+    return Object.keys(d).map(k => {
+        const v = d[k]
+        if (v && typeof v === 'object' && 'from' in v) return `${k}: ${v.from} → ${v.to}`
+        return `${k}: ${v}`
+    }).join(' · ')
+}
 // still to arrive (the backend's OPEN) — what can be marked urgent
 export const OPEN_STATUSES = ['pending', 'toConfirm', 'ordered', 'shipped', 'shortage']
 

@@ -259,8 +259,8 @@
                             <span :class="{ 'od-dim': remainingOf(li.row) === 0 }">{{ remainingOf(li.row) }}</span>
                             <!-- the purchase order lines raised for this line: number · status · qty (2026-10-14) -->
                             <div v-for="p in poFor(li.row)" :key="p.orderNo" :class="['od-po', 'od-po-' + p.status]"
-                                :title="poTitle(p)" @click.stop="goPo(p)">
-                                <i class="el-icon-shopping-cart-2" /> {{ poStatusLabel(p.status) }} · {{ p.orderQty }}
+                                :title="poTitle(p)" @click.stop="openPo(p)">
+                                <i class="el-icon-shopping-cart-2" /> {{ poStatusLabel(p.status) }} · {{ poQty(p) }}
                             </div>
                         </template>
                     </el-table-column>
@@ -404,6 +404,68 @@
                         @click="printAllDispatchLabels">Print Labels ({{ dispatchLabelUnits }})</el-button>
                 </template>
             </span>
+        </el-dialog>
+
+        <!-- A purchase order line, from its tag on a dispatch line: details
+             only, over the dispatch dialog, which stays open (2026-11-02). -->
+        <el-dialog :title="poDetail ? 'Purchase Order Line ' + poDetail.orderNo : 'Purchase Order Line'"
+            :visible.sync="poDetailVisible" width="660px" top="6vh" append-to-body @close="onDispatchTab">
+            <div v-loading="poDetailLoading" class="od-pod">
+                <template v-if="poDetail">
+                    <el-descriptions :column="2" border size="small">
+                        <el-descriptions-item label="Product" :span="2">
+                            {{ poDetail.productName || '—' }}<span v-if="poDetail.sku" class="od-pod-sub"> · SKU {{ poDetail.sku }}</span>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Status">
+                            <span :class="['od-po', 'od-po-static', 'od-po-' + poDetail.status]">{{ poStatusLabel(poDetail.status) }}</span>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Category">{{ poDetail.category || '—' }}</el-descriptions-item>
+                        <el-descriptions-item label="Ordered qty">{{ poDetail.orderQty }}</el-descriptions-item>
+                        <el-descriptions-item label="For">{{ poDetail.forCustomer || '—' }}</el-descriptions-item>
+                        <el-descriptions-item v-if="poDetail.canSeePrice" label="Supplier">{{ poDetail.supplier || '—' }}</el-descriptions-item>
+                        <el-descriptions-item v-if="poDetail.canSeePrice" label="Unit price">
+                            {{ poDetail.unitPrice != null ? yuan(poDetail.unitPrice) : yuan(poDetail.quotedPrice) }}<span v-if="poDetail.unitPrice == null && poDetail.quotedPrice != null" class="od-pod-sub"> quote</span>
+                        </el-descriptions-item>
+                        <el-descriptions-item v-if="poDetail.canSeePrice" label="Line total" :span="2">{{ yuan(poDetail.lineTotal) }}</el-descriptions-item>
+                        <el-descriptions-item label="Placed">{{ fmtWhen(poDetail.orderedAt) }}<span v-if="poDetail.orderedBy" class="od-pod-sub"> · {{ poDetail.orderedBy }}</span></el-descriptions-item>
+                        <el-descriptions-item label="Shipped">
+                            <template v-if="poDetail.shippedQty != null">{{ poDetail.shippedQty }} · {{ fmtDay(poDetail.shippedAt) }}</template>
+                            <template v-else>—</template>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Batch">{{ poDetail.batchNo || (poDetail.completed ? 'None, completed by hand' : '—') }}</el-descriptions-item>
+                        <el-descriptions-item label="Tracking">
+                            <a v-if="poDetail.tracking" class="od-pod-link" :href="dhlLink(poDetail.tracking)" target="_blank" rel="noopener">{{ poDetail.tracking }}</a>
+                            <template v-else>—</template>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Received">
+                            <template v-if="poDetail.receivedAt">{{ poDetail.receivedQty }} · {{ fmtDay(poDetail.receivedAt) }}<span v-if="poDetail.receivedBy" class="od-pod-sub"> · {{ poDetail.receivedBy }}</span></template>
+                            <template v-else>—</template>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="Created">{{ fmtWhen(poDetail.createdAt) }}<span v-if="poDetail.createdBy" class="od-pod-sub"> · {{ poDetail.createdBy }}</span></el-descriptions-item>
+                        <el-descriptions-item v-if="poDetail.splitFrom" label="Balance of">{{ poDetail.splitFrom }}</el-descriptions-item>
+                        <el-descriptions-item v-if="poDetail.splitTo" label="Balance on">{{ poDetail.splitTo }}</el-descriptions-item>
+                    </el-descriptions>
+                    <div v-if="poNotes.length" class="od-pod-block">
+                        <div class="od-pod-label">Note</div>
+                        <div v-for="(n, i) in poNotes" :key="i">{{ n }}</div>
+                    </div>
+                    <div v-if="poDetail.images && poDetail.images.length" class="od-pod-block">
+                        <div class="od-pod-label">Photos</div>
+                        <el-image v-for="im in poDetail.images" :key="im.id" :src="im.url" fit="cover" class="od-pod-photo"
+                            :preview-src-list="poDetail.images.map(i => i.url)" />
+                    </div>
+                    <div v-if="poDetail.history && poDetail.history.length" class="od-pod-block">
+                        <div class="od-pod-label">History</div>
+                        <div v-for="(h, i) in poDetail.history" :key="i" class="od-pod-hist">
+                            <span class="od-pod-when">{{ fmtWhen(h.at) }}</span>
+                            <b>{{ poActionLabel(h.action) }}</b>
+                            <span v-if="h.by" class="od-pod-sub">{{ h.by }}</span>
+                            <span v-if="h.detail" class="od-pod-sub">{{ detailText(h.detail) }}</span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <span slot="footer"><el-button size="small" @click="poDetailVisible = false">Close</el-button></span>
         </el-dialog>
 
         <!-- Batch detail — the items scanned into one recorded batch, with a
@@ -629,11 +691,12 @@
 </template>
 
 <script>
-import { getInflowDispatchPoLines, getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku, closeInflowDispatch, reopenInflowDispatch } from '@/api/inflow'
+import { getInflowDispatchPoLines, getInflowDispatchPoLine, getInflowDispatch, createInflowDispatchBatch, updateInflowDispatchBatch, createInflowDispatchUpload, linkInflowDispatchUpload, setInflowDispatchCustomer, setInflowDispatchReturnCode, renameInflowDispatchUpload, deleteInflowDispatchUpload, getInflowOrders, getInflowFilters, saveInflowSkuMapping, setInflowDispatchLineSku, closeInflowDispatch, reopenInflowDispatch } from '@/api/inflow'
 import { searchProducts } from '@/api/zoho/products/product'
 import { buildPackingListPdf, packingListFileName, buildRemainingListPdf, remainingListFileName } from '@/utils/dispatchPackingListPdf'
 import { buildItemLabelPdf, itemLabelFileName, buildBatchLabelsPdf, batchLabelsFileName, batchLabelCount, isOscarCustomer, buildOscarItemLabelsPdf, buildOscarBarcodeLabelsPdf, buildOscarCardLabelsPdf } from '@/utils/dispatchItemLabelPdf'
 import { createOrders } from '@/api/sparePartsPurchase'
+import { ACTION_LABELS, fmtDay, fmtWhen, yuan, dhlLink, detailText } from '@/views/sparePartsPurchase/shared'
 import { hasPermission } from '@/utils/permission'
 
 export default {
@@ -664,6 +727,10 @@ export default {
             poSaving: false,
             // the purchase order lines raised from the open record, by customer SKU
             poLines: [],
+            // one of them in full, the popup from its tag
+            poDetail: null,
+            poDetailVisible: false,
+            poDetailLoading: false,
             // Per-batch tracking-number drafts, edited on the Recorded
             // Batches tab (the number is only known once the courier label
             // exists, i.e. after the batch is recorded).
@@ -721,6 +788,10 @@ export default {
     },
     computed: {
         // may raise Spare Parts Purchase lines (iMobile staff and the parts supplier; not the front desk)
+        poNotes() {
+            const d = this.poDetail || {}
+            return [d.note, d.shortageNote, d.cancelNote].filter(Boolean)
+        },
         canRaisePo() {
             const mine = this.$store.getters.permissions
             return hasPermission(mine, 'spp:order:add') || hasPermission(mine, 'spp:order:create')
@@ -1295,19 +1366,39 @@ export default {
         poStatusLabel(s) {
             return { pending: 'Pending', toConfirm: 'To confirm', ordered: 'Ordered', shortage: 'Shortage', shipped: 'Shipped', received: 'Received', cancelled: 'Cancelled' }[s] || s
         },
+        // A short-shipped line keeps its ordered qty (the remainder is a second
+        // line), so the tag shows what actually shipped / arrived.
+        poQty(p) {
+            if (p.status === 'received' && p.receivedQty != null) return p.receivedQty
+            if ((p.status === 'shipped' || p.status === 'received') && p.shippedQty != null) return p.shippedQty
+            return p.orderQty
+        },
         poTitle(p) {
-            const bits = [`${p.orderNo} — ${this.poStatusLabel(p.status)} × ${p.orderQty}`]
+            const bits = [`${p.orderNo} — ${this.poStatusLabel(p.status)} · ordered ${p.orderQty}`]
             if (p.batchNo) bits.push(`batch ${p.batchNo}`)
             if (p.shippedQty != null) bits.push(`shipped ${p.shippedQty}`)
             if (p.receivedQty != null) bits.push(`received ${p.receivedQty}`)
             if (p.forCustomer) bits.push(`for ${p.forCustomer}`)
-            return bits.join(' · ') + ' — open on the Purchase Order page'
+            return bits.join(' · ') + ' — click for details'
         },
-        goPo(p) {
-            // close the dialog first, or its mask outlives the page (user 2026-10-14)
-            this.dispatchVisible = false
-            this.$nextTick(() => this.$router.push({ path: '/sparePartsPurchase/orders', query: { search: p.orderNo } }))
+        async openPo(p) {
+            this.poDetail = null
+            this.poDetailVisible = true
+            this.poDetailLoading = true
+            try {
+                const r = await getInflowDispatchPoLine(this.dispatchRecord._id, p.orderNo)
+                this.poDetail = (r && r.line) || null
+            } catch (e) {
+                // the request layer has already shown the error
+                this.poDetailVisible = false
+            } finally {
+                this.poDetailLoading = false
+            }
         },
+        poActionLabel(a) {
+            return ACTION_LABELS[a] || a
+        },
+        fmtDay, fmtWhen, yuan, dhlLink, detailText,
         async submitPo(lines) {
             this.poSaving = true
             try {
@@ -1986,4 +2077,14 @@ export default {
 .od-po-shipped { color: #8e44ad; background: #f5eefa; }
 .od-po-received { color: #67c23a; background: #f0f9eb; }
 .od-po-cancelled { color: #909399; background: #f4f4f5; text-decoration: line-through; }
+.od-po-static { margin-top: 0; cursor: default; }
+.od-po-static:hover { filter: none; }
+.od-pod { min-height: 120px; font-size: 13px; color: #303133; }
+.od-pod-sub { color: #909399; font-size: 12px; }
+.od-pod-link { color: #409eff; }
+.od-pod-block { margin-top: 12px; }
+.od-pod-label { margin-bottom: 4px; font-size: 12px; color: #909399; }
+.od-pod-photo { width: 64px; height: 64px; margin-right: 6px; border-radius: 4px; }
+.od-pod-hist { display: flex; flex-wrap: wrap; gap: 0 8px; padding: 2px 0; font-size: 12px; line-height: 18px; }
+.od-pod-when { color: #909399; white-space: nowrap; }
 </style>
