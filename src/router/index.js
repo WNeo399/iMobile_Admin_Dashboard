@@ -955,6 +955,31 @@ export const moduleRoutes = [
         }
       },
       {
+        // Pending Stock devices sent to the phone supplier's repairers in
+        // batches (2026-11-04): assigned devices go 已分配, marked 已处理 one
+        // by one or the whole batch. Phone suppliers only, like Pending Stock.
+        path: "/refurbished/repair-batches",
+        component: (resolve) => require(["@/views/refurbished/repairBatches"], resolve),
+        name: "RefurbishedPrecheckRepairBatches",
+        meta: {
+          title: "Repair Batches",
+          icon: "el-icon-set-up",
+          exclusiveRoles: ["phone-supplier"]
+        }
+      },
+      {
+        // The phone supplier's own repairers, for those batches (2026-11-04).
+        // Not the staff Repairers page under Sales (workshops iMobile uses).
+        path: "/refurbished/my-repairers",
+        component: (resolve) => require(["@/views/refurbished/precheckRepairers"], resolve),
+        name: "RefurbishedPrecheckRepairers",
+        meta: {
+          title: "Repairers",
+          icon: "el-icon-s-custom",
+          exclusiveRoles: ["phone-supplier"]
+        }
+      },
+      {
         // The register itself sits at the top level — it is the anchor
         // every sub menu below works against.
         path: "/refurbished/stock",

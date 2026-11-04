@@ -8,11 +8,15 @@
         in their Stock — from the row's Add to Stock (Blackbelt lookup, then
         the Stock page's own add) or typed in on the Stock page. Phone
         suppliers only, each seeing just their own list.
+        Repair status (user 2026-11-04): 待处理 → 已分配 (Assign: on a repair
+        batch with a repairer — the Repair Batches page does it in bulk) →
+        已处理 (Processed); each step can be undone. The plain-text Assign
+        field it replaces was never filled in.
     -->
     <div class="rpc app-container">
         <div class="rpc-filters">
             <el-input v-model="query.search" size="small" clearable class="f-search"
-                :placeholder="$tp('Search IMEI / device / supplier / assign / note…')" prefix-icon="el-icon-search"
+                :placeholder="$tp('Search IMEI / device / supplier / repairer / note…')" prefix-icon="el-icon-search"
                 @keyup.enter.native="reload" @clear="reload" />
             <el-select v-if="mySuppliers.length" v-model="query.supplierId" size="small" clearable filterable
                 class="f-supplier" :placeholder="$tp('All suppliers')" @change="reload">
@@ -22,6 +26,11 @@
                 <el-radio-button label="">{{ $tp('All') }}</el-radio-button>
                 <el-radio-button label="no">{{ $tp('Not in Stock yet') }}</el-radio-button>
                 <el-radio-button label="yes">{{ $tp('Added to Stock') }}</el-radio-button>
+            </el-radio-group>
+            <!-- the repair status (2026-11-04) -->
+            <el-radio-group v-model="query.status" size="small" @change="reload">
+                <el-radio-button label="">{{ $tp('All') }} {{ counts.all }}</el-radio-button>
+                <el-radio-button v-for="(st, key) in DEVICE_STATUS" :key="key" :label="key">{{ $tp(st.label) }} {{ counts[key] }}</el-radio-button>
             </el-radio-group>
             <span class="rpc-count">{{ $tp('{n} device(s)', { n: total }) }}</span>
             <span class="rpc-spacer" />
@@ -36,20 +45,35 @@
             <el-table-column :label="$tp('IMEI')" min-width="170">
                 <template slot-scope="s"><b class="rpc-mono">{{ s.row.imei }}</b></template>
             </el-table-column>
-            <el-table-column :label="$tp('Device')" min-width="190" show-overflow-tooltip>
+            <el-table-column :label="$tp('Device')" min-width="170" show-overflow-tooltip>
                 <template slot-scope="s">{{ oneLine(s.row.device) || '—' }}</template>
             </el-table-column>
-            <el-table-column :label="$tp('Supplier')" min-width="140" show-overflow-tooltip>
+            <el-table-column :label="$tp('Supplier')" min-width="110" show-overflow-tooltip>
                 <template slot-scope="s">{{ (s.row.supplier && s.row.supplier.name) || '—' }}</template>
             </el-table-column>
-            <el-table-column :label="$tp('Assign')" min-width="120" show-overflow-tooltip>
-                <template slot-scope="s">{{ s.row.assign || '—' }}</template>
+            <el-table-column :label="$tp('Status')" width="92" align="center">
+                <template slot-scope="s">
+                    <el-tooltip :disabled="s.row.status !== 'done'" placement="top"
+                        :content="s.row.status === 'done' ? fmtWhen(s.row.processedAt) + (s.row.processedBy ? ' · ' + s.row.processedBy : '') : ''">
+                        <el-tag size="mini" :type="DEVICE_STATUS[deviceStatus(s.row)].type">{{ $tp(DEVICE_STATUS[deviceStatus(s.row)].label) }}</el-tag>
+                    </el-tooltip>
+                </template>
             </el-table-column>
-            <el-table-column :label="$tp('Note')" min-width="200" show-overflow-tooltip>
+            <!-- who has it, and on which repair batch (replaces the plain-text Assign) -->
+            <el-table-column :label="$tp('Repairer')" min-width="140" show-overflow-tooltip>
+                <template slot-scope="s">
+                    <template v-if="s.row.repairer">
+                        {{ s.row.repairer.name }}
+                        <router-link v-if="s.row.repairBatch" :to="{ path: '/refurbished/repair-batches', query: { batch: s.row.repairBatch.id } }" class="rpc-batch">{{ s.row.repairBatch.batchNo }}</router-link>
+                    </template>
+                    <span v-else>—</span>
+                </template>
+            </el-table-column>
+            <el-table-column :label="$tp('Note')" min-width="150" show-overflow-tooltip>
                 <template slot-scope="s">{{ s.row.note || '—' }}</template>
             </el-table-column>
             <!-- ticked once the IMEI is in their Stock (2026-10-20) -->
-            <el-table-column :label="$tp('Added to Stock')" width="120" align="center">
+            <el-table-column :label="$tp('Added to Stock')" width="100" align="center">
                 <template slot-scope="s">
                     <el-tooltip :disabled="!s.row.addedToStock" placement="top"
                         :content="s.row.addedToStock ? fmtWhen(s.row.addedToStock.at) + (s.row.addedToStock.by ? ' · ' + s.row.addedToStock.by : '') : ''">
@@ -63,10 +87,23 @@
                     <div class="rpc-dim">{{ s.row.createdBy || '' }}</div>
                 </template>
             </el-table-column>
-            <el-table-column v-if="canManage" label="" width="190" align="center">
+            <el-table-column v-if="canManage" label="" width="270" align="center" fixed="right">
                 <template slot-scope="s">
                     <el-button v-if="!s.row.addedToStock" size="mini" type="primary" plain class="rpc-tostock" icon="el-icon-box"
                         @click="openToStock(s.row)">{{ $tp('Add to Stock') }}</el-button>
+                    <!-- the repair status (2026-11-04): the next step, the rest in ⋯ -->
+                    <el-button v-if="deviceStatus(s.row) === 'pending'" size="mini" plain class="rpc-tostock" icon="el-icon-s-custom"
+                        @click="openAssign(s.row)">{{ $tp('Assign') }}</el-button>
+                    <el-button v-else-if="s.row.status === 'assigned'" size="mini" type="success" plain class="rpc-tostock" icon="el-icon-check"
+                        :disabled="acting" @click="setStatus(s.row, 'done')">{{ $tp('Processed') }}</el-button>
+                    <el-dropdown trigger="click" class="rpc-more" @command="cmd => setStatus(s.row, cmd)">
+                        <el-button size="mini" type="text" icon="el-icon-more" :title="$tp('More')" />
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item v-if="deviceStatus(s.row) === 'pending'" command="done" icon="el-icon-check">{{ $tp('Mark processed') }}</el-dropdown-item>
+                            <el-dropdown-item v-if="s.row.status === 'assigned'" command="unassign" icon="el-icon-close">{{ $tp('Take off the batch') }}</el-dropdown-item>
+                            <el-dropdown-item v-if="s.row.status === 'done'" command="reopen" icon="el-icon-refresh-left">{{ $tp('Undo processed') }}</el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
                     <el-button size="mini" type="text" icon="el-icon-edit" :title="$tp('Edit')" @click="openEdit(s.row)" />
                     <el-button size="mini" type="text" icon="el-icon-delete" class="rpc-del" :title="$tp('Remove')" @click="remove(s.row)" />
                 </template>
@@ -98,10 +135,6 @@
                         :no-data-text="$tp('No suppliers yet — add them on the Suppliers page')">
                         <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
                     </el-select>
-                </el-form-item>
-                <!-- who it is assigned to — plain text (2026-10-20) -->
-                <el-form-item :label="$tp('Assign')">
-                    <el-input v-model="form.assign" maxlength="100" clearable />
                 </el-form-item>
                 <el-form-item :label="$tp('Note')">
                     <el-input v-model="form.note" type="textarea" :rows="2" resize="none" maxlength="500" />
@@ -195,17 +228,50 @@
                     :disabled="!lookupState || lookupState === 'checking' || lookupState === 'known'" @click="addToStock">{{ $tp('Add to Stock') }}</el-button>
             </div>
         </el-dialog>
+
+        <!-- Assign to a repairer (2026-11-04): a new repair batch, or one of
+             theirs still in progress; the Repair Batches page does it in bulk -->
+        <el-dialog :title="$tp('Assign {imei}', { imei: assignRow ? assignRow.imei : '' })" :visible.sync="assignVisible"
+            :width="narrow ? '94%' : '480px'" append-to-body :close-on-click-modal="false">
+            <el-form label-width="90px" size="small" @submit.native.prevent>
+                <el-form-item :label="$tp('Repairer')" required>
+                    <el-select v-model="assignForm.repairerId" filterable class="rpc-full" :placeholder="$tp('Pick the repairer')"
+                        :no-data-text="$tp('No repairers yet — add them on the Repairers page')" @change="loadOpenBatches">
+                        <el-option v-for="r in repairers" :key="r._id" :label="r.name" :value="r._id" />
+                    </el-select>
+                </el-form-item>
+                <el-form-item :label="$tp('Batch')">
+                    <el-radio-group v-model="assignForm.mode">
+                        <el-radio label="new">{{ $tp('New batch') }}</el-radio>
+                        <el-radio label="add" :disabled="!openBatches.length">{{ $tp('Add to an open batch') }}</el-radio>
+                    </el-radio-group>
+                    <el-select v-if="assignForm.mode === 'add'" v-model="assignForm.batchId" class="rpc-full rpc-gap">
+                        <el-option v-for="b in openBatches" :key="b._id" :value="b._id"
+                            :label="$tp('{no} · {n} in repair', { no: b.batchNo, n: b.devices - b.processed })" />
+                    </el-select>
+                </el-form-item>
+                <el-form-item v-if="assignForm.mode === 'new'" :label="$tp('Note')">
+                    <el-input v-model="assignForm.note" maxlength="500" />
+                </el-form-item>
+            </el-form>
+            <div slot="footer">
+                <el-button size="small" @click="assignVisible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button size="small" type="primary" icon="el-icon-s-custom" :loading="acting" @click="saveAssign">{{ $tp('Assign') }}</el-button>
+            </div>
+        </el-dialog>
     </div>
 </template>
 
 <script>
 import { getPrecheck, addPrecheck, updatePrecheck, deletePrecheck, getRefurbSuppliers,
-    lookupRefurbDevice, createRefurbDevice } from '@/api/refurbished'
+    lookupRefurbDevice, createRefurbDevice, getPrecheckRepairers, getPrecheckRepairBatches, addPrecheckRepairBatch,
+    addPrecheckRepairBatchDevices, setPrecheckRepairStatus } from '@/api/refurbished'
+import { DEVICE_STATUS, deviceStatus } from './repairStatus'
 import { hasPermission } from '@/utils/permission'
 // xlsx-js-style — the styled SheetJS fork the other dashboard exports use
 import * as XLSX from 'xlsx-js-style'
 
-const blankForm = () => ({ imei: '', device: '', supplierId: '', assign: '', note: '' })
+const blankForm = () => ({ imei: '', device: '', supplierId: '', note: '' })
 // as on the Stock page's add form (views/refurbished/stock.vue)
 const GRADES = ['A++', 'A+', 'A', 'B+', 'B', 'C+', 'C']
 const STORAGES = ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB']
@@ -223,7 +289,16 @@ export default {
             loading: false,
             rows: [],
             total: 0,
-            query: { search: '', supplierId: '', added: '', page: 1, pageSize: 50 },
+            query: { search: '', supplierId: '', added: '', status: '', page: 1, pageSize: 50 },
+            // the repair status (2026-11-04)
+            DEVICE_STATUS,
+            counts: { all: 0, pending: 0, assigned: 0, done: 0 },
+            repairers: [],
+            assignVisible: false,
+            assignRow: null,
+            assignForm: { repairerId: '', mode: 'new', batchId: '', note: '' },
+            openBatches: [],
+            acting: false,
             justAdded: '',
             exporting: false,
             mySuppliers: [],
@@ -287,6 +362,7 @@ export default {
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.rows = r.rows || []
                 this.total = r.total || 0
+                if (r.counts) this.counts = r.counts
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to load the list')))
             } finally {
@@ -326,7 +402,7 @@ export default {
         },
         openEdit(row) {
             this.editRow = row
-            this.form = { imei: row.imei, device: row.device || '', supplierId: row.supplier && row.supplier.id ? String(row.supplier.id) : '', assign: row.assign || '', note: row.note || '' }
+            this.form = { imei: row.imei, device: row.device || '', supplierId: row.supplier && row.supplier.id ? String(row.supplier.id) : '', note: row.note || '' }
             this.narrow = window.innerWidth < 600
             this.dialogVisible = true
         },
@@ -459,6 +535,74 @@ export default {
                 this.$message.error(this.msg(e, this.$tp('Failed to remove the record')))
             }
         },
+        // ── the repair status (2026-11-04) ──
+        deviceStatus,
+        async openAssign(row) {
+            this.assignRow = row
+            this.assignForm = { repairerId: '', mode: 'new', batchId: '', note: '' }
+            this.openBatches = []
+            this.narrow = window.innerWidth < 600
+            this.assignVisible = true
+            try {
+                const r = await getPrecheckRepairers({ active: '1' })
+                this.repairers = r.repairers || []
+            } catch (e) { this.repairers = [] }
+        },
+        // the repairer's batches still in progress, to add the device to
+        async loadOpenBatches() {
+            const repairerId = this.assignForm.repairerId
+            this.openBatches = []
+            this.assignForm.mode = 'new'
+            this.assignForm.batchId = ''
+            if (!repairerId) return
+            try {
+                const r = await getPrecheckRepairBatches({ repairerId, status: 'open' })
+                if (this.assignForm.repairerId !== repairerId) return
+                this.openBatches = r.batches || []
+                if (this.openBatches.length) this.assignForm.batchId = this.openBatches[0]._id
+            } catch (e) { this.openBatches = [] }
+        },
+        async saveAssign() {
+            const f = this.assignForm
+            if (!f.repairerId) { this.$message.warning(this.$tp('Pick the repairer')); return }
+            if (f.mode === 'add' && !f.batchId) { this.$message.warning(this.$tp('Pick the batch')); return }
+            if (this.acting) return
+            this.acting = true
+            try {
+                const ids = [this.assignRow._id]
+                const r = f.mode === 'add'
+                    ? await addPrecheckRepairBatchDevices(f.batchId, ids)
+                    : await addPrecheckRepairBatch({ repairerId: f.repairerId, note: f.note, ids })
+                const no = f.mode === 'add' ? (this.openBatches.find(b => b._id === f.batchId) || {}).batchNo : r.batch.batchNo
+                this.$message.success(this.$tp('{imei} assigned on {no}', { imei: this.assignRow.imei, no }))
+                this.assignVisible = false
+                this.load()
+            } catch (e) {
+                // the request layer has said why; the dialog stays open
+            } finally {
+                this.acting = false
+            }
+        },
+        // done: 已处理 · unassign: back to 待处理, off its batch · reopen: undo 已处理
+        async setStatus(row, action) {
+            if (this.acting) return
+            if (action === 'unassign') {
+                try {
+                    await this.$confirm(this.$tp('Take {imei} off {no}? It goes back to To process.', { imei: row.imei, no: row.repairBatch ? row.repairBatch.batchNo : '' }), this.$tp('Take off the batch'),
+                        { type: 'warning', confirmButtonText: this.$tp('Take off'), cancelButtonText: this.$tp('Cancel') })
+                } catch (e) { return }
+            }
+            this.acting = true
+            try {
+                await setPrecheckRepairStatus([row._id], action)
+                if (action === 'done') this.$message.success(this.$tp('{imei} processed', { imei: row.imei }))
+                this.load()
+            } catch (e) {
+                // the request layer has said why
+            } finally {
+                this.acting = false
+            }
+        },
         // ── Export (user 2026-10-22) ──
         // the whole list under the current search / filters, a page of 500 at a time
         async allRows() {
@@ -487,12 +631,15 @@ export default {
             try {
                 const rows = await this.allRows()
                 if (!rows.length) { this.$message.warning(this.$tp('Nothing to export')); return }
-                const header = ['IMEI', 'Device', 'Supplier', 'Assign', 'Note', 'Added to Stock', 'Added to Stock on', 'Added', 'Added By']
+                const header = ['IMEI', 'Device', 'Supplier', 'Status', 'Repairer', 'Repair Batch', 'Processed on', 'Note', 'Added to Stock', 'Added to Stock on', 'Added', 'Added By']
                 const aoa = [header.map(h => this.$tp(h)), ...rows.map(x => [
                     x.imei,
                     this.oneLine(x.device),
                     (x.supplier && x.supplier.name) || '',
-                    x.assign || '',
+                    this.$tp(DEVICE_STATUS[deviceStatus(x)].label),
+                    (x.repairer && x.repairer.name) || '',
+                    (x.repairBatch && x.repairBatch.batchNo) || '',
+                    x.status === 'done' ? this.sheetWhen(x.processedAt) : '',
                     x.note || '',
                     this.$tp(x.addedToStock ? 'Yes' : 'No'),
                     x.addedToStock ? this.sheetWhen(x.addedToStock.at) : '',
@@ -507,7 +654,7 @@ export default {
                     alignment: { horizontal: 'center', vertical: 'center' }
                 }
                 header.forEach((h, c) => { const addr = XLSX.utils.encode_cell({ r: 0, c }); if (ws[addr]) ws[addr].s = headerStyle })
-                ws['!cols'] = [{ wch: 20 }, { wch: 34 }, { wch: 18 }, { wch: 14 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 16 }]
+                ws['!cols'] = [{ wch: 20 }, { wch: 34 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 13 }, { wch: 18 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 16 }]
                 const wb = XLSX.utils.book_new()
                 XLSX.utils.book_append_sheet(wb, ws, 'Pending Stock')
                 const d = new Date()
@@ -538,6 +685,10 @@ export default {
 .rpc-dim { font-size: 11px; color: #909399; }
 .rpc-del { color: #f56c6c; }
 .rpc-tostock { padding: 5px 8px; }
+.rpc-more { margin-left: 6px; vertical-align: middle; }
+.rpc-batch { margin-left: 4px; font-size: 11px; color: #409eff; font-variant-numeric: tabular-nums; }
+.rpc-full { width: 100%; }
+.rpc-gap { margin-top: 6px; }
 .rpc-pager { margin-top: 10px; text-align: right; }
 .rpc-added { margin: -4px 0 0 90px; font-size: 12px; color: #67c23a; word-break: normal; .rpc-mono { color: #606266; } }
 /* the ticked box reads as done, not as greyed out */

@@ -68,7 +68,7 @@
 
         <!-- ── Create ───────────────────────────────────────────────── -->
         <el-dialog :title="editing ? $tp('Edit {batch}', { batch: editing.batchNo }) : $tp('New Supply Batch')"
-            :visible.sync="createVisible" :width="isSupplier ? '880px' : '820px'" top="6vh" :close-on-click-modal="false">
+            :visible.sync="createVisible" :width="isSupplier ? '960px' : '900px'" top="6vh" :close-on-click-modal="false">
             <div class="sb-form">
                 <!-- One supplier for the whole batch (user 2026-10-15): every
                      device aboard — now or added later — is set to it. -->
@@ -98,7 +98,7 @@
                         <div v-for="d in pickerResults" :key="d._id" class="sb-pick-row">
                             <div class="sb-pick-info">
                                 <b>{{ d.imei }}</b>
-                                <span>{{ [d.model, d.storage, d.color, d.grade].filter(Boolean).join(' · ') || '—' }}</span>
+                                <span>{{ [d.model, d.storage, d.color, d.grade, batteryText(d)].filter(Boolean).join(' · ') || '—' }}</span>
                             </div>
                             <el-button size="mini" type="primary" plain icon="el-icon-plus"
                                 :disabled="isPicked(d)" @click="addLine(d)">
@@ -174,6 +174,14 @@
                                 <el-option v-for="g in gradeOptions" :key="g" :label="g" :value="g" />
                             </el-select>
                             <template v-else>{{ s.row.grade || '—' }}</template>
+                        </template>
+                    </el-table-column>
+                    <!-- Battery health (user 2026-11-04): the register's, or a new
+                         scan's from Blackbelt; under 80% shows red -->
+                    <el-table-column :label="$tp('Battery')" width="80" align="center">
+                        <template slot-scope="s">
+                            <span v-if="!s.row.__group" :class="{ 'sb-batt-low': batteryLow(batteryOf(s.row)) }"
+                                :title="batteryTitle(batteryOf(s.row))">{{ batteryText(batteryOf(s.row)) || '—' }}</span>
                         </template>
                     </el-table-column>
                     <!-- New units type their cost here; an existing unit with
@@ -657,6 +665,8 @@ export default {
                         color: l.color || '',
                         storage: l.storage || '',
                         grade: l.grade || '',
+                        batteryHealth: l.batteryHealth == null ? null : l.batteryHealth,
+                        batteryCycleCount: l.batteryCycleCount == null ? null : l.batteryCycleCount,
                         costPrice: figure == null ? undefined : figure,
                         currency: l.currency || 'AUD',
                         costMissing: figure == null,
@@ -841,6 +851,21 @@ export default {
                 line.bbChecking = false
             }
         },
+        // battery health: a new scan's comes with its Blackbelt answer (bb)
+        batteryOf(row) {
+            return row.isNew ? row.bb || {} : row
+        },
+        batteryText(d) {
+            const v = Number(d && d.batteryHealth)
+            return v > 0 ? Math.round(v) + '%' : ''
+        },
+        batteryLow(d) {
+            const v = Number(d && d.batteryHealth)
+            return v > 0 && v < 80
+        },
+        batteryTitle(d) {
+            return d && d.batteryCycleCount != null ? this.$tp('{n} cycles', { n: d.batteryCycleCount }) : ''
+        },
         isPicked(d) {
             return this.form.lines.some(l => String(l.deviceId) === String(d._id))
         },
@@ -857,6 +882,8 @@ export default {
                 color: d.color || '',
                 storage: d.storage || '',
                 grade: d.grade || '',
+                batteryHealth: d.batteryHealth == null ? null : d.batteryHealth,
+                batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
                 costPrice: d.costPrice == null ? undefined : d.costPrice,
                 currency: d.currency || 'AUD',
                 // No cost on the register yet — the dialog can fill it
@@ -1002,6 +1029,7 @@ export default {
 .sb-title { font-size: 16px; font-weight: 600; color: #303133; }
 .sb-spacer { flex: 1; }
 .sb-link { font-weight: 600; padding: 0; }
+.sb-batt-low { color: #f56c6c; font-weight: 600; }
 .sb-sub { font-size: 11px; color: #909399; line-height: 1.3; }
 .sb-dim { color: #909399; }
 .sb-ok { color: #67c23a; font-weight: 600; }

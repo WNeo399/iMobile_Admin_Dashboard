@@ -237,6 +237,47 @@ export function deletePrecheck(id) {
 export function deletePrechecks(ids) {
   return request({ url: '/refurbished/precheck/delete', method: 'post', data: { ids } })
 }
+// Pending Stock repairs (2026-11-04): the phone supplier's repairers, its
+// repair batches and a device's status — 待处理 / 已分配 / 已处理
+export function getPrecheckRepairers(query) {
+  return request({ url: '/refurbished/precheck-repair/repairers', method: 'get', params: query })
+}
+export function addPrecheckRepairer(data) {
+  return request({ url: '/refurbished/precheck-repair/repairers', method: 'post', data })
+}
+export function updatePrecheckRepairer(id, data) {
+  return request({ url: `/refurbished/precheck-repair/repairers/${id}`, method: 'put', data })
+}
+export function deletePrecheckRepairer(id) {
+  return request({ url: `/refurbished/precheck-repair/repairers/${id}`, method: 'delete' })
+}
+export function getPrecheckRepairBatches(query) {
+  return request({ url: '/refurbished/precheck-repair/batches', method: 'get', params: query })
+}
+// { repairerId, ids, note } — the devices go 已分配
+export function addPrecheckRepairBatch(data) {
+  return request({ url: '/refurbished/precheck-repair/batches', method: 'post', data })
+}
+export function getPrecheckRepairBatch(id) {
+  return request({ url: `/refurbished/precheck-repair/batches/${id}`, method: 'get' })
+}
+export function updatePrecheckRepairBatch(id, data) {
+  return request({ url: `/refurbished/precheck-repair/batches/${id}`, method: 'put', data })
+}
+export function addPrecheckRepairBatchDevices(id, ids) {
+  return request({ url: `/refurbished/precheck-repair/batches/${id}/devices`, method: 'post', data: { ids } })
+}
+// every 已分配 device on the batch → 已处理
+export function finishPrecheckRepairBatch(id) {
+  return request({ url: `/refurbished/precheck-repair/batches/${id}/done`, method: 'post' })
+}
+export function deletePrecheckRepairBatch(id) {
+  return request({ url: `/refurbished/precheck-repair/batches/${id}`, method: 'delete' })
+}
+// action: done | reopen (undo processed) | unassign
+export function setPrecheckRepairStatus(ids, action) {
+  return request({ url: '/refurbished/precheck-repair/status', method: 'post', data: { ids, action } })
+}
 export function getRefurbSuppliers(query) {
   return request({ url: '/refurbished/suppliers', method: 'get', params: query })
 }
