@@ -621,14 +621,10 @@
                 </el-radio-group>
                 <span v-if="labelSize === '40x30x2'">{{ $tp(labelMulti ? '2 labels per page, side by side' : 'The label prints twice, side by side — each copy in the printer dialog gives 2') }}</span>
             </div>
-            <!-- several lines: one label each, or one per unit (what arrived / shipped / was ordered) -->
+            <!-- several lines: a label per piece — the count matches the quantity (user 2026-11-04) -->
             <div v-if="labelMulti" class="label-orient">
-                <span>{{ $tp('Labels per line') }}</span>
-                <el-radio-group v-model="labelPerUnit" size="mini" @change="onLabelPerUnit">
-                    <el-radio-button :label="false">{{ $tp('One per line') }}</el-radio-button>
-                    <el-radio-button :label="true">{{ $tp('One per unit') }}</el-radio-button>
-                </el-radio-group>
-                <span class="label-orient-gap">{{ $tp('{n} labels', { n: labelCount }) }}</span>
+                <b>{{ $tp('{n} labels', { n: labelCount }) }}</b>
+                <span>{{ $tp('One label per piece: the received, shipped or ordered quantity') }}</span>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
             <span slot="footer" class="spp-dlg-foot">
@@ -679,18 +675,11 @@ const BOARD_RECEIVED = 30
 import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, buildSppMixedLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
-// Ticked lines printed together: one label per line, or one per unit —
-// remembered in this browser. A PDF past MAX_LABELS would stall the page.
-const PER_UNIT_KEY = 'spp-label-per-unit'
+// Ticked lines printed together: one label per piece (user 2026-11-04: the
+// label count must match the quantity). A PDF past MAX_LABELS would stall the page.
 const MAX_LABELS = 2000
 // a row click ticks the row, except on these (they do their own thing)
 const ROW_CLICK_SKIP = 'button, a, input, textarea, .el-dropdown, .el-checkbox, .spp-pview, .spp-pedit, .spp-photos'
-function readPerUnit() {
-    try { return localStorage.getItem(PER_UNIT_KEY) === '1' } catch (e) { return false }
-}
-function writePerUnit(v) {
-    try { localStorage.setItem(PER_UNIT_KEY, v ? '1' : '0') } catch (e) { /* private window */ }
-}
 
 // What each audit entry did — English source, translated through $tp.
 export default {
@@ -784,7 +773,6 @@ export default {
             labelBusy: false,
             labelMulti: false, // the preview holds several lines
             labelSel: null, // { part, oscar, customer }: the lines, label names looked up
-            labelPerUnit: readPerUnit(),
             labelCount: 0,
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
             compact: false,
@@ -1578,18 +1566,17 @@ export default {
             if (this.$refs.table) this.$refs.table.clearSelection()
             this.selected = []
         },
-        // labels for one line when printing one per unit: what arrived, else what shipped, else the order qty
+        // a line's pieces = its labels: what arrived, else what shipped, else the order qty
         unitsOf(row) {
             const q = row.status === 'received' && row.receivedQty != null ? row.receivedQty
                 : row.shippedQty != null ? row.shippedQty : row.orderQty
-            return Math.max(1, Math.floor(Number(q)) || 1)
+            return Math.max(0, Math.floor(Number(q)) || 0)
         },
-        // labels in the PDF: an Oscar set is 2 item labels + the supplier card (when the prefix is known)
-        selectedLabelCount(perUnit) {
+        // labels in the PDF: an Oscar set (per piece) is 2 item labels + the supplier card (when the prefix is known)
+        selectedLabelCount() {
             const s = this.labelSel
             if (!s) return 0
-            const n = l => (perUnit ? this.unitsOf(l) : 1)
-            const sum = (list, each) => list.reduce((t, l) => t + n(l) * each(l), 0)
+            const sum = (list, each) => list.reduce((t, l) => t + this.unitsOf(l) * each(l), 0)
             return sum(s.part, () => 1) + sum(s.customer, () => 1) +
                 sum(s.oscar, l => (this.oscarLabelArgs(l).record.faultyCodePrefix ? 3 : 2))
         },
@@ -1599,7 +1586,7 @@ export default {
         buildSelectedLabels() {
             const s = this.labelSel
             if (!s) return null
-            const n = l => (this.labelPerUnit ? this.unitsOf(l) : 1)
+            const n = l => this.unitsOf(l)
             const items = []
             for (const l of s.part) {
                 const special = l.category === 'Special Order'
@@ -1607,8 +1594,9 @@ export default {
                 for (let i = 0; i < n(l); i++) items.push({ line, special })
             }
             let doc = items.length ? buildSppMixedLabelsPdf(items) : null
-            for (const l of s.oscar) doc = appendOscarLabelsToDoc(doc, this.oscarLabelArgs(l), n(l))
-            for (const l of s.customer) doc = appendDispatchLabelsToDoc(doc, this.customerLabelArgs(l), n(l))
+            // (the append helpers print at least one: a line with no pieces is left out here)
+            for (const l of s.oscar) if (n(l)) doc = appendOscarLabelsToDoc(doc, this.oscarLabelArgs(l), n(l))
+            for (const l of s.customer) if (n(l)) doc = appendDispatchLabelsToDoc(doc, this.customerLabelArgs(l), n(l))
             return doc
         },
         async printSelectedLabels() {
@@ -1634,16 +1622,17 @@ export default {
                     else sel.part.push(l)
                 }
                 this.labelSel = sel
-                if (this.labelPerUnit && this.selectedLabelCount(true) > MAX_LABELS) {
-                    this.labelPerUnit = false
-                    this.$message.warning(this.$tp('Too many labels ({n}) — showing one per line', { n: this.selectedLabelCount(true) }))
+                const count = this.selectedLabelCount()
+                if (count > MAX_LABELS) {
+                    this.$message.warning(this.$tp('Too many labels ({n}) — tick fewer lines', { n: count }))
+                    return
                 }
                 if (sel.oscar.some(l => !this.oscarLabelArgs(l).record.faultyCodePrefix)) {
                     this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
                 }
                 this.labelMulti = true
                 this.labelOscar = !sel.part.length // only fixed-size pages: no size / orientation choice
-                this.labelCount = this.selectedLabelCount(this.labelPerUnit)
+                this.labelCount = count
                 const doc = this.buildSelectedLabels()
                 if (!doc) { this.$message.info(this.$tp('Nothing to print')); return }
                 this.labelBuild = () => this.buildSelectedLabels()
@@ -1656,16 +1645,6 @@ export default {
             } finally {
                 this.labelBusy = false
             }
-        },
-        onLabelPerUnit(v) {
-            if (v && this.selectedLabelCount(true) > MAX_LABELS) {
-                this.$message.warning(this.$tp('Too many labels ({n}) — showing one per line', { n: this.selectedLabelCount(true) }))
-                this.$nextTick(() => { this.labelPerUnit = false })
-                return
-            }
-            writePerUnit(v)
-            this.labelCount = this.selectedLabelCount(v)
-            this.redrawLabels()
         },
         // Portrait / landscape and 60 × 40 / 50 × 40: remembered for next
         // time, preview redrawn.

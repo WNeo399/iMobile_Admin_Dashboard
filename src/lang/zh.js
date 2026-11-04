@@ -1232,11 +1232,9 @@ export default {
     'Print label': '打印标签',
     // Purchase Order: ticked lines' labels together (2026-11-04)
     'Clear selection': '清除勾选',
-    'Labels per line': '每行标签',
-    'One per line': '每行一张',
-    'One per unit': '每件一张',
     '{n} labels': '共 {n} 张标签',
-    'Too many labels ({n}) — showing one per line': '标签太多（{n} 张）— 已改为每行一张',
+    'One label per piece: the received, shipped or ordered quantity': '每件一张：按已收、已发或下单数量',
+    'Too many labels ({n}) — tick fewer lines': '标签太多（{n} 张）— 请少选几行',
     'Orientation': '方向',
     'Portrait': '纵向',
     'Landscape': '横向',
