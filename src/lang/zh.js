@@ -1230,6 +1230,13 @@ export default {
     'Order batch back to draft': '下单批次退回草稿',
     'Click to change the unit price': '点击修改采购单价',
     'Print label': '打印标签',
+    // Purchase Order: ticked lines' labels together (2026-11-04)
+    'Clear selection': '清除勾选',
+    'Labels per line': '每行标签',
+    'One per line': '每行一张',
+    'One per unit': '每件一张',
+    '{n} labels': '共 {n} 张标签',
+    'Too many labels ({n}) — showing one per line': '标签太多（{n} 张）— 已改为每行一张',
     'Orientation': '方向',
     'Portrait': '纵向',
     'Landscape': '横向',

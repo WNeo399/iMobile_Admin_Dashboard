@@ -378,6 +378,17 @@ export function buildSpecialOrderLabelPdf(line, copies = 1, orientation = getLab
     return layLabels(Array.from({ length: n }, () => line), orientation, size, drawSpecialLabel)
 }
 
+// Several Purchase Order lines in one PDF (user ask 2026-11-04: tick lines,
+// print or download their labels together). `items` in print order, one entry
+// per label: { line, special } — a Special Order prints its SP- label, any
+// other line the part label. Both use the same sizes, so they share the rows
+// (two across: in order, an odd last label leaves the right slot blank).
+// Null when there is nothing to print.
+export function buildSppMixedLabelsPdf(items, orientation = getLabelOrientation(), size = getLabelSize()) {
+    const draw = (doc, item, ...rest) => (item.special ? drawSpecialLabel : drawLabel)(doc, item.line, ...rest)
+    return layLabels(items || [], orientation, size, draw)
+}
+
 export function sppLabelCount(batch) {
     return ((batch && batch.lines) || []).reduce((s, l) => s + unitCount(l), 0)
 }

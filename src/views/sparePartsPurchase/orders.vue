@@ -44,6 +44,12 @@
                 <el-button v-if="canAdd && (!isPinned || activeCategory === 'Warranty')" type="primary" size="small" icon="el-icon-plus" @click="addVisible = true">{{ $tp('Add Item') }}</el-button>
                 <el-button v-if="canAdd && (activeCategory !== 'Special Order' || canSpecial) && activeCategory !== 'Warranty'" type="primary" size="small" :plain="!isPinned" :icon="isPinned ? 'el-icon-plus' : 'el-icon-circle-plus-outline'"
                     @click="openNewProduct">{{ $tp(activeCategory === 'Special Order' ? 'New Special Order' : (isMobile && !isPinned ? 'New Product' : 'Order New Product')) }}</el-button>
+                <!-- ticked lines' labels in one PDF (user ask 2026-11-04); ticks survive a page
+                     or list change, so lines from several lists print together -->
+                <template v-if="selected.length && !boardMode && !isMobile">
+                    <el-button size="small" type="primary" plain icon="el-icon-printer" :loading="labelBusy" @click="printSelectedLabels">{{ $tp('Print labels ({n})', { n: selected.length }) }}</el-button>
+                    <el-button size="small" icon="el-icon-close" :title="$tp('Clear selection')" @click="clearSelected">{{ compact ? '' : $tp('Clear selection') }}</el-button>
+                </template>
                 <el-button size="small" icon="el-icon-download" :loading="exporting" :title="$tp('Export')" @click="exportList">{{ compact ? '' : $tp('Export') }}</el-button>
                 <el-button size="small" icon="el-icon-refresh" :loading="loading" :title="$tp('Refresh')" @click="load">{{ compact ? '' : $tp('Refresh') }}</el-button>
             </div>
@@ -119,7 +125,9 @@
                 <div v-if="!rows.length && !loading" class="spp-empty spp-mempty">{{ $tp('No purchase orders here') }}</div>
             </div>
             <el-table v-else ref="table" v-loading="loading" :data="rows" size="mini" :height="tableHeight" class="spp-table"
-                :row-class-name="rowClass">
+                :row-class-name="rowClass" row-key="_id" @selection-change="onSelect" @row-click="onRowClick">
+                <!-- tick lines to print their labels together (2026-11-04) -->
+                <el-table-column type="selection" width="40" align="center" reserve-selection class-name="spp-sel-col" :fixed="!compact" />
                 <!-- The day the line was raised; the SP- number stays internal. -->
                 <el-table-column :label="$tp('Date')" :width="compact ? 92 : 100" align="center" :fixed="!compact">
                     <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
@@ -611,7 +619,16 @@
                 <el-radio-group v-model="labelSize" size="mini" @change="onLabelSize">
                     <el-radio-button v-for="z in LABEL_SIZES" :key="z.key" :label="z.key">{{ $tp(z.label) }}</el-radio-button>
                 </el-radio-group>
-                <span v-if="labelSize === '40x30x2'">{{ $tp('The label prints twice, side by side — each copy in the printer dialog gives 2') }}</span>
+                <span v-if="labelSize === '40x30x2'">{{ $tp(labelMulti ? '2 labels per page, side by side' : 'The label prints twice, side by side — each copy in the printer dialog gives 2') }}</span>
+            </div>
+            <!-- several lines: one label each, or one per unit (what arrived / shipped / was ordered) -->
+            <div v-if="labelMulti" class="label-orient">
+                <span>{{ $tp('Labels per line') }}</span>
+                <el-radio-group v-model="labelPerUnit" size="mini" @change="onLabelPerUnit">
+                    <el-radio-button :label="false">{{ $tp('One per line') }}</el-radio-button>
+                    <el-radio-button :label="true">{{ $tp('One per unit') }}</el-radio-button>
+                </el-radio-group>
+                <span class="label-orient-gap">{{ $tp('{n} labels', { n: labelCount }) }}</span>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
             <span slot="footer" class="spp-dlg-foot">
@@ -659,8 +676,21 @@ const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: 
 // The board shows every open line and the latest received ones.
 const BOARD_OPEN = 200
 const BOARD_RECEIVED = 30
-import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
+import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, buildSppMixedLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
+
+// Ticked lines printed together: one label per line, or one per unit —
+// remembered in this browser. A PDF past MAX_LABELS would stall the page.
+const PER_UNIT_KEY = 'spp-label-per-unit'
+const MAX_LABELS = 2000
+// a row click ticks the row, except on these (they do their own thing)
+const ROW_CLICK_SKIP = 'button, a, input, textarea, .el-dropdown, .el-checkbox, .spp-pview, .spp-pedit, .spp-photos'
+function readPerUnit() {
+    try { return localStorage.getItem(PER_UNIT_KEY) === '1' } catch (e) { return false }
+}
+function writePerUnit(v) {
+    try { localStorage.setItem(PER_UNIT_KEY, v ? '1' : '0') } catch (e) { /* private window */ }
+}
 
 // What each audit entry did — English source, translated through $tp.
 export default {
@@ -749,6 +779,13 @@ export default {
             labelOscar: false, // the preview holds fixed-size labels (Oscar's, or Order Dispatch's for another customer): no size / orientation choice
             labelSize: getLabelSize(),
             LABEL_SIZES,
+            // ticked lines' labels together (2026-11-04)
+            selected: [],
+            labelBusy: false,
+            labelMulti: false, // the preview holds several lines
+            labelSel: null, // { part, oscar, customer }: the lines, label names looked up
+            labelPerUnit: readPerUnit(),
+            labelCount: 0,
             // Smaller screens (< 1440px): fewer columns, icon-only actions.
             compact: false,
             // Phones (< 768px): no tree, chip strip, cards, folded filters.
@@ -762,7 +799,10 @@ export default {
     },
     watch: {
         // The header rows may have re-flowed once the counts are in.
-        loading(v) { if (!v) this.$nextTick(this.fitTable) }
+        loading(v) { if (!v) this.$nextTick(this.fitTable) },
+        // the board / phone cards replace the table, and its ticks go with it
+        boardMode(v) { if (v) this.selected = [] },
+        isMobile(v) { if (v) this.selected = [] }
     },
     computed: {
         // Two parents (2026-10-16): 空运 — every category, even empty, but the
@@ -1435,6 +1475,8 @@ export default {
         // printer dialog.
         async printLineLabels(row) {
             this.cleanupLabels()
+            this.labelMulti = false
+            this.labelSel = null
             try {
                 // a Special Order (user ask 2026-10-20): its SP- number as a barcode — what
                 // Dispatch Batches scans — who placed it and the date code; no item name
@@ -1451,13 +1493,12 @@ export default {
                 }
                 // ordered for Oscar Mobile: the Order Dispatch label set (item ×2 + supplier card)
                 if (row.forCustomer === 'OSCAR') {
-                    const dr = row.dispatchRef || {}
-                    const rec = { faultyCodePrefix: dr.faultyCodePrefix || '' }
                     // the description under the label-name rule (user 2026-10-14)
                     const [named] = await withLabelNames([row])
-                    const oline = { sku: dr.customerSku || row.sku, description: named.customerLabelName || named.labelName || row.productName }
-                    if (!rec.faultyCodePrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
-                    const build = () => appendOscarLabelsToDoc(null, { record: rec, line: oline }, 1)
+                    const args = this.oscarLabelArgs(named)
+                    const oline = args.line
+                    if (!args.record.faultyCodePrefix) this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
+                    const build = () => appendOscarLabelsToDoc(null, args, 1)
                     this.labelBuild = build
                     this.labelFileName = `oscar_${String(oline.sku || row.orderNo).replace(/[^a-z0-9-]/gi, '')}.pdf`
                     this.labelUrl = build().output('bloburl') + '#toolbar=0'
@@ -1471,10 +1512,11 @@ export default {
                 // The description under the label-name rule too (user 2026-10-20: every label
                 // printed from Purchase Order follows it)
                 const cdr = row.dispatchRef || {}
-                if (row.forCustomer && cdr.customerSku) {
+                if (this.isCustomerLabel(row)) {
                     const [named] = await withLabelNames([row])
-                    const cline = { sku: cdr.customerSku, description: named.customerLabelName || named.labelName || cdr.customerDescription || row.productName }
-                    const build = () => appendDispatchLabelsToDoc(null, { record: { invoiceNumber: cdr.invoiceNumber || '' }, batch: { at: new Date() }, line: cline }, 1)
+                    const args = this.customerLabelArgs(named)
+                    const cline = args.line
+                    const build = () => appendDispatchLabelsToDoc(null, args, 1)
                     this.labelBuild = build
                     this.labelFileName = `label_${String(cdr.invoiceNumber || row.orderNo).replace(/[^a-z0-9-]/gi, '')}_${cline.sku}.pdf`
                     this.labelUrl = build().output('bloburl') + '#toolbar=0'
@@ -1494,6 +1536,136 @@ export default {
             } catch (e) {
                 this.$message.error(this.$tp('Could not build the labels'))
             }
+        },
+        // Oscar's label set for a line (one from withLabelNames): their SKU, the
+        // description under the label-name rule, the return-code prefix
+        oscarLabelArgs(named) {
+            const dr = named.dispatchRef || {}
+            return {
+                record: { faultyCodePrefix: dr.faultyCodePrefix || '' },
+                line: { sku: dr.customerSku || named.sku, description: named.customerLabelName || named.labelName || named.productName }
+            }
+        },
+        // ordered for another customer from Order Dispatch (Best Sourcing): their label
+        isCustomerLabel(row) {
+            return !!row && !!row.forCustomer && row.forCustomer !== 'OSCAR' && !!(row.dispatchRef || {}).customerSku
+        },
+        customerLabelArgs(named) {
+            const cdr = named.dispatchRef || {}
+            return {
+                record: { invoiceNumber: cdr.invoiceNumber || '' },
+                batch: { at: new Date() },
+                line: { sku: cdr.customerSku, description: named.customerLabelName || named.labelName || cdr.customerDescription || named.productName }
+            }
+        },
+        // ── Ticked lines' labels together (user ask 2026-11-04) ────
+        onSelect(sel) {
+            this.selected = sel
+        },
+        // a click anywhere on a row ticks / unticks it (user ask 2026-11-04) — not on
+        // its buttons, links, the price editor or the photos, nor after dragging to
+        // select text (copying a SKU). The click's path as it was dispatched: a
+        // handler lower down (the unit price → its editor) may already have
+        // re-rendered the cell, leaving event.target detached.
+        onRowClick(row, column, event) {
+            const path = (event && event.composedPath && event.composedPath()) || []
+            if (path.some(el => el && el.matches && el.matches(ROW_CLICK_SKIP))) return
+            const s = window.getSelection && window.getSelection()
+            if (s && String(s).trim()) return
+            if (this.$refs.table) this.$refs.table.toggleRowSelection(row)
+        },
+        clearSelected() {
+            if (this.$refs.table) this.$refs.table.clearSelection()
+            this.selected = []
+        },
+        // labels for one line when printing one per unit: what arrived, else what shipped, else the order qty
+        unitsOf(row) {
+            const q = row.status === 'received' && row.receivedQty != null ? row.receivedQty
+                : row.shippedQty != null ? row.shippedQty : row.orderQty
+            return Math.max(1, Math.floor(Number(q)) || 1)
+        },
+        // labels in the PDF: an Oscar set is 2 item labels + the supplier card (when the prefix is known)
+        selectedLabelCount(perUnit) {
+            const s = this.labelSel
+            if (!s) return 0
+            const n = l => (perUnit ? this.unitsOf(l) : 1)
+            const sum = (list, each) => list.reduce((t, l) => t + n(l) * each(l), 0)
+            return sum(s.part, () => 1) + sum(s.customer, () => 1) +
+                sum(s.oscar, l => (this.oscarLabelArgs(l).record.faultyCodePrefix ? 3 : 2))
+        },
+        // One PDF in the table's order, by kind as on a batch's "Print labels": the
+        // part labels and Special Orders on the chosen size, then Oscar's 100 × 50
+        // sets, then other customers' 50 × 40 labels.
+        buildSelectedLabels() {
+            const s = this.labelSel
+            if (!s) return null
+            const n = l => (this.labelPerUnit ? this.unitsOf(l) : 1)
+            const items = []
+            for (const l of s.part) {
+                const special = l.category === 'Special Order'
+                const line = special ? { orderNo: l.orderNo, by: this.specialBy(l) || l.requestedFor || '' } : l
+                for (let i = 0; i < n(l); i++) items.push({ line, special })
+            }
+            let doc = items.length ? buildSppMixedLabelsPdf(items) : null
+            for (const l of s.oscar) doc = appendOscarLabelsToDoc(doc, this.oscarLabelArgs(l), n(l))
+            for (const l of s.customer) doc = appendDispatchLabelsToDoc(doc, this.customerLabelArgs(l), n(l))
+            return doc
+        },
+        async printSelectedLabels() {
+            if (!this.selected.length || this.labelBusy) return
+            this.labelBusy = true
+            this.cleanupLabels()
+            try {
+                // the latest copy of each ticked line, in the table's order;
+                // lines ticked on another page / list follow in the order ticked
+                const pos = new Map(this.rows.map((r, i) => [r._id, i]))
+                const at = r => (pos.has(r._id) ? pos.get(r._id) : Infinity)
+                const picked = this.selected
+                    .map(s => this.rows.find(r => r._id === s._id) || s)
+                    .map((r, i) => ({ r, i }))
+                    .sort((a, b) => (at(a.r) - at(b.r)) || (a.i - b.i))
+                    .map(x => x.r)
+                const named = await withLabelNames(picked)
+                const sel = { part: [], oscar: [], customer: [] }
+                for (const l of named) {
+                    if (l.category === 'Special Order') sel.part.push(l)
+                    else if (l.forCustomer === 'OSCAR') sel.oscar.push(l)
+                    else if (this.isCustomerLabel(l)) sel.customer.push(l)
+                    else sel.part.push(l)
+                }
+                this.labelSel = sel
+                if (this.labelPerUnit && this.selectedLabelCount(true) > MAX_LABELS) {
+                    this.labelPerUnit = false
+                    this.$message.warning(this.$tp('Too many labels ({n}) — showing one per line', { n: this.selectedLabelCount(true) }))
+                }
+                if (sel.oscar.some(l => !this.oscarLabelArgs(l).record.faultyCodePrefix)) {
+                    this.$message.warning(this.$tp('No return-code prefix on the dispatch record — the supplier card is left out'))
+                }
+                this.labelMulti = true
+                this.labelOscar = !sel.part.length // only fixed-size pages: no size / orientation choice
+                this.labelCount = this.selectedLabelCount(this.labelPerUnit)
+                const doc = this.buildSelectedLabels()
+                if (!doc) { this.$message.info(this.$tp('Nothing to print')); return }
+                this.labelBuild = () => this.buildSelectedLabels()
+                this.labelFileName = `labels_${picked.length}-lines_${new Date().toISOString().slice(0, 10)}.pdf`
+                this.labelUrl = doc.output('bloburl') + '#toolbar=0'
+                this.labelTitle = this.$tp('Labels') + ' — ' + this.$tp('{n} line(s) selected', { n: picked.length })
+                this.labelVisible = true
+            } catch (e) {
+                this.$message.error(this.$tp('Could not build the labels'))
+            } finally {
+                this.labelBusy = false
+            }
+        },
+        onLabelPerUnit(v) {
+            if (v && this.selectedLabelCount(true) > MAX_LABELS) {
+                this.$message.warning(this.$tp('Too many labels ({n}) — showing one per line', { n: this.selectedLabelCount(true) }))
+                this.$nextTick(() => { this.labelPerUnit = false })
+                return
+            }
+            writePerUnit(v)
+            this.labelCount = this.selectedLabelCount(v)
+            this.redrawLabels()
         },
         // Portrait / landscape and 60 × 40 / 50 × 40: remembered for next
         // time, preview redrawn.
@@ -1721,6 +1893,8 @@ export default {
 .spp-for { margin-left: 6px; color: #409eff; background: #ecf5ff; border-radius: 10px; padding: 0 6px; white-space: nowrap; }
 .spp-urgent { margin-left: 6px; color: #fff; background: #f56c6c; border-radius: 10px; padding: 0 6px; font-weight: 600; white-space: nowrap; }
 /* an open urgent line (first in the list): red tint + a bar on the left */
+.spp-table ::v-deep .spp-sel-col .cell { padding: 0; text-overflow: clip; }
+.spp-table ::v-deep .el-table__body tr { cursor: pointer; }
 .spp-table ::v-deep .spp-row-urgent > td { background: #fef0f0; }
 .spp-table ::v-deep .spp-row-urgent:hover > td { background: #fde2e2 !important; }
 .spp-table ::v-deep .spp-row-urgent > td:first-child { box-shadow: inset 3px 0 0 #f56c6c; }
