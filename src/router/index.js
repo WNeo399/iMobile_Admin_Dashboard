@@ -955,31 +955,6 @@ export const moduleRoutes = [
         }
       },
       {
-        // Pending Stock devices sent to the phone supplier's repairers in
-        // batches (2026-11-04): assigned devices go 已分配, marked 已处理 one
-        // by one or the whole batch. Phone suppliers only, like Pending Stock.
-        path: "/refurbished/repair-batches",
-        component: (resolve) => require(["@/views/refurbished/repairBatches"], resolve),
-        name: "RefurbishedPrecheckRepairBatches",
-        meta: {
-          title: "Repair Batches",
-          icon: "el-icon-set-up",
-          exclusiveRoles: ["phone-supplier"]
-        }
-      },
-      {
-        // The phone supplier's own repairers, for those batches (2026-11-04).
-        // Not the staff Repairers page under Sales (workshops iMobile uses).
-        path: "/refurbished/my-repairers",
-        component: (resolve) => require(["@/views/refurbished/precheckRepairers"], resolve),
-        name: "RefurbishedPrecheckRepairers",
-        meta: {
-          title: "Repairers",
-          icon: "el-icon-s-custom",
-          exclusiveRoles: ["phone-supplier"]
-        }
-      },
-      {
         // The register itself sits at the top level — it is the anchor
         // every sub menu below works against.
         path: "/refurbished/stock",
@@ -994,7 +969,8 @@ export const moduleRoutes = [
       {
         // A phone supplier's own upstream suppliers — where their stock
         // comes from. Data is scoped server-side to their stock source;
-        // exclusiveRoles keeps the page off every staff sidebar.
+        // exclusiveRoles keeps the page off every staff sidebar. Right
+        // after Stock, before Supply Batches (user 2026-11-04).
         path: "/refurbished/suppliers",
         component: (resolve) => require(["@/views/refurbished/suppliers"], resolve),
         name: "RefurbishedSuppliers",
@@ -1166,6 +1142,35 @@ export const moduleRoutes = [
             }
           }
         ]
+      },
+      // The next two are phone-supplier pages placed AFTER the Warehouse
+      // group on purpose: a phone supplier's Supply Batches is lifted into
+      // the Warehouse group's spot, and the user's order (2026-11-04) is
+      // 待入库, 库存, 供应商, 供货批次, 维修商, 维修批次. Staff never see either page.
+      {
+        // The phone supplier's own repairers, for those batches (2026-11-04).
+        // Not the staff Repairers page under Warehouse (workshops iMobile uses).
+        path: "/refurbished/my-repairers",
+        component: (resolve) => require(["@/views/refurbished/precheckRepairers"], resolve),
+        name: "RefurbishedPrecheckRepairers",
+        meta: {
+          title: "Repairers",
+          icon: "el-icon-s-custom",
+          exclusiveRoles: ["phone-supplier"]
+        }
+      },
+      {
+        // Pending Stock devices sent to the phone supplier's repairers in
+        // batches (2026-11-04): assigned devices go 已分配, marked 已处理 one
+        // by one or the whole batch. Phone suppliers only, like Pending Stock.
+        path: "/refurbished/repair-batches",
+        component: (resolve) => require(["@/views/refurbished/repairBatches"], resolve),
+        name: "RefurbishedPrecheckRepairBatches",
+        meta: {
+          title: "Repair Batches",
+          icon: "el-icon-set-up",
+          exclusiveRoles: ["phone-supplier"]
+        }
       },
     ]
   },
