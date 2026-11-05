@@ -64,9 +64,13 @@
 
                     <el-table v-if="lines.length || linesLoading" :data="lines" v-loading="linesLoading"
                         size="mini" border max-height="300" empty-text="Loading…"
-                        :row-class-name="({ row }) => (isOpen(row) ? 'sd-row-open' : '')">
-                        <el-table-column label="Raised" width="88">
-                            <template slot-scope="s">{{ fmtDay(s.row.createdAt) }}</template>
+                        :row-class-name="rowClass">
+                        <el-table-column label="Raised" width="104">
+                            <template slot-scope="s">
+                                <i v-if="isUrgent(s.row)" class="el-icon-warning sd-urgent-ic"
+                                    :title="s.row.urgentBy ? `Urgent — marked by ${s.row.urgentBy}` : 'Urgent'" />
+                                {{ fmtDay(s.row.createdAt) }}
+                            </template>
                         </el-table-column>
                         <el-table-column label="Qty" width="64" align="right">
                             <template slot-scope="s">
@@ -254,6 +258,15 @@ export default {
         isOpen(row) {
             return OPEN_STATUSES.includes(row.status)
         },
+        // An urgent line not yet received: red, as on the Purchase Order
+        // page (user ask 2026-11-05). The server lists open urgent lines first.
+        isUrgent(row) {
+            return !!row.urgent && this.isOpen(row)
+        },
+        rowClass({ row }) {
+            if (this.isUrgent(row)) return 'sd-row-urgent'
+            return this.isOpen(row) ? 'sd-row-open' : ''
+        },
         statusStyle(status) {
             const m = STATUS_META[status]
             return m ? { color: m.color, background: m.bg } : {}
@@ -400,6 +413,11 @@ export default {
     font-size: 12px; color: #606266; line-height: 1.6;
 }
 ::v-deep .el-table .sd-row-open > td { background: #fdf6ec; }
+/* an urgent line not yet received: red tint + a bar on the left */
+::v-deep .el-table .sd-row-urgent > td { background: #fef0f0; color: #f56c6c; }
+::v-deep .el-table .sd-row-urgent:hover > td { background: #fde2e2 !important; }
+::v-deep .el-table .sd-row-urgent > td:first-child { box-shadow: inset 3px 0 0 #f56c6c; }
+.sd-urgent-ic { color: #f56c6c; margin-right: 2px; }
 .sd-status { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 18px; white-space: nowrap; }
 .sd-sea { color: #909399; margin-right: 3px; }
 .sd-link { color: #409eff; cursor: pointer; }
