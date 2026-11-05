@@ -123,10 +123,10 @@
                 </el-form-item>
                 <!--
                     One role, or several of the roles under iMobile and Exyon
-                    together (the backend marks those `combinable`). The
-                    TechElite, InFlow and Consignment roles stay an account's
-                    only role, so picking one greys the rest out — and the
-                    other way round.
+                    (and SQT Call Center, 2026-11-05) together (the backend
+                    marks those `combinable`). The other TechElite roles, InFlow
+                    and Consignment stay an account's only role, so picking one
+                    greys the rest out — and the other way round.
                 -->
                 <el-form-item label="Role" prop="roles">
                     <el-select v-model="form.roles" multiple placeholder="Select a role" style="width: 100%">
@@ -625,7 +625,7 @@ export default {
             const extra = Array.isArray(row.roles) ? row.roles : []
             return [...new Set([row.role, ...extra].filter(Boolean))]
         },
-        // The roles under iMobile and Exyon combine with each other; every other
+        // The roles under iMobile and Exyon (+ SQT Call Center) combine with each other; every other
         // role is an account's only one. A picked role always stays
         // clickable so it can be taken off again.
         roleOptionDisabled(r) {

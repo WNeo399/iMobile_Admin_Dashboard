@@ -8,9 +8,11 @@ import defaultSettings from '@/settings'
 // build-time VUE_APP_TITLE.
 const TECH_ELITE_ROLES = ['techelite-admin', 'repair-shop', 'shop-owner', 'sqt-call-center']
 
+// By the main role (roles[0]) — SQT Call Center can sit beside Exyon / iMobile
+// roles (2026-11-05); the account's main role decides the brand.
 function brandTitle() {
   const roles = (store.state.user && store.state.user.roles) || []
-  if (roles.some(r => TECH_ELITE_ROLES.includes(r))) {
+  if (TECH_ELITE_ROLES.includes(roles[0])) {
     return 'TechElite Dashboard'
   }
   return defaultSettings.title

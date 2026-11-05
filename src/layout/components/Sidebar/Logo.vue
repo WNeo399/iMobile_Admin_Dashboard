@@ -39,10 +39,13 @@ export default {
     // roles all see the TechElite-branded title (those users effectively
     // use the dashboard as a TechElite tool). Everyone else keeps the
     // default build-time title.
+    // By the MAIN role (roles[0]) since SQT Call Center can sit beside Exyon /
+    // iMobile roles (2026-11-05) — an Exyon account that also takes calls
+    // keeps its own title.
     title() {
       const roles = (this.$store && this.$store.state.user.roles) || []
       const techEliteFacing = ['techelite-admin', 'repair-shop', 'shop-owner', 'sqt-call-center']
-      if (roles.some(r => techEliteFacing.includes(r))) {
+      if (techEliteFacing.includes(roles[0])) {
         return 'TechElite Dashboard'
       }
       return process.env.VUE_APP_TITLE
