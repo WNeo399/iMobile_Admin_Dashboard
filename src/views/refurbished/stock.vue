@@ -258,10 +258,15 @@
                             </el-select>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + baCurrency + ')'" width="110" align="center">
+                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + baCurrency + ')'" width="132" align="center">
                         <template slot-scope="s">
-                            <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2"
-                                :controls="false" class="bae-cost" />
+                            <div class="bae-price">
+                                <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2"
+                                    :controls="false" class="bae-cost" />
+                                <!-- the supplier's default for the row's Model + Storage + Grade (2026-11-05) -->
+                                <default-price :key="'dp-' + s.row.imei" compact :active="baDefaultOn(s.row)" :model="s.row.model" :storage="s.row.storage"
+                                    :grade="s.row.grade" :price="s.row.costPrice" :currency="baCurrency" @fill="d => baDefaultFill(s.row, d)" />
+                            </div>
                         </template>
                     </el-table-column>
                     <el-table-column label="" width="46" align="center">
@@ -592,6 +597,10 @@
                                 <el-option v-for="c in currencies" :key="c" :label="c" :value="c" />
                             </el-select>
                         </el-input>
+                        <!-- the supplier's default for this Model + Storage + Grade (2026-11-05) -->
+                        <default-price :key="'dp-' + dpSeq" :active="defaultPriceOn" :model="form.model" :storage="form.storage" :grade="form.grade"
+                            :price="form.costPrice" :currency="form.currency" :base-price="editRow ? editRow.costPrice : null"
+                            :base-currency="editRow ? editRow.currency || 'AUD' : ''" @fill="onDefaultFill" />
                     </el-form-item>
                     <!-- New stock only: which of the supplier's OWN suppliers
                          the unit came from (Suppliers page manages the list). -->
@@ -717,6 +726,8 @@
 import { buildTransferPdf, buildTransferWorkbook, transferFileBase } from '@/utils/refurbTransferPdf'
 import * as XLSX from 'xlsx-js-style'
 import { actsAsPhoneSupplier } from '@/utils/permission'
+import DefaultPrice from './components/DefaultPrice'
+import { resetDefaultPrices } from './defaultPrices'
 import {
     getRefurbDevices, getRefurbDeviceFilters, createRefurbDevice, updateRefurbDevice,
     deleteRefurbDevice, lookupRefurbDevice, getRefurbDeviceReport, checkRefurbDeviceBlackbelt,
@@ -746,6 +757,7 @@ const FIELD_LABELS = {
 
 export default {
     name: 'RefurbishedStock',
+    components: { DefaultPrice },
     data() {
         return {
             loading: false,
@@ -753,6 +765,7 @@ export default {
             total: 0,
             currencies: CURRENCIES,
             grades: GRADES,
+            dpSeq: 0, // keys the Add / Detail dialog's default-price box
             storageOptions: STORAGES,
             filters: { models: [], grades: [], stockSources: [], storages: [], colors: [], locations: [], supplyBatches: [] },
             query: {
@@ -863,6 +876,16 @@ export default {
         // answers (modelUnlocked), so typing doesn't lock it again.
         canEditModel() {
             return this.canEditIdentity || this.modelUnlocked
+        },
+        // A supplier's default price (2026-11-05): a device Blackbelt has a
+        // report on — the model and storage are its own. New devices, and
+        // existing ones being updated (user ask the same day).
+        defaultPriceOn() {
+            const checked = this.editRow
+                ? !!this.editRow.blackbeltReportId && this.editRow.blackbeltChecked === true
+                : this.lookupState === 'ok' && !!this.form.blackbeltChecked
+            return this.isSupplier && checked && !this.modelUnlocked &&
+                !!String(this.form.model || '').trim() && !!String(this.form.storage || '').trim()
         },
         // Fixed scale, plus whatever an older record happens to carry so
         // editing it doesn't silently reassign the grade.
@@ -1017,6 +1040,7 @@ export default {
                 this.baBatches = (r && r.batches) || []
                 this.baBatchesOk = true
             }).catch(() => { })
+            resetDefaultPrices() // another user's newer defaults
             this.baVisible = true
             this.$nextTick(() => {
                 const el = this.$refs.baInput
@@ -1345,6 +1369,8 @@ export default {
             this.lookupMessage = ''
             // a recorded unit with a Blackbelt report but no model: the model may be typed
             this.modelUnlocked = !!(row && row.blackbeltReportId && !String(row.model || '').trim())
+            resetDefaultPrices() // another user's newer defaults
+            this.dpSeq++ // a fresh default-price box for this device
             this.editVisible = true
             if (!row) {
                 this.loadMySuppliers()
@@ -1628,6 +1654,31 @@ export default {
             const symbol = SYMBOLS[cur] || SYMBOLS.AUD
             return symbol + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         },
+        // ── Default prices (user ask 2026-11-05) ──────────────────────
+        // Add Device: the default for the grade picked, in its own currency.
+        onDefaultFill(d) {
+            this.form.costPrice = d.price == null ? '' : String(d.price)
+            if (d.price != null && d.currency) this.form.currency = d.currency
+        },
+        // Bulk Add: a row Blackbelt gave the model and storage for.
+        baDefaultOn(row) {
+            return this.isSupplier && !!row && row.bbFound && !row.bbChecking && !row.modelMissing &&
+                !!(row.bb && row.bb.blackbeltChecked) && !!String(row.model || '').trim() && !!String(row.storage || '').trim()
+        },
+        // The list has one currency: a default in another one switches it
+        // while nothing on the list is priced yet, else it is left for typing.
+        baDefaultFill(row, d) {
+            if (d.price == null) { row.costPrice = undefined; return }
+            if (d.currency && d.currency !== this.baCurrency) {
+                const priced = this.baRows.some(r => r !== row && r.costPrice != null && r.costPrice !== '')
+                if (priced) {
+                    this.$message.warning(this.$tp('{imei}: the default price is in {cur}, this list is in {list}', { imei: row.imei, cur: d.currency, list: this.baCurrency }))
+                    return
+                }
+                this.baCurrency = d.currency
+            }
+            row.costPrice = d.price
+        },
         // Free-typed amount — keep it to digits and a single decimal point.
         onCostInput(v) {
             const clean = String(v == null ? '' : v).replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')
@@ -1661,6 +1712,7 @@ export default {
 .bae-model { flex: 1; min-width: 120px; }
 .bae-small { width: 100px; }
 .bae-cost { width: 84px; }
+.bae-price { display: flex; align-items: center; justify-content: center; gap: 2px; }
 .rs-ba-submit { margin-left: 10px; }
 .rs-ba-cur-label { font-size: 12px; color: #909399; white-space: nowrap; margin-left: 2px; }
 

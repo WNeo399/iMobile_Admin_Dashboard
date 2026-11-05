@@ -278,6 +278,15 @@ export function deletePrecheckRepairBatch(id) {
 export function setPrecheckRepairStatus(ids, action) {
   return request({ url: '/refurbished/precheck-repair/status', method: 'post', data: { ids, action } })
 }
+// A phone supplier's default price per Model + Storage + Grade (2026-11-05):
+// pairs = [{ model, storage }] → every grade's default for each.
+export function lookupRefurbDefaultPrices(pairs) {
+  return request({ url: '/refurbished/default-prices/lookup', method: 'post', data: { pairs } })
+}
+// { model, storage, grade, price, currency } → saved as the default
+export function saveRefurbDefaultPrice(data) {
+  return request({ url: '/refurbished/default-prices', method: 'put', data })
+}
 export function getRefurbSuppliers(query) {
   return request({ url: '/refurbished/suppliers', method: 'get', params: query })
 }

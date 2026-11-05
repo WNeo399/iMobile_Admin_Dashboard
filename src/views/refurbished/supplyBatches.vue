@@ -190,13 +190,29 @@
                          saved, in the dialog's Cost currency). For staff a
                          recorded cost displays as-is; a supplier can correct
                          their own price, which keeps its currency. -->
-                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + crCurrency + ')'" :width="isSupplier ? 150 : 120" align="right">
+                    <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + crCurrency + ')'" :width="isSupplier ? 172 : 120" align="right">
                         <template slot-scope="s">
-                            <el-input-number v-if="s.row.isNew || s.row.costMissing" v-model="s.row.costPrice"
+                            <!-- a new unit Blackbelt knows: the supplier's default for its
+                                 Model + Storage + Grade, and the star to save one (2026-11-05) -->
+                            <div v-if="s.row.isNew && sbDefaultOn(s.row)" class="sble-own">
+                                <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
+                                <default-price :key="'dp-' + s.row.imei" compact active :model="s.row.model" :storage="s.row.storage" :grade="s.row.grade"
+                                    :price="s.row.costPrice" :currency="crCurrency" @fill="d => sbDefaultFill(s.row, d)" />
+                            </div>
+                            <div v-else-if="s.row.costMissing && sbDefaultOn(s.row)" class="sble-own">
+                                <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
+                                <default-price :key="'dp-' + s.row.imei" compact active :model="s.row.model" :storage="s.row.storage" :grade="s.row.grade"
+                                    :price="s.row.costPrice" :currency="crCurrency" @fill="d => sbDefaultFill(s.row, d)" />
+                            </div>
+                            <el-input-number v-else-if="s.row.isNew || s.row.costMissing" v-model="s.row.costPrice"
                                 size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
                             <div v-else-if="isSupplier" class="sble-own">
                                 <span class="sb-dim">{{ s.row.currency || 'AUD' }}</span>
                                 <el-input-number v-model="s.row.costPrice" size="mini" :min="0" :precision="2" :controls="false" class="sble-cost" />
+                                <!-- an existing unit's own price: shows / saves the default (its grade is fixed here) -->
+                                <default-price v-if="sbDefaultOn(s.row)" :key="'dp-' + s.row.imei" compact active :model="s.row.model" :storage="s.row.storage"
+                                    :grade="s.row.grade" :price="s.row.costPrice" :currency="s.row.currency || 'AUD'"
+                                    :base-price="s.row.origCost" :base-currency="s.row.currency || 'AUD'" />
                             </div>
                             <template v-else>
                                 {{ s.row.costPrice == null ? '—' : (s.row.currency || 'AUD') + ' ' + Number(s.row.costPrice).toFixed(2) }}
@@ -385,6 +401,8 @@
 
 <script>
 import { actsAsPhoneSupplier } from '@/utils/permission'
+import DefaultPrice from './components/DefaultPrice'
+import { resetDefaultPrices } from './defaultPrices'
 import {
     getSupplyBatches, getSupplyBatch, createSupplyBatch, updateSupplyBatch,
     confirmSupplyBatch, cancelSupplyBatch,
@@ -401,6 +419,7 @@ const CODE_RE = /^[A-Z0-9]{10,20}$/
 
 export default {
     name: 'RefurbSupplyBatches',
+    components: { DefaultPrice },
     data() {
         return {
             loading: false,
@@ -545,6 +564,7 @@ export default {
         openCreate() {
             this.editing = null
             this.crCurrency = 'AUD'
+            resetDefaultPrices() // another user's newer defaults
             this.form = { notes: '', tracking: '', supplierId: '', lines: [] }
             this.collapsedFormGroups = {}
             this.resetAdded()
@@ -646,6 +666,7 @@ export default {
             } catch (e) { /* fall back to the list row */ }
             this.editing = batch
             this.crCurrency = 'AUD'
+            resetDefaultPrices() // another user's newer defaults
             this.form = {
                 notes: batch.notes || '',
                 tracking: batch.tracking || '',
@@ -671,6 +692,7 @@ export default {
                         currency: l.currency || 'AUD',
                         costMissing: figure == null,
                         origCost: figure == null ? undefined : figure,
+                        blackbeltChecked: l.blackbeltChecked === true,
                         supplierId,
                         origSupplierId: supplierId,
                         addedSeq: 0
@@ -851,6 +873,29 @@ export default {
                 line.bbChecking = false
             }
         },
+        // ── Default prices (user ask 2026-11-05) ──────────────────────
+        // a supplier's new unit Blackbelt gave the model and storage for
+        // (and an existing unit on the register Blackbelt checked — 2026-11-05)
+        sbDefaultOn(row) {
+            if (!this.isSupplier || !row || row.modelMissing || !String(row.model || '').trim() || !String(row.storage || '').trim()) return false
+            return row.isNew
+                ? row.bbFound && !row.bbChecking && !!(row.bb && row.bb.blackbeltChecked)
+                : row.blackbeltChecked === true
+        },
+        // The dialog has one currency: a default in another one switches it
+        // while nothing new is priced yet, else it is left for typing.
+        sbDefaultFill(row, d) {
+            if (d.price == null) { row.costPrice = undefined; return }
+            if (d.currency && d.currency !== this.crCurrency) {
+                const priced = this.form.lines.some(l => l !== row && (l.isNew || l.costMissing) && l.costPrice != null && l.costPrice !== '')
+                if (priced) {
+                    this.$message.warning(this.$tp('{imei}: the default price is in {cur}, this list is in {list}', { imei: row.imei, cur: d.currency, list: this.crCurrency }))
+                    return
+                }
+                this.crCurrency = d.currency
+            }
+            row.costPrice = d.price
+        },
         // battery health: a new scan's comes with its Blackbelt answer (bb)
         batteryOf(row) {
             return row.isNew ? row.bb || {} : row
@@ -890,6 +935,7 @@ export default {
                 // (written back to the device on save).
                 costMissing: d.costPrice == null,
                 origCost: d.costPrice == null ? undefined : d.costPrice,
+                blackbeltChecked: d.blackbeltChecked === true,
                 // the batch's supplier wins over the unit's current one
                 supplierId: this.form.supplierId || supplierId,
                 origSupplierId: supplierId,

@@ -224,7 +224,7 @@
         </el-dialog>
 
         <!-- ── Detail ─────────────────────────────────────────────── -->
-        <el-dialog :title="detail ? detail.orderNo : ''" :visible.sync="detailVisible" width="720px">
+        <el-dialog :title="detail ? detail.orderNo : ''" :visible.sync="detailVisible" width="940px" @opened="bbLayout" @closed="bbSel = []">
             <div v-if="detail" class="rso-detail">
                 <div class="rso-detail-grid">
                     <div><label>{{ $tp('Customer') }}</label><div>{{ detail.customerName }}</div></div>
@@ -248,14 +248,25 @@
                         <div>{{ formatDateTime(detail.cancelledAt) }} · {{ detail.cancelledBy || '—' }}</div>
                     </div>
                 </div>
-                <el-table :data="detail.lines" border size="mini" max-height="320">
+                <!-- Blackbelt reports (2026-11-05): tick devices, then review /
+                     download / print their reports as one PDF -->
+                <div class="rso-bb-bar">
+                    <span class="rso-dim">{{ bbSel.length
+                        ? $tp('{n} device(s) ticked', { n: bbSel.length })
+                        : $tp('Tick devices to review, download or print their Blackbelt reports') }}</span>
+                    <el-button size="mini" type="primary" plain icon="el-icon-document" :disabled="!bbSel.length" :loading="bbLoading"
+                        @click="openBbReports">{{ bbLoading ? bbProgress : $tp('Blackbelt reports ({n})', { n: bbSel.length }) }}</el-button>
+                </div>
+                <el-table ref="bbTable" :data="detail.lines" border size="mini" max-height="320" :row-key="bbKey"
+                    @selection-change="v => bbSel = v">
+                    <el-table-column type="selection" width="40" align="center" class-name="rso-sel-col" :selectable="bbSelectable" />
                     <el-table-column label="IMEI" min-width="150">
                         <template slot-scope="s">
                             <div><b>{{ s.row.imei }}</b></div>
                             <div class="rso-dim">{{ s.row.serialNumber || '' }}</div>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$tp('Device')" min-width="200" show-overflow-tooltip>
+                    <el-table-column :label="$tp('Device')" min-width="180" show-overflow-tooltip>
                         <template slot-scope="s">
                             {{ [s.row.model, s.row.storage, s.row.color].filter(Boolean).join(' · ') || '—' }}
                         </template>
@@ -265,6 +276,24 @@
                     </el-table-column>
                     <el-table-column :label="$tp('Battery')" width="80" align="center">
                         <template slot-scope="s">{{ Number(s.row.batteryHealth) > 0 ? s.row.batteryHealth + '%' : '—' }}</template>
+                    </el-table-column>
+                    <!-- the device's Blackbelt standing now, from the register -->
+                    <el-table-column label="Blackbelt" min-width="140">
+                        <template slot-scope="s">
+                            <span v-if="!s.row.blackbelt" class="rso-dim">…</span>
+                            <div v-else-if="bbTested(s.row)" class="rso-bb-cell">
+                                <el-tooltip :content="s.row.blackbelt.status || $tp('Tested in Blackbelt')" placement="top" :open-delay="300">
+                                    <i class="el-icon-success rso-bb-tick" />
+                                </el-tooltip>
+                                <span v-if="s.row.blackbelt.status && !bbClean(s.row)" class="rso-bb-issue" :title="s.row.blackbelt.status">{{ s.row.blackbelt.status }}</span>
+                            </div>
+                            <div v-else class="rso-bb-cell">
+                                <span class="rso-dim">{{ $tp('Not checked') }}</span>
+                                <el-button v-if="canCheckBb && s.row.deviceId" type="text" size="mini" icon="el-icon-refresh"
+                                    :loading="bbCheckingId === String(s.row.deviceId)" :disabled="!!bbCheckingId && bbCheckingId !== String(s.row.deviceId)"
+                                    @click="bbCheck(s.row)">{{ $tp('Check') }}</el-button>
+                            </div>
+                        </template>
                     </el-table-column>
                     <el-table-column :label="$tp('Price')" width="110" align="right">
                         <template slot-scope="s">{{ s.row.price == null ? '—' : money(s.row.price, detail.currency) }}</template>
@@ -339,6 +368,24 @@
                     @click="downloadInvoice">{{ $tp('Download') }}</el-button>
             </span>
         </el-dialog>
+
+        <!-- ── Blackbelt reports preview (2026-11-05) ─────────────── -->
+        <el-dialog :visible.sync="bbVisible" width="780px" top="4vh" append-to-body
+            custom-class="rso-invoice-dialog" @closed="cleanupBb">
+            <div slot="title" class="rso-invoice-title">
+                <i class="el-icon-document" /> {{ $tp('Blackbelt reports') }} — {{ bbTitle }}
+            </div>
+            <el-alert v-if="bbFailed.length" type="warning" :closable="false" show-icon class="rso-bb-alert"
+                :title="$tp('{n} report(s) could not be loaded and are left out', { n: bbFailed.length })">
+                <div v-for="f in bbFailed" :key="f.imei">{{ f.imei }} — {{ f.message }}</div>
+            </el-alert>
+            <iframe v-if="bbUrl" ref="bbFrame" :src="bbUrl" class="rso-invoice-frame" />
+            <span slot="footer">
+                <el-button size="small" @click="bbVisible = false">{{ $tp('Close') }}</el-button>
+                <el-button size="small" icon="el-icon-printer" @click="printBb">{{ $tp('Print') }}</el-button>
+                <el-button type="primary" size="small" icon="el-icon-download" @click="downloadBb">{{ $tp('Download') }}</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
@@ -347,9 +394,11 @@ import {
     getRefurbSalesOrders, createRefurbSalesOrder, updateRefurbSalesOrder,
     confirmRefurbSalesOrder, updateRefurbSalesOrderNotes, refreshRefurbSalesOrderLines,
     getRefurbCustomers, createRefurbCustomer, getRefurbDevices,
-    lookupRefurbDevice, createRefurbDevice
+    lookupRefurbDevice, createRefurbDevice, getRefurbSalesOrder, getRefurbDeviceReport, checkRefurbDeviceBlackbelt
 } from '@/api/refurbished'
+import { hasPermission } from '@/utils/permission'
 import { buildRefurbSalesOrderPdf, salesOrderPdfFileName } from '@/utils/refurbSalesOrderPdf'
+import { buildBlackbeltReportsPdf, blackbeltReportsFileName, statusIsClean } from '@/utils/blackbeltReportPdf'
 
 // Australian GST. Line prices are entered ex-GST and GST is added on top;
 // the rate actually used is stored on each order by the server.
@@ -407,12 +456,28 @@ export default {
             invoiceVisible: false,
             invoiceUrl: '',
             invoiceDoc: null,
-            invoiceNumber: ''
+            invoiceNumber: '',
+
+            // Blackbelt reports of the ticked devices (2026-11-05)
+            bbSel: [],
+            bbLoading: false,
+            bbProgress: '',
+            bbVisible: false,
+            bbUrl: '',
+            bbDoc: null,
+            bbTitle: '',
+            bbFileName: '',
+            bbFailed: [],
+            bbCheckingId: '' // the device being checked in Blackbelt again
         }
     },
     computed: {
         // How many of the open order's lines were returned — drives the
         // Returned column and the note under the table.
+        // re-checking a device in Blackbelt writes its report onto the register (the Stock page's check)
+        canCheckBb() {
+            return hasPermission(this.$store.getters.permissions, 'refurb:stock:manage')
+        },
         returnedCount() {
             return ((this.detail && this.detail.lines) || []).filter(l => l.returned).length
         },
@@ -444,6 +509,11 @@ export default {
     },
     beforeDestroy() {
         clearTimeout(this.flashTimer)
+    },
+    watch: {
+        detail(d) {
+            if (d && (d.lines || []).some(l => !l.blackbelt)) this.loadBlackbelt(d)
+        }
     },
     methods: {
         msg(e, fallback) {
@@ -898,6 +968,130 @@ export default {
             this.invoiceDoc = null
             this.invoiceNumber = ''
         },
+        // ── Blackbelt status + reports (user ask 2026-11-05) ─────────
+        // The order read adds each line's current Blackbelt standing
+        // (checked / status / report on file) from the register.
+        async loadBlackbelt(order) {
+            try {
+                const r = await getRefurbSalesOrder(order._id)
+                if (!r || r.success === false || this.detail !== order) return
+                const byId = new Map(((r.order && r.order.lines) || []).map(l => [String(l.deviceId), l.blackbelt]))
+                for (const l of order.lines || []) {
+                    this.$set(l, 'blackbelt', byId.get(String(l.deviceId)) || { checked: false, status: '', hasReport: false })
+                }
+                this.bbLayout()
+            } catch (e) { /* the column stays "…" */ }
+        },
+        // re-measure once the dialog is open / the column filled (else a few px of sideways scroll)
+        bbLayout() {
+            this.$nextTick(() => { if (this.$refs.bbTable) this.$refs.bbTable.doLayout() })
+        },
+        bbKey(row) { return String(row.deviceId || row.imei) },
+        bbSelectable(row) { return !!(row && row.deviceId && row.blackbelt && row.blackbelt.hasReport) },
+        bbClean(row) { return statusIsClean(row.blackbelt && row.blackbelt.status) },
+        // tested in Blackbelt: a report on file (or the register's tick)
+        bbTested(row) { return !!(row.blackbelt && (row.blackbelt.hasReport || row.blackbelt.checked)) },
+        // "Check" on a device Blackbelt had no report for: the Stock page's
+        // check — a report found is written onto the device in the register.
+        async bbCheck(row) {
+            if (this.bbCheckingId || !row.deviceId) return
+            this.bbCheckingId = String(row.deviceId)
+            try {
+                const r = await checkRefurbDeviceBlackbelt(row.deviceId)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (!r.found) {
+                    this.$message.info(r.message || this.$tp('Blackbelt still has no report for this device.'))
+                    return
+                }
+                const d = r.device || {}
+                this.$set(row, 'blackbelt', { checked: true, status: d.blackbeltStatus || '', hasReport: !!d.blackbeltReportId })
+                this.$message.success(this.$tp('{imei}: Blackbelt report found', { imei: row.imei }))
+                if ((r.corrected || []).length) {
+                    this.$notify.info({
+                        title: this.$tp('Corrected from Blackbelt'),
+                        message: r.corrected.map(c => `${c.label}: "${c.from}" -> "${c.to}"`).join('\n') +
+                            '\n' + this.$tp('Refresh Device Details to update this order'),
+                        duration: 0
+                    })
+                }
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Blackbelt check failed')))
+            } finally {
+                this.bbCheckingId = ''
+            }
+        },
+        // Each ticked device's report, fetched live from Blackbelt (3 at a
+        // time), in the order's line order → one PDF; the ones that fail are
+        // listed above the preview.
+        async openBbReports() {
+            if (!this.bbSel.length || this.bbLoading || !this.detail) return
+            const order = this.detail
+            const picked = (order.lines || []).filter(l => this.bbSel.includes(l))
+            this.bbLoading = true
+            this.bbFailed = []
+            this.cleanupBb()
+            const results = new Array(picked.length)
+            let done = 0
+            this.bbProgress = this.$tp('Loading {done} / {total}…', { done, total: picked.length })
+            let next = 0
+            const worker = async () => {
+                while (next < picked.length) {
+                    const i = next++
+                    const l = picked[i]
+                    try {
+                        const r = await getRefurbDeviceReport(l.deviceId)
+                        if (r && r.hasReport && r.report) results[i] = { report: r.report, reportId: r.reportId, line: l, orderNo: order.orderNo }
+                        else results[i] = { failed: (r && r.message) || this.$tp('No Blackbelt report') }
+                    } catch (e) {
+                        results[i] = { failed: this.msg(e, this.$tp('Failed to load the report')) }
+                    }
+                    done++
+                    this.bbProgress = this.$tp('Loading {done} / {total}…', { done, total: picked.length })
+                }
+            }
+            try {
+                await Promise.all([worker(), worker(), worker()])
+                const ok = results.filter(x => x && x.report)
+                this.bbFailed = results.map((x, i) => (x && x.failed ? { imei: picked[i].imei, message: x.failed } : null)).filter(Boolean)
+                if (!ok.length) {
+                    this.$message.error(this.$tp('No Blackbelt report could be loaded') + (this.bbFailed[0] ? ' — ' + this.bbFailed[0].message : ''))
+                    return
+                }
+                const doc = buildBlackbeltReportsPdf(ok)
+                this.bbDoc = doc
+                this.bbTitle = order.orderNo + ' · ' + this.$tp('{n} device(s)', { n: ok.length })
+                this.bbFileName = blackbeltReportsFileName(order.orderNo, ok.length)
+                this.bbUrl = doc.output('bloburl') + '#toolbar=0'
+                this.bbVisible = true
+            } catch (e) {
+                console.error('Blackbelt reports PDF failed:', e)
+                this.$message.error(this.$tp('Could not build the Blackbelt reports PDF'))
+            } finally {
+                this.bbLoading = false
+            }
+        },
+        downloadBb() {
+            if (this.bbDoc) this.bbDoc.save(this.bbFileName)
+        },
+        printBb() {
+            const frame = this.$refs.bbFrame
+            try {
+                frame.contentWindow.focus()
+                frame.contentWindow.print()
+            } catch (e) {
+                if (this.bbDoc) {
+                    this.bbDoc.autoPrint()
+                    window.open(this.bbDoc.output('bloburl'), '_blank')
+                }
+            }
+        },
+        cleanupBb() {
+            if (this.bbUrl) {
+                try { URL.revokeObjectURL(this.bbUrl.split('#')[0]) } catch (e) { /* ignore */ }
+            }
+            this.bbUrl = ''
+            this.bbDoc = null
+        },
         // ── detail / cancel ─────────────────────────────────────────
         openDetail(row) {
             this.detail = row
@@ -954,6 +1148,13 @@ export default {
 }
 .rso-link { color: #409eff; cursor: pointer; font-weight: 600; }
 .rso-dim { color: #909399; font-size: 12px; }
+.rso-bb-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 6px; }
+.rso-bb-bar > .rso-dim { margin-right: auto; }
+.rso-bb-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rso-bb-tick { color: #67c23a; font-size: 16px; }
+.rso-bb-issue { color: #e6a23c; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rso-detail ::v-deep .rso-sel-col .cell { padding: 0; text-overflow: clip; }
+.rso-bb-alert { margin-bottom: 8px; }
 .rso-cancel { color: #f56c6c; }
 .rso-pager { margin-top: 12px; text-align: right; }
 

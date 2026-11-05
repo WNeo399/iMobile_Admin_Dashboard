@@ -211,6 +211,9 @@
                                 <el-option v-for="c in CURRENCIES" :key="c" :label="c" :value="c" />
                             </el-select>
                         </el-input>
+                        <!-- the supplier's default for this Model + Storage + Grade (2026-11-05) -->
+                        <default-price :key="'dp-' + dpSeq" :active="defaultPriceOn" :model="stockForm.model" :storage="stockForm.storage" :grade="stockForm.grade"
+                            :price="stockForm.costPrice" :currency="stockForm.currency" @fill="onDefaultFill" />
                     </el-form-item>
                     <el-form-item :label="$tp('Supplier')">
                         <el-select v-model="stockForm.supplierId" clearable filterable style="width:100%" :placeholder="$tp('Optional')">
@@ -267,7 +270,9 @@ import { getPrecheck, addPrecheck, updatePrecheck, deletePrecheck, getRefurbSupp
     lookupRefurbDevice, createRefurbDevice, getPrecheckRepairers, getPrecheckRepairBatches, addPrecheckRepairBatch,
     addPrecheckRepairBatchDevices, setPrecheckRepairStatus } from '@/api/refurbished'
 import { DEVICE_STATUS, deviceStatus } from './repairStatus'
-import { hasPermission } from '@/utils/permission'
+import { hasPermission, actsAsPhoneSupplier } from '@/utils/permission'
+import DefaultPrice from './components/DefaultPrice'
+import { resetDefaultPrices } from './defaultPrices'
 // xlsx-js-style — the styled SheetJS fork the other dashboard exports use
 import * as XLSX from 'xlsx-js-style'
 
@@ -284,6 +289,7 @@ const lastCurrency = () => {
 
 export default {
     name: 'RefurbishedPrecheck',
+    components: { DefaultPrice },
     data() {
         return {
             loading: false,
@@ -318,6 +324,7 @@ export default {
             stockForm: {},
             lookupState: '',
             lookupMessage: '',
+            dpSeq: 0, // keys the Add to Stock dialog's default-price box
             modelUnlocked: false,
             stocking: false
         }
@@ -340,6 +347,11 @@ export default {
         },
         canEditModel() {
             return this.canEditIdentity || this.modelUnlocked
+        },
+        // the supplier's default price (2026-11-05): only when Blackbelt gave the model and storage
+        defaultPriceOn() {
+            return actsAsPhoneSupplier() && this.lookupState === 'ok' && !!this.stockForm.blackbeltChecked && !this.modelUnlocked &&
+                !!String(this.stockForm.model || '').trim() && !!String(this.stockForm.storage || '').trim()
         }
     },
     created() {
@@ -452,6 +464,8 @@ export default {
             }
             this.modelUnlocked = false
             this.narrow = window.innerWidth < 600
+            resetDefaultPrices() // another user's newer defaults
+            this.dpSeq++ // a fresh default-price box for this record
             this.stockVisible = true
             this.lookup()
         },
@@ -503,6 +517,11 @@ export default {
         onCostInput(v) {
             const clean = String(v == null ? '' : v).replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')
             if (clean !== v) this.stockForm.costPrice = clean
+        },
+        // the default for the grade picked, in its own currency (2026-11-05)
+        onDefaultFill(d) {
+            this.stockForm.costPrice = d.price == null ? '' : String(d.price)
+            if (d.price != null && d.currency) this.stockForm.currency = d.currency
         },
         // saved through the Stock page's own add — it ticks Added to Stock here
         async addToStock() {
