@@ -278,14 +278,14 @@
                         <template slot-scope="s">{{ Number(s.row.batteryHealth) > 0 ? s.row.batteryHealth + '%' : '—' }}</template>
                     </el-table-column>
                     <!-- the device's Blackbelt standing now, from the register -->
-                    <el-table-column label="Blackbelt" min-width="140">
+                    <el-table-column label="Blackbelt" min-width="110">
                         <template slot-scope="s">
                             <span v-if="!s.row.blackbelt" class="rso-dim">…</span>
+                            <!-- just the tick: no status text (user 2026-11-05) -->
                             <div v-else-if="bbTested(s.row)" class="rso-bb-cell">
-                                <el-tooltip :content="s.row.blackbelt.status || $tp('Tested in Blackbelt')" placement="top" :open-delay="300">
+                                <el-tooltip :content="$tp('Tested in Blackbelt')" placement="top" :open-delay="300">
                                     <i class="el-icon-success rso-bb-tick" />
                                 </el-tooltip>
-                                <span v-if="s.row.blackbelt.status && !bbClean(s.row)" class="rso-bb-issue" :title="s.row.blackbelt.status">{{ s.row.blackbelt.status }}</span>
                             </div>
                             <div v-else class="rso-bb-cell">
                                 <span class="rso-dim">{{ $tp('Not checked') }}</span>
@@ -398,7 +398,7 @@ import {
 } from '@/api/refurbished'
 import { hasPermission } from '@/utils/permission'
 import { buildRefurbSalesOrderPdf, salesOrderPdfFileName } from '@/utils/refurbSalesOrderPdf'
-import { buildBlackbeltReportsPdf, blackbeltReportsFileName, statusIsClean } from '@/utils/blackbeltReportPdf'
+import { buildBlackbeltReportsPdf, blackbeltReportsFileName } from '@/utils/blackbeltReportPdf'
 
 // Australian GST. Line prices are entered ex-GST and GST is added on top;
 // the rate actually used is stored on each order by the server.
@@ -988,7 +988,6 @@ export default {
         },
         bbKey(row) { return String(row.deviceId || row.imei) },
         bbSelectable(row) { return !!(row && row.deviceId && row.blackbelt && row.blackbelt.hasReport) },
-        bbClean(row) { return statusIsClean(row.blackbelt && row.blackbelt.status) },
         // tested in Blackbelt: a report on file (or the register's tick)
         bbTested(row) { return !!(row.blackbelt && (row.blackbelt.hasReport || row.blackbelt.checked)) },
         // "Check" on a device Blackbelt had no report for: the Stock page's
@@ -1152,7 +1151,6 @@ export default {
 .rso-bb-bar > .rso-dim { margin-right: auto; }
 .rso-bb-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rso-bb-tick { color: #67c23a; font-size: 16px; }
-.rso-bb-issue { color: #e6a23c; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .rso-detail ::v-deep .rso-sel-col .cell { padding: 0; text-overflow: clip; }
 .rso-bb-alert { margin-bottom: 8px; }
 .rso-cancel { color: #f56c6c; }

@@ -82,8 +82,6 @@ const verdictText = (v) => {
     if (s === 'NOT SUPPORTED ON DEVICE') return 'N/S'
     return 'N/T'
 }
-// "All Tests Passed" is the clean result; anything else is worth a look.
-export const statusIsClean = (s) => /^all tests passed$/i.test(String(s || '').trim())
 
 // ── text that jsPDF's font can't draw → a canvas image ─────────────
 const latin1 = (s) => /^[\x00-\xFF—–…•·’‘“”]*$/.test(s) // eslint-disable-line no-control-regex
@@ -157,17 +155,7 @@ function drawReport(doc, item, first) {
         put(doc, title, M, y + 1, { size: 10, bold: true, maxW: CONTENT_W * 0.62 })
         put(doc, 'IMEI ' + (line.imei || (r.device && r.device.imei) || '—'), PAGE_W - M, y + 1, { size: 9, align: 'right' })
         y += 5
-        if (!cont) {
-            const st = r.status || ''
-            if (st) {
-                const clean = statusIsClean(st)
-                doc.setFillColor(...(clean ? [232, 245, 233] : [255, 243, 224]))
-                doc.roundedRect(M, y, CONTENT_W, 7, 1.2, 1.2, 'F')
-                put(doc, 'Status:', M + 3, y + 4.8, { size: 9, bold: true, color: LABEL })
-                put(doc, st, M + 17, y + 4.8, { size: 9, bold: true, color: clean ? GREEN : ORANGE, maxW: CONTENT_W - 20 })
-                y += 9
-            }
-        }
+        // (the coloured Status box under this line was removed at the user's ask, 2026-11-05)
         doc.setDrawColor(220, 223, 230)
         doc.setLineWidth(0.3)
         doc.line(M, y, PAGE_W - M, y)
