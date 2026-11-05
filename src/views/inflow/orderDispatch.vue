@@ -1302,7 +1302,8 @@ export default {
                 `Supplier Cards — ${rec.invoiceNumber} · Batch #${batch.batchNo} (${this.batchDetailLabelCount} cards)`
             )
         },
-        // Per-item 50×40mm label: description on top, Code 128 of the item
+        // Per-item 50×40mm label (Best Sourcing 100×50, 2026-11-05 — the
+        // record's customer picks it): description on top, Code 128 of the item
         // barcode, PO number + dispatched date in the footer. Uses the same
         // PDF preview dialog as the packing list.
         printItemLabel(batch, line) {

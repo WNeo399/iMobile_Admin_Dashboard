@@ -2057,7 +2057,8 @@ export default {
         // the description under the label-name rule, as on the Purchase Order page (a line from withLabelNames; 2026-10-20)
         customerArgs(l, batch) {
             const b = batch || this.view || {}
-            return { record: { invoiceNumber: l.customerPo || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName } }
+            // the customer picks the label size (Best Sourcing 100 × 50, 2026-11-05)
+            return { record: { invoiceNumber: l.customerPo || '', customerName: l.forCustomer || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName } }
         },
         async printLineLabels(line) {
             if (this.isCustomerLine(line)) {
@@ -2082,7 +2083,7 @@ export default {
             if (!n) return
             const named = { ...batch, lines: await withLabelNames(batch.lines) }
             // Oscar's lines go on their own 100×50 pages after the ordinary labels,
-            // another customer's (Best Sourcing) on Order Dispatch's 50×40 ones
+            // another customer's on Order Dispatch's ones (Best Sourcing 100×50)
             const oscar = named.lines.filter(l => l.forCustomer === 'OSCAR')
             const customer = named.lines.filter(l => this.isCustomerLine(l))
             const rest = named.lines.filter(l => l.forCustomer !== 'OSCAR' && !this.isCustomerLine(l))

@@ -1,23 +1,45 @@
-// 50mm × 40mm item label for dispatch-batch lines (Order Dispatch page).
+// Item label for dispatch-batch lines (Order Dispatch page): 50mm × 40mm,
+// or 100mm × 50mm for Best Sourcing (user ask 2026-11-05).
 // Layout, top to bottom:
-//   item description (10pt, wrapped; a long name borrows height from the
+//   item description (wrapped; a long name borrows height from the
 //   barcode before the font ever shrinks), Code 128 of the item barcode
 //   with human-readable digits, and a footer with the PO number and the
 //   dispatched date on one line.
 //
 // buildItemLabelPdf({ record, batch, line })  — one label
 // buildBatchLabelsPdf({ record, batch })      — every line, × its qty
-// `record` is the dispatch row ({ invoiceNumber }), `batch` one
-// dispatchBatches entry ({ at, lines }), `line` one of its lines
-// ({ sku, description, qty }).
+// `record` is the dispatch row ({ invoiceNumber, customerName }), `batch`
+// one dispatchBatches entry ({ at, lines }), `line` one of its lines
+// ({ sku, description, qty }). The record's customer picks the size.
 
 import { jsPDF } from 'jspdf'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 
-const LABEL_W = 50
-const LABEL_H = 40
-const MARGIN = 3
+// Sizes in mm; baselines (descTop, digitsY, footY) from the label's top.
+// The barcode's bottom is fixed and its height flexes between barMin and
+// barMax with the description.
+const SMALL = {
+    w: 50, h: 40, margin: 3,
+    font: 10, minFont: 7, descTop: 6, descGap: 2.2,
+    barW: 42, barBottom: 30.5, barMax: 13, barMin: 8,
+    digitsFs: 7, digitsY: 33.4, footFs: 6.5, footY: 37.5
+}
+const LARGE = {
+    w: 100, h: 50, margin: 4,
+    font: 14, minFont: 9, descTop: 8, descGap: 2.5,
+    barW: 80, barBottom: 38, barMax: 22, barMin: 12,
+    digitsFs: 10, digitsY: 42, footFs: 9, footY: 47
+}
+
+export function isBestSourcingCustomer(name) {
+    return /best\s*sourc/i.test(String(name || '')) // "Best Sourcing Pty Ltd" / "BEST SOURCING"
+}
+
+// The label size for a dispatch record's customer.
+export function dispatchLabelLayout(record) {
+    return isBestSourcingCustomer(record && record.customerName) ? LARGE : SMALL
+}
 
 function fmtDate(d) {
     const x = new Date(d)
@@ -42,45 +64,41 @@ function barcodePng(value) {
     return canvas.toDataURL('image/png')
 }
 
-// Draw one label onto the doc's CURRENT page. `pngCache` avoids re-rendering
-// the same barcode for every copy of a multi-qty line.
-function drawLabel(doc, record, batch, line, pngCache) {
+// Draw one label onto the doc's CURRENT page, `L` its layout (SMALL /
+// LARGE). `pngCache` avoids re-rendering the same barcode for every copy
+// of a multi-qty line.
+function drawLabel(doc, record, batch, line, pngCache, L = SMALL) {
     doc.setTextColor(0)
 
     // ── Flexible layout ────────────────────────────────────────────
     // The bottom half is anchored (barcode bottom, digits, footer never
-    // move); the description prints at 10pt and, when it needs an extra
-    // line, the barcode gives up height to make room — down to a minimum
-    // a handheld scanner still reads comfortably. Only when even the
-    // minimum-height barcode can't fit the text does the font shrink.
-    const BARCODE_BOTTOM = 30.5
-    const BARCODE_MAX_H = 13
-    const BARCODE_MIN_H = 8
-    const DESC_TOP = 6      // first baseline
-    const DESC_GAP = 2.2    // last baseline → barcode top
+    // move); the description prints at the full font and, when it needs
+    // an extra line, the barcode gives up height to make room — down to a
+    // minimum a handheld scanner still reads comfortably. Only when even
+    // the minimum-height barcode can't fit the text does the font shrink.
     const lineH = (fs) => fs * 0.425
 
     const desc = String((line && line.description) || '').trim() || '—'
     doc.setFont('helvetica', 'bold')
-    let fontSize = 10
+    let fontSize = L.font
     let lines
     for (;;) {
         doc.setFontSize(fontSize)
-        lines = doc.splitTextToSize(desc, LABEL_W - MARGIN * 2)
-        const descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
-        if (BARCODE_BOTTOM - (descBottom + DESC_GAP) >= BARCODE_MIN_H || fontSize <= 7) break
+        lines = doc.splitTextToSize(desc, L.w - L.margin * 2)
+        const descBottom = L.descTop + (lines.length - 1) * lineH(fontSize)
+        if (L.barBottom - (descBottom + L.descGap) >= L.barMin || fontSize <= L.minFont) break
         fontSize -= 0.5
     }
-    // Absurdly long text even at 7pt: drop trailing lines rather than
-    // squeeze the barcode below scannable.
-    let descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
-    while (lines.length > 1 && BARCODE_BOTTOM - (descBottom + DESC_GAP) < BARCODE_MIN_H) {
+    // Absurdly long text even at the smallest font: drop trailing lines
+    // rather than squeeze the barcode below scannable.
+    let descBottom = L.descTop + (lines.length - 1) * lineH(fontSize)
+    while (lines.length > 1 && L.barBottom - (descBottom + L.descGap) < L.barMin) {
         lines.pop()
-        descBottom = DESC_TOP + (lines.length - 1) * lineH(fontSize)
+        descBottom = L.descTop + (lines.length - 1) * lineH(fontSize)
     }
-    let y = DESC_TOP
+    let y = L.descTop
     for (const l of lines) {
-        doc.text(l, LABEL_W / 2, y, { align: 'center' })
+        doc.text(l, L.w / 2, y, { align: 'center' })
         y += lineH(fontSize)
     }
 
@@ -90,29 +108,29 @@ function drawLabel(doc, record, batch, line, pngCache) {
         const png = pngCache
             ? pngCache[value] || (pngCache[value] = barcodePng(value))
             : barcodePng(value)
-        const bw = LABEL_W - MARGIN * 2 - 2
-        const barcodeTop = Math.max(descBottom + DESC_GAP, BARCODE_BOTTOM - BARCODE_MAX_H)
-        doc.addImage(png, 'PNG', (LABEL_W - bw) / 2, barcodeTop, bw, BARCODE_BOTTOM - barcodeTop)
+        const barcodeTop = Math.max(descBottom + L.descGap, L.barBottom - L.barMax)
+        doc.addImage(png, 'PNG', (L.w - L.barW) / 2, barcodeTop, L.barW, L.barBottom - barcodeTop)
         doc.setFont('helvetica', 'normal')
-        doc.setFontSize(7)
-        doc.text(value, LABEL_W / 2, 33.4, { align: 'center' })
+        doc.setFontSize(L.digitsFs)
+        doc.text(value, L.w / 2, L.digitsY, { align: 'center' })
     }
 
     // ── Footer: PO number + dispatched date, one line ──────────────
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(6.5)
-    doc.text(String((record && record.invoiceNumber) || ''), MARGIN, LABEL_H - 2.5)
-    doc.text(fmtDate(batch && batch.at), LABEL_W - MARGIN, LABEL_H - 2.5, { align: 'right' })
+    doc.setFontSize(L.footFs)
+    doc.text(String((record && record.invoiceNumber) || ''), L.margin, L.footY)
+    doc.text(fmtDate(batch && batch.at), L.w - L.margin, L.footY, { align: 'right' })
 }
 
-function newLabelDoc() {
+function newLabelDoc(L = SMALL) {
     // format sorts [min, max]; landscape makes the larger side the width.
-    return new jsPDF({ unit: 'mm', format: [LABEL_W, LABEL_H], orientation: 'landscape' })
+    return new jsPDF({ unit: 'mm', format: [L.w, L.h], orientation: 'landscape' })
 }
 
 export function buildItemLabelPdf({ record, batch, line }) {
-    const doc = newLabelDoc()
-    drawLabel(doc, record, batch, line)
+    const L = dispatchLabelLayout(record)
+    const doc = newLabelDoc(L)
+    drawLabel(doc, record, batch, line, null, L)
     return doc
 }
 
@@ -120,31 +138,34 @@ export function buildItemLabelPdf({ record, batch, line }) {
 // without a barcode are skipped (nothing to scan). Returns null when no
 // line is printable.
 export function buildBatchLabelsPdf({ record, batch }) {
-    const doc = newLabelDoc()
+    const L = dispatchLabelLayout(record)
+    const doc = newLabelDoc(L)
     const pngCache = {}
     let pages = 0
     for (const line of (batch && batch.lines) || []) {
         if (!String((line && line.sku) || '').trim()) continue
         const copies = Math.floor(Number(line && line.qty)) || 0
         for (let i = 0; i < copies; i++) {
-            if (pages > 0) doc.addPage([LABEL_W, LABEL_H], 'landscape')
+            if (pages > 0) doc.addPage([L.w, L.h], 'landscape')
             pages++
-            drawLabel(doc, record, batch, line, pngCache)
+            drawLabel(doc, record, batch, line, pngCache, L)
         }
     }
     return pages ? doc : null
 }
 
-// The same 50 × 40 label onto an existing jsPDF doc (or a new one when `doc`
-// is null), `units` copies — the Spare Parts Purchase pages print it for a
+// The same label onto an existing jsPDF doc (or a new one when `doc` is
+// null), `units` copies — the Spare Parts Purchase pages print it for a
 // line ordered for a customer other than Oscar (Best Sourcing, 2026-10-19):
 // the customer's description and barcode, their PO number and the date.
+// `record.customerName` picks the size, as on Order Dispatch.
 export function appendDispatchLabelsToDoc(doc, { record, batch, line }, units = 1) {
+    const L = dispatchLabelLayout(record)
     const pngCache = {}
     for (let u = 0; u < Math.max(1, Math.floor(Number(units)) || 1); u++) {
-        if (!doc) doc = newLabelDoc()
-        else doc.addPage([LABEL_W, LABEL_H], 'landscape')
-        drawLabel(doc, record, batch, line, pngCache)
+        if (!doc) doc = newLabelDoc(L)
+        else doc.addPage([L.w, L.h], 'landscape')
+        drawLabel(doc, record, batch, line, pngCache, L)
     }
     return doc
 }

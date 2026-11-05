@@ -1541,7 +1541,8 @@ export default {
         customerLabelArgs(named) {
             const cdr = named.dispatchRef || {}
             return {
-                record: { invoiceNumber: cdr.invoiceNumber || '' },
+                // the customer picks the label size (Best Sourcing 100 × 50, 2026-11-05)
+                record: { invoiceNumber: cdr.invoiceNumber || '', customerName: cdr.customerName || named.forCustomer || '' },
                 batch: { at: new Date() },
                 line: { sku: cdr.customerSku, description: named.customerLabelName || named.labelName || cdr.customerDescription || named.productName }
             }
@@ -1582,7 +1583,7 @@ export default {
         },
         // One PDF in the table's order, by kind as on a batch's "Print labels": the
         // part labels and Special Orders on the chosen size, then Oscar's 100 × 50
-        // sets, then other customers' 50 × 40 labels.
+        // sets, then other customers' Order Dispatch labels (Best Sourcing 100 × 50).
         buildSelectedLabels() {
             const s = this.labelSel
             if (!s) return null
