@@ -1199,26 +1199,50 @@ export const moduleRoutes = [
     ]
   },
   {
-    // Point of Sale — distributors embed our parts widget on their own
+    // Embed Ordering — distributors embed our parts widget on their own
     // site and sell to their customers; orders land in their portal and,
     // once confirmed, become Zoho sales orders. Self-contained module:
-    // backend routes/posRoutes, pos_* collections, pos:* permissions.
-    path: "/pos",
+    // backend routes/embedOrderingRoutes, embed_ordering_* collections, embedOrdering:* permissions.
+    path: "/embed-ordering",
     component: Layout,
     redirect: "noRedirect",
     alwaysShow: true,
     meta: { title: "Embed Ordering", icon: "el-icon-shopping-cart-full" },
     children: [
       {
+        // Orders placed through the ordering widget (user, 2026-11-06 —
+        // demo: no prices, stays in the dashboard; iMobile staff, Admin only).
+        path: "orders",
+        component: (resolve) => require(["@/views/embedOrdering/orders"], resolve),
+        name: "EmbedOrders",
+        meta: {
+          title: "Orders",
+          icon: "el-icon-tickets",
+          permissions: ["embedOrdering:order:view"]
+        }
+      },
+      {
+        // The embeddable ordering widget (a copy of iMobile Listing →
+        // Listing Widget with a cart): embed code per distributor + preview.
+        path: "widget",
+        component: (resolve) => require(["@/views/embedOrdering/orderingWidget"], resolve),
+        name: "EmbedOrderingWidget",
+        meta: {
+          title: "Ordering Widget",
+          icon: "el-icon-data-board",
+          permissions: ["embedOrdering:distributor:view"]
+        }
+      },
+      {
         // Businesses embedding the widget — contact details, the sites
         // allowed to load it, their public key and Zoho contact.
         path: "distributors",
-        component: (resolve) => require(["@/views/pos/distributors"], resolve),
-        name: "PosDistributors",
+        component: (resolve) => require(["@/views/embedOrdering/distributors"], resolve),
+        name: "EmbedDistributors",
         meta: {
           title: "Distributors",
           icon: "el-icon-office-building",
-          permissions: ["pos:distributor:view"]
+          permissions: ["embedOrdering:distributor:view"]
         }
       },
       {
@@ -1226,12 +1250,12 @@ export const moduleRoutes = [
         // same email can hold an account with two of them without their
         // data mixing. Created by the distributor, never self-registered.
         path: "customers",
-        component: (resolve) => require(["@/views/pos/customers"], resolve),
-        name: "PosCustomers",
+        component: (resolve) => require(["@/views/embedOrdering/customers"], resolve),
+        name: "EmbedCustomers",
         meta: {
           title: "Customers",
           icon: "el-icon-user",
-          permissions: ["pos:customer:view"]
+          permissions: ["embedOrdering:customer:view"]
         }
       },
       {

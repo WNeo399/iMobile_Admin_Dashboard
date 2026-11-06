@@ -142,9 +142,9 @@
 
 <script>
 import {
-    getPosCustomers, createPosCustomer, updatePosCustomer, deletePosCustomer,
-    getPosDistributors
-} from '@/api/pos'
+    getEmbedCustomers, createEmbedCustomer, updateEmbedCustomer, deleteEmbedCustomer,
+    getEmbedDistributors
+} from '@/api/embedOrdering'
 
 const STATES = [
     'Victoria',
@@ -168,7 +168,7 @@ function emptyForm() {
 }
 
 export default {
-    name: 'PosCustomers',
+    name: 'EmbedCustomers',
     data() {
         return {
             loading: false,
@@ -196,7 +196,7 @@ export default {
         },
         async loadDistributors() {
             try {
-                const r = await getPosDistributors()
+                const r = await getEmbedDistributors()
                 this.distributors = r.distributors || []
             } catch (e) {
                 this.distributors = []
@@ -205,7 +205,7 @@ export default {
         async load() {
             this.loading = true
             try {
-                const r = await getPosCustomers(this.query)
+                const r = await getEmbedCustomers(this.query)
                 this.rows = r.customers || []
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to load customers'))
@@ -239,10 +239,10 @@ export default {
             this.saving = true
             try {
                 if (this.editRow) {
-                    await updatePosCustomer(this.editRow._id, this.form)
+                    await updateEmbedCustomer(this.editRow._id, this.form)
                     this.$message.success('Customer updated')
                 } else {
-                    await createPosCustomer(this.form)
+                    await createEmbedCustomer(this.form)
                     this.$message.success('Customer added')
                 }
                 this.editVisible = false
@@ -260,7 +260,7 @@ export default {
                 })
             } catch (e) { return }
             try {
-                await deletePosCustomer(row._id)
+                await deleteEmbedCustomer(row._id)
                 this.$message.success('Customer removed')
                 this.load()
             } catch (e) {

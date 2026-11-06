@@ -95,6 +95,7 @@ export default {
     'Scraper': '数据抓取',
     'Location Monitoring': '位置监控',
     'Embed Ordering': '嵌入订购',
+    'Ordering Widget': '订购组件',
     'Distributors': '分销商',
     'iMobile Website': 'iMobile 官网',
     'iMobile Listing': 'iMobile 商品上架',

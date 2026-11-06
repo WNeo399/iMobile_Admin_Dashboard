@@ -182,9 +182,19 @@
 
 <script>
 import {
-    getPosDistributors, createPosDistributor, updatePosDistributor,
-    rotatePosDistributorKey, deletePosDistributor
-} from '@/api/pos'
+    getEmbedDistributors, createEmbedDistributor, updateEmbedDistributor,
+    rotateEmbedDistributorKey, deleteEmbedDistributor
+} from '@/api/embedOrdering'
+
+// Where the backend (and so the widget script) lives: the API base when it
+// is absolute, else this origin (same as the Ordering Widget page).
+function backendOrigin() {
+    try {
+        return new URL(process.env.VUE_APP_BASE_API).origin
+    } catch (e) {
+        return window.location.origin
+    }
+}
 
 const EMPTY = {
     name: '', contactName: '', email: '', phone: '',
@@ -209,7 +219,7 @@ function emptyForm() {
 }
 
 export default {
-    name: 'PosDistributors',
+    name: 'EmbedDistributors',
     data() {
         return {
             loading: false,
@@ -228,12 +238,14 @@ export default {
     computed: {
         snippet() {
             if (!this.keyRow) return ''
-            const base = window.location.origin
+            // The backend's address (production: the Railway backend), not
+            // the dashboard's — the widget script and its API live there.
+            const base = backendOrigin()
             return [
-                `<div id="imobile-pos"`,
+                `<div id="imobile-embed-ordering"`,
                 `     data-api-base="${base}"`,
                 `     data-distributor-key="${this.keyRow.publicKey}"></div>`,
-                `<script src="${base}/widget-assets/pos/v1.js" defer><\/script>`
+                `<script src="${base}/widget-assets/embed-ordering/v1.js" defer><\/script>`
             ].join('\n')
         }
     },
@@ -252,7 +264,7 @@ export default {
         async load() {
             this.loading = true
             try {
-                const r = await getPosDistributors(this.query)
+                const r = await getEmbedDistributors(this.query)
                 this.rows = r.distributors || []
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to load distributors'))
@@ -282,10 +294,10 @@ export default {
             this.saving = true
             try {
                 if (this.editRow) {
-                    await updatePosDistributor(this.editRow._id, this.form)
+                    await updateEmbedDistributor(this.editRow._id, this.form)
                     this.$message.success('Distributor updated')
                 } else {
-                    const r = await createPosDistributor(this.form)
+                    const r = await createEmbedDistributor(this.form)
                     this.$message.success('Distributor added')
                     // Straight to the key — it's the thing they need next.
                     this.keyRow = r.distributor
@@ -312,7 +324,7 @@ export default {
             } catch (e) { return }
             this.rotating = true
             try {
-                const r = await rotatePosDistributorKey(this.keyRow._id)
+                const r = await rotateEmbedDistributorKey(this.keyRow._id)
                 this.keyRow = r.distributor
                 this.$message.success('New key issued')
                 this.load()
@@ -344,7 +356,7 @@ export default {
                 })
             } catch (e) { return }
             try {
-                await deletePosDistributor(row._id)
+                await deleteEmbedDistributor(row._id)
                 this.$message.success('Distributor removed')
                 this.load()
             } catch (e) {
