@@ -96,6 +96,7 @@ export default {
     'Location Monitoring': '位置监控',
     'Embed Ordering': '嵌入订购',
     'Ordering Widget': '订购组件',
+    '3D Diagrams': '3D 爆炸图',
     'Distributors': '分销商',
     'iMobile Website': 'iMobile 官网',
     'iMobile Listing': 'iMobile 商品上架',

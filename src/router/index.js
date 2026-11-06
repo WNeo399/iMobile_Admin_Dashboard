@@ -1234,6 +1234,19 @@ export const moduleRoutes = [
         }
       },
       {
+        // 3D exploded models (.glb) per phone model (user, 2026-11-06 — "only
+        // 3D diagram" for the ordering widget): upload, link each part to
+        // our items, publish → the widget's "3D view".
+        path: "diagrams-3d",
+        component: (resolve) => require(["@/views/embedOrdering/diagrams3d"], resolve),
+        name: "EmbedDiagrams3d",
+        meta: {
+          title: "3D Diagrams",
+          icon: "el-icon-box",
+          permissions: ["embedOrdering:diagram:view"]
+        }
+      },
+      {
         // Businesses embedding the widget — contact details, the sites
         // allowed to load it, their public key and Zoho contact.
         path: "distributors",
