@@ -1263,7 +1263,7 @@ export default {
     // Purchase Order: ticked lines' labels together (2026-11-04)
     'Clear selection': '清除勾选',
     '{n} labels': '共 {n} 张标签',
-    'One label per piece: the received, shipped or ordered quantity': '每件一张：按已收、已发或下单数量',
+    'One label per line': '每行一张',
     'Too many labels ({n}) — tick fewer lines': '标签太多（{n} 张）— 请少选几行',
     'Orientation': '方向',
     'Portrait': '纵向',

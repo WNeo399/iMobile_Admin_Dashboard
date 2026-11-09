@@ -621,10 +621,10 @@
                 </el-radio-group>
                 <span v-if="labelSize === '40x30x2'">{{ $tp(labelMulti ? '2 labels per page, side by side' : 'The label prints twice, side by side — each copy in the printer dialog gives 2') }}</span>
             </div>
-            <!-- several lines: a label per piece — the count matches the quantity (user 2026-11-04) -->
+            <!-- several lines: one label per line (user 2026-11-09; per piece before) -->
             <div v-if="labelMulti" class="label-orient">
                 <b>{{ $tp('{n} labels', { n: labelCount }) }}</b>
-                <span>{{ $tp('One label per piece: the received, shipped or ordered quantity') }}</span>
+                <span>{{ $tp('One label per line') }}</span>
             </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spp-label-frame" title="labels" />
             <span slot="footer" class="spp-dlg-foot">
@@ -675,8 +675,8 @@ const BOARD_RECEIVED = 30
 import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, buildSppMixedLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
 import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
 
-// Ticked lines printed together: one label per piece (user 2026-11-04: the
-// label count must match the quantity). A PDF past MAX_LABELS would stall the page.
+// Ticked lines printed together: ONE label per line (user 2026-11-09 — it was
+// one per piece from 2026-11-04). A PDF past MAX_LABELS would stall the page.
 const MAX_LABELS = 2000
 // a row click ticks the row, except on these (they do their own thing)
 const ROW_CLICK_SKIP = 'button, a, input, textarea, .el-dropdown, .el-checkbox, .spp-pview, .spp-pedit, .spp-photos'
@@ -1567,19 +1567,13 @@ export default {
             if (this.$refs.table) this.$refs.table.clearSelection()
             this.selected = []
         },
-        // a line's pieces = its labels: what arrived, else what shipped, else the order qty
-        unitsOf(row) {
-            const q = row.status === 'received' && row.receivedQty != null ? row.receivedQty
-                : row.shippedQty != null ? row.shippedQty : row.orderQty
-            return Math.max(0, Math.floor(Number(q)) || 0)
-        },
-        // labels in the PDF: an Oscar set (per piece) is 2 item labels + the supplier card (when the prefix is known)
+        // labels in the PDF: one per line; an Oscar line's set is 2 item labels +
+        // the supplier card (when the prefix is known)
         selectedLabelCount() {
             const s = this.labelSel
             if (!s) return 0
-            const sum = (list, each) => list.reduce((t, l) => t + this.unitsOf(l) * each(l), 0)
-            return sum(s.part, () => 1) + sum(s.customer, () => 1) +
-                sum(s.oscar, l => (this.oscarLabelArgs(l).record.faultyCodePrefix ? 3 : 2))
+            return s.part.length + s.customer.length +
+                s.oscar.reduce((t, l) => t + (this.oscarLabelArgs(l).record.faultyCodePrefix ? 3 : 2), 0)
         },
         // One PDF in the table's order, by kind as on a batch's "Print labels": the
         // part labels and Special Orders on the chosen size, then Oscar's 100 × 50
@@ -1587,17 +1581,13 @@ export default {
         buildSelectedLabels() {
             const s = this.labelSel
             if (!s) return null
-            const n = l => this.unitsOf(l)
-            const items = []
-            for (const l of s.part) {
+            const items = s.part.map(l => {
                 const special = l.category === 'Special Order'
-                const line = special ? { orderNo: l.orderNo, by: this.specialBy(l) || l.requestedFor || '' } : l
-                for (let i = 0; i < n(l); i++) items.push({ line, special })
-            }
+                return { line: special ? { orderNo: l.orderNo, by: this.specialBy(l) || l.requestedFor || '' } : l, special }
+            })
             let doc = items.length ? buildSppMixedLabelsPdf(items) : null
-            // (the append helpers print at least one: a line with no pieces is left out here)
-            for (const l of s.oscar) if (n(l)) doc = appendOscarLabelsToDoc(doc, this.oscarLabelArgs(l), n(l))
-            for (const l of s.customer) if (n(l)) doc = appendDispatchLabelsToDoc(doc, this.customerLabelArgs(l), n(l))
+            for (const l of s.oscar) doc = appendOscarLabelsToDoc(doc, this.oscarLabelArgs(l), 1)
+            for (const l of s.customer) doc = appendDispatchLabelsToDoc(doc, this.customerLabelArgs(l), 1)
             return doc
         },
         async printSelectedLabels() {
