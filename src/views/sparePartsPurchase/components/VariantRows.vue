@@ -26,7 +26,7 @@
                     :placeholder="$tp('Variant, e.g. Black or 10pc')" class="vr-name" @input="v => set(i, { name: v })" />
                 <!-- its SKU in Zoho and its other photos -->
                 <div class="vr-line2">
-                    <span class="vr-sku" :title="isItem(i) ? $tp('This item keeps its SKU') : $tp('The SKU this variant gets in Zoho')">{{ skuOf(c, i) }}</span>
+                    <span class="vr-sku" :title="isItem(i) ? $tp('This item takes this SKU too — {sku} now', { sku: firstSku }) : $tp('The SKU this variant gets in Zoho')">{{ skuOf(c, i) }}</span>
                     <div class="vr-photos">
                         <div v-for="(f, j) in c.files.slice(1)" :key="f.key" class="vr-thumb">
                             <img :src="f.url" alt="" :title="f.name || (f.file && f.file.name) || ''" @click="view(c, j + 1)">
@@ -66,7 +66,8 @@ export default {
         // the SKU typed / found for the product — each variant's is <base>-<variant>
         baseSku: { type: String, default: '' },
         // Edit → a single product (2026-10-30): the first row is the item itself,
-        // which keeps this SKU and can't be removed
+        // which can't be removed; its SKU takes the suffix too, like every
+        // variant (user 2026-11-09): 22460 → 22460-Black
         firstSku: { type: String, default: '' },
         // … and its photo, while the row has none of its own to add
         firstImage: { type: String, default: '' },
@@ -98,8 +99,8 @@ export default {
             else this.pick(i)
         },
         skuOf(c, i) {
-            if (this.isItem(i)) return this.firstSku
             const name = String(c.name || '').replace(/\s+/g, ' ').trim()
+            if (this.isItem(i)) return `${this.firstSku}-${name || '…'}`
             return `${this.baseSku || '…'}-${name || '…'}`
         },
         set(i, patch) {

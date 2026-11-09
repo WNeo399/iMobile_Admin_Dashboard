@@ -154,8 +154,9 @@
                     </form-card>
 
                     <!-- its product's variants, and more added here (2026-10-30): a single
-                         product becomes one with variants — this item keeps its SKU,
-                         stock and store page, and gets its own variant title -->
+                         product becomes one with variants — this item keeps its stock
+                         and store page, gets its own variant title, and its SKU takes
+                         the suffix like every variant (user 2026-11-09) -->
                     <form-card v-if="editItem.variants" icon="layers" :title="$tp('Variants')" :sub="$tp('Other color/style variants of this item.')"
                         :hint="$tp('Each variant becomes its own Zoho item (its own SKU, stock and photos) under one product — the website shows them as options to pick.')"
                         :count="hasVariants ? editItem.variants.items.length : 0">
@@ -174,7 +175,7 @@
                             </div>
                         </div>
                         <!-- a single product, switched on: two rows to fill in, the first is
-                             this item (its SKU stays — user 2026-10-30) -->
+                             this item (its SKU becomes SKU-title — user 2026-11-09) -->
                         <variant-rows v-if="hasVariants || variantMode" v-model="newVariants" :base-sku="editItem.variants.baseSku" :first-sku="hasVariants ? '' : editItem.sku"
                             :first-image="hasVariants ? '' : editMainPhoto" :first-item-id="editItem.itemId" :disabled="variantsSaving" :max="10" />
                         <div v-if="namedNewVariants.length" class="pd-add">
@@ -638,7 +639,7 @@ export default {
             const skus = named.map(c => `${base}-${c.name}`).join(', ')
             const text = this.hasVariants
                 ? this.$tp('Add {n} variant(s) to "{product}" in Zoho now? New SKUs: {skus}.', { n: named.length, product: this.editItem.variants.productName, skus })
-                : this.$tp('Make "{product}" a product with variants? This item becomes "{own}" (its SKU {sku} stays) and {n} new variant(s) are made in Zoho now: {skus}.', { product: this.editItem.variants.productName, own, sku: this.editItem.sku, n: named.length, skus })
+                : this.$tp('Make {product} a product with variants? This item becomes {own} and its SKU changes from {sku} to {newSku} (reprint any labels with {sku}); {n} new variant(s) are made in Zoho now: {skus}', { product: this.editItem.variants.productName, own, sku: this.editItem.sku, newSku: `${this.editItem.sku}-${own}`, n: named.length, skus })
             try {
                 await this.$confirm(text, this.$tp('Add variants'), { type: 'warning', confirmButtonText: this.$tp('Add to Zoho'), cancelButtonText: this.$tp('Cancel') })
             } catch (e) { return }
@@ -656,12 +657,13 @@ export default {
                 const r = await addNewProductVariants(itemId, data)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 const made = (r.added || []).map(a => a.sku).join(', ')
-                this.$message.success(this.$tp('Added to Zoho: {skus}', { skus: made }))
+                this.$message.success(this.$tp('Added to Zoho: {skus}', { skus: made }) +
+                    (r.skuRenamed ? ' · ' + this.$tp('{from} is now {to}', { from: r.skuRenamed.from, to: r.skuRenamed.to }) : ''))
                 if ((r.problems || []).length) {
                     this.$alert(this.$tp('The variants were added, but some of it did not save: {list}. Fix it from Listing → Edit, Missing Images or Price Monitoring.', { list: r.problems.join('; ') }),
                         this.$tp('Check the new variants'), { type: 'warning' })
                 }
-                this.$emit('saved', { itemId, sku, done: [this.$tp('variants')], failed: r.problems || [] })
+                this.$emit('saved', { itemId, sku: r.skuRenamed ? r.skuRenamed.to : sku, done: [this.$tp('variants')], failed: r.problems || [] })
                 // read again: the variants as Zoho has them now
                 this.open()
             } catch (e) {
