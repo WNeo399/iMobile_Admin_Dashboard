@@ -145,14 +145,11 @@ export function reopenInflowDispatch(id) {
   return request({ url: `/inflow/dispatch/${id}/reopen`, method: 'post' })
 }
 
-// Customer portal management (admin)
-// Link / unlink the Refurbished customer whose purchases this customer's
-// portal logins can see (pass { refurbCustomerId } or null to unlink).
-export function setInflowPortalRefurbLink(name, data) {
-  return request({ url: `/inflow/customers/${encodeURIComponent(name)}/portal`, method: 'put', data })
-}
+// Customer portal management (admin). Device purchases are no longer linked
+// per InFlow customer: the Devices Customer role links each login to a
+// Refurbished customer on System → Users (2026-11-09).
 
-// Portal Devices tab — the linked Refurbished customer's orders.
+// My Devices (Devices Customer role) — the linked Refurbished customer's orders.
 export function getInflowStatementDevices() {
   return request({ url: '/inflow/statement/devices', method: 'get' })
 }

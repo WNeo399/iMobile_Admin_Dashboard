@@ -29,9 +29,10 @@ export const LANGUAGE_COOKIE = 'language'
 export function getLanguage() {
   const saved = Cookies.get(LANGUAGE_COOKIE)
   if (saved && messages[saved]) return saved
-  // First visit: follow the browser.
-  const nav = (navigator.language || '').toLowerCase()
-  return nav.indexOf('zh') === 0 ? 'zh' : 'en'
+  // First visit: English, whatever the browser's language (user 2026-11-09:
+  // "The default language should be English"). Chinese stays one click
+  // away on the globe button, and that choice is remembered.
+  return 'en'
 }
 
 const i18n = new VueI18n({

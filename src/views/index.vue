@@ -62,6 +62,7 @@ import ExyonAdminHome from './dashboard/ExyonAdminHome'
 import ExyonWarehouseHome from './dashboard/ExyonWarehouseHome'
 import CallCenterHome from './dashboard/CallCenterHome'
 import SupplierWarehouseHome from './dashboard/SupplierWarehouseHome'
+import DevicesCustomerHome from './dashboard/DevicesCustomerHome'
 
 // Role-aware home shell. Picks the dashboard variant that matches the user's
 // primary role; falls back to an admin-ish view for unknown roles so an
@@ -76,6 +77,7 @@ const ROLE_TO_COMPONENT = {
     'shop-owner': 'ShopOwnerHome',
     'repair-shop': 'RepairShopHome',
     'inflow-customer': 'InflowCustomerHome',
+    'devices-customer': 'DevicesCustomerHome',
     'phone-supplier': 'PhoneSupplierHome',
     'consignment-shop': 'ConsignmentShopHome',
     'imobile-purchase': 'ImobilePurchaseHome',
@@ -101,7 +103,7 @@ export default {
     components: {
         WelcomeBanner, AdminHome, TechEliteAdminHome,
         IMobileAdminHome, IMobileRepairAdminHome,
-        ShopOwnerHome, RepairShopHome, InflowCustomerHome,
+        ShopOwnerHome, RepairShopHome, InflowCustomerHome, DevicesCustomerHome,
         PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome, PartsSupplierHome, AccountantHome,
         WarehouseHome, FrontDeskHome, ExyonOperationHome, ExyonAdminHome, ExyonWarehouseHome, CallCenterHome, SupplierWarehouseHome
     },

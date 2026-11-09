@@ -55,18 +55,11 @@
                     <span class="ic-portal-hint">The customer signs in with a login below to view their statement.</span>
                 </div>
 
-                <!-- Link to a Refurbished Device customer: every login for
-                     this customer then also sees a Devices tab with their
-                     phone purchases (prices and totals included). -->
-                <div class="ic-portal-refurb">
-                    <span class="ic-portal-refurb-label">Devices access:</span>
-                    <el-select :value="portalRefurbId" size="mini" filterable clearable
-                        placeholder="Not linked — pick a Refurbished customer"
-                        class="ic-portal-refurb-sel" :loading="refurbOptionsLoading"
-                        @change="saveRefurbLink">
-                        <el-option v-for="c in refurbOptions" :key="c._id" :label="c.name" :value="c._id" />
-                    </el-select>
-                    <span v-if="portalRefurbId" class="ic-portal-hint">Logins see this customer's refurbished orders.</span>
+                <!-- Device purchases are no longer linked here: since
+                     2026-11-09 they come with the Devices Customer role,
+                     linked per login on System → Users. -->
+                <div class="ic-portal-hint ic-portal-devices-note">
+                    Refurbished-device purchases: give a login the Devices Customer role on System → Users.
                 </div>
 
                 <el-table v-if="portalUsers.length" :data="portalUsers" size="mini" border class="ic-portal-table">
@@ -99,8 +92,7 @@
 </template>
 
 <script>
-import { getInflowCustomers, getInflowPortal, createInflowPortalUser, updateInflowPortalUser, deleteInflowPortalUser, setInflowPortalRefurbLink } from '@/api/inflow'
-import { getRefurbCustomers } from '@/api/refurbished'
+import { getInflowCustomers, getInflowPortal, createInflowPortalUser, updateInflowPortalUser, deleteInflowPortalUser } from '@/api/inflow'
 
 export default {
     name: 'InflowCustomers',
@@ -118,10 +110,6 @@ export default {
             portalCustomer: null,
             portalEnabled: false,
             portalUsers: [],
-            // Refurbished-customer link (Devices tab access for this customer)
-            portalRefurbId: null,
-            refurbOptions: [],
-            refurbOptionsLoading: false,
             adding: false,
             addForm: { username: '', password: '', email: '' }
         }
@@ -183,33 +171,10 @@ export default {
                 if (r && r.success) {
                     this.portalEnabled = r.portalEnabled
                     this.portalUsers = r.users || []
-                    this.portalRefurbId = r.refurbCustomerId || null
                 }
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to load portal'))
             } finally { this.portalLoading = false }
-            this.loadRefurbOptions()
-        },
-        async loadRefurbOptions() {
-            if (this.refurbOptions.length) return
-            this.refurbOptionsLoading = true
-            try {
-                const r = await getRefurbCustomers()
-                if (r && r.success !== false) this.refurbOptions = r.customers || []
-            } catch (e) { /* non-fatal — the select just stays empty */ }
-            finally { this.refurbOptionsLoading = false }
-        },
-        async saveRefurbLink(id) {
-            try {
-                const r = await setInflowPortalRefurbLink(this.portalCustomer.name, { refurbCustomerId: id || null })
-                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                this.portalRefurbId = r.refurbCustomerId || null
-                this.$message.success(r.refurbCustomerName
-                    ? `Linked — logins now see ${r.refurbCustomerName}'s refurbished orders`
-                    : 'Devices access unlinked')
-            } catch (e) {
-                this.$message.error(this.msg(e, 'Failed to save the link'))
-            }
         },
         async addPortalUser() {
             const u = (this.addForm.username || '').trim()
@@ -284,14 +249,8 @@ export default {
 .ic-muted { color: #c0c4cc; }
 .ic-del { color: #F56C6C; }
 .ic-portal-status { font-size: 13px; color: #606266; margin-bottom: 12px; }
-.ic-portal-refurb {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    margin: -4px 0 12px;
-    font-size: 13px; color: #606266;
-}
-.ic-portal-refurb-label { font-weight: 600; }
-.ic-portal-refurb-sel { width: 280px; }
 .ic-portal-hint { color: #909399; font-size: 12px; margin-left: 8px; }
+.ic-portal-devices-note { margin: -4px 0 12px; }
 .ic-portal-table { margin-bottom: 14px; }
 .ic-empty2 { color: #909399; font-size: 13px; margin: 8px 0 14px; }
 .ic-add { border-top: 1px solid #ebeef5; padding-top: 12px; }

@@ -895,12 +895,14 @@ export const moduleRoutes = [
     ]
   },
   {
-    // InFlow customer portal — My Devices: refurbished devices sold to the
-    // customer, via the inflow-customer → refurb-customer link. The page
-    // shows a friendly empty state when the account isn't linked.
+    // Devices Customer portal — My Devices: refurbished devices sold to the
+    // Refurbished customer linked on the login (System → Users). Its own
+    // role since 2026-11-09 (user: "separate the devices customer into an
+    // individual role"), combinable with InFlow Customer. The page shows a
+    // friendly empty state when the account isn't linked.
     path: "/portal/devices",
     component: Layout,
-    meta: { exclusiveRoles: ["inflow-customer"] },
+    meta: { exclusiveRoles: ["devices-customer"] },
     children: [
       {
         path: "index",

@@ -110,7 +110,7 @@
 
         <!-- Create / Edit dialog -->
         <el-dialog :title="dialogTitle" :visible.sync="open" width="600px" append-to-body :close-on-click-modal="false" @close="resetForm">
-            <el-form ref="form" :model="form" :rules="rules" label-width="110px" size="small">
+            <el-form ref="form" :model="form" :rules="rules" label-width="140px" size="small">
                 <el-form-item label="Username" prop="username">
                     <el-input v-model="form.username" :disabled="!!form._id" />
                 </el-form-item>
@@ -122,11 +122,11 @@
                         placeholder="At least 6 characters" />
                 </el-form-item>
                 <!--
-                    One role, or several of the roles under iMobile and Exyon
-                    (and SQT Call Center, 2026-11-05) together (the backend
-                    marks those `combinable`). The other TechElite roles, InFlow
-                    and Consignment stay an account's only role, so picking one
-                    greys the rest out — and the other way round.
+                    One role, or several of the same family together (the
+                    backend marks each role's `combineFamily`): the roles under
+                    iMobile and Exyon and SQT Call Center with each other, and
+                    InFlow Customer with Devices Customer (2026-11-09). The other
+                    TechElite roles and Consignment stay an account's only role.
                 -->
                 <el-form-item label="Role" prop="roles">
                     <el-select v-model="form.roles" multiple placeholder="Select a role" style="width: 100%">
@@ -135,8 +135,8 @@
                     </el-select>
                     <div class="form-hint">
                         The roles under iMobile and Exyon can be combined — the account gets everything each of them
-                        allows, and the first one picked is its main role. The TechElite, InFlow and
-                        Consignment roles can't be combined.
+                        allows, and the first one picked is its main role. InFlow Customer and Devices Customer can
+                        be combined with each other. The other TechElite and Consignment roles can't be combined.
                     </div>
                 </el-form-item>
                 <!--
@@ -180,22 +180,22 @@
                 <!-- Links an InFlow Customer portal login to the customer whose
                      statement it can view. Auto-set when created via the
                      Customer page's "Enable User Portal"; editable here too. -->
-                <el-form-item v-if="selectedRoleIsInflowCustomer" label="Customer" prop="inflowCustomerName">
-                    <el-select v-model="form.inflowCustomerName" filterable clearable placeholder="Link to an InFlow customer" style="width: 100%" @change="onInflowCustomerChange">
+                <el-form-item v-if="selectedRoleIsInflowCustomer" label="InFlow customer" prop="inflowCustomerName">
+                    <el-select v-model="form.inflowCustomerName" filterable clearable placeholder="Link to an InFlow customer" style="width: 100%">
                         <el-option v-for="c in inflowCustomers" :key="c" :label="c" :value="c" />
                     </el-select>
-                    <div class="form-hint">This login sees only this customer's statement.</div>
+                    <div class="form-hint">This login sees only this customer's orders and statement.</div>
                 </el-form-item>
-                <!-- The customer-level Devices link (same one the Customer
-                     page's portal dialog manages): the portal also shows the
-                     linked Refurbished customer's device orders. -->
-                <el-form-item v-if="selectedRoleIsInflowCustomer && form.inflowCustomerName" label="Devices">
+                <!-- Devices Customer (2026-11-09): the Refurbished customer whose
+                     device purchases this login sees on My Devices — set per
+                     login, not per InFlow customer. -->
+                <el-form-item v-if="selectedRoleIsDevicesCustomer" label="Devices customer" prop="refurbCustomerId">
                     <el-select v-model="form.refurbCustomerId" filterable clearable
-                        placeholder="Not linked — pick a Refurbished customer"
-                        style="width: 100%" :loading="refurbLinkLoading">
+                        placeholder="Pick a Refurbished Device customer"
+                        style="width: 100%" :loading="refurbCustomersLoading">
                         <el-option v-for="c in refurbCustomers" :key="c._id" :label="c.name" :value="c._id" />
                     </el-select>
-                    <div class="form-hint">Optional — applies to every portal login of {{ form.inflowCustomerName }}, not just this one.</div>
+                    <div class="form-hint">This login sees this customer's refurbished-device purchases (My Devices).</div>
                 </el-form-item>
                 <!-- Where this supplier's stock comes from. Refurbished
                      devices they add are stamped with it; iMobile staff get
@@ -235,7 +235,7 @@
 <script>
 import { listUsers, createUser, updateUser, deleteUser, resetUserPassword, listRoles } from '@/api/system/users'
 import { listShops } from '@/api/sqt/shops'
-import { getInflowFilters, getInflowPortal, setInflowPortalRefurbLink } from '@/api/inflow'
+import { getInflowFilters } from '@/api/inflow'
 import { getRefurbCustomers } from '@/api/refurbished'
 
 // Pseudo node-keys for the role tree. Real role rows use `role:<value>`.
@@ -273,11 +273,9 @@ export default {
             roleGroups: [],
             shops: [],
             inflowCustomers: [],
-            // Refurbished customers for the Devices link + the link's saved
-            // state (compared on save so an unchanged link isn't re-written).
+            // Refurbished Device customers, for the Devices Customer link.
             refurbCustomers: [],
-            refurbLinkLoading: false,
-            refurbLinkOriginal: null,
+            refurbCustomersLoading: false,
             // Same list the Incoming Stocks upload offers — a stock source
             // means the same thing in both places.
             stockSources: ['HK', 'iMobile', 'DICO', 'Exyon'],
@@ -319,10 +317,10 @@ export default {
         }
     },
     computed: {
-        // The account's main role. The shops and InFlow customer fields
-        // belong to roles that can't be combined, so the main role is the
-        // only one whenever they show; the stock source belongs to Phone
-        // Supplier, which can be — it shows whenever that role is picked.
+        // The account's main role. The shops belong to roles that can't be
+        // combined, so the main role is the only one whenever they show; the
+        // stock source (Phone Supplier) and the InFlow / Devices customer
+        // links show whenever their role is picked — those roles combine.
         primaryRole() {
             return (this.form.roles && this.form.roles[0]) || ''
         },
@@ -335,7 +333,10 @@ export default {
             return this.primaryRole === 'repair-shop'
         },
         selectedRoleIsInflowCustomer() {
-            return this.primaryRole === 'inflow-customer'
+            return (this.form.roles || []).includes('inflow-customer')
+        },
+        selectedRoleIsDevicesCustomer() {
+            return (this.form.roles || []).includes('devices-customer')
         },
         selectedRoleIsPhoneSupplier() {
             return (this.form.roles || []).includes('phone-supplier')
@@ -383,6 +384,10 @@ export default {
             if (newRole === 'repair-shop' && Array.isArray(this.form.shopIds) && this.form.shopIds.length > 1) {
                 this.form.shopIds = this.form.shopIds.slice(0, 1)
             }
+        },
+        // The Devices customer list loads when that role is picked.
+        selectedRoleIsDevicesCustomer(on) {
+            if (on) this.loadRefurbCustomers()
         }
     },
     async created() {
@@ -472,7 +477,6 @@ export default {
         // ── User row actions ──────────────────────────────────────────
         handleAdd() {
             this.form = emptyForm()
-            this.refurbLinkOriginal = null
             this.dialogTitle = 'Add User'
             this.open = true
         },
@@ -485,43 +489,22 @@ export default {
                 roles: this.rowRoles(row),
                 shopIds: (row.shopIds || []).map(String),
                 inflowCustomerName: row.inflowCustomerName || '',
-                refurbCustomerId: null,
+                refurbCustomerId: row.refurbCustomerId ? String(row.refurbCustomerId) : null,
                 stockSource: row.stockSource || '',
                 active: row.active !== false
             }
-            this.refurbLinkOriginal = null
-            if (row.role === 'inflow-customer' && row.inflowCustomerName) {
-                this.loadRefurbLink(row.inflowCustomerName)
-            }
-            this.loadRefurbCustomers()
+            if (this.rowRoles(row).includes('devices-customer')) this.loadRefurbCustomers()
             this.dialogTitle = 'Edit User'
             this.open = true
         },
-        onInflowCustomerChange(name) {
-            this.form.refurbCustomerId = null
-            this.refurbLinkOriginal = null
-            if (name) this.loadRefurbLink(name)
-            this.loadRefurbCustomers()
-        },
-        // The Devices link lives on the inflow CUSTOMER (shared by all its
-        // logins) — read the current value so the select reflects it.
-        async loadRefurbLink(name) {
-            this.refurbLinkLoading = true
-            try {
-                const r = await getInflowPortal(name)
-                if (r && r.success) {
-                    this.form.refurbCustomerId = r.refurbCustomerId || null
-                    this.refurbLinkOriginal = r.refurbCustomerId || null
-                }
-            } catch (e) { /* non-fatal — select just starts empty */ }
-            finally { this.refurbLinkLoading = false }
-        },
         async loadRefurbCustomers() {
-            if (this.refurbCustomers.length) return
+            if (this.refurbCustomers.length || this.refurbCustomersLoading) return
+            this.refurbCustomersLoading = true
             try {
                 const r = await getRefurbCustomers()
-                if (r && r.success !== false) this.refurbCustomers = r.customers || []
+                if (r && r.success !== false) this.refurbCustomers = (r.customers || []).map(c => ({ ...c, _id: String(c._id) }))
             } catch (e) { /* non-fatal */ }
+            finally { this.refurbCustomersLoading = false }
         },
         async handleDelete(row) {
             try {
@@ -575,6 +558,9 @@ export default {
                     if (this.selectedRoleIsInflowCustomer) {
                         payload.inflowCustomerName = this.form.inflowCustomerName || ''
                     }
+                    if (this.selectedRoleIsDevicesCustomer) {
+                        payload.refurbCustomerId = this.form.refurbCustomerId || null
+                    }
                     if (this.selectedRoleIsPhoneSupplier) {
                         payload.stockSource = this.form.stockSource || ''
                     }
@@ -585,20 +571,6 @@ export default {
                         payload.password = this.form.password
                         await createUser(payload)
                         this.$message.success('User created')
-                    }
-                    // Save the customer-level Devices link when it changed.
-                    if (this.selectedRoleIsInflowCustomer && this.form.inflowCustomerName &&
-                        (this.form.refurbCustomerId || null) !== (this.refurbLinkOriginal || null)) {
-                        try {
-                            const r = await setInflowPortalRefurbLink(this.form.inflowCustomerName,
-                                { refurbCustomerId: this.form.refurbCustomerId || null })
-                            if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                            this.$message.success(r.refurbCustomerName
-                                ? `Devices access linked to ${r.refurbCustomerName}`
-                                : 'Devices access unlinked')
-                        } catch (e2) {
-                            this.$message.error('User saved, but the Devices link failed: ' + ((e2 && e2.message) || 'error'))
-                        }
                     }
                     this.open = false
                     this.getList()
@@ -625,17 +597,20 @@ export default {
             const extra = Array.isArray(row.roles) ? row.roles : []
             return [...new Set([row.role, ...extra].filter(Boolean))]
         },
-        // The roles under iMobile and Exyon (+ SQT Call Center) combine with each other; every other
-        // role is an account's only one. A picked role always stays
-        // clickable so it can be taken off again.
+        // Roles combine within their family: the roles under iMobile and
+        // Exyon (+ SQT Call Center) with each other, InFlow Customer with
+        // Devices Customer; every other role is an account's only one. A
+        // picked role always stays clickable so it can be taken off again.
         roleOptionDisabled(r) {
             const picked = this.form.roles || []
             if (!picked.length || picked.includes(r.value)) return false
-            const pickedAllStaff = picked.every(v => {
+            const familyOf = v => {
                 const p = this.roles.find(x => x.value === v)
-                return !!(p && p.combinable)
-            })
-            return !pickedAllStaff || !r.combinable
+                return (p && (p.combineFamily || (p.combinable ? 'staff' : null))) || null
+            }
+            const family = familyOf(picked[0])
+            if (!family || picked.some(v => familyOf(v) !== family)) return true
+            return familyOf(r.value) !== family
         },
         isShopScoped(role) {
             const r = this.roles.find(x => x.value === role)
