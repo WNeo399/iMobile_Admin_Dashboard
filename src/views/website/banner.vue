@@ -11,12 +11,12 @@
             <div>
                 <div class="wb-title">Banner</div>
                 <div class="wb-sub">
-                    The carousel on the iMobile website. Active banners show in this order<span v-if="canManage"> — drag to reorder</span>.
+                    The carousel on the iMobile website. Active banners show in this order, during their period if one is set<span v-if="canManage"> — drag to reorder</span>.
                 </div>
             </div>
             <div class="wb-spacer" />
             <el-button size="small" icon="el-icon-set-up" @click="openDisplay">Display</el-button>
-            <el-button size="small" icon="el-icon-view" :disabled="!activeRows.length" @click="openPreview">Preview</el-button>
+            <el-button size="small" icon="el-icon-view" :disabled="!liveRows.length" @click="openPreview">Preview</el-button>
             <el-button size="small" icon="el-icon-document-copy" @click="openEmbed">Embed code</el-button>
             <el-button v-if="canManage" type="primary" size="small" icon="el-icon-plus" @click="openCreate">Add Banner</el-button>
         </div>
@@ -30,9 +30,9 @@
 
             <draggable v-model="rows" handle=".wb-handle" :disabled="!canManage" :animation="180"
                 ghost-class="wb-ghost" @end="onDragEnd">
-                <div v-for="(b, i) in rows" :key="b._id" class="wb-card" :class="{ 'is-off': !b.active }">
+                <div v-for="b in rows" :key="b._id" class="wb-card" :class="{ 'is-off': !isLive(b) }">
                     <div v-if="canManage" class="wb-handle" title="Drag to reorder"><i class="el-icon-rank" /></div>
-                    <div class="wb-no">{{ b.active ? slotOf(b) : '–' }}</div>
+                    <div class="wb-no">{{ isLive(b) ? slotOf(b) : '–' }}</div>
 
                     <div class="wb-thumbs">
                         <figure v-for="d in DEVICES" :key="d.key" class="wb-thumb">
@@ -59,13 +59,18 @@
                             </template>
                             <span v-else class="wb-dim">No link</span>
                         </div>
+                        <div v-if="b.startAt || b.endAt" class="wb-period-line">
+                            <i class="el-icon-time" />
+                            <span class="wb-period-text">{{ periodText(b) }}</span>
+                            <span :class="['wb-status', statusOf(b).key]">{{ statusOf(b).label }}</span>
+                        </div>
                         <div class="wb-dim wb-by">
                             Updated {{ fmtWhen(b.updatedAt) }}<span v-if="b.updatedBy"> · {{ b.updatedBy }}</span>
                         </div>
                     </div>
 
                     <div class="wb-actions">
-                        <el-tooltip :content="b.active ? 'Showing on the website' : 'Hidden from the website'" placement="top">
+                        <el-tooltip :content="switchTip(b)" placement="top">
                             <el-switch :value="b.active" :disabled="!canManage || b.__busy" @change="v => toggleActive(b, v)" />
                         </el-tooltip>
                         <template v-if="canManage">
@@ -92,6 +97,20 @@
                 <el-form-item label="Active">
                     <el-switch v-model="form.active" />
                     <span class="wb-hint wb-inline">Inactive banners stay here but don't show on the website.</span>
+                </el-form-item>
+                <el-form-item label="Period">
+                    <div class="wb-period">
+                        <el-date-picker v-model="form.startAt" type="datetime" format="dd/MM/yyyy HH:mm" default-time="00:00:00"
+                            placeholder="From — no start date" clearable class="wb-period-pick" />
+                        <span class="wb-dim">→</span>
+                        <el-date-picker v-model="form.endAt" type="datetime" format="dd/MM/yyyy HH:mm" default-time="23:59:59"
+                            placeholder="Until — no end date" clearable class="wb-period-pick" />
+                    </div>
+                    <div class="wb-hint">
+                        Optional. The banner shows only between these times, in your computer's time zone ({{ timeZone }}).
+                        Leave a side empty for no limit on that side. Active must be on as well.
+                    </div>
+                    <div v-if="formPeriodNote" class="wb-hint wb-warn-text"><i class="el-icon-warning" /> {{ formPeriodNote }}</div>
                 </el-form-item>
                 <el-form-item label="Images" required>
                     <div class="wb-drops">
@@ -136,7 +155,7 @@
                         <i :class="f.icon" /> {{ f.label }}
                     </el-radio-button>
                 </el-radio-group>
-                <span class="wb-dim">{{ frame.width }} px wide screen · active banners only, as the website shows them</span>
+                <span class="wb-dim">{{ frame.width }} px wide screen · the banners showing now, as the website shows them</span>
                 <div class="wb-spacer" />
                 <el-button size="mini" icon="el-icon-refresh" @click="reloadPreview">Reload</el-button>
             </div>
@@ -262,6 +281,8 @@ function emptyForm() {
         link: '',
         newTab: false,
         active: true,
+        startAt: null, // optional period (Date or null = no limit that side)
+        endAt: null,
         images: {}, // the saved images when editing
         files: {}, // device → newly picked File
         previews: {}, // device → object URL of the picked file
@@ -308,7 +329,10 @@ export default {
             pvScale: 1,
             embedVisible: false,
             origins: [],
-            originsLoading: false
+            originsLoading: false,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            // "now" for the period statuses, moved on every 30 s
+            nowTick: Date.now()
         }
     },
     computed: {
@@ -318,12 +342,14 @@ export default {
         canOrigins() {
             return hasPermission(this.$store.getters.permissions, 'system:user:manage')
         },
-        activeRows() {
-            return this.rows.filter(b => b.active)
+        // What the website shows now: active and inside the period, if any.
+        liveRows() {
+            return this.rows.filter(b => this.isLive(b))
         },
-        // The carousel's shape per device = the first active banner's image.
+        // The carousel's shape per device = the first banner it shows (the
+        // first active one when none is showing now).
         reference() {
-            const first = this.activeRows[0]
+            const first = this.liveRows[0] || this.rows.find(b => b.active)
             const out = {}
             DEVICES.forEach(d => {
                 out[d.key] = first && first.images ? first.images[d.key] : null
@@ -357,12 +383,22 @@ export default {
                 '<div id="imobile-banner-carousel"></div>',
                 `<script src="${base}/widget-assets/banner-carousel/v1.js" defer><\/script>`
             ].join('\n')
+        },
+        // A word under the form's period when it would keep the banner off.
+        formPeriodNote() {
+            const s = this.form.startAt ? new Date(this.form.startAt).getTime() : null
+            const e = this.form.endAt ? new Date(this.form.endAt).getTime() : null
+            if (s !== null && e !== null && e <= s) return 'The end must be after the start'
+            if (e !== null && e <= Date.now()) return 'That end time has passed — the banner won\'t show'
+            return ''
         }
     },
     created() {
         this.load()
+        this.ticker = setInterval(() => { this.nowTick = Date.now() }, 30000)
     },
     beforeDestroy() {
+        clearInterval(this.ticker)
         this.revokePreviews()
     },
     methods: {
@@ -374,6 +410,7 @@ export default {
             try {
                 const r = await listBanners()
                 this.rows = (r.rows || []).map(b => ({ ...b, __busy: false }))
+                this.nowTick = Date.now()
                 if (r.settings) this.settings = { maxHeight: r.settings.maxHeight || null, maxWidth: r.settings.maxWidth || null }
             } catch (e) {
                 this.$message.error(this.msg(e, 'Failed to load the banners'))
@@ -384,7 +421,33 @@ export default {
 
         // ── list ───────────────────────────────────────────────────
         slotOf(b) {
-            return this.activeRows.indexOf(b) + 1
+            return this.liveRows.indexOf(b) + 1
+        },
+        // Off (switch) / Scheduled (starts later) / Ended / Showing — the
+        // feed decides the same way on the server's clock.
+        statusOf(b) {
+            if (!b.active) return { key: 'off', label: 'Off' }
+            if (b.endAt && this.nowTick >= new Date(b.endAt).getTime()) return { key: 'ended', label: 'Ended' }
+            if (b.startAt && this.nowTick < new Date(b.startAt).getTime()) return { key: 'scheduled', label: 'Scheduled' }
+            return { key: 'live', label: 'Showing' }
+        },
+        isLive(b) {
+            return this.statusOf(b).key === 'live'
+        },
+        fmtPeriodWhen(v) {
+            return new Date(v).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+        },
+        periodText(b) {
+            if (b.startAt && b.endAt) return `${this.fmtPeriodWhen(b.startAt)} → ${this.fmtPeriodWhen(b.endAt)}`
+            if (b.startAt) return `From ${this.fmtPeriodWhen(b.startAt)}`
+            return `Until ${this.fmtPeriodWhen(b.endAt)}`
+        },
+        switchTip(b) {
+            if (!b.active) return 'Hidden from the website'
+            const st = this.statusOf(b).key
+            if (st === 'scheduled') return `On — shows from ${this.fmtPeriodWhen(b.startAt)}`
+            if (st === 'ended') return 'On, but its period has ended'
+            return 'Showing on the website'
         },
         dims(img) {
             return img && img.width ? `${img.width} × ${img.height}` : ''
@@ -425,7 +488,11 @@ export default {
                     b.updatedAt = r.banner.updatedAt
                     b.updatedBy = r.banner.updatedBy
                 }
-                this.$message.success(v ? 'Banner is showing on the website' : 'Banner hidden from the website')
+                const st = this.statusOf(b).key
+                this.$message.success(!v ? 'Banner hidden from the website'
+                    : st === 'scheduled' ? 'Banner switched on — it shows when its period starts'
+                        : st === 'ended' ? 'Banner switched on, but its period has ended'
+                            : 'Banner is showing on the website')
             } catch (e) {
                 this.$message.error(this.msg(e, 'Could not change the banner'))
             } finally {
@@ -462,6 +529,8 @@ export default {
                 link: b.link || '',
                 newTab: !!b.newTab,
                 active: !!b.active,
+                startAt: b.startAt ? new Date(b.startAt) : null,
+                endAt: b.endAt ? new Date(b.endAt) : null,
                 images: { ...(b.images || {}) }
             }
             this.editVisible = true
@@ -526,7 +595,8 @@ export default {
         },
         // The other banners' image for the device — a new one should match its shape.
         refFor(device) {
-            const ref = this.activeRows.find(b => b._id !== this.form.id)
+            const ref = this.liveRows.find(b => b._id !== this.form.id) ||
+                this.rows.find(b => b.active && b._id !== this.form.id)
             return ref && ref.images ? ref.images[device] : null
         },
         suggestion(device) {
@@ -556,7 +626,18 @@ export default {
                 const missing = DEVICES.filter(d => !f.files[d.key]).map(d => d.label.toLowerCase())
                 if (missing.length) return this.$message.warning(`Add the ${missing.join(', ')} image`)
             }
-            const fields = { title: f.title.trim(), link, newTab: !!(link && f.newTab), active: f.active }
+            const startAt = f.startAt ? new Date(f.startAt) : null
+            const endAt = f.endAt ? new Date(f.endAt) : null
+            if (startAt && endAt && endAt <= startAt) return this.$message.warning('The end must be after the start')
+            const fields = {
+                title: f.title.trim(),
+                link,
+                newTab: !!(link && f.newTab),
+                active: f.active,
+                // '' clears; the multipart body sends strings either way
+                startAt: startAt ? startAt.toISOString() : '',
+                endAt: endAt ? endAt.toISOString() : ''
+            }
             const hasFiles = DEVICES.some(d => f.files[d.key])
             let data = fields
             if (hasFiles || !f.id) {
@@ -716,6 +797,15 @@ export default {
 .wb-link a { color: #409eff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-link a:hover { text-decoration: underline; }
 .wb-by { font-size: 11px; margin-top: 4px; }
+.wb-period-line { font-size: 12px; color: #606266; margin-top: 4px; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.wb-period-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-status { flex: none; padding: 0 7px; border-radius: 9px; font-size: 11px; line-height: 18px; background: #f0f2f5; color: #606266; }
+.wb-status.live { background: #f0f9eb; color: #529b2e; }
+.wb-status.scheduled { background: #ecf5ff; color: #337ecc; }
+.wb-status.ended { background: #f4f4f5; color: #909399; }
+.wb-period { display: flex; align-items: center; gap: 8px; }
+.wb-period-pick { flex: 1; min-width: 0; }
+.wb-period-pick.el-date-editor.el-input { width: auto; }
 
 .wb-actions { display: flex; align-items: center; gap: 10px; flex: none; }
 .wb-actions .el-button + .el-button { margin-left: 0; }
