@@ -306,6 +306,9 @@
                         <template slot-scope="s">
                             <!-- Rows in the current lookup spin until it lands. -->
                             <i v-if="isChecking(s.row)" class="el-icon-loading fr-dim" :title="$tp('Checking…')" />
+                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
+                            <i v-else-if="s.row.bbStatus === 'found' && bbFails(s.row).length" class="el-icon-warning fr-warn-i"
+                                :title="$tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') })" />
                             <i v-else-if="s.row.bbStatus === 'found'" class="el-icon-success fr-yes" :title="$tp('Report found')" />
                             <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error fr-no" :title="$tp('No report')" />
                             <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning fr-warn-i"
@@ -669,6 +672,13 @@ export default {
         }
     },
     methods: {
+        // Tests the unit's Blackbelt report failed — any one = "Warning".
+        // The server sends the register's list (bbFailedTests); a line
+        // checked inline carries its own in bbDevice.
+        bbFails(row) {
+            if (Array.isArray(row.bbFailedTests)) return row.bbFailedTests
+            return (row.bbDevice && Array.isArray(row.bbDevice.failedTests)) ? row.bbDevice.failedTests : []
+        },
         msg(e, fallback) {
             return (e && e.response && e.response.data && e.response.data.message) || fallback
         },

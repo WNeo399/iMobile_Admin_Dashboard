@@ -75,7 +75,11 @@
                          Blackbelt has a report for the device, a cross when not. -->
                     <el-table-column label="Blackbelt" width="90" align="center">
                         <template slot-scope="s">
-                            <i v-if="s.row.bbChecked" class="el-icon-success rs-bb-yes"
+                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
+                            <i v-if="s.row.bbChecked && s.row.bbFailedTests && s.row.bbFailedTests.length"
+                                class="el-icon-warning rs-bb-warn"
+                                :title="'FAIL in Blackbelt testing: ' + s.row.bbFailedTests.join(', ')" />
+                            <i v-else-if="s.row.bbChecked" class="el-icon-success rs-bb-yes"
                                 :title="s.row.bbStatus || 'Blackbelt report found'" />
                             <i v-else class="el-icon-error rs-bb-no" title="No Blackbelt report" />
                         </template>
@@ -514,6 +518,7 @@ export default {
 // Blackbelt column + report tab — same classes/looks as the Refurbished
 // Stock page, so the two read identically.
 .rs-bb-yes { color: #67C23A; font-size: 17px; }
+.rs-bb-warn { color: #E6A23C; font-size: 17px; cursor: help; }
 .rs-bb-no { color: #F56C6C; font-size: 17px; }
 .rs-report { min-height: 160px; max-height: 66vh; overflow-y: auto; padding-right: 6px; }
 .rs-report-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

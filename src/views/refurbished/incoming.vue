@@ -226,7 +226,10 @@
                     </el-table-column>
                     <el-table-column label="Blackbelt" width="80" align="center">
                         <template slot-scope="s">
-                            <i v-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" :title="$tp('Report found')" />
+                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
+                            <i v-if="s.row.bbStatus === 'found' && bbFails(s.row).length" class="el-icon-warning ri-warn-i"
+                                :title="$tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') })" />
+                            <i v-else-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" :title="$tp('Report found')" />
                             <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" :title="$tp('No report')" />
                             <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning ri-warn-i"
                                 :title="s.row.bbMessage || $tp('Lookup failed')" />
@@ -774,6 +777,13 @@ export default {
         clearTimeout(this.flashTimer)
     },
     methods: {
+        // Tests the unit's Blackbelt report failed — any one = "Warning".
+        // The server sends the register's list (bbFailedTests); a line
+        // checked inline carries its own in bbDevice.
+        bbFails(row) {
+            if (Array.isArray(row.bbFailedTests)) return row.bbFailedTests
+            return (row.bbDevice && Array.isArray(row.bbDevice.failedTests)) ? row.bbDevice.failedTests : []
+        },
         // ── Batch list ───────────────────────────────────────────────
         async loadBatches() {
             this.loading = true

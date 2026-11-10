@@ -282,6 +282,13 @@
                         <template slot-scope="s">
                             <span v-if="!s.row.blackbelt" class="rso-dim">…</span>
                             <!-- just the tick: no status text (user 2026-11-05) -->
+                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
+                            <div v-else-if="bbTested(s.row) && bbFails(s.row).length" class="rso-bb-cell">
+                                <el-tooltip :content="$tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') })"
+                                    placement="top" :open-delay="300">
+                                    <i class="el-icon-warning rso-bb-warn" />
+                                </el-tooltip>
+                            </div>
                             <div v-else-if="bbTested(s.row)" class="rso-bb-cell">
                                 <el-tooltip :content="$tp('Tested in Blackbelt')" placement="top" :open-delay="300">
                                     <i class="el-icon-success rso-bb-tick" />
@@ -992,6 +999,8 @@ export default {
         bbSelectable(row) { return !!(row && row.deviceId && row.blackbelt && row.blackbelt.hasReport) },
         // tested in Blackbelt: a report on file (or the register's tick)
         bbTested(row) { return !!(row.blackbelt && (row.blackbelt.hasReport || row.blackbelt.checked)) },
+        // tests the device's Blackbelt report failed — any one = "Warning"
+        bbFails(row) { return (row.blackbelt && Array.isArray(row.blackbelt.failedTests)) ? row.blackbelt.failedTests : [] },
         // "Check" on a device Blackbelt had no report for: the Stock page's
         // check — a report found is written onto the device in the register.
         async bbCheck(row) {
@@ -1005,7 +1014,10 @@ export default {
                     return
                 }
                 const d = r.device || {}
-                this.$set(row, 'blackbelt', { checked: true, status: d.blackbeltStatus || '', hasReport: !!d.blackbeltReportId })
+                this.$set(row, 'blackbelt', {
+                    checked: true, status: d.blackbeltStatus || '', hasReport: !!d.blackbeltReportId,
+                    failedTests: Array.isArray(d.blackbeltFailedTests) ? d.blackbeltFailedTests : []
+                })
                 this.$message.success(this.$tp('{imei}: Blackbelt report found', { imei: row.imei }))
                 if ((r.corrected || []).length) {
                     this.$notify.info({
@@ -1153,6 +1165,7 @@ export default {
 .rso-bb-bar > .rso-dim { margin-right: auto; }
 .rso-bb-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rso-bb-tick { color: #67c23a; font-size: 16px; }
+.rso-bb-warn { color: #E6A23C; font-size: 16px; cursor: help; }
 .rso-detail ::v-deep .rso-sel-col .cell { padding: 0; text-overflow: clip; }
 .rso-bb-alert { margin-bottom: 8px; }
 .rso-cancel { color: #f56c6c; }
