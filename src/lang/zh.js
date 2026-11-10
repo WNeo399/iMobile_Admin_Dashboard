@@ -266,7 +266,6 @@ export default {
     'Unknown model': '未知机型',
     'Blackbelt report ready': 'Blackbelt 报告已就绪',
     // Blackbelt "Warning": a FAIL in the report's Device Testing Information (2026-11-10)
-    'Warning': '警告',
     'FAIL in Blackbelt testing: {tests}': 'Blackbelt 测试未通过：{tests}',
     'Warning — FAIL in Blackbelt testing: {tests}': '警告 — Blackbelt 测试未通过：{tests}',
     'Blackbelt Status': 'Blackbelt 状态',

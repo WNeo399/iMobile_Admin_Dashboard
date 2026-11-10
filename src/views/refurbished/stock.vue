@@ -135,8 +135,8 @@
                          The tooltip carries the report's verdict. Warning =
                          a test in the report's Device Testing Information
                          came back FAIL (2026-11-10; NOT TESTED is fine). -->
-                    <span v-if="s.row.blackbeltChecked === true && bbFails(s.row).length" class="rs-bb-warn"
-                        :title="bbWarnTip(s.row)"><i class="el-icon-warning" /> {{ $tp('Warning') }}</span>
+                    <i v-if="s.row.blackbeltChecked === true && bbFails(s.row).length" class="el-icon-warning rs-bb-warn"
+                        :title="bbWarnTip(s.row)" />
                     <i v-else-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
                         :title="s.row.blackbeltStatus || $tp('Blackbelt report found')" />
                     <i v-else class="el-icon-error rs-bb-no" :title="$tp('No Blackbelt report')" />
@@ -456,7 +456,7 @@
                              the Blackbelt Report tab. -->
                         <div class="rs-bb-line">
                             <template v-if="editRow.blackbeltReportId && bbFails(editRow).length">
-                                <span class="rs-bb-warn"><i class="el-icon-warning" /> {{ $tp('Warning') }}</span>
+                                <i class="el-icon-warning rs-bb-warn" />
                                 <span class="rs-bb-warn-text" :title="bbFails(editRow).join(', ')">
                                     {{ $tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(editRow).join(', ') }) }}
                                 </span>
@@ -1811,8 +1811,7 @@ export default {
 .rs-bb-line .el-button { margin-left: 6px; }
 .rs-bb-ok-text { color: #67C23A; font-weight: 600; }
 /* Blackbelt "Warning": a FAIL in the report's Device Testing Information */
-.rs-bb-warn { color: #E6A23C; font-weight: 600; font-size: 12px; white-space: nowrap; cursor: help; }
-.rs-bb-warn i { font-size: 16px; vertical-align: -2px; }
+.rs-bb-warn { color: #E6A23C; font-size: 17px; cursor: help; }
 .rs-bb-warn-text { color: #b88230; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-bb-check-btn { padding: 3px 8px; font-size: 11px; }
 /* Blackbelt report tab — laid out like the Analyst Report PDF */
