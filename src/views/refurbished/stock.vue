@@ -132,8 +132,12 @@
             <el-table-column label="Blackbelt" width="100" align="center">
                 <template slot-scope="s">
                     <!-- Read-only: the flag follows the Blackbelt lookup.
-                         The tooltip carries the report's verdict. -->
-                    <i v-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
+                         The tooltip carries the report's verdict. Warning =
+                         a test in the report's Device Testing Information
+                         came back FAIL (2026-11-10; NOT TESTED is fine). -->
+                    <span v-if="s.row.blackbeltChecked === true && bbFails(s.row).length" class="rs-bb-warn"
+                        :title="bbWarnTip(s.row)"><i class="el-icon-warning" /> {{ $tp('Warning') }}</span>
+                    <i v-else-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
                         :title="s.row.blackbeltStatus || $tp('Blackbelt report found')" />
                     <i v-else class="el-icon-error rs-bb-no" :title="$tp('No Blackbelt report')" />
                 </template>
@@ -451,7 +455,13 @@
                         <!-- Report availability — the verdict itself lives in
                              the Blackbelt Report tab. -->
                         <div class="rs-bb-line">
-                            <template v-if="editRow.blackbeltReportId">
+                            <template v-if="editRow.blackbeltReportId && bbFails(editRow).length">
+                                <span class="rs-bb-warn"><i class="el-icon-warning" /> {{ $tp('Warning') }}</span>
+                                <span class="rs-bb-warn-text" :title="bbFails(editRow).join(', ')">
+                                    {{ $tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(editRow).join(', ') }) }}
+                                </span>
+                            </template>
+                            <template v-else-if="editRow.blackbeltReportId">
                                 <i class="el-icon-success rs-bb-yes" />
                                 <span class="rs-bb-ok-text">{{ $tp('Blackbelt report ready') }}</span>
                             </template>
@@ -752,7 +762,8 @@ const FIELD_LABELS = {
     costPrice: 'Cost Price', currency: 'Currency', stockSource: 'Stock Source', location: 'Location',
     blackbeltChecked: 'Blackbelt', note: 'Note', brand: 'Brand', serialNumber: 'Serial Number',
     batteryHealth: 'Battery Health', batteryCycleCount: 'Battery Cycles',
-    batteryCapacity: 'Battery Capacity', aNumber: 'A Number', blackbeltReportId: 'Blackbelt Report'
+    batteryCapacity: 'Battery Capacity', aNumber: 'A Number', blackbeltReportId: 'Blackbelt Report',
+    blackbeltStatus: 'Blackbelt Status', blackbeltFailedTests: 'Blackbelt FAIL tests'
 }
 
 export default {
@@ -836,7 +847,8 @@ export default {
                 costPrice: '', currency: 'AUD',
                 stockSource: '', blackbeltChecked: false, note: '', supplierId: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
-                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: ''
+                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: '',
+                blackbeltFailedTests: undefined // from the add lookup only; edits never send it
             },
             saving: false,
             // IMEI lookup: idle | ok | known (already in stock) |
@@ -970,7 +982,8 @@ export default {
                 costPrice: '', currency: 'AUD',
                 stockSource: '', blackbeltChecked: false, note: '', supplierId: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
-                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: ''
+                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: '',
+                blackbeltFailedTests: undefined
             }
         },
         // The supplier's own suppliers list (Suppliers page) — for the
@@ -1099,7 +1112,9 @@ export default {
                     aNumber: d.aNumber || '',
                     blackbeltChecked: (r && r.blackbeltChecked) === true,
                     blackbeltReportId: (r && r.blackbeltReportId) || '',
-                    blackbeltStatus: (r && r.blackbeltStatus) || ''
+                    blackbeltStatus: (r && r.blackbeltStatus) || '',
+                    // the report's FAIL tests (any = Blackbelt "Warning")
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {})
                 }
                 row.bbFound = !!(r && r.found)
                 row.modelMissing = row.bbFound && !String(row.model || '').trim()
@@ -1408,7 +1423,8 @@ export default {
                 Object.assign(this.form, {
                     model: '', color: '', storage: '', stockSource: '', brand: '', serialNumber: '',
                     batteryHealth: null, batteryCycleCount: null, batteryCapacity: '',
-                    aNumber: '', blackbeltReportId: '', blackbeltStatus: '', blackbeltChecked: false
+                    aNumber: '', blackbeltReportId: '', blackbeltStatus: '', blackbeltChecked: false,
+                    blackbeltFailedTests: undefined
                 })
             }
         },
@@ -1432,7 +1448,9 @@ export default {
                     batteryCapacity: d.batteryCapacity || '',
                     aNumber: d.aNumber || '',
                     blackbeltReportId: r.blackbeltReportId || '',
-                    blackbeltStatus: r.blackbeltStatus || ''
+                    blackbeltStatus: r.blackbeltStatus || '',
+                    // the report's FAIL tests (any = Blackbelt "Warning"), sent with the add
+                    blackbeltFailedTests: Array.isArray(r.blackbeltFailedTests) ? r.blackbeltFailedTests : undefined
                 })
                 if (r.alreadyInStock) {
                     this.lookupState = 'known'
@@ -1501,6 +1519,15 @@ export default {
             if (v >= 90) return 'rs-batt-good'
             if (v >= 80) return 'rs-batt-ok'
             return 'rs-batt-low'
+        },
+        // Tests the device's Blackbelt report failed (Device Testing
+        // Information) — any one makes its Blackbelt status "Warning".
+        bbFails(row) {
+            return (row && Array.isArray(row.blackbeltFailedTests)) ? row.blackbeltFailedTests : []
+        },
+        bbWarnTip(row) {
+            return this.$tp('Warning — FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') }) +
+                (row.blackbeltStatus ? ` (${row.blackbeltStatus})` : '')
         },
         // Re-ask Blackbelt for a device added before its report existed.
         async bbCheck() {
@@ -1591,6 +1618,7 @@ export default {
         },
         histVal(field, v) {
             if (field === 'blackbeltChecked') return v ? this.$tp('Checked') : this.$tp('Not checked')
+            if (Array.isArray(v)) return v.length ? v.join(', ') : this.$tp('None')
             if (v === null || v === undefined || v === '') return '—'
             return String(v)
         },
@@ -1782,6 +1810,10 @@ export default {
 .rs-bb-line i { font-size: 15px; }
 .rs-bb-line .el-button { margin-left: 6px; }
 .rs-bb-ok-text { color: #67C23A; font-weight: 600; }
+/* Blackbelt "Warning": a FAIL in the report's Device Testing Information */
+.rs-bb-warn { color: #E6A23C; font-weight: 600; font-size: 12px; white-space: nowrap; cursor: help; }
+.rs-bb-warn i { font-size: 16px; vertical-align: -2px; }
+.rs-bb-warn-text { color: #b88230; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-bb-check-btn { padding: 3px 8px; font-size: 11px; }
 /* Blackbelt report tab — laid out like the Analyst Report PDF */
 .rs-report { min-height: 160px; max-height: 66vh; overflow-y: auto; padding-right: 6px; }

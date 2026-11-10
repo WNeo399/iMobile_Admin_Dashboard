@@ -862,7 +862,9 @@ export default {
                     aNumber: d.aNumber || '',
                     blackbeltChecked: (r && r.blackbeltChecked) === true,
                     blackbeltReportId: (r && r.blackbeltReportId) || '',
-                    blackbeltStatus: (r && r.blackbeltStatus) || ''
+                    blackbeltStatus: (r && r.blackbeltStatus) || '',
+                    // the report's FAIL tests (any = Blackbelt "Warning")
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {})
                 }
                 line.bbFound = !!(r && r.found)
                 line.modelMissing = line.bbFound && !String(line.model || '').trim()

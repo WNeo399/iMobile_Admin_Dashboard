@@ -807,7 +807,9 @@ export default {
                     batteryCycleCount: d.batteryCycleCount == null ? null : d.batteryCycleCount,
                     batteryCapacity: d.batteryCapacity || '',
                     aNumber: d.aNumber || '',
-                    reportStatus: (r && r.blackbeltStatus) || ''
+                    reportStatus: (r && r.blackbeltStatus) || '',
+                    // the report's FAIL tests (any = Blackbelt "Warning")
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { failedTests: r.blackbeltFailedTests } : {})
                 }
                 line.bbReportId = (r && r.blackbeltReportId) || ''
                 line.bbFound = !!(r && r.found)
