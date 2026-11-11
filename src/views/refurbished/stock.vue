@@ -262,6 +262,18 @@
                             </el-select>
                         </template>
                     </el-table-column>
+                    <!-- battery health from the Blackbelt answer (2026-11-11), coloured like the
+                         Stock table: under 80% red, 80–89 amber; cycles on hover -->
+                    <el-table-column :label="$tp('Battery')" width="80" align="center">
+                        <template slot-scope="s">
+                            <i v-if="s.row.bbChecking" class="el-icon-loading rs-dim" />
+                            <span v-else-if="Number(s.row.bb && s.row.bb.batteryHealth) > 0" :class="batteryClass(s.row.bb.batteryHealth)"
+                                :title="s.row.bb.batteryCycleCount != null ? $tp('{n} cycles', { n: s.row.bb.batteryCycleCount }) : ''">
+                                {{ s.row.bb.batteryHealth }}%
+                            </span>
+                            <span v-else class="rs-dim">—</span>
+                        </template>
+                    </el-table-column>
                     <el-table-column :label="(isSupplier ? $tp('Price') : $tp('Cost')) + ' (' + baCurrency + ')'" width="132" align="center">
                         <template slot-scope="s">
                             <div class="bae-price">
