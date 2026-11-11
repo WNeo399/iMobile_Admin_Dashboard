@@ -97,7 +97,8 @@
         </el-dialog>
 
         <!-- ── one batch ── -->
-        <el-dialog :visible.sync="batchVisible" :width="narrow ? '96%' : '900px'" top="5vh" append-to-body @closed="onBatchClosed">
+        <el-dialog :visible.sync="batchVisible" :width="narrow ? '96%' : '980px'" top="5vh" append-to-body
+            @opened="layoutBatchTable" @closed="onBatchClosed">
             <div v-if="batch" slot="title" class="rrb-bt-head">
                 <b>{{ batch.batchNo }}</b>
                 <el-tag size="mini" :type="BATCH_STATUS[batch.status].type">{{ $tp(BATCH_STATUS[batch.status].label) }}</el-tag>
@@ -125,26 +126,29 @@
                             {{ $tp('Mark all processed') }}</el-button>
                         <el-button v-if="!batch.devices" size="small" type="danger" plain icon="el-icon-delete" @click="removeBatch">{{ $tp('Delete batch') }}</el-button>
                     </div>
-                    <el-table :data="batchRows" border size="mini" max-height="52vh" row-key="_id" :empty-text="$tp('No devices on this batch')">
+                    <!-- max-height in PIXELS: Element only gives the body a scroll
+                         area for a number — "52vh" clipped the rows with no scroll
+                         bar (2026-11-11, an 83-device batch) -->
+                    <el-table ref="batchTable" :data="batchRows" border size="mini" :max-height="batchTableMax" row-key="_id" :empty-text="$tp('No devices on this batch')">
                         <el-table-column v-if="canManage" width="44" align="center">
                             <template slot="header">
                                 <el-checkbox :value="allOpenSelected" :indeterminate="!!selectedOpen.length && !allOpenSelected" :disabled="!openRows.length" @change="selectAllOpen" />
                             </template>
                             <template slot-scope="s"><el-checkbox v-if="s.row.status === 'assigned'" :value="selectedSet.has(s.row._id)" @change="toggleSelected(s.row)" /></template>
                         </el-table-column>
-                        <el-table-column :label="$tp('IMEI')" min-width="160"><template slot-scope="s"><b class="rrb-mono">{{ s.row.imei }}</b></template></el-table-column>
-                        <el-table-column :label="$tp('Device')" min-width="180" show-overflow-tooltip><template slot-scope="s">{{ oneLine(s.row.device) || '—' }}</template></el-table-column>
-                        <el-table-column :label="$tp('Supplier')" min-width="110" show-overflow-tooltip><template slot-scope="s">{{ (s.row.supplier && s.row.supplier.name) || '—' }}</template></el-table-column>
+                        <el-table-column :label="$tp('IMEI')" min-width="150"><template slot-scope="s"><b class="rrb-mono">{{ s.row.imei }}</b></template></el-table-column>
+                        <el-table-column :label="$tp('Device')" min-width="170" show-overflow-tooltip><template slot-scope="s">{{ oneLine(s.row.device) || '—' }}</template></el-table-column>
+                        <el-table-column :label="$tp('Supplier')" min-width="100" show-overflow-tooltip><template slot-scope="s">{{ (s.row.supplier && s.row.supplier.name) || '—' }}</template></el-table-column>
                         <el-table-column :label="$tp('Status')" width="96" align="center">
                             <template slot-scope="s"><el-tag size="mini" :type="DEVICE_STATUS[deviceStatus(s.row)].type">{{ $tp(DEVICE_STATUS[deviceStatus(s.row)].label) }}</el-tag></template>
                         </el-table-column>
-                        <el-table-column :label="$tp('Processed')" width="130">
+                        <el-table-column :label="$tp('Processed')" width="140">
                             <template slot-scope="s">
                                 <template v-if="s.row.status === 'done'"><div>{{ fmtWhen(s.row.processedAt) }}</div><div class="rrb-dim">{{ s.row.processedBy || '' }}</div></template>
                                 <span v-else class="rrb-dim">—</span>
                             </template>
                         </el-table-column>
-                        <el-table-column v-if="canManage" label="" width="190" align="center">
+                        <el-table-column v-if="canManage" label="" width="170" align="center">
                             <template slot-scope="s">
                                 <template v-if="s.row.status === 'assigned'">
                                     <el-button size="mini" type="success" plain :disabled="acting" @click="setStatus([s.row._id], 'done')">{{ $tp('Processed') }}</el-button>
@@ -175,6 +179,8 @@ export default {
         return {
             DEVICE_STATUS,
             BATCH_STATUS,
+            // the batch dialog's table height in px (see layoutBatchTable)
+            batchTableMax: Math.max(240, Math.round(window.innerHeight * 0.52)),
             loading: false,
             rows: [],
             counts: { all: 0, open: 0, done: 0 },
@@ -373,7 +379,18 @@ export default {
                 this.batchVisible = false
             } finally {
                 this.batchLoading = false
+                this.layoutBatchTable()
             }
+        },
+        // The batch table's height: about half the window, in px (Element's
+        // max-height scrolls only with a number), re-measured once it is
+        // visible with its rows.
+        layoutBatchTable() {
+            this.batchTableMax = Math.max(240, Math.round(window.innerHeight * 0.52))
+            this.$nextTick(() => {
+                const t = this.$refs.batchTable
+                if (t && t.doLayout) t.doLayout()
+            })
         },
         onBatchClosed() {
             this.batch = null
