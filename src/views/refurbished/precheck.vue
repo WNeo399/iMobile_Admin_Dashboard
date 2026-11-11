@@ -22,6 +22,13 @@
                 class="f-supplier" :placeholder="$tp('All suppliers')" @change="reload">
                 <el-option v-for="s in mySuppliers" :key="s._id" :label="s.name" :value="s._id" />
             </el-select>
+            <!-- the repairer (2026-11-11); inactive ones too, their devices are still here -->
+            <el-select v-if="filterRepairers.length" v-model="query.repairerId" size="small" clearable filterable
+                class="f-repairer" :placeholder="$tp('All repairers')" @change="reload">
+                <el-option :label="$tp('No repairer')" value="none" />
+                <el-option v-for="r in filterRepairers" :key="r._id" :value="r._id"
+                    :label="r.active ? r.name : `${r.name} (${$tp('inactive')})`" />
+            </el-select>
             <el-radio-group v-model="query.added" size="small" @change="reload">
                 <el-radio-button label="">{{ $tp('All') }}</el-radio-button>
                 <el-radio-button label="no">{{ $tp('Not in Stock yet') }}</el-radio-button>
@@ -295,7 +302,9 @@ export default {
             loading: false,
             rows: [],
             total: 0,
-            query: { search: '', supplierId: '', added: '', status: '', page: 1, pageSize: 50 },
+            query: { search: '', supplierId: '', repairerId: '', added: '', status: '', page: 1, pageSize: 50 },
+            // every repairer (inactive too) for the Repairer filter; `repairers` is the Assign dialog's active list
+            filterRepairers: [],
             // the repair status (2026-11-04)
             DEVICE_STATUS,
             counts: { all: 0, pending: 0, assigned: 0, done: 0 },
@@ -393,6 +402,10 @@ export default {
                 const r = await getRefurbSuppliers({})
                 this.mySuppliers = (r && r.suppliers) || []
             } catch (e) { this.mySuppliers = [] }
+            try {
+                const r = await getPrecheckRepairers({})
+                this.filterRepairers = ((r && r.repairers) || []).slice().sort((a, b) => (b.active - a.active) || String(a.name).localeCompare(String(b.name)))
+            } catch (e) { this.filterRepairers = [] }
         },
         // a multi-line Device on one table line
         oneLine(v) {
@@ -697,7 +710,7 @@ export default {
 .rpc-filters {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px;
     .f-search { width: 260px; }
-    .f-supplier { width: 170px; }
+    .f-supplier, .f-repairer { width: 170px; }
     .rpc-spacer { flex: 1; }
     .el-button + .el-button { margin-left: 0; }
 }
@@ -731,7 +744,7 @@ export default {
 /* notes in the page's font, not the browser's monospace default */
 ::v-deep .el-textarea__inner { font-family: Arial, Helvetica, sans-serif; }
 @media (max-width: 767px) {
-    .rpc-filters .f-search, .rpc-filters .f-supplier { width: 100%; }
+    .rpc-filters .f-search, .rpc-filters .f-supplier, .rpc-filters .f-repairer { width: 100%; }
     .rpc-added { margin-left: 0; }
     /* the full pager wraps on a phone instead of running off the side */
     .rpc-pager ::v-deep .el-pagination { white-space: normal; }
