@@ -154,6 +154,12 @@ export function createIncomingBatch(data) {
 export function getIncomingBatch(id) {
   return request({ url: `/refurbished/incoming/${id}`, method: 'get' })
 }
+// Full Blackbelt report for one line of an incoming batch (by its IMEI /
+// serial) — the stock-take dialog's Blackbelt column. Same shape as
+// getRefurbDeviceReport.
+export function getIncomingLineReport(id, code) {
+  return request({ url: `/refurbished/incoming/${id}/report`, method: 'get', params: { code }, timeout: 30000 })
+}
 // Scanning is client-side; this is the one write of a stock take — the
 // scanned codes are marked received and turned into stock records together.
 // A bulk receive touches every device, and any unlisted extras get a live

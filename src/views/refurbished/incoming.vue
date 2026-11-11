@@ -226,10 +226,16 @@
                     </el-table-column>
                     <el-table-column label="Blackbelt" width="80" align="center">
                         <template slot-scope="s">
-                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
-                            <i v-if="s.row.bbStatus === 'found' && bbFails(s.row).length" class="el-icon-warning ri-warn-i"
-                                :title="$tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') })" />
-                            <i v-else-if="s.row.bbStatus === 'found'" class="el-icon-success ri-yes" :title="$tp('Report found')" />
+                            <!-- A report on file: click to open it (2026-11-10). Warning =
+                                 a FAIL in the report's testing, icon only. A button so the
+                                 click doesn't tick the row. -->
+                            <button v-if="s.row.bbStatus === 'found'" type="button" class="ri-bb-open"
+                                :title="bbFails(s.row).length
+                                    ? $tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') }) + ' · ' + $tp('Click to open the report')
+                                    : $tp('Report found') + ' · ' + $tp('Click to open the report')"
+                                @click.stop="openBbReport(s.row)">
+                                <i :class="bbFails(s.row).length ? 'el-icon-warning ri-warn-i' : 'el-icon-success ri-yes'" />
+                            </button>
                             <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" :title="$tp('No report')" />
                             <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning ri-warn-i"
                                 :title="s.row.bbMessage || $tp('Lookup failed')" />
@@ -285,6 +291,17 @@
                     :disabled="!checkedCodes.length" @click="openSell">{{ $tp('Sell') }}</el-button>
                 <el-button type="primary" size="small" :disabled="!checkedCodes.length"
                     @click="openReceive">{{ $tp('Received') }}</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- ── Blackbelt report of one line (Blackbelt column click) ──── -->
+        <el-dialog :title="$tp('Blackbelt Report') + (bbReport.code ? ' — ' + bbReport.code : '')"
+            :visible.sync="bbReport.visible" width="min(860px, 96vw)" top="5vh" append-to-body
+            @closed="bbReport.data = null">
+            <blackbelt-report-view :report="bbReport.data" :report-id="bbReport.reportId"
+                :loading="bbReport.loading" :error="bbReport.error" />
+            <span slot="footer">
+                <el-button size="small" @click="bbReport.visible = false">{{ $tp('Close') }}</el-button>
             </span>
         </el-dialog>
 
@@ -464,8 +481,9 @@
 import {
     getIncomingBatches, createIncomingBatch, getIncomingBatch,
     commitIncoming, sellIncoming, saveIncomingCosts, recheckIncoming, deleteIncomingBatch,
-    getIncomingReceived, getRefurbCustomers, createRefurbCustomer
+    getIncomingReceived, getRefurbCustomers, createRefurbCustomer, getIncomingLineReport
 } from '@/api/refurbished'
+import BlackbeltReportView from './components/BlackbeltReportView.vue'
 // xlsx-js-style — the styled SheetJS fork the other dashboard exports use,
 // so the download looks like the rest of them.
 import * as XLSX from 'xlsx-js-style'
@@ -499,8 +517,12 @@ function squash(k) {
 
 export default {
     name: 'RefurbishedIncoming',
+    components: { BlackbeltReportView },
     data() {
         return {
+            // Blackbelt report popup (Blackbelt column click); `seq` drops a
+            // slow answer for a line that's no longer the one open
+            bbReport: { visible: false, code: '', reportId: '', data: null, loading: false, error: '', seq: 0 },
             loading: false,
             batches: [],
             grades: GRADES,
@@ -783,6 +805,32 @@ export default {
         bbFails(row) {
             if (Array.isArray(row.bbFailedTests)) return row.bbFailedTests
             return (row.bbDevice && Array.isArray(row.bbDevice.failedTests)) ? row.bbDevice.failedTests : []
+        },
+        // Blackbelt column click on a line with a report: fetch it live
+        // (a few seconds — Blackbelt login + download) and show it.
+        async openBbReport(row) {
+            if (!this.batch || !row || !row.code) return
+            const seq = this.bbReport.seq + 1
+            Object.assign(this.bbReport, {
+                visible: true, code: row.code, reportId: row.bbReportId || '', data: null, loading: true, error: '', seq
+            })
+            try {
+                const r = await getIncomingLineReport(this.batch._id, row.code)
+                if (this.bbReport.seq !== seq) return
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (!r.hasReport) {
+                    this.bbReport.error = r.message || this.$tp('No Blackbelt report for this device.')
+                    return
+                }
+                this.bbReport.reportId = r.reportId || this.bbReport.reportId
+                this.bbReport.data = r.report
+            } catch (e) {
+                if (this.bbReport.seq !== seq) return
+                this.bbReport.error = (e && e.response && e.response.data && e.response.data.message) ||
+                    (e && e.message) || this.$tp('Failed to load the report')
+            } finally {
+                if (this.bbReport.seq === seq) this.bbReport.loading = false
+            }
         },
         // ── Batch list ───────────────────────────────────────────────
         async loadBatches() {
@@ -1577,6 +1625,10 @@ export default {
 .ri-msg-warn { background: #fdf6ec; color: #E6A23C; }
 .ri-msg-error { background: #fef0f0; color: #F56C6C; }
 .ri-yes { color: #67C23A; font-size: 16px; }
+/* Blackbelt column: a report on file opens on click */
+.ri-bb-open { border: 0; background: none; padding: 2px 4px; line-height: 1; cursor: pointer; border-radius: 4px; }
+.ri-bb-open:hover { background: #ecf5ff; }
+.ri-bb-open:focus-visible { outline: 2px solid #409EFF; outline-offset: 1px; }
 .ri-no { color: #F56C6C; font-size: 16px; }
 .ri-warn-i { color: #E6A23C; font-size: 16px; }
 .ri-foot { display: flex; align-items: center; gap: 10px; }

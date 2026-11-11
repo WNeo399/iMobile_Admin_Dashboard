@@ -267,6 +267,7 @@ export default {
     'Blackbelt report ready': 'Blackbelt 报告已就绪',
     // Blackbelt "Warning": a FAIL in the report's Device Testing Information (2026-11-10)
     'FAIL in Blackbelt testing: {tests}': 'Blackbelt 测试未通过：{tests}',
+    'Click to open the report': '点击查看报告',
     'Warning — FAIL in Blackbelt testing: {tests}': '警告 — Blackbelt 测试未通过：{tests}',
     'Blackbelt Status': 'Blackbelt 状态',
     'Blackbelt FAIL tests': 'Blackbelt 未通过的测试',
@@ -2168,6 +2169,7 @@ export default {
     'Processed on': '处理时间',
     'Search batch / repairer / note…': '搜索批次 / 维修商 / 备注…',
     'All repairers': '全部维修商',
+    'No repairer': '未分配维修商',
     'No repair batches yet — New Batch sends waiting devices to a repairer': '暂无维修批次 — 点击新建批次，把待处理的设备交给维修商',
     'Add devices to {no}': '向 {no} 添加设备',
     'Pick the repairer': '选择维修商',
