@@ -139,6 +139,11 @@
                             <el-radio-button label="done">{{ $tp('Processed') }} {{ batchRows.length - openRows.length }}</el-radio-button>
                         </el-radio-group>
                         <span v-if="batchFiltered" class="rrb-dim">{{ $tp('{n} device(s)', { n: batchShown.length }) }}</span>
+                        <span class="rrb-spacer" />
+                        <!-- Export = the devices on screen: with a search / status filter, only those -->
+                        <el-button size="small" icon="el-icon-download" :loading="exporting" :disabled="!batchShown.length"
+                            :title="$tp('Export the devices shown to Excel')" @click="exportBatch">
+                            {{ batchFiltered ? $tp('Export {n}', { n: batchShown.length }) : $tp('Export') }}</el-button>
                     </div>
                     <el-table ref="batchTable" :data="batchShown" border size="mini" :max-height="batchTableMax" row-key="_id"
                         :empty-text="batchFiltered ? $tp('No devices match the current filters') : $tp('No devices on this batch')">
@@ -221,7 +226,8 @@ export default {
             selected: [],
             noteDraft: '',
             noteSaving: false,
-            acting: false
+            acting: false,
+            exporting: false
         }
     },
     computed: {
@@ -512,6 +518,66 @@ export default {
             } catch (e) {
                 // the request layer has said why
             }
+        },
+        // The batch as an .xlsx (2026-11-11): a header block, then one row per
+        // device on screen — the search / status filter applies, and the
+        // header says so. Each device's Note (the repair instruction) is in
+        // the file though the table leaves it out.
+        async exportBatch() {
+            if (!this.batch || this.exporting) return
+            this.exporting = true
+            try {
+                const XLSX = await import('xlsx-js-style')
+                const b = this.batch
+                const rows = this.batchShown
+                const full = v => (v ? new Date(v).toLocaleString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '') : '')
+                const bold = { font: { bold: true } }
+                const head = { font: { bold: true }, fill: { fgColor: { rgb: 'EEF1F6' } }, border: { bottom: { style: 'thin', color: { rgb: 'C0C4CC' } } }, alignment: { vertical: 'center' } }
+                const label = t => ({ v: this.$tp(t), s: bold })
+                const status = BATCH_STATUS[b.status] ? this.$tp(BATCH_STATUS[b.status].label) : ''
+                const aoa = [
+                    [{ v: b.batchNo, s: { font: { bold: true, sz: 14 } } }],
+                    [label('Repairer'), (b.repairer && b.repairer.name) || ''],
+                    [label('Status'), `${status} — ${this.$tp('{n} of {total} processed', { n: b.processed, total: b.devices })}`],
+                    [label('Created'), full(b.createdAt) + (b.createdBy ? ' · ' + b.createdBy : '')],
+                    [label('Note'), b.note || '']
+                ]
+                if (this.batchFiltered) {
+                    const how = [
+                        this.batchStatus ? this.$tp(DEVICE_STATUS[this.batchStatus].label) : '',
+                        this.batchSearch.trim() ? `“${this.batchSearch.trim()}”` : ''
+                    ].filter(Boolean).join(' · ')
+                    aoa.push([label('Filter'), `${this.$tp('Showing {n} of {total} device(s)', { n: rows.length, total: this.batchRows.length })} — ${how}`])
+                }
+                aoa.push([])
+                aoa.push(['#', 'IMEI', 'Device', 'Note', 'Supplier', 'Status', 'Added', 'Processed on', 'Processed by']
+                    .map(t => ({ v: t === '#' || t === 'IMEI' ? t : this.$tp(t), s: head })))
+                rows.forEach((r, i) => {
+                    aoa.push([
+                        i + 1,
+                        { v: String(r.imei || ''), t: 's' },
+                        this.oneLine(r.device),
+                        this.oneLine(r.note),
+                        (r.supplier && r.supplier.name) || '',
+                        this.$tp(DEVICE_STATUS[deviceStatus(r)].label),
+                        full(r.assignedAt),
+                        r.status === 'done' ? full(r.processedAt) : '',
+                        r.status === 'done' ? r.processedBy || '' : ''
+                    ])
+                })
+                const ws = XLSX.utils.aoa_to_sheet(aoa)
+                ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 34 }, { wch: 26 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 }]
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, String(b.batchNo).slice(0, 31))
+                const who = (b.repairer && b.repairer.name) ? ' ' + b.repairer.name : ''
+                const part = this.batchFiltered ? ` (${rows.length} of ${this.batchRows.length})` : ''
+                XLSX.writeFile(wb, `${b.batchNo}${who}${part}.xlsx`.replace(/[\\/:*?"<>|]+/g, '_'))
+            } catch (e) {
+                console.error('Repair batch xlsx failed:', e)
+                this.$message.error(this.$tp('Could not build the spreadsheet.'))
+            } finally {
+                this.exporting = false
+            }
         }
     }
 }
@@ -542,8 +608,7 @@ export default {
 .rrb-bt-note { flex: 1 1 300px; display: flex; gap: 6px; }
 .rrb-bt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; .el-button + .el-button { margin-left: 0; } }
 .rrb-bt-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; word-break: normal; .rrb-bt-search { width: 240px; } }
-.rrb-off { color: #909399; &:hover { color: #f56c6c; } }
-@media (max-width: 767px) {
+.rrb-off { color: #909399; &:hover { color: #f56c6c; } }@media (max-width: 767px) {
     .rrb-filters .f-search, .rrb-filters .f-repairer, .rrb-pick-bar .rrb-scan, .rrb-pick-bar .rrb-pick-search, .rrb-bt-filter .rrb-bt-search { width: 100%; }
 }
 </style>
