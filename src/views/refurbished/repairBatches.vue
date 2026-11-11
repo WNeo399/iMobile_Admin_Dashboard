@@ -129,10 +129,22 @@
                     <!-- max-height in PIXELS: Element only gives the body a scroll
                          area for a number — "52vh" clipped the rows with no scroll
                          bar (2026-11-11, an 83-device batch) -->
-                    <el-table ref="batchTable" :data="batchRows" border size="mini" :max-height="batchTableMax" row-key="_id" :empty-text="$tp('No devices on this batch')">
+                    <!-- IMEI search + status filter (2026-11-11), in the page: the whole batch is loaded -->
+                    <div v-if="batchRows.length" class="rrb-bt-filter">
+                        <el-input v-model="batchSearch" size="small" clearable class="rrb-bt-search" prefix-icon="el-icon-search"
+                            :placeholder="$tp('Search IMEI / device')" />
+                        <el-radio-group v-model="batchStatus" size="small">
+                            <el-radio-button label="">{{ $tp('All') }} {{ batchRows.length }}</el-radio-button>
+                            <el-radio-button label="assigned">{{ $tp('In repair') }} {{ openRows.length }}</el-radio-button>
+                            <el-radio-button label="done">{{ $tp('Processed') }} {{ batchRows.length - openRows.length }}</el-radio-button>
+                        </el-radio-group>
+                        <span v-if="batchFiltered" class="rrb-dim">{{ $tp('{n} device(s)', { n: batchShown.length }) }}</span>
+                    </div>
+                    <el-table ref="batchTable" :data="batchShown" border size="mini" :max-height="batchTableMax" row-key="_id"
+                        :empty-text="batchFiltered ? $tp('No devices match the current filters') : $tp('No devices on this batch')">
                         <el-table-column v-if="canManage" width="44" align="center">
                             <template slot="header">
-                                <el-checkbox :value="allOpenSelected" :indeterminate="!!selectedOpen.length && !allOpenSelected" :disabled="!openRows.length" @change="selectAllOpen" />
+                                <el-checkbox :value="allOpenSelected" :indeterminate="!!selectedOpen.length && !allOpenSelected" :disabled="!shownOpen.length" @change="selectAllOpen" />
                             </template>
                             <template slot-scope="s"><el-checkbox v-if="s.row.status === 'assigned'" :value="selectedSet.has(s.row._id)" @change="toggleSelected(s.row)" /></template>
                         </el-table-column>
@@ -203,6 +215,9 @@ export default {
             batchLoading: false,
             batch: null,
             batchRows: [],
+            // the dialog's IMEI / device search and status filter (2026-11-11)
+            batchSearch: '',
+            batchStatus: '',
             selected: [],
             noteDraft: '',
             noteSaving: false,
@@ -233,6 +248,24 @@ export default {
         openRows() {
             return this.batchRows.filter(r => r.status === 'assigned')
         },
+        batchFiltered() {
+            return !!(this.batchSearch.trim() || this.batchStatus)
+        },
+        // what the table shows: the search (IMEI — spaces ignored — or device
+        // text) and the status filter
+        batchShown() {
+            const q = this.batchSearch.trim().toLowerCase()
+            const code = q.replace(/[\s-]/g, '')
+            return this.batchRows.filter(r => {
+                if (this.batchStatus && r.status !== this.batchStatus) return false
+                if (!q) return true
+                return String(r.imei || '').toLowerCase().includes(code) || this.oneLine(r.device).toLowerCase().includes(q)
+            })
+        },
+        // the In repair devices on screen — the header tick box acts on these only
+        shownOpen() {
+            return this.batchShown.filter(r => r.status === 'assigned')
+        },
         selectedSet() {
             return new Set(this.selected)
         },
@@ -240,7 +273,17 @@ export default {
             return this.openRows.filter(r => this.selectedSet.has(r._id)).map(r => r._id)
         },
         allOpenSelected() {
-            return !!this.openRows.length && this.openRows.every(r => this.selectedSet.has(r._id))
+            return !!this.shownOpen.length && this.shownOpen.every(r => this.selectedSet.has(r._id))
+        }
+    },
+    watch: {
+        // a tick on a device the filter now hides is dropped, so "Mark n
+        // processed" only ever covers devices on screen
+        batchShown(rows) {
+            if (!this.selected.length) return
+            const shown = new Set(rows.map(r => r._id))
+            const kept = this.selected.filter(id => shown.has(id))
+            if (kept.length !== this.selected.length) this.selected = kept
         }
     },
     created() {
@@ -361,6 +404,8 @@ export default {
             this.batch = null
             this.batchRows = []
             this.selected = []
+            this.batchSearch = ''
+            this.batchStatus = ''
             this.narrow = window.innerWidth < 800
             this.batchVisible = true
             await this.reloadBatch(row._id)
@@ -400,7 +445,7 @@ export default {
             this.selected = this.selectedSet.has(row._id) ? this.selected.filter(id => id !== row._id) : [...this.selected, row._id]
         },
         selectAllOpen(on) {
-            this.selected = on ? this.openRows.map(r => r._id) : []
+            this.selected = on ? this.shownOpen.map(r => r._id) : []
         },
         async saveNote() {
             this.noteSaving = true
@@ -496,8 +541,9 @@ export default {
 .rrb-bt-progress { flex: 1 1 260px; display: flex; align-items: center; gap: 10px; .el-progress { flex: 1; } span { font-size: 13px; color: #303133; white-space: nowrap; } }
 .rrb-bt-note { flex: 1 1 300px; display: flex; gap: 6px; }
 .rrb-bt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; .el-button + .el-button { margin-left: 0; } }
+.rrb-bt-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; word-break: normal; .rrb-bt-search { width: 240px; } }
 .rrb-off { color: #909399; &:hover { color: #f56c6c; } }
 @media (max-width: 767px) {
-    .rrb-filters .f-search, .rrb-filters .f-repairer, .rrb-pick-bar .rrb-scan, .rrb-pick-bar .rrb-pick-search { width: 100%; }
+    .rrb-filters .f-search, .rrb-filters .f-repairer, .rrb-pick-bar .rrb-scan, .rrb-pick-bar .rrb-pick-search, .rrb-bt-filter .rrb-bt-search { width: 100%; }
 }
 </style>

@@ -2169,6 +2169,7 @@ export default {
     'Processed on': '处理时间',
     'Search batch / repairer / note…': '搜索批次 / 维修商 / 备注…',
     'All repairers': '全部维修商',
+    'Search IMEI / device': '搜索 IMEI / 设备',
     'No repairer': '未分配维修商',
     'No repair batches yet — New Batch sends waiting devices to a repairer': '暂无维修批次 — 点击新建批次，把待处理的设备交给维修商',
     'Add devices to {no}': '向 {no} 添加设备',
