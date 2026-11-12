@@ -144,7 +144,18 @@
                                 <b class="xd-o-id xd-o-id-lg">{{ o.orderId }}</b><i v-if="o.netoSynced" class="el-icon-circle-check xd-neto-ok" :title="netoTitle(o)" />
                                 <div class="xd-o-meta" :title="[o.channel, o.customerName].filter(Boolean).join(' · ')"><span :class="['xd-ch', chClass(o.channel)]">{{ o.channel || '—' }}</span> {{ o.customerName || '—' }} · {{ when(o.datePlaced) }}</div>
                             </div>
-                            <span :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
+                            <!-- the order's envelope (user 2026-11-12): chosen for this order while it
+                                 is not processed; once processed, changed with a new tracking number -->
+                            <el-dropdown v-if="canSetOrderEnvelope(o)" trigger="click" class="xd-env-dd" @command="v => setEnvelope(o, v)" @click.native.stop>
+                                <span :class="['xd-env', 'xd-env-' + envSize(o), 'xd-env-edit']" :title="envTitle(o) + ' · ' + $tp('Change the envelope')"><i class="el-icon-message" />{{ envLabel(o) }}<i v-if="o.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                                <el-dropdown-menu slot="dropdown">
+                                    <el-dropdown-item v-for="e in ENVELOPES" :key="e.value" :command="e.value" :class="{ 'xd-env-cur': o.envelopeSet === e.value }">{{ $tp(e.label) }}</el-dropdown-item>
+                                    <el-dropdown-item command="auto" divided :disabled="!o.envelopeSet">{{ $tp('Automatic') }}</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </el-dropdown>
+                            <span v-else-if="canChangeListEnvelope(o)" :class="['xd-env', 'xd-env-' + envSize(o), 'xd-env-edit']" :title="envTitle(o) + ' · ' + $tp('Change the envelope and tracking number')"
+                                @click.stop="openEnvChange(o)"><i class="el-icon-message" />{{ envLabel(o) }}<i v-if="o.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                            <span v-else :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
                             <el-button v-if="canCancelOrder(o)" type="text" icon="el-icon-circle-close" class="xd-o-cancel" :title="$tp('Cancel this order in Neto')" @click="openCancel(o)" />
                         </div>
                         <div v-if="tab === 'onlist'" class="xd-tile-sub">
@@ -229,7 +240,17 @@
                     <div v-for="o in (tab === 'onlist' ? onPickList : multiLine)" :key="o.orderId" class="xd-card">
                         <div class="xd-card-head xd-card-head-static">
                             <span class="xd-order">{{ o.orderId }}<i v-if="o.netoSynced" class="el-icon-circle-check xd-neto-ok" :title="netoTitle(o)" /></span>
-                            <span :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
+                            <!-- the order's envelope (user 2026-11-12), as on the grid's tiles -->
+                            <el-dropdown v-if="canSetOrderEnvelope(o)" trigger="click" class="xd-env-dd" @command="v => setEnvelope(o, v)" @click.native.stop>
+                                <span :class="['xd-env', 'xd-env-' + envSize(o), 'xd-env-edit']" :title="envTitle(o) + ' · ' + $tp('Change the envelope')"><i class="el-icon-message" />{{ envLabel(o) }}<i v-if="o.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                                <el-dropdown-menu slot="dropdown">
+                                    <el-dropdown-item v-for="e in ENVELOPES" :key="e.value" :command="e.value" :class="{ 'xd-env-cur': o.envelopeSet === e.value }">{{ $tp(e.label) }}</el-dropdown-item>
+                                    <el-dropdown-item command="auto" divided :disabled="!o.envelopeSet">{{ $tp('Automatic') }}</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </el-dropdown>
+                            <span v-else-if="canChangeListEnvelope(o)" :class="['xd-env', 'xd-env-' + envSize(o), 'xd-env-edit']" :title="envTitle(o) + ' · ' + $tp('Change the envelope and tracking number')"
+                                @click.stop="openEnvChange(o)"><i class="el-icon-message" />{{ envLabel(o) }}<i v-if="o.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
+                            <span v-else :class="['xd-env', 'xd-env-' + envSize(o)]" :title="envTitle(o)"><i class="el-icon-message" />{{ envLabel(o) }}</span>
                             <template v-if="tab === 'onlist'">
                                 <span v-if="o.tracking" class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ o.tracking }}<el-button v-if="canEditTracking(o)" type="text" icon="el-icon-edit" class="xd-track-edit" :title="$tp('Change the tracking number')" @click.stop="editTracking(o)" /></span>
                                 <span v-else class="xd-todo">{{ $tp('Not processed') }}</span>
@@ -296,7 +317,8 @@
                     </div>
                     <b v-if="it.quantity" class="xd-i-qty">× {{ it.quantity }}</b>
                     <!-- the package, once (user 2026-10-21: a SKU's orders all ship in the same one) -->
-                    <el-dropdown v-if="k === 0 && processPkg && processPkg.sku && canProcess" trigger="click" class="xd-env-dd" @command="v => setEnvelope(processPkg, v)">
+                    <!-- a SKU's package (every order of it), or one order's (2026-11-12) -->
+                    <el-dropdown v-if="k === 0 && processPkg && (processPkg.sku || processPkg.orderId) && canProcess" trigger="click" class="xd-env-dd" @command="v => setEnvelope(processPkg, v)">
                         <span :class="['xd-env', 'xd-env-' + envSize(processPkg), 'xd-env-edit']" :title="envTitle(processPkg) + ' · ' + $tp('Change the envelope')"><i class="el-icon-message" />{{ envLabel(processPkg) }}<i v-if="processPkg.envelopeSet" class="el-icon-edit-outline xd-env-pin" /><i class="el-icon-arrow-down xd-env-caret" /></span>
                         <el-dropdown-menu slot="dropdown">
                             <el-dropdown-item v-for="e in ENVELOPES" :key="e.value" :command="e.value" :class="{ 'xd-env-cur': processPkg.envelopeSet === e.value }">{{ $tp(e.label) }}</el-dropdown-item>
@@ -377,6 +399,35 @@
             </span>
         </el-dialog>
 
+        <!-- A processed order's envelope (user 2026-11-12): a new envelope is a new
+             label, so its new tracking number comes with it. A live AusPost label
+             (the old envelope's) is cancelled. The new label opens to print. -->
+        <el-dialog :title="$tp('Change the envelope')" :visible.sync="envChange.visible" width="480px" top="10vh" append-to-body
+            custom-class="xd-ec-dialog" @opened="focusEnvTracking">
+            <div v-if="envChange.order" class="xd-ec">
+                <div class="xd-ec-now">
+                    <b>{{ envChange.order.orderId }}</b>
+                    <span :class="['xd-env', 'xd-env-' + envSize(envChange.order)]" :title="envTitle(envChange.order)"><i class="el-icon-message" />{{ envLabel(envChange.order) }}</span>
+                    <span class="xd-tracked" :title="$tp('Tracking number')"><i class="el-icon-check" /> {{ envChange.order.tracking }}</span>
+                </div>
+                <div class="xd-ec-label">{{ $tp('New envelope') }}</div>
+                <div class="xd-pills">
+                    <span v-for="e in ENVELOPES" :key="e.value" :class="['xd-pill', { on: envChange.size === e.value, 'xd-pill-off': e.value === envSize(envChange.order) }]"
+                        @click="pickEnvChange(e.value)">{{ $tp(e.label) }}</span>
+                </div>
+                <div class="xd-ec-label">{{ $tp('New tracking number') }}</div>
+                <el-input ref="envTracking" v-model="envChange.tracking" size="small" clearable prefix-icon="el-icon-full-screen"
+                    :placeholder="$tp('Scan tracking number')" @keydown.native.enter.prevent="saveEnvChange" @focus="selectAll" />
+                <div class="xd-ec-hint"><i class="el-icon-info" /> {{ $tp('A new envelope needs a new label — scan or type its tracking number') }}</div>
+                <div v-if="envChange.order.auspost" class="xd-ec-warn"><i class="el-icon-warning" />
+                    {{ $tp('Its AusPost label {t} will be cancelled in AusPost (only possible before it is lodged)', { t: envChange.order.auspost.articleId }) }}</div>
+            </div>
+            <span slot="footer">
+                <el-button size="small" @click="envChange.visible = false">{{ $tp('Cancel') }}</el-button>
+                <el-button size="small" type="primary" icon="el-icon-check" :loading="envChange.saving" :disabled="!envChangeReady" @click="saveEnvChange">{{ $tp('Save') }}</el-button>
+            </span>
+        </el-dialog>
+
         <!-- Cancel order in Neto (user 2026-10-29); the page reloads after -->
         <cancel-order-dialog :visible.sync="cancelVisible" :order="cancelOrder" @cancelled="load" />
 
@@ -393,7 +444,7 @@
 </template>
 
 <script>
-import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel, setExyonEnvelope, syncExyonNeto, changeExyonTracking } from '@/api/exyonAccessories'
+import { getExyonAccessoryDispatch, processExyonOrders, getExyonLabels, createAuspostLabels, cancelAuspostLabel, setExyonEnvelope, syncExyonNeto, changeExyonTracking, setExyonOrderEnvelope, changeExyonListEnvelope } from '@/api/exyonAccessories'
 import { buildShippingLabelsPdf, shippingLabelsFileName } from '@/utils/exyonShippingLabelPdf'
 import { mergePdfs, bytesOfBase64 } from '@/utils/mergePdfs'
 import { hasPermission } from '@/utils/permission'
@@ -404,6 +455,8 @@ import CancelOrderDialog from './components/CancelOrderDialog'
 // Parcel Post with Authority to Leave, 0.49 kg, 30 × 25 × 5 cm
 const AUSPOST_SIZES = ['large', 'other']
 const DEFAULT_PARCEL = { productId: '3D55', weight: 0.49, length: 30, width: 25, height: 5 }
+// a tracking number as the backend takes it (TRACKING_RE there)
+const TRACKING_RE = /^[A-Za-z0-9._/-]{4,60}$/
 
 const TABS = [
     { key: 'sku', label: 'Single line items', icon: 'el-icon-box', empty: 'No single-line orders to process' },
@@ -515,6 +568,8 @@ export default {
             // the Cancel order dialog
             cancelVisible: false,
             cancelOrder: null,
+            // a processed order's envelope + new tracking number (2026-11-12)
+            envChange: { visible: false, order: null, size: '', tracking: '', saving: false },
             // the shipping-label preview
             labelVisible: false,
             labelUrl: '',
@@ -624,6 +679,13 @@ export default {
         },
         canCancel() {
             return hasPermission(this.$store.getters.permissions, 'exyon:accessory:cancel')
+        },
+        // the Change the envelope dialog can save: another size, and a new
+        // tracking number that looks like one
+        envChangeReady() {
+            const c = this.envChange
+            const t = this.clean(c.tracking)
+            return !!(c.order && c.size && c.size !== this.envSize(c.order) && TRACKING_RE.test(t) && t !== c.order.tracking)
         },
         scannedCount() {
             return this.processRows.filter(r => this.clean(r.tracking)).length
@@ -756,7 +818,8 @@ export default {
                 this.processRows = g.orders.map(o => this.processRow({ ...o, envelope: this.processPkg.envelope }, o.quantity))
             } else {
                 this.processItems = g.items.map(pick)
-                this.processPkg = { envelope: g.envelope || null }
+                // the order's own package, changeable here too (2026-11-12)
+                this.processPkg = { envelope: g.envelope || null, orderId: g.orderId, envelopeSet: g.envelopeSet || null }
                 this.processRows = [this.processRow(g, null)]
             }
             this.processVisible = true
@@ -1169,10 +1232,92 @@ export default {
             return this.$tp('Lines synced with Neto') + (n.at ? ' · ' + this.when(n.at) : '') + (n.by ? ' · ' + n.by : '')
         },
         // ── envelope ──
+        // One order's envelope (user 2026-11-12): chosen from its tile while it
+        // is not processed — Multiple line items, or not yet processed on a
+        // pick list; once processed, only with a new tracking number (the
+        // Change the envelope dialog). Not for a dispatched order.
+        canSetOrderEnvelope(o) {
+            if (!this.canProcess || !o || o.tracking || this.tab === 'sku') return false
+            return !(o.dispatch && o.dispatch.status === 'dispatched')
+        },
+        canChangeListEnvelope(o) {
+            if (!this.canProcess || this.tab !== 'onlist' || !o || !o.tracking || !o.pickDay) return false
+            return !(o.dispatch && o.dispatch.status === 'dispatched')
+        },
+        // an order's envelope chosen by hand, for that order only; 'auto' = back
+        // to what its items say. target: a one-order tile or the Process
+        // dialog's package ({ orderId, envelopeSet })
+        async setOrderEnvelope(target, v) {
+            const orderId = target.orderId
+            const size = v === 'auto' ? '' : v
+            if ((target.envelopeSet || '') === size) return
+            try {
+                const r = await setExyonOrderEnvelope(orderId, size)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const e = ENVELOPES.find(x => x.value === size)
+                this.$message.success(size ? this.$tp('{no}: {size} envelope', { no: orderId, size: this.$tp(e ? e.label : size) })
+                    : this.$tp('{no}: envelope back to automatic', { no: orderId }))
+                await this.load()
+                // the open Process dialog follows
+                if (this.processVisible && this.processPkg && this.processPkg.orderId === orderId) {
+                    const o = [...this.rawMultiLine, ...this.rawOnPickList].find(x => x.orderId === orderId)
+                    if (o) {
+                        this.processPkg = { ...this.processPkg, envelope: o.envelope || null, envelopeSet: o.envelopeSet || null }
+                        this.processRows.forEach(row => { row.envelope = o.envelope || null })
+                    }
+                }
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to change the envelope')))
+            }
+        },
+        // A processed order's envelope + its new tracking number (user
+        // 2026-11-12: "when update Envelope size, need to input a new tracking
+        // number as well")
+        openEnvChange(o) {
+            this.envChange = { visible: true, order: o, size: '', tracking: '', saving: false }
+        },
+        focusEnvTracking() {
+            this.$nextTick(() => {
+                const input = this.$refs.envTracking
+                if (input && input.focus) input.focus()
+            })
+        },
+        // the size it is now can't be picked again; the cursor goes to the number
+        pickEnvChange(v) {
+            if (!this.envChange.order || v === this.envSize(this.envChange.order)) return
+            this.envChange.size = v
+            this.focusEnvTracking()
+        },
+        async saveEnvChange() {
+            const c = this.envChange
+            if (c.saving || !c.order) return
+            const tracking = this.clean(c.tracking)
+            if (!c.size) { this.$message.warning(this.$tp('Pick the new envelope')); return }
+            if (!TRACKING_RE.test(tracking)) { this.$message.warning(this.$tp('That does not look like a tracking number')); return }
+            if (tracking === c.order.tracking) { this.$message.warning(this.$tp('A new envelope needs a new label — scan or type its tracking number')); return }
+            c.saving = true
+            try {
+                const r = await changeExyonListEnvelope(c.order.pickDay, c.order.orderId, c.size, tracking)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const e = ENVELOPES.find(x => x.value === c.size)
+                this.$message.success(this.$tp('{no}: {size} envelope, tracking number now {t}', { no: c.order.orderId, size: this.$tp(e ? e.label : c.size), t: tracking }))
+                if (r.auspostCancelled) this.$notify({ type: 'info', title: this.$tp('AusPost label'), message: this.$tp('AusPost label {t} cancelled', { t: r.auspostCancelled }) })
+                c.visible = false
+                await this.load()
+                // its new label to print, as after Process
+                this.printLabels([c.order.orderId], c.order.orderId)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to change the envelope')))
+            } finally {
+                c.saving = false
+            }
+        },
         // an item's envelope chosen by hand (user 2026-10-22) — for every order
         // of it from now on; 'auto' = back to the rules. target: a SKU tile or
-        // the Process dialog's package ({ sku, envelopeSet })
+        // the Process dialog's package ({ sku, envelopeSet }) — or one order
+        // ({ orderId, envelopeSet }, 2026-11-12)
         async setEnvelope(target, v) {
+            if (target && !target.sku && target.orderId) return this.setOrderEnvelope(target, v)
             const sku = target && target.sku
             const size = v === 'auto' ? '' : v
             if (!sku || (target.envelopeSet || '') === size) return
@@ -1212,6 +1357,7 @@ export default {
                 if (r.code === 'screenProtectors') return this.$tp('{n} screen protector(s)', { n: r.n })
                 if (r.code === 'unknown') return this.$tp('Not recognised — choose the envelope: {names}', { names: (r.names || []).join(' + ') })
                 if (r.code === 'set') return this.$tp('Chosen by hand')
+                if (r.code === 'setOrder') return this.$tp('Chosen by hand for this order')
                 return ''
             }).filter(Boolean)
             return this.$tp('{size} envelope', { size: this.envLabel(o) }) + (reasons.length ? ' — ' + reasons.join(' · ') : '')
@@ -1399,6 +1545,14 @@ export default {
 .xd-env-caret { font-size: 10px; margin-left: 1px; opacity: .7; }
 .xd-env-pin { font-size: 11px; }
 .xd-env-cur { color: #409eff; font-weight: 600; }
+// Change the envelope dialog (2026-11-12)
+.xd-ec { word-break: normal; }
+.xd-ec-now { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid #ebeef5;
+    b { font-size: 15px; color: #303133; } }
+.xd-ec-label { margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: #303133; }
+.xd-pill.xd-pill-off { opacity: .45; cursor: not-allowed; &:hover { border-color: #dcdfe6; color: #4b5563; } }
+.xd-ec-hint { margin-top: 8px; font-size: 12px; color: #909399; }
+.xd-ec-warn { margin-top: 8px; padding: 6px 8px; border-radius: 4px; background: #fdf6ec; font-size: 12px; color: #e6a23c; }
 .xd-o-cust { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #606266; }
 .xd-o-when { font-size: 12px; color: #909399; white-space: nowrap; }
 .xd-o-qty { font-weight: 600; color: #303133; white-space: nowrap; }

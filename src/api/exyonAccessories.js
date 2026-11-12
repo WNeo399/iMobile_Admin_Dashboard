@@ -85,3 +85,13 @@ export function syncExyonNeto(orderIds) {
 export function changeExyonTracking(day, orderId, tracking) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/tracking`, method: 'post', data: { orderId, tracking } })
 }
+
+// one order's envelope chosen by hand ('' = automatic) — not for a processed order
+export function setExyonOrderEnvelope(orderId, size) {
+  return request({ url: `/exyon-accessories/orders/${encodeURIComponent(orderId)}/envelope`, method: 'put', data: { size: size || '' } })
+}
+
+// a processed order's envelope, with its new tracking number (a live AusPost label is cancelled)
+export function changeExyonListEnvelope(day, orderId, size, tracking) {
+  return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/envelope`, method: 'post', data: { orderId, size, tracking } })
+}
