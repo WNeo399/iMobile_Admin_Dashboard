@@ -913,6 +913,22 @@ export const moduleRoutes = [
     ]
   },
   {
+    // iMobile Repair shop portal (2026-11-13) — Repair Tickets: the RepairDesk
+    // tickets of the shop group linked on the login (System → Users), and New
+    // ticket. Shop logins only (no admin bypass); the backend scopes it all.
+    path: "/portal/repair",
+    component: Layout,
+    meta: { exclusiveRoles: ["repair-customer"] },
+    children: [
+      {
+        path: "index",
+        component: (resolve) => require(["@/views/repairPortal/index"], resolve),
+        name: "RepairPortalTickets",
+        meta: { title: "Repair Tickets", icon: "el-icon-s-tools" }
+      }
+    ]
+  },
+  {
     // InFlow customer portal — Statement (the same statement.vue an admin opens
     // via ?customer=; here with no query, so it loads the caller's OWN account).
     path: "/portal/statement",

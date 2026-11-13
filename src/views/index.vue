@@ -63,6 +63,7 @@ import ExyonWarehouseHome from './dashboard/ExyonWarehouseHome'
 import CallCenterHome from './dashboard/CallCenterHome'
 import SupplierWarehouseHome from './dashboard/SupplierWarehouseHome'
 import DevicesCustomerHome from './dashboard/DevicesCustomerHome'
+import RepairPortalHome from './dashboard/RepairPortalHome'
 
 // Role-aware home shell. Picks the dashboard variant that matches the user's
 // primary role; falls back to an admin-ish view for unknown roles so an
@@ -73,6 +74,8 @@ const ROLE_TO_COMPONENT = {
     'imobile-repair-admin': 'IMobileRepairAdminHome',
     // iMobile Repair staff (2026-10-30): the same repair overview
     'imobile-repair': 'IMobileRepairAdminHome',
+    // a shop of iMobile Repair (2026-11-13): the repair portal
+    'repair-customer': 'RepairPortalHome',
     'techelite-admin': 'TechEliteAdminHome',
     'shop-owner': 'ShopOwnerHome',
     'repair-shop': 'RepairShopHome',
@@ -105,7 +108,8 @@ export default {
         IMobileAdminHome, IMobileRepairAdminHome,
         ShopOwnerHome, RepairShopHome, InflowCustomerHome, DevicesCustomerHome,
         PhoneSupplierHome, ConsignmentShopHome, ImobilePurchaseHome, PartsSupplierHome, AccountantHome,
-        WarehouseHome, FrontDeskHome, ExyonOperationHome, ExyonAdminHome, ExyonWarehouseHome, CallCenterHome, SupplierWarehouseHome
+        WarehouseHome, FrontDeskHome, ExyonOperationHome, ExyonAdminHome, ExyonWarehouseHome, CallCenterHome, SupplierWarehouseHome,
+        RepairPortalHome
     },
     data() {
         // Hydrate from localStorage so a reload keeps the chosen view.

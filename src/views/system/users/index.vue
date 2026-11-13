@@ -197,6 +197,19 @@
                     </el-select>
                     <div class="form-hint">This login sees this customer's refurbished-device purchases (My Devices).</div>
                 </el-form-item>
+                <!-- Repair Customer (2026-11-13): the shop group (iMobile Repair →
+                     Shops) whose RepairDesk tickets this login sees and creates -->
+                <el-form-item v-if="selectedRoleIsRepairPortal" label="Shop group" prop="repairShopGroupId">
+                    <el-select v-model="form.repairShopGroupId" filterable clearable
+                        placeholder="Pick a group from iMobile Repair → Shops"
+                        style="width: 100%" :loading="repairShopGroupsLoading">
+                        <el-option v-for="g in repairShopGroups" :key="g.id" :label="g.name" :value="g.id">
+                            <span>{{ g.name }}</span>
+                            <span class="form-opt-sub">{{ g.customers.length }} {{ g.customers.length === 1 ? 'shop' : 'shops' }}</span>
+                        </el-option>
+                    </el-select>
+                    <div class="form-hint">This login sees every ticket of the shops in this group, and creates tickets for them (no prices shown). A single shop is a group of one.</div>
+                </el-form-item>
                 <!-- Where this supplier's stock comes from. Refurbished
                      devices they add are stamped with it; iMobile staff get
                      "iMobile". -->
@@ -237,6 +250,7 @@ import { listUsers, createUser, updateUser, deleteUser, resetUserPassword, listR
 import { listShops } from '@/api/sqt/shops'
 import { getInflowFilters } from '@/api/inflow'
 import { getRefurbCustomers } from '@/api/refurbished'
+import { listShopGroups } from '@/api/repair/shops'
 
 // Pseudo node-keys for the role tree. Real role rows use `role:<value>`.
 const ALL_KEY = 'all'
@@ -252,6 +266,7 @@ function emptyForm() {
         shopIds: [],
         inflowCustomerName: '',
         refurbCustomerId: null,
+        repairShopGroupId: null,
         stockSource: '',
         active: true
     }
@@ -276,6 +291,9 @@ export default {
             // Refurbished Device customers, for the Devices Customer link.
             refurbCustomers: [],
             refurbCustomersLoading: false,
+            // iMobile Repair → Shops groups, for the Repair Customer link
+            repairShopGroups: [],
+            repairShopGroupsLoading: false,
             // Same list the Incoming Stocks upload offers — a stock source
             // means the same thing in both places.
             stockSources: ['HK', 'iMobile', 'DICO', 'Exyon'],
@@ -338,6 +356,9 @@ export default {
         selectedRoleIsDevicesCustomer() {
             return (this.form.roles || []).includes('devices-customer')
         },
+        selectedRoleIsRepairPortal() {
+            return (this.form.roles || []).includes('repair-customer')
+        },
         selectedRoleIsPhoneSupplier() {
             return (this.form.roles || []).includes('phone-supplier')
         },
@@ -388,6 +409,10 @@ export default {
         // The Devices customer list loads when that role is picked.
         selectedRoleIsDevicesCustomer(on) {
             if (on) this.loadRefurbCustomers()
+        },
+        // …and the shop groups when Repair Customer is
+        selectedRoleIsRepairPortal(on) {
+            if (on) this.loadRepairShopGroups()
         }
     },
     async created() {
@@ -490,10 +515,12 @@ export default {
                 shopIds: (row.shopIds || []).map(String),
                 inflowCustomerName: row.inflowCustomerName || '',
                 refurbCustomerId: row.refurbCustomerId ? String(row.refurbCustomerId) : null,
+                repairShopGroupId: row.repairShopGroupId ? String(row.repairShopGroupId) : null,
                 stockSource: row.stockSource || '',
                 active: row.active !== false
             }
             if (this.rowRoles(row).includes('devices-customer')) this.loadRefurbCustomers()
+            if (this.rowRoles(row).includes('repair-customer')) this.loadRepairShopGroups()
             this.dialogTitle = 'Edit User'
             this.open = true
         },
@@ -505,6 +532,16 @@ export default {
                 if (r && r.success !== false) this.refurbCustomers = (r.customers || []).map(c => ({ ...c, _id: String(c._id) }))
             } catch (e) { /* non-fatal */ }
             finally { this.refurbCustomersLoading = false }
+        },
+        // the shop groups of iMobile Repair → Shops, for the Repair Customer link
+        async loadRepairShopGroups() {
+            if (this.repairShopGroups.length || this.repairShopGroupsLoading) return
+            this.repairShopGroupsLoading = true
+            try {
+                const r = await listShopGroups()
+                if (r && r.success !== false) this.repairShopGroups = r.data || []
+            } catch (e) { /* non-fatal */ }
+            finally { this.repairShopGroupsLoading = false }
         },
         async handleDelete(row) {
             try {
@@ -560,6 +597,9 @@ export default {
                     }
                     if (this.selectedRoleIsDevicesCustomer) {
                         payload.refurbCustomerId = this.form.refurbCustomerId || null
+                    }
+                    if (this.selectedRoleIsRepairPortal) {
+                        payload.repairShopGroupId = this.form.repairShopGroupId || null
                     }
                     if (this.selectedRoleIsPhoneSupplier) {
                         payload.stockSource = this.form.stockSource || ''
@@ -726,6 +766,13 @@ export default {
     font-size: 12px;
     line-height: 1.4;
     margin-top: 4px;
+}
+/* a select option's quiet second part (the shop group's shop count) */
+.form-opt-sub {
+    float: right;
+    margin-left: 12px;
+    color: #909399;
+    font-size: 12px;
 }
 
 /* Narrow viewports: collapse to single column with the tree above. */

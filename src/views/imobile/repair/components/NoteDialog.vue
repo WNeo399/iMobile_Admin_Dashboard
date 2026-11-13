@@ -16,8 +16,14 @@
             <el-form-item label="Type">
                 <el-radio-group v-model="type">
                     <el-radio-button label="internal">Internal</el-radio-button>
-                    <el-radio-button label="diagnostic">Diagnostic</el-radio-button>
+                    <el-radio-button label="diagnostic">Diagnostic (shop sees it)</el-radio-button>
                 </el-radio-group>
+                <!-- the Repair Customer portal shows a shop its tickets' diagnostic notes (2026-11-13),
+                     and FOR NOW internal ones too (backend portal.js NOTE_OPTS.showInternal) -->
+                <div class="note-hint">
+                    <template v-if="type === 'diagnostic'">The shop sees this note in their Repair Customer portal, from “iMobile” (not your name).</template>
+                    <template v-else>For now the shop also sees internal notes in their portal (from “iMobile”, not your name).</template>
+                </div>
             </el-form-item>
             <!-- RepairDesk can tie a note to one device line -->
             <el-form-item v-if="devices.length > 1" label="Device">
