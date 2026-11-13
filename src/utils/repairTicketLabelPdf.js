@@ -20,13 +20,17 @@ import JsBarcode from 'jsbarcode'
 const W = 50
 const H = 40
 const M = 2 // side margin
-const TOP = 1.2 // above the first line's ascent
+// top / bottom margins widened ~1.2 mm each (user 2026-11-13: "a bit more
+// margin on the top and bottom"): was TOP 1.2, bar bottom 32, lines at 35.2 / 38.6
+const TOP = 2.4 // above the first line's ascent
 const PT = 0.3528 // mm per point
 const BAR_W = 34
-const BAR_BOTTOM = 32
+const BAR_BOTTOM = 30.8
 const BAR_MAX = 10
 const BAR_MIN = 6
 const GAP = 1.2 // text block → barcode
+const TICKET_Y = 34 // "Repair Ticket # …" baseline
+const WHO_Y = 37.4 // the customer + mobile baseline (≈2 mm clear of the bottom edge)
 
 function barcodePng(value) {
     const canvas = document.createElement('canvas')
@@ -98,13 +102,13 @@ function drawLabel(doc, label) {
     }
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
-    doc.text(`Repair Ticket # ${number}`, W / 2, 35.2, { align: 'center' })
+    doc.text(`Repair Ticket # ${number}`, W / 2, TICKET_Y, { align: 'center' })
     // the customer + mobile, one line (shrinks to fit)
     const who = [label.customer, label.phone].filter(Boolean).join('    ')
     let fs = 7.5
     doc.setFontSize(fs)
     while (doc.getTextWidth(who) > W - M * 2 && fs > 5) { fs -= 0.25; doc.setFontSize(fs) }
-    doc.text(who, W / 2, 38.6, { align: 'center' })
+    doc.text(who, W / 2, WHO_Y, { align: 'center' })
 }
 
 export function buildRepairLabelsPdf(labels) {
