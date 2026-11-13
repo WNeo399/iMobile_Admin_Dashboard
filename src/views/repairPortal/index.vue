@@ -290,7 +290,12 @@ export default {
     watch: {
         // another filter / search / shop → back to the first page
         kind() { this.pageNo = 1 },
-        search() { this.pageNo = 1 },
+        // typing a search shows it across every status (user 2026-11-13: "when
+        // searching, switch to all tab"); a pill picked after still narrows it
+        search(v) {
+            this.pageNo = 1
+            if (String(v || '').trim()) this.kind = ''
+        },
         shop() { this.pageNo = 1 },
         // a new page starts at the top
         pageNo() {
