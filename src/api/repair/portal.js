@@ -31,9 +31,15 @@ export function addRepairPortalNote(id, text) {
     return request({ url: `/repair/portal/tickets/${encodeURIComponent(id)}/notes`, method: 'post', data: { text }, timeout: 60000 })
 }
 
-// RepairDesk's models: { brands: [{ id, name, devices: [{ id, name, services }] }] }
-export function getRepairPortalCatalog() {
-    return request({ url: '/repair/portal/catalog', method: 'get', timeout: 60000 })
+// New ticket, step by step (2026-11-13; was one slow whole-catalogue call):
+// the brands: { brands: [{ id, name, models }] }
+export function getRepairPortalBrands() {
+    return request({ url: '/repair/portal/catalog/brands', method: 'get', timeout: 60000 })
+}
+
+// one brand's models: { brand, models: [{ id, name }] }
+export function getRepairPortalModels(brandId) {
+    return request({ url: `/repair/portal/catalog/brands/${encodeURIComponent(brandId)}/models`, method: 'get', timeout: 60000 })
 }
 
 // a model's repair services: { device, services: [{ id, name }] }

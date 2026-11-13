@@ -1,7 +1,8 @@
 <template>
     <el-dialog :title="$tp('New repair ticket')" :visible="visible" :width="narrow ? '96%' : '760px'" top="5vh" append-to-body
         custom-class="nt-dialog" :close-on-click-modal="false" @open="onOpen" @close="$emit('update:visible', false)">
-        <div v-loading="catalogLoading" class="nt">
+        <!-- opens at once: each list loads on its own as the shop picks (2026-11-13) -->
+        <div class="nt">
             <div v-if="shops.length > 1" class="nt-row">
                 <label class="nt-label">{{ $tp('Shop') }}</label>
                 <el-select v-model="shopId" size="small" filterable class="nt-full" :placeholder="$tp('Pick the shop')">
@@ -14,13 +15,15 @@
                 <div class="nt-grid">
                     <div>
                         <label class="nt-label">{{ $tp('Brand') }}</label>
-                        <el-select v-model="line.brandId" size="small" filterable class="nt-full" :placeholder="$tp('Pick the brand')" @change="onBrand(line)">
+                        <el-select v-model="line.brandId" size="small" filterable class="nt-full" :loading="brandsLoading" :loading-text="$tp('Loading…')"
+                            :placeholder="$tp('Pick the brand')" @change="onBrand(line)" @visible-change="v => v && !brands.length && loadBrands()">
                             <el-option v-for="b in brands" :key="b.id" :label="b.name" :value="b.id" />
                         </el-select>
                     </div>
                     <div>
                         <label class="nt-label">{{ $tp('Model') }}</label>
-                        <el-select v-model="line.deviceId" size="small" filterable class="nt-full" :disabled="!line.brandId" :placeholder="$tp('Pick the model')" @change="onModel(line)">
+                        <el-select v-model="line.deviceId" size="small" filterable class="nt-full" :disabled="!line.brandId" :loading="modelsLoading === line.brandId"
+                            :loading-text="$tp('Loading…')" :placeholder="$tp('Pick the model')" @change="onModel(line)">
                             <el-option v-for="d in modelsOf(line)" :key="d.id" :label="d.name" :value="d.id" />
                         </el-select>
                     </div>
@@ -67,10 +70,15 @@
 <script>
 // New ticket for the iMobile Repair shop portal (2026-11-13): the shop (when
 // the group has several), then ONE device (user: "one device one ticket") —
-// brand → model, IMEI / serial (optional), passcode, the repair services from
-// RepairDesk's catalogue (names only — no prices) and the fault. The backend
-// checks it all again and creates the RepairDesk ticket as Pending.
-import { getRepairPortalCatalog, getRepairPortalServices, createRepairPortalTicket } from '@/api/repair/portal'
+// brand → model, IMEI / serial (optional), passcode, the repair services
+// (names only — no prices) and the fault. The backend checks it all again and
+// creates the RepairDesk ticket as Pending.
+// Loaded step by step, never blocking the form (user 2026-11-13: "load the
+// brand first without blocking the dialog, after select the brand, load the
+// model and then load the repair need"): the brands when it opens, a brand's
+// models when it is picked, a model's repairs when that is picked — each kept
+// while the page lives.
+import { getRepairPortalBrands, getRepairPortalModels, getRepairPortalServices, createRepairPortalTicket } from '@/api/repair/portal'
 
 // the backend's always-offered "Other" (sent to RepairDesk as "Other Issue: <fault>")
 const OTHER = 'other'
@@ -87,7 +95,10 @@ export default {
         return {
             OTHER,
             brands: [],
-            catalogLoading: false,
+            brandsLoading: false,
+            // brand id → its models; the brand being loaded
+            models: {},
+            modelsLoading: '',
             // model id → its services (cached while the page lives)
             services: {},
             shopId: '',
@@ -105,27 +116,40 @@ export default {
         async onOpen() {
             this.narrow = window.innerWidth < 800
             this.shopId = this.defaultShop || (this.shops.length === 1 ? this.shops[0].id : '')
-            if (this.brands.length) return
-            this.catalogLoading = true
+            this.loadBrands() // not awaited: the form is usable at once
+        },
+        async loadBrands() {
+            if (this.brands.length || this.brandsLoading) return
+            this.brandsLoading = true
             try {
-                const r = await getRepairPortalCatalog()
+                const r = await getRepairPortalBrands()
                 this.brands = (r && r.brands) || []
             } catch (e) {
-                // the request layer has said why
+                // the request layer has said why; opening the list tries again
             } finally {
-                this.catalogLoading = false
+                this.brandsLoading = false
             }
         },
         modelsOf(l) {
-            const b = this.brands.find(x => x.id === l.brandId)
-            return b ? b.devices : []
+            return this.models[l.brandId] || []
         },
         servicesOf(l) {
             return this.services[l.deviceId] || []
         },
-        onBrand(l) {
+        async onBrand(l) {
             l.deviceId = ''
             l.serviceIds = []
+            const id = l.brandId
+            if (!id || this.models[id]) return
+            this.modelsLoading = id
+            try {
+                const r = await getRepairPortalModels(id)
+                this.$set(this.models, id, (r && r.models) || [])
+            } catch (e) {
+                // the request layer has said why
+            } finally {
+                if (this.modelsLoading === id) this.modelsLoading = ''
+            }
         },
         async onModel(l) {
             l.serviceIds = []
