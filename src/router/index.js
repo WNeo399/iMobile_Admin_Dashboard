@@ -52,6 +52,13 @@ export const constantRoutes = [
     hidden: true,
   },
   {
+    // Customer stock chat (2026-11-16): the link staff send on WhatsApp. No
+    // login — the token is the key; whitelisted in permission.js.
+    path: "/stock/:token",
+    component: () => import("@/views/stockChat/index"),
+    hidden: true,
+  },
+  {
     path: "/401",
     component: () => import("@/views/error/401"),
     hidden: true,
@@ -1039,6 +1046,18 @@ export const moduleRoutes = [
               title: "Customers",
               icon: "el-icon-user",
               permissions: ["refurb:sale:view"]
+            }
+          },
+          {
+            // Customer stock chat: the enable list (by phone), its price
+            // list and what customers see (2026-11-16).
+            path: "/refurbished/stock-chat",
+            component: (resolve) => require(["@/views/refurbished/stockChat"], resolve),
+            name: "RefurbishedStockChat",
+            meta: {
+              title: "Stock Chat",
+              icon: "el-icon-chat-dot-round",
+              permissions: ["refurb:stockchat:manage"]
             }
           }
         ]

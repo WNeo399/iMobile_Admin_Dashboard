@@ -10,7 +10,8 @@ import auth from '@/plugins/auth'
 
 NProgress.configure({ showSpinner: false })
 
-const whiteList = ['/login']
+// /stock/<token>: the customer stock chat — the token in the link is the key.
+const whiteList = ['/login', '/stock/*']
 
 const isWhiteList = (path) => {
   return whiteList.some(pattern => isPathMatch(pattern, path))
