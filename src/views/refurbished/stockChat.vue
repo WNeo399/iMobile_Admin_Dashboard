@@ -107,6 +107,7 @@
                     <span>{{ $tp('{n} rows', { n: preview.rows }) }}</span>
                     <span>{{ $tp('{n} rows priced ({u} units)', { n: preview.pricedRows, u: preview.pricedUnits }) }}</span>
                     <span :title="$tp('In Stock in our register at Assigned To Exyon, but sold, being picked or in a non-sellable zone in Exyon')">{{ $tp('{n} hidden: sold or unavailable at Exyon', { n: preview.hiddenAtExyon }) }}</span>
+                    <span v-if="preview.unconfirmedAtExyon" :title="$tp('In Stock at Assigned To Exyon in our register, but Exyon never received it or has no record of it')">{{ $tp('{n} shown: not yet received at Exyon', { n: preview.unconfirmedAtExyon }) }}</span>
                     <span v-if="preview.hiddenUnits">{{ $tp('{n} hidden: hidden models', { n: preview.hiddenUnits }) }}</span>
                     <span v-if="preview.belowCostUnits" class="sch-contact">{{ $tp('{n} units below cost: Contact us', { n: preview.belowCostUnits }) }}</span>
                     <span class="sch-muted">{{ $tp('Stock as of {t}', { t: fmt(preview.at, true) }) }}</span>

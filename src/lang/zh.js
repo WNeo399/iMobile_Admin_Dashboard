@@ -2416,6 +2416,9 @@ export default {
     '{n} hidden: hidden models': '{n} 台已隐藏：隐藏的型号',
     '{n} units below cost: Contact us': '{n} 台低于成本：显示联系我们',
     // Stock chat: no daily limit (2026-11-16)
-    '0 = no limit': '0 = 不限'
+    '0 = no limit': '0 = 不限',
+    // Stock chat: units not yet received at Exyon (2026-11-17)
+    '{n} shown: not yet received at Exyon': '{n} 台已显示：Exyon 尚未收货',
+    'In Stock at Assigned To Exyon in our register, but Exyon never received it or has no record of it': '我们登记为 Assigned To Exyon 在库，但 Exyon 未收货或没有记录'
   }
 }
