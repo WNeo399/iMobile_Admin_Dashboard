@@ -2406,6 +2406,16 @@ export default {
     'Delete the price for {what}?': '删除 {what} 的价格？',
     'Could not find Model and Price columns in the first sheet': '第一个工作表中找不到 Model 和 Price 列',
     'Could not read that file': '无法读取该文件',
-    '{n} prices imported': '已导入 {n} 个价格'
+    '{n} prices imported': '已导入 {n} 个价格',
+    // Stock chat: hidden models, below cost (2026-11-16)
+    'Hidden models': '隐藏的型号',
+    'Models customers never see': '客户看不到的型号',
+    'The whole model name as in the stock register': '填写与库存登记一致的完整型号名称',
+    'Cost exchange rates': '成本汇率',
+    'A unit whose cost is above its listed price shows Contact us; HKD / CNY costs are converted with these': '成本高于标价的设备显示「联系我们」；港币 / 人民币成本按这些汇率换算',
+    '{n} hidden: hidden models': '{n} 台已隐藏：隐藏的型号',
+    '{n} units below cost: Contact us': '{n} 台低于成本：显示联系我们',
+    // Stock chat: no daily limit (2026-11-16)
+    '0 = no limit': '0 = 不限'
   }
 }

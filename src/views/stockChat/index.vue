@@ -77,8 +77,8 @@
         <footer v-if="state === 'ready'" class="sc-foot">
             <form class="sc-input" @submit.prevent="ask(draft)">
                 <textarea ref="box" v-model="draft" rows="1" maxlength="500" placeholder="e.g. iPhone 13 128GB in A grade?"
-                    :disabled="sending || left <= 0" @keydown.enter.exact.prevent="ask(draft)" />
-                <button type="submit" class="sc-send" :disabled="sending || !draft.trim() || left <= 0" aria-label="Send">
+                    :disabled="sending || outOfQuestions" @keydown.enter.exact.prevent="ask(draft)" />
+                <button type="submit" class="sc-send" :disabled="sending || !draft.trim() || outOfQuestions" aria-label="Send">
                     <i class="el-icon-s-promotion" />
                 </button>
             </form>
@@ -118,6 +118,10 @@ export default {
         left() {
             return Math.max(this.limit - this.used, 0)
         },
+        // a limit of 0 = no limit
+        outOfQuestions() {
+            return this.limit > 0 && this.used >= this.limit
+        },
         welcome() {
             return `Hi${this.name ? ' ' + this.name : ''}! Ask me about iMobile's refurbished stock — what's available, quantities and prices.`
         },
@@ -147,7 +151,7 @@ export default {
     methods: {
         async ask(text) {
             const q = String(text || '').trim()
-            if (!q || this.sending || this.left <= 0) return
+            if (!q || this.sending || this.outOfQuestions) return
             this.messages.push({ role: 'user', text: q })
             this.draft = ''
             this.sending = true

@@ -103,6 +103,8 @@
                     <span>{{ $tp('{n} rows', { n: preview.rows }) }}</span>
                     <span>{{ $tp('{n} rows priced ({u} units)', { n: preview.pricedRows, u: preview.pricedUnits }) }}</span>
                     <span :title="$tp('In Stock in our register at Assigned To Exyon, but sold, being picked or in a non-sellable zone in Exyon')">{{ $tp('{n} hidden: sold or unavailable at Exyon', { n: preview.hiddenAtExyon }) }}</span>
+                    <span v-if="preview.hiddenUnits">{{ $tp('{n} hidden: hidden models', { n: preview.hiddenUnits }) }}</span>
+                    <span v-if="preview.belowCostUnits" class="sch-contact">{{ $tp('{n} units below cost: Contact us', { n: preview.belowCostUnits }) }}</span>
                     <span class="sch-muted">{{ $tp('Stock as of {t}', { t: fmt(preview.at, true) }) }}</span>
                 </div>
                 <el-table v-loading="prevLoading" :data="previewShown" size="small" border :max-height="600">
@@ -117,11 +119,12 @@
                         <template slot-scope="s">
                             <span v-if="s.row.price != null">{{ s.row.currency }} {{ money(s.row.price) }}</span>
                             <span v-else class="sch-contact">{{ $tp('Contact us') }}</span>
+                            <el-tag v-if="s.row.belowCost" size="mini" type="warning" class="sch-below">{{ $tp('Below cost') }}</el-tag>
                         </template>
                     </el-table-column>
                     <el-table-column width="110">
                         <template slot-scope="s">
-                            <el-button v-if="s.row.price == null" size="mini" type="text" icon="el-icon-plus" @click="openPrice(null, s.row)">{{ $tp('Add price') }}</el-button>
+                            <el-button v-if="s.row.price == null && !s.row.belowCost" size="mini" type="text" icon="el-icon-plus" @click="openPrice(null, s.row)">{{ $tp('Add price') }}</el-button>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -217,14 +220,34 @@
         </el-dialog>
 
         <!-- settings -->
-        <el-dialog :title="$tp('Stock chat settings')" :visible.sync="settingsDialog" width="480px" append-to-body>
+        <el-dialog :title="$tp('Stock chat settings')" :visible.sync="settingsDialog" width="560px" append-to-body>
             <el-form label-width="150px" size="small" @submit.native.prevent>
                 <el-form-item :label="$tp('Price note')">
                     <el-input v-model="settings.priceNote" maxlength="120" :placeholder="$tp('e.g. Prices in AUD, ex GST')" />
                 </el-form-item>
                 <el-form-item :label="$tp('Questions per day')">
-                    <el-input-number v-model="settings.dailyLimit" :min="1" :max="500" />
-                    <div class="sch-muted">{{ $tp('Per customer, resets at midnight Melbourne time') }}</div>
+                    <el-input-number v-model="settings.dailyLimit" :min="0" :max="500" />
+                    <div class="sch-muted">{{ $tp('Per customer, resets at midnight Melbourne time') }} · {{ $tp('0 = no limit') }}</div>
+                </el-form-item>
+                <el-form-item :label="$tp('Hidden models')">
+                    <el-select v-model="settings.hiddenModels" multiple filterable allow-create default-first-option class="sch-full"
+                        :placeholder="$tp('Models customers never see')">
+                        <el-option v-for="m in modelNames" :key="m" :label="m" :value="m" />
+                    </el-select>
+                    <div class="sch-muted">{{ $tp('The whole model name as in the stock register') }}</div>
+                </el-form-item>
+                <el-form-item :label="$tp('Cost exchange rates')">
+                    <div class="sch-fx">
+                        <span>1 HKD =</span>
+                        <el-input-number v-model="settings.fxToAud.HKD" :min="0.0001" :max="10" :precision="4" :step="0.01" :controls="false" class="sch-fx-num" />
+                        <span>AUD</span>
+                    </div>
+                    <div class="sch-fx">
+                        <span>1 CNY =</span>
+                        <el-input-number v-model="settings.fxToAud.CNY" :min="0.0001" :max="10" :precision="4" :step="0.01" :controls="false" class="sch-fx-num" />
+                        <span>AUD</span>
+                    </div>
+                    <div class="sch-muted">{{ $tp('A unit whose cost is above its listed price shows Contact us; HKD / CNY costs are converted with these') }}</div>
                 </el-form-item>
             </el-form>
             <span slot="footer">
@@ -294,7 +317,7 @@ export default {
             logLoading: false,
             // settings
             settingsDialog: false,
-            settings: { priceNote: '', dailyLimit: 40 }
+            settings: { priceNote: '', dailyLimit: 0, hiddenModels: [], fxToAud: { HKD: 0.19, CNY: 0.2128 } }
         }
     },
     computed: {
@@ -307,6 +330,12 @@ export default {
         pricesShown() {
             const q = this.priceSearch.trim().toLowerCase()
             return q ? this.prices.filter(p => p.model.toLowerCase().includes(q)) : this.prices
+        },
+        modelNames() {
+            const names = new Set(this.settings.hiddenModels || [])
+            if (this.preview) this.preview.groups.forEach(g => names.add(g.model))
+            this.prices.forEach(p => names.add(p.model))
+            return [...names].sort((a, b) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' }))
         },
         previewShown() {
             if (!this.preview) return []
@@ -427,8 +456,16 @@ export default {
         // ── settings ──
         async openSettings() {
             const r = await getStockChatSettings()
-            this.settings = { priceNote: r.settings.priceNote || '', dailyLimit: r.settings.dailyLimit }
+            const s = r.settings || {}
+            this.settings = {
+                priceNote: s.priceNote || '',
+                dailyLimit: s.dailyLimit,
+                hiddenModels: (s.hiddenModels || []).slice(),
+                fxToAud: { HKD: (s.fxToAud && s.fxToAud.HKD) || 0.19, CNY: (s.fxToAud && s.fxToAud.CNY) || 0.2128 }
+            }
             this.settingsDialog = true
+            // model names to pick from (the stock as customers see it + the price list)
+            if (!this.preview) this.loadPreview(false)
         },
         async saveSettings() {
             this.saving = true
@@ -436,6 +473,8 @@ export default {
                 await saveStockChatSettings(this.settings)
                 this.settingsDialog = false
                 this.$message.success(this.$tp('Saved'))
+                // hidden models / rates change what customers see
+                if (this.preview) this.loadPreview(false)
             } finally {
                 this.saving = false
             }
@@ -588,6 +627,9 @@ export default {
 .sch-muted { color: #909399; font-size: 12px; }
 .sch-alert { margin-bottom: 10px; }
 .sch-contact { color: #b45309; }
+.sch-below { margin-left: 6px; }
+.sch-fx { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sch-fx-num { width: 110px; }
 .sch-danger { color: #f56c6c; }
 .sch-full { width: 100%; }
 .sch-price { display: flex; gap: 8px; }
