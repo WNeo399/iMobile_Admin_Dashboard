@@ -34,8 +34,11 @@
                         <template slot-scope="s">{{ s.row.lastAskedAt ? fmt(s.row.lastAskedAt) : '—' }}</template>
                     </el-table-column>
                     <el-table-column :label="$tp('Note')" prop="note" min-width="160" show-overflow-tooltip />
-                    <el-table-column :label="$tp('Actions')" width="330" fixed="right">
+                    <!-- not fixed="right": a pinned column is a separate overlay table whose
+                         rows drifted out of line with the rest (user 2026-11-17) -->
+                    <el-table-column :label="$tp('Actions')" min-width="340">
                         <template slot-scope="s">
+                            <div class="sch-acts">
                             <el-button size="mini" type="success" icon="el-icon-chat-dot-round" :disabled="!s.row.enabled" @click="sendWhatsApp(s.row)">{{ $tp('Send on WhatsApp') }}</el-button>
                             <el-button size="mini" icon="el-icon-document-copy" :disabled="!s.row.enabled" @click="copyLink(s.row)">{{ $tp('Copy link') }}</el-button>
                             <el-dropdown trigger="click" size="small" @command="c => more(c, s.row)">
@@ -48,6 +51,7 @@
                                     <el-dropdown-item command="delete" icon="el-icon-delete" divided>{{ $tp('Remove') }}</el-dropdown-item>
                                 </el-dropdown-menu>
                             </el-dropdown>
+                            </div>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -628,6 +632,9 @@ export default {
 .sch-alert { margin-bottom: 10px; }
 .sch-contact { color: #b45309; }
 .sch-below { margin-left: 6px; }
+/* the row's buttons on one line, so every row keeps the same height */
+.sch-acts { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; white-space: nowrap; }
+.sch-acts .el-button + .el-button { margin-left: 0; }
 .sch-fx { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .sch-fx-num { width: 110px; }
 .sch-danger { color: #f56c6c; }

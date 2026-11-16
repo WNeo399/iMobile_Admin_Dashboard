@@ -8,6 +8,10 @@
                 <div class="sc-title">Stock check</div>
                 <div v-if="name" class="sc-sub">Hi {{ name }}</div>
             </div>
+            <!-- clears this screen only — the questions stay in our log (user 2026-11-17) -->
+            <button v-if="state === 'ready' && messages.length" type="button" class="sc-clear" :disabled="sending" @click="clearChat">
+                <i class="el-icon-delete" /> Clear chat
+            </button>
         </header>
 
         <main ref="list" class="sc-body">
@@ -216,6 +220,19 @@ export default {
                 if (el) el.scrollTop = el.scrollHeight
             })
         },
+        // Clear the conversation on this screen and start fresh: the AI no
+        // longer sees the earlier questions. Our question log (Stock Chat →
+        // Questions asked) and today's count are untouched.
+        clearChat() {
+            if (this.sending || !this.messages.length) return
+            this.$confirm('Clear this chat? Your questions and answers are removed from this screen.', 'Clear chat', {
+                confirmButtonText: 'Clear', cancelButtonText: 'Cancel', type: 'warning', customClass: 'sc-confirm'
+            }).then(() => {
+                this.messages = []
+                try { sessionStorage.removeItem(this.storeKey) } catch (e) { /* storage off */ }
+                this.scrollDown()
+            }).catch(() => {})
+        },
         // The conversation survives a refresh (this tab only).
         save() {
             try { sessionStorage.setItem(this.storeKey, JSON.stringify(this.messages.slice(-40))) } catch (e) { /* storage off */ }
@@ -244,6 +261,12 @@ $blue: #1f5fbf;
 .sc-logo { height: 30px; width: auto; }
 .sc-title { font-size: 16px; font-weight: 700; }
 .sc-sub { font-size: 12px; color: #6b7280; }
+.sc-clear {
+    margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid #d1d5db; background: #fff; color: #4b5563; border-radius: 999px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer;
+}
+.sc-clear:disabled { opacity: .5; cursor: default; }
 .sc-body { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
 .sc-body > * { max-width: 760px; margin-left: auto; margin-right: auto; }
 .sc-center { text-align: center; color: #6b7280; margin-top: 30vh; }
@@ -321,4 +344,10 @@ $blue: #1f5fbf;
     display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
     max-width: 760px; margin: 6px auto 0; font-size: 12px; color: #6b7280;
 }
+</style>
+
+<style lang="scss">
+/* the Clear chat confirm box lives on <body> (outside the scoped styles):
+   Element's 420 px box is wider than a phone */
+.el-message-box.sc-confirm { width: 420px; max-width: calc(100vw - 32px); }
 </style>
