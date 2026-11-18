@@ -134,9 +134,16 @@
                     <!-- Read-only: the flag follows the Blackbelt lookup.
                          The tooltip carries the report's verdict. Warning =
                          a test in the report's Device Testing Information
-                         came back FAIL (2026-11-10; NOT TESTED is fine). -->
-                    <i v-if="s.row.blackbeltChecked === true && bbFails(s.row).length" class="el-icon-warning rs-bb-warn"
-                        :title="bbWarnTip(s.row)" />
+                         came back FAIL (2026-11-10; NOT TESTED is fine), or
+                         the report's test run never finished — Not Completed
+                         / Failed (2026-11-18). A Warning device can ask
+                         Blackbelt again for a newer report (the refresh icon). -->
+                    <template v-if="s.row.blackbeltChecked === true && bbWarn(s.row)">
+                        <i class="el-icon-warning rs-bb-warn" :title="bbWarnTip(s.row)" />
+                        <i v-if="canCheckBb" class="rs-bb-refresh"
+                            :class="bbRefreshingId === s.row._id ? 'el-icon-loading' : 'el-icon-refresh'"
+                            :title="$tp('Check Blackbelt for a newer report')" @click.stop="bbRefreshRow(s.row)" />
+                    </template>
                     <i v-else-if="s.row.blackbeltChecked === true" class="el-icon-success rs-bb-yes"
                         :title="s.row.blackbeltStatus || $tp('Blackbelt report found')" />
                     <i v-else class="el-icon-error rs-bb-no" :title="$tp('No Blackbelt report')" />
@@ -467,11 +474,11 @@
                         <!-- Report availability — the verdict itself lives in
                              the Blackbelt Report tab. -->
                         <div class="rs-bb-line">
-                            <template v-if="editRow.blackbeltReportId && bbFails(editRow).length">
+                            <template v-if="editRow.blackbeltReportId && bbWarn(editRow)">
                                 <i class="el-icon-warning rs-bb-warn" />
-                                <span class="rs-bb-warn-text" :title="bbFails(editRow).join(', ')">
-                                    {{ $tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(editRow).join(', ') }) }}
-                                </span>
+                                <span class="rs-bb-warn-text" :title="bbWarnText(editRow)">{{ bbWarnText(editRow) }}</span>
+                                <el-button v-if="canCheckBb" size="mini" type="warning" plain icon="el-icon-refresh"
+                                    class="rs-bb-check-btn" :loading="bbChecking" @click="bbCheck">{{ $tp('Refresh report') }}</el-button>
                             </template>
                             <template v-else-if="editRow.blackbeltReportId">
                                 <i class="el-icon-success rs-bb-yes" />
@@ -747,7 +754,7 @@
 <script>
 import { buildTransferPdf, buildTransferWorkbook, transferFileBase } from '@/utils/refurbTransferPdf'
 import * as XLSX from 'xlsx-js-style'
-import { actsAsPhoneSupplier } from '@/utils/permission'
+import { actsAsPhoneSupplier, hasPermission } from '@/utils/permission'
 import DefaultPrice from './components/DefaultPrice'
 import { resetDefaultPrices } from './defaultPrices'
 import {
@@ -775,7 +782,8 @@ const FIELD_LABELS = {
     blackbeltChecked: 'Blackbelt', note: 'Note', brand: 'Brand', serialNumber: 'Serial Number',
     batteryHealth: 'Battery Health', batteryCycleCount: 'Battery Cycles',
     batteryCapacity: 'Battery Capacity', aNumber: 'A Number', blackbeltReportId: 'Blackbelt Report',
-    blackbeltStatus: 'Blackbelt Status', blackbeltFailedTests: 'Blackbelt FAIL tests'
+    blackbeltStatus: 'Blackbelt Status', blackbeltFailedTests: 'Blackbelt FAIL tests',
+    blackbeltReportState: 'Blackbelt Report State'
 }
 
 export default {
@@ -854,13 +862,15 @@ export default {
             reportError: '',
             // Per-device Blackbelt re-check in flight
             bbChecking: false,
+            bbRefreshingId: null, // the list row whose report is being refreshed
             form: {
                 imei: '', model: '', color: '', storage: '', grade: '',
                 costPrice: '', currency: 'AUD',
                 stockSource: '', blackbeltChecked: false, note: '', supplierId: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
                 batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: '',
-                blackbeltFailedTests: undefined // from the add lookup only; edits never send it
+                blackbeltFailedTests: undefined, // from the add lookup only; edits never send it
+                blackbeltReportState: undefined
             },
             saving: false,
             // IMEI lookup: idle | ok | known (already in stock) |
@@ -871,6 +881,10 @@ export default {
         }
     },
     computed: {
+        // Re-asking Blackbelt writes onto the register (refurb:stock:manage).
+        canCheckBb() {
+            return hasPermission(this.$store.getters.permissions, 'refurb:stock:manage')
+        },
         isSupplier() {
             return actsAsPhoneSupplier()
         },
@@ -995,7 +1009,7 @@ export default {
                 stockSource: '', blackbeltChecked: false, note: '', supplierId: '',
                 brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
                 batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: '',
-                blackbeltFailedTests: undefined
+                blackbeltFailedTests: undefined, blackbeltReportState: undefined
             }
         },
         // The supplier's own suppliers list (Suppliers page) — for the
@@ -1126,7 +1140,8 @@ export default {
                     blackbeltReportId: (r && r.blackbeltReportId) || '',
                     blackbeltStatus: (r && r.blackbeltStatus) || '',
                     // the report's FAIL tests (any = Blackbelt "Warning")
-                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {})
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {}),
+                    ...(r && r.blackbeltReportState ? { blackbeltReportState: r.blackbeltReportState } : {})
                 }
                 row.bbFound = !!(r && r.found)
                 row.modelMissing = row.bbFound && !String(row.model || '').trim()
@@ -1436,7 +1451,7 @@ export default {
                     model: '', color: '', storage: '', stockSource: '', brand: '', serialNumber: '',
                     batteryHealth: null, batteryCycleCount: null, batteryCapacity: '',
                     aNumber: '', blackbeltReportId: '', blackbeltStatus: '', blackbeltChecked: false,
-                    blackbeltFailedTests: undefined
+                    blackbeltFailedTests: undefined, blackbeltReportState: undefined
                 })
             }
         },
@@ -1462,7 +1477,9 @@ export default {
                     blackbeltReportId: r.blackbeltReportId || '',
                     blackbeltStatus: r.blackbeltStatus || '',
                     // the report's FAIL tests (any = Blackbelt "Warning"), sent with the add
-                    blackbeltFailedTests: Array.isArray(r.blackbeltFailedTests) ? r.blackbeltFailedTests : undefined
+                    blackbeltFailedTests: Array.isArray(r.blackbeltFailedTests) ? r.blackbeltFailedTests : undefined,
+                    // Completed / Not Completed / Failed (not Completed = "Warning")
+                    blackbeltReportState: r.blackbeltReportState || undefined
                 })
                 if (r.alreadyInStock) {
                     this.lookupState = 'known'
@@ -1537,11 +1554,79 @@ export default {
         bbFails(row) {
             return (row && Array.isArray(row.blackbeltFailedTests)) ? row.blackbeltFailedTests : []
         },
-        bbWarnTip(row) {
-            return this.$tp('Warning — FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') }) +
-                (row.blackbeltStatus ? ` (${row.blackbeltStatus})` : '')
+        // The report's test run never finished (Not Completed, or Failed =
+        // aborted): no test results, so it is a "Warning" too (2026-11-18).
+        // A missing state = not evaluated yet, not a warning.
+        bbIncomplete(row) {
+            const st = row && row.blackbeltReportState
+            return !!st && st !== 'Completed'
         },
-        // Re-ask Blackbelt for a device added before its report existed.
+        bbWarn(row) {
+            return this.bbFails(row).length > 0 || this.bbIncomplete(row)
+        },
+        bbStateText(state) {
+            return state === 'Failed'
+                ? this.$tp('Blackbelt report Failed (test aborted)')
+                : this.$tp('Blackbelt report Not Completed')
+        },
+        // Every reason, for the dialog line.
+        bbWarnText(row) {
+            const parts = []
+            if (this.bbIncomplete(row)) parts.push(this.bbStateText(row.blackbeltReportState))
+            if (this.bbFails(row).length) {
+                parts.push(this.$tp('FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') }))
+            }
+            return parts.join(' · ')
+        },
+        bbWarnTip(row) {
+            const text = this.bbIncomplete(row)
+                ? this.$tp('Warning — {reason}', { reason: this.bbWarnText(row) })
+                : this.$tp('Warning — FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') })
+            return text + (row.blackbeltStatus ? ` (${row.blackbeltStatus})` : '')
+        },
+        // The answer of a re-check: a report that still warns reads as a
+        // warning, not a success.
+        bbCheckNotice(r) {
+            const still = !!r.device && this.bbWarn(r.device)
+            this.$message({
+                type: still ? 'warning' : 'success',
+                message: r.message || this.$tp('Blackbelt report found'),
+                duration: still ? 6000 : 3000
+            })
+            // Blackbelt wins, so anything it replaced is worth naming —
+            // a model or colour changing under you needs an explanation.
+            if ((r.corrected || []).length) {
+                this.$notify.info({
+                    title: this.$tp('Corrected from Blackbelt'),
+                    message: r.corrected
+                        .map(c => `${c.label}: "${c.from}" -> "${c.to}"`)
+                        .join('\n'),
+                    duration: 0
+                })
+            }
+        },
+        // The list's refresh icon on a Warning device: ask Blackbelt again
+        // (its newest COMPLETED report wins) without opening the dialog.
+        async bbRefreshRow(row) {
+            if (this.bbRefreshingId || !row || !row._id) return
+            this.bbRefreshingId = row._id
+            try {
+                const r = await checkRefurbDeviceBlackbelt(row._id)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                if (!r.found) {
+                    this.$message.info(r.message || this.$tp('Blackbelt still has no report for this device.'))
+                    return
+                }
+                this.bbCheckNotice(r)
+                this.load()
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Blackbelt check failed')))
+            } finally {
+                this.bbRefreshingId = null
+            }
+        },
+        // Re-ask Blackbelt for a device added before its report existed, or
+        // for a newer report on a Warning device (the dialog's Refresh).
         async bbCheck() {
             if (this.bbChecking || !this.editRow) return
             this.bbChecking = true
@@ -1552,18 +1637,7 @@ export default {
                     this.$message.info(r.message || this.$tp('Blackbelt still has no report for this device.'))
                     return
                 }
-                this.$message.success(r.message || this.$tp('Blackbelt report found'))
-                // Blackbelt wins, so anything it replaced is worth naming —
-                // a model or colour changing under you needs an explanation.
-                if ((r.corrected || []).length) {
-                    this.$notify.info({
-                        title: this.$tp('Corrected from Blackbelt'),
-                        message: r.corrected
-                            .map(c => `${c.label}: "${c.from}" -> "${c.to}"`)
-                            .join('\n'),
-                        duration: 0
-                    })
-                }
+                this.bbCheckNotice(r)
                 // Fresh doc from the server; replacing the reference keeps
                 // every new field reactive.
                 this.editRow = { ...this.editRow, ...r.device }
@@ -1824,6 +1898,8 @@ export default {
 .rs-bb-ok-text { color: #67C23A; font-weight: 600; }
 /* Blackbelt "Warning": a FAIL in the report's Device Testing Information */
 .rs-bb-warn { color: #E6A23C; font-size: 17px; cursor: help; }
+.rs-bb-refresh { margin-left: 6px; font-size: 14px; color: #409EFF; cursor: pointer; vertical-align: 1px; }
+.rs-bb-refresh:hover { color: #66b1ff; }
 .rs-bb-warn-text { color: #b88230; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-bb-check-btn { padding: 3px 8px; font-size: 11px; }
 /* Blackbelt report tab — laid out like the Analyst Report PDF */

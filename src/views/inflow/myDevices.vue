@@ -75,10 +75,11 @@
                          Blackbelt has a report for the device, a cross when not. -->
                     <el-table-column label="Blackbelt" width="90" align="center">
                         <template slot-scope="s">
-                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
-                            <i v-if="s.row.bbChecked && s.row.bbFailedTests && s.row.bbFailedTests.length"
+                            <!-- Warning: a FAIL in the report's testing (2026-11-10) or a
+                                 test run that never finished (2026-11-18), icon only -->
+                            <i v-if="s.row.bbChecked && bbWarn(s.row)"
                                 class="el-icon-warning rs-bb-warn"
-                                :title="'FAIL in Blackbelt testing: ' + s.row.bbFailedTests.join(', ')" />
+                                :title="bbWarnText(s.row)" />
                             <i v-else-if="s.row.bbChecked" class="el-icon-success rs-bb-yes"
                                 :title="s.row.bbStatus || 'Blackbelt report found'" />
                             <i v-else class="el-icon-error rs-bb-no" title="No Blackbelt report" />
@@ -401,6 +402,24 @@ export default {
         this.load()
     },
     methods: {
+        // Blackbelt "Warning": a FAIL in the report's testing, or a report
+        // whose test run never finished (Not Completed / Failed).
+        bbIncomplete(row) {
+            return !!row.bbReportState && row.bbReportState !== 'Completed'
+        },
+        bbWarn(row) {
+            return (Array.isArray(row.bbFailedTests) && row.bbFailedTests.length > 0) || this.bbIncomplete(row)
+        },
+        bbWarnText(row) {
+            const parts = []
+            if (this.bbIncomplete(row)) {
+                parts.push(row.bbReportState === 'Failed' ? 'Blackbelt report Failed (test aborted)' : 'Blackbelt report Not Completed')
+            }
+            if (Array.isArray(row.bbFailedTests) && row.bbFailedTests.length) {
+                parts.push('FAIL in Blackbelt testing: ' + row.bbFailedTests.join(', '))
+            }
+            return parts.join(' · ')
+        },
         async load() {
             this.loading = true
             try {

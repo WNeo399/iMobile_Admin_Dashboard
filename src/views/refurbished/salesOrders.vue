@@ -282,12 +282,17 @@
                         <template slot-scope="s">
                             <span v-if="!s.row.blackbelt" class="rso-dim">…</span>
                             <!-- just the tick: no status text (user 2026-11-05) -->
-                            <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
-                            <div v-else-if="bbTested(s.row) && bbFails(s.row).length" class="rso-bb-cell">
-                                <el-tooltip :content="$tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') })"
-                                    placement="top" :open-delay="300">
+                            <!-- Warning: a FAIL in the report's testing (2026-11-10)
+                                 or a run that never finished (2026-11-18), icon
+                                 only; Refresh asks Blackbelt for a newer report -->
+                            <div v-else-if="bbTested(s.row) && bbWarn(s.row)" class="rso-bb-cell">
+                                <el-tooltip :content="bbWarnText(s.row)" placement="top" :open-delay="300">
                                     <i class="el-icon-warning rso-bb-warn" />
                                 </el-tooltip>
+                                <el-button v-if="canCheckBb && s.row.deviceId" type="text" size="mini" icon="el-icon-refresh"
+                                    :loading="bbCheckingId === String(s.row.deviceId)" :disabled="!!bbCheckingId && bbCheckingId !== String(s.row.deviceId)"
+                                    :title="$tp('Check Blackbelt for a newer report')"
+                                    @click="bbCheck(s.row)">{{ $tp('Refresh') }}</el-button>
                             </div>
                             <div v-else-if="bbTested(s.row)" class="rso-bb-cell">
                                 <el-tooltip :content="$tp('Tested in Blackbelt')" placement="top" :open-delay="300">
@@ -797,7 +802,9 @@ export default {
                     blackbeltReportId: (r && r.blackbeltReportId) || '',
                     blackbeltStatus: (r && r.blackbeltStatus) || '',
                     // the report's FAIL tests (any = Blackbelt "Warning")
-                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {})
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {}),
+                    // Completed / Not Completed / Failed (not Completed = "Warning")
+                    ...(r && r.blackbeltReportState ? { blackbeltReportState: r.blackbeltReportState } : {})
                 }
                 line.bbFound = !!(r && r.found)
             } catch (e) {
@@ -1001,8 +1008,27 @@ export default {
         bbTested(row) { return !!(row.blackbelt && (row.blackbelt.hasReport || row.blackbelt.checked)) },
         // tests the device's Blackbelt report failed — any one = "Warning"
         bbFails(row) { return (row.blackbelt && Array.isArray(row.blackbelt.failedTests)) ? row.blackbelt.failedTests : [] },
-        // "Check" on a device Blackbelt had no report for: the Stock page's
-        // check — a report found is written onto the device in the register.
+        // the report's test run never finished (Not Completed / Failed) — "Warning" too
+        bbIncomplete(row) {
+            const st = row.blackbelt && row.blackbelt.reportState
+            return !!st && st !== 'Completed'
+        },
+        bbWarn(row) { return this.bbFails(row).length > 0 || this.bbIncomplete(row) },
+        bbWarnText(row) {
+            const parts = []
+            if (this.bbIncomplete(row)) {
+                parts.push(row.blackbelt.reportState === 'Failed'
+                    ? this.$tp('Blackbelt report Failed (test aborted)')
+                    : this.$tp('Blackbelt report Not Completed'))
+            }
+            if (this.bbFails(row).length) {
+                parts.push(this.$tp('FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') }))
+            }
+            return parts.join(' · ')
+        },
+        // "Check" on a device Blackbelt had no report for, or "Refresh" on a
+        // Warning device: the Stock page's check — the report found (its
+        // newest completed run) is written onto the device in the register.
         async bbCheck(row) {
             if (this.bbCheckingId || !row.deviceId) return
             this.bbCheckingId = String(row.deviceId)
@@ -1016,9 +1042,15 @@ export default {
                 const d = r.device || {}
                 this.$set(row, 'blackbelt', {
                     checked: true, status: d.blackbeltStatus || '', hasReport: !!d.blackbeltReportId,
-                    failedTests: Array.isArray(d.blackbeltFailedTests) ? d.blackbeltFailedTests : []
+                    failedTests: Array.isArray(d.blackbeltFailedTests) ? d.blackbeltFailedTests : [],
+                    reportState: d.blackbeltReportState || ''
                 })
-                this.$message.success(this.$tp('{imei}: Blackbelt report found', { imei: row.imei }))
+                if (this.bbWarn(row)) {
+                    // still a Warning — say why rather than "found"
+                    this.$message({ type: 'warning', duration: 6000, message: `${row.imei}: ${this.bbWarnText(row)}` })
+                } else {
+                    this.$message.success(this.$tp('{imei}: Blackbelt report found', { imei: row.imei }))
+                }
                 if ((r.corrected || []).length) {
                     this.$notify.info({
                         title: this.$tp('Corrected from Blackbelt'),

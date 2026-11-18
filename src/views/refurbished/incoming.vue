@@ -230,11 +230,11 @@
                                  a FAIL in the report's testing, icon only. A button so the
                                  click doesn't tick the row. -->
                             <button v-if="s.row.bbStatus === 'found'" type="button" class="ri-bb-open"
-                                :title="bbFails(s.row).length
-                                    ? $tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') }) + ' · ' + $tp('Click to open the report')
+                                :title="bbWarn(s.row)
+                                    ? bbWarnText(s.row) + ' · ' + $tp('Click to open the report')
                                     : $tp('Report found') + ' · ' + $tp('Click to open the report')"
                                 @click.stop="openBbReport(s.row)">
-                                <i :class="bbFails(s.row).length ? 'el-icon-warning ri-warn-i' : 'el-icon-success ri-yes'" />
+                                <i :class="bbWarn(s.row) ? 'el-icon-warning ri-warn-i' : 'el-icon-success ri-yes'" />
                             </button>
                             <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error ri-no" :title="$tp('No report')" />
                             <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning ri-warn-i"
@@ -805,6 +805,28 @@ export default {
         bbFails(row) {
             if (Array.isArray(row.bbFailedTests)) return row.bbFailedTests
             return (row.bbDevice && Array.isArray(row.bbDevice.failedTests)) ? row.bbDevice.failedTests : []
+        },
+        // The report's test run never finished (Not Completed / Failed) —
+        // a "Warning" too (2026-11-18). The server sends bbReportState.
+        bbState(row) {
+            return row.bbReportState || (row.bbDevice && row.bbDevice.reportState) || ''
+        },
+        bbWarn(row) {
+            const st = this.bbState(row)
+            return this.bbFails(row).length > 0 || (!!st && st !== 'Completed')
+        },
+        bbWarnText(row) {
+            const st = this.bbState(row)
+            const parts = []
+            if (st && st !== 'Completed') {
+                parts.push(st === 'Failed'
+                    ? this.$tp('Blackbelt report Failed (test aborted)')
+                    : this.$tp('Blackbelt report Not Completed'))
+            }
+            if (this.bbFails(row).length) {
+                parts.push(this.$tp('FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') }))
+            }
+            return parts.join(' · ')
         },
         // Blackbelt column click on a line with a report: fetch it live
         // (a few seconds — Blackbelt login + download) and show it.

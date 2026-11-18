@@ -864,7 +864,8 @@ export default {
                     blackbeltReportId: (r && r.blackbeltReportId) || '',
                     blackbeltStatus: (r && r.blackbeltStatus) || '',
                     // the report's FAIL tests (any = Blackbelt "Warning")
-                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {})
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { blackbeltFailedTests: r.blackbeltFailedTests } : {}),
+                    ...(r && r.blackbeltReportState ? { blackbeltReportState: r.blackbeltReportState } : {})
                 }
                 line.bbFound = !!(r && r.found)
                 line.modelMissing = line.bbFound && !String(line.model || '').trim()

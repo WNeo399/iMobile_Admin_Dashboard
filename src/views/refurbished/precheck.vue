@@ -473,7 +473,7 @@ export default {
                 model: String(row.device || '').split('\n')[0].trim().slice(0, 120), color: '', storage: '', grade: '', costPrice: '', currency: lastCurrency(),
                 supplierId: row.supplier && row.supplier.id ? String(row.supplier.id) : '', note: row.note || '',
                 blackbeltChecked: false, brand: '', serialNumber: '', batteryHealth: null, batteryCycleCount: null,
-                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: '', blackbeltFailedTests: undefined
+                batteryCapacity: '', aNumber: '', blackbeltReportId: '', blackbeltStatus: '', blackbeltFailedTests: undefined, blackbeltReportState: undefined
             }
             this.modelUnlocked = false
             this.narrow = window.innerWidth < 600
@@ -509,7 +509,8 @@ export default {
                         blackbeltReportId: r.blackbeltReportId || '', blackbeltStatus: r.blackbeltStatus || '',
                         blackbeltChecked: !!r.blackbeltChecked,
                         // the report's FAIL tests (any = Blackbelt "Warning")
-                        blackbeltFailedTests: Array.isArray(r.blackbeltFailedTests) ? r.blackbeltFailedTests : undefined
+                        blackbeltFailedTests: Array.isArray(r.blackbeltFailedTests) ? r.blackbeltFailedTests : undefined,
+                        blackbeltReportState: r.blackbeltReportState || undefined
                     })
                     this.modelUnlocked = !d.model
                     this.lookupState = 'ok'

@@ -273,6 +273,13 @@ export default {
     'Warning — FAIL in Blackbelt testing: {tests}': '警告 — Blackbelt 测试未通过：{tests}',
     'Blackbelt Status': 'Blackbelt 状态',
     'Blackbelt FAIL tests': 'Blackbelt 未通过的测试',
+    // …or a report whose test run never finished (2026-11-18)
+    'Blackbelt report Not Completed': 'Blackbelt 报告未完成',
+    'Blackbelt report Failed (test aborted)': 'Blackbelt 报告失败（检测中止）',
+    'Warning — {reason}': '警告 — {reason}',
+    'Blackbelt Report State': 'Blackbelt 报告状态',
+    'Refresh report': '刷新报告',
+    'Check Blackbelt for a newer report': '在 Blackbelt 查询更新的报告',
     'Check Blackbelt': '查询 Blackbelt',
     'Serial': '序列号',
     'A Number': 'A 编号',

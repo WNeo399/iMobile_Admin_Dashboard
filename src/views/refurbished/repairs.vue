@@ -307,8 +307,8 @@
                             <!-- Rows in the current lookup spin until it lands. -->
                             <i v-if="isChecking(s.row)" class="el-icon-loading fr-dim" :title="$tp('Checking…')" />
                             <!-- Warning: a FAIL in the report's testing (2026-11-10), icon only -->
-                            <i v-else-if="s.row.bbStatus === 'found' && bbFails(s.row).length" class="el-icon-warning fr-warn-i"
-                                :title="$tp('FAIL in Blackbelt testing: {tests}', { tests: bbFails(s.row).join(', ') })" />
+                            <i v-else-if="s.row.bbStatus === 'found' && bbWarn(s.row)" class="el-icon-warning fr-warn-i"
+                                :title="bbWarnText(s.row)" />
                             <i v-else-if="s.row.bbStatus === 'found'" class="el-icon-success fr-yes" :title="$tp('Report found')" />
                             <i v-else-if="s.row.bbStatus === 'none'" class="el-icon-error fr-no" :title="$tp('No report')" />
                             <i v-else-if="s.row.bbStatus === 'error'" class="el-icon-warning fr-warn-i"
@@ -679,6 +679,28 @@ export default {
             if (Array.isArray(row.bbFailedTests)) return row.bbFailedTests
             return (row.bbDevice && Array.isArray(row.bbDevice.failedTests)) ? row.bbDevice.failedTests : []
         },
+        // The report's test run never finished (Not Completed / Failed) —
+        // a "Warning" too (2026-11-18). The server sends bbReportState.
+        bbState(row) {
+            return row.bbReportState || (row.bbDevice && row.bbDevice.reportState) || ''
+        },
+        bbWarn(row) {
+            const st = this.bbState(row)
+            return this.bbFails(row).length > 0 || (!!st && st !== 'Completed')
+        },
+        bbWarnText(row) {
+            const st = this.bbState(row)
+            const parts = []
+            if (st && st !== 'Completed') {
+                parts.push(st === 'Failed'
+                    ? this.$tp('Blackbelt report Failed (test aborted)')
+                    : this.$tp('Blackbelt report Not Completed'))
+            }
+            if (this.bbFails(row).length) {
+                parts.push(this.$tp('FAIL in Blackbelt testing: {tests}', { tests: this.bbFails(row).join(', ') }))
+            }
+            return parts.join(' · ')
+        },
         msg(e, fallback) {
             return (e && e.response && e.response.data && e.response.data.message) || fallback
         },
@@ -819,7 +841,8 @@ export default {
                     aNumber: d.aNumber || '',
                     reportStatus: (r && r.blackbeltStatus) || '',
                     // the report's FAIL tests (any = Blackbelt "Warning")
-                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { failedTests: r.blackbeltFailedTests } : {})
+                    ...(r && Array.isArray(r.blackbeltFailedTests) ? { failedTests: r.blackbeltFailedTests } : {}),
+                    ...(r && r.blackbeltReportState ? { reportState: r.blackbeltReportState } : {})
                 }
                 line.bbReportId = (r && r.blackbeltReportId) || ''
                 line.bbFound = !!(r && r.found)
