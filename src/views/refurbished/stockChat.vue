@@ -217,7 +217,7 @@
             <div v-loading="logLoading" class="sch-log">
                 <div v-if="!log.length && !logLoading" class="sch-muted">{{ $tp('No questions yet') }}</div>
                 <div v-for="l in log" :key="l._id" class="sch-log-item">
-                    <div class="sch-log-q"><b>{{ fmt(l.at) }}</b> · {{ l.question }}</div>
+                    <div class="sch-log-q"><b>{{ fmt(l.at) }}</b><el-tag v-if="l.channel === 'whatsapp'" size="mini" type="success" effect="plain" class="sch-log-ch">WhatsApp</el-tag> · {{ l.question }}</div>
                     <div v-if="l.error" class="sch-log-a sch-danger">{{ $tp('Failed') }}: {{ l.error }}</div>
                     <div v-else class="sch-log-a">{{ l.answer }}<span v-if="l.rows" class="sch-muted"> · {{ $tp('{n} rows shown', { n: l.rows }) }}</span></div>
                 </div>
@@ -648,5 +648,6 @@ export default {
 .sch-log { max-height: 60vh; overflow: auto; min-height: 80px; }
 .sch-log-item { border-bottom: 1px solid #ebeef5; padding: 8px 0; }
 .sch-log-q { font-size: 13px; }
+.sch-log-ch { margin-left: 6px; }
 .sch-log-a { font-size: 13px; color: #606266; margin-top: 4px; white-space: pre-wrap; }
 </style>
