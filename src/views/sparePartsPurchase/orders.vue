@@ -661,8 +661,7 @@ const PINNED = [
 const PINNED_CATS = PINNED.map(p => p.category)
 // The tree's two parents (user ask 2026-10-16): 空运 — every category but the
 // pinned ones and 海运 — and 海运, with the same tabs by its lines' item category.
-const SEA = '海运'
-const AIR_LABEL = '空运'
+const SEA = '海运' // the stored category; shown as "Sea Freight" (catLabel / freight labels)
 // What the Order New Product dialog can raise.
 const NEW_TYPES = [
     { category: 'New Product', icon: 'el-icon-circle-plus-outline', sub: 'A product not in Zoho yet' },
@@ -804,8 +803,8 @@ export default {
             const airTotal = Object.keys(this.byCategory).filter(c => !PINNED_CATS.includes(c) && c !== SEA).reduce((sum, cat) => sum + pending(this.byCategory, cat), 0)
             const sea = cats.map(cat => ({ id: 'sea:' + cat, label: this.catLabel(cat), count: pending(this.bySeaCategory, cat) }))
             return [
-                { id: 'root', label: AIR_LABEL, count: airTotal, children: air },
-                { id: 'sea', label: SEA, count: pending(this.byCategory, SEA), children: sea }
+                { id: 'root', label: this.$tp('Air Freight'), count: airTotal, children: air },
+                { id: 'sea', label: this.$tp('Sea Freight'), count: pending(this.byCategory, SEA), children: sea }
             ]
         },
         // the tree opens this parent (a cached array: the tree reacts to a new one)
@@ -814,8 +813,8 @@ export default {
         },
         // what the list shows: 空运 (all of it, or a tab), 海运 (all of it, or a tab), or a pinned list
         listTitle() {
-            if (!this.activeCategory) return AIR_LABEL
-            if (this.activeCategory === SEA) return this.activeSeaCat ? `${SEA} › ${this.catLabel(this.activeSeaCat)}` : SEA
+            if (!this.activeCategory) return this.$tp('Air Freight')
+            if (this.activeCategory === SEA) return this.activeSeaCat ? `${this.$tp('Sea Freight')} › ${this.catLabel(this.activeSeaCat)}` : this.$tp('Sea Freight')
             return this.catLabel(this.activeCategory)
         },
         canEither() {
@@ -917,7 +916,9 @@ export default {
         },
         // Category names are stored in English (the register's words); the
         // page shows them in the app language.
+        // a category's name; 海运 reads "Sea Freight" in English (2026-11-19)
         catLabel(c) {
+            if (c === SEA) return this.$tp('Sea Freight')
             return c ? this.$tp(c) : '—'
         },
         // A Special Order's chip: the account that raised it ('' for lines

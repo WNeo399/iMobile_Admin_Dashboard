@@ -1847,6 +1847,11 @@ export default {
     'save the draft to keep them': '保存草稿后生效',
     'Air — every line except 海运': '空运——除海运外的所有采购行',
     'Sea — the 海运 lines only': '海运——只含海运采购行',
+    // 空运 / 海运 in English (2026-11-19); the stored value stays 海运
+    'Air Freight': '空运',
+    'Sea Freight': '海运',
+    'Air — every line except Sea Freight': '空运——除海运外的所有采购行',
+    'Sea — the Sea Freight lines only': '海运——只含海运采购行',
     "{sku} is waiting on a {other} line ({no}) — it can't go on this {kind} batch": '{sku} 在{other}采购行（{no}）上等待——不能放进这个{kind}批次',
     'Cost price': '成本价',
     'Required': '必填',

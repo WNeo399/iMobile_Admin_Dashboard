@@ -156,13 +156,13 @@
             <div class="spb-freight-pick">
                 <div class="spb-freight-opt air" @click="chooseFreight('air')">
                     <i class="el-icon-position" />
-                    <b>空运</b>
-                    <span>{{ $tp('Air — every line except 海运') }}</span>
+                    <b>{{ $tp('Air Freight') }}</b>
+                    <span>{{ $tp('Air — every line except Sea Freight') }}</span>
                 </div>
                 <div class="spb-freight-opt sea" @click="chooseFreight('sea')">
                     <i class="el-icon-ship" />
-                    <b>海运</b>
-                    <span>{{ $tp('Sea — the 海运 lines only') }}</span>
+                    <b>{{ $tp('Sea Freight') }}</b>
+                    <span>{{ $tp('Sea — the Sea Freight lines only') }}</span>
                 </div>
             </div>
         </el-dialog>
@@ -173,7 +173,7 @@
              smaller number is a short shipment and still closes the line. -->
         <el-dialog :visible.sync="createVisible" width="960px" append-to-body top="5vh" :fullscreen="phone" :custom-class="dlgClass" @closed="onCreateClosed">
             <div slot="title" class="spb-dlg-head"><i class="el-icon-truck" /> {{ draftId ? $tp('Draft batch') : $tp('Create Batch') }}
-                <span :class="['spb-freight', createForm.freight]">{{ createForm.freight === 'sea' ? '海运' : '空运' }}</span>
+                <span :class="['spb-freight', createForm.freight]">{{ freightText(createForm.freight) }}</span>
                 <span v-if="draftId" class="spb-dim spb-dlg-sub">{{ $tp('saved, not shipped') }}</span></div>
             <div class="spb-head-fields">
                 <!-- The Zoho Inventory PO for the whole batch is booked to this vendor. -->
@@ -237,7 +237,7 @@
                     <div class="spb-lcard-head">
                         <div class="spb-lcard-main">
                             <div class="spb-pname">{{ g.productName || g.sku }} <span v-if="g.forCustomer" class="spb-for">{{ g.forCustomer }}</span></div>
-                            <div class="spb-dim">SKU: {{ g.sku || '—' }}<span v-if="g.category"> · {{ $tp(g.category) }}</span> · {{ groupOrderedText(g) }}</div>
+                            <div class="spb-dim">SKU: {{ g.sku || '—' }}<span v-if="g.category"> · {{ catLabel(g.category) }}</span> · {{ groupOrderedText(g) }}</div>
                         </div>
                         <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="removeLine(g)" />
                     </div>
@@ -270,7 +270,7 @@
                 <el-table-column :label="$tp('Product')" min-width="240">
                     <template slot-scope="s">
                         <div class="spb-pname" :title="s.row.productName">{{ s.row.productName || s.row.sku }}</div>
-                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span>
+                        <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ catLabel(s.row.category) }}</span>
                             <span v-if="s.row.forCustomer" class="spb-for">{{ s.row.forCustomer }}</span></div>
                         <div v-if="s.row.lines.length > 1" class="spb-dim">{{ s.row.lines.map(l => l.orderNo).join(' · ') }}</div>
                     </template>
@@ -376,7 +376,7 @@
                             <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
                             <div class="spb-dim spb-slrow-sub">
                                 <template v-if="l.unmatched">
-                                    <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span></span>
+                                    <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ catLabel(l.category) }}</span></span>
                                     <span v-else class="spb-warn">{{ $tp('Not on any order — pick a product') }}</span>
                                     <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
                                 </template>
@@ -413,7 +413,7 @@
                             <!-- the product as text; "Choose product" beside the label opens the search for this line -->
                             <div class="spb-pname" :title="l.productName">{{ l.productName || l.sku || '—' }}</div>
                             <div class="spb-dim spb-slrow-sub">
-                                <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
+                                <span v-if="l.itemId">SKU {{ l.sku || '—' }}<span v-if="l.category"> · {{ catLabel(l.category) }}</span> · <span class="spb-okt">{{ unmatchedLabel(l) }}</span></span>
                                 <span v-else class="spb-warn"><template v-if="l.sku">{{ $tp('Scanned {sku}', { sku: l.sku }) }} · </template>{{ $tp('Not in Zoho') }}</span>
                                 <el-button type="text" size="mini" icon="el-icon-search" class="spb-slrow-act" @click="openProductPick(l)">{{ $tp('Choose product') }}</el-button>
                                 <!-- a SKU Zoho does not know can become a Special Order instead (空运 only) -->
@@ -554,7 +554,7 @@
                 <div class="spb-cats">
                     <div v-for="c in pickerCats" :key="c" :class="['spb-cat', { on: pickerCat === c, empty: !pickerCatCount(c) }]"
                         @click="pickerCat = c">
-                        <span class="spb-cat-name">{{ $tp(c) }}</span>
+                        <span class="spb-cat-name">{{ catLabel(c) }}</span>
                         <span v-if="pickedInCat(c)" class="spb-cat-sel"><i class="el-icon-check" />{{ pickedInCat(c) }}</span>
                         <span :class="['spb-cat-n', { 'is-zero': !pickerCatCount(c) }]">{{ pickerCatCount(c) }}</span>
                     </div>
@@ -624,7 +624,7 @@
                         <div class="spb-lcard-head">
                             <div class="spb-lcard-main">
                                 <div class="spb-pname">{{ i + 1 }}. {{ l.productName }} <el-tag v-if="l.warranty" size="mini" type="success">{{ $tp('Warranty') }}</el-tag></div>
-                                <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ $tp(l.category) }}</span><span v-if="l.supplier"> · {{ l.supplier }}</span></div>
+                                <div class="spb-dim">SKU: {{ l.sku || '—' }}<span v-if="l.category"> · {{ catLabel(l.category) }}</span><span v-if="l.supplier"> · {{ l.supplier }}</span></div>
                             </div>
                             <el-button type="text" icon="el-icon-printer" class="spb-lcard-del" :title="$tp('Print {n} label(s)', { n: Math.max(1, Math.floor(Number(l.shippedQty)) || 0) })" @click="printLineLabels(l)" />
                         </div>
@@ -642,7 +642,7 @@
                     <el-table-column :label="$tp('Product')" min-width="260">
                         <template slot-scope="s">
                             <div class="spb-pname" :title="s.row.productName">{{ s.row.productName }} <el-tag v-if="s.row.warranty" size="mini" type="success">{{ $tp('Warranty') }}</el-tag></div>
-                            <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ $tp(s.row.category) }}</span></div>
+                            <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ catLabel(s.row.category) }}</span></div>
                         </template>
                     </el-table-column>
                     <el-table-column :label="$tp('Supplier')" width="110" align="center" show-overflow-tooltip>
@@ -1081,7 +1081,15 @@ export default {
             return b && b.freight === 'sea' ? 'sea' : 'air'
         },
         freightLabel(b) {
-            return this.freightOf(b) === 'sea' ? SEA : '空运'
+            return this.freightText(this.freightOf(b))
+        },
+        // 'sea' / 'air' → Sea Freight / Air Freight (海运 / 空运 in Chinese, 2026-11-19)
+        freightText(kind) {
+            return kind === 'sea' ? this.$tp('Sea Freight') : this.$tp('Air Freight')
+        },
+        // a category's name; the 海运 category reads "Sea Freight" in English
+        catLabel(c) {
+            return c === SEA ? this.$tp('Sea Freight') : this.$tp(c)
         },
         // the list shows the kind as an icon (user 2026-10-16): a ship / a plane
         freightIcon(b) {
@@ -1564,7 +1572,7 @@ export default {
                     this.countScan(g, sku)
                 } else if (r.otherFreight) {
                     // waiting only on the other kind of batch: not added (it would count twice as not in PO)
-                    this.$message({ type: 'error', duration: 4000, message: this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku, other: r.otherFreight.label, no: r.otherFreight.orderNo, kind: this.isSea ? SEA : '空运' }) })
+                    this.$message({ type: 'error', duration: 4000, message: this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku, other: this.freightText(r.otherFreight.label === SEA ? 'sea' : 'air'), no: r.otherFreight.orderNo, kind: this.freightText(this.isSea ? 'sea' : 'air') }) })
                     if (this.cameraVisible && this.$refs.scanner) this.$refs.scanner.beep('bad')
                 } else {
                     this.keepUnmatched(sku, r)
@@ -1601,7 +1609,7 @@ export default {
                     this.addLine(r.match)
                     this.countLine(this.allLines.find(l => l.orderId === r.match._id), no)
                 } else if (r.otherFreight) {
-                    bad(this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku: no, other: r.otherFreight.label, no: r.otherFreight.orderNo, kind: this.isSea ? SEA : '空运' }))
+                    bad(this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku: no, other: this.freightText(r.otherFreight.label === SEA ? 'sea' : 'air'), no: r.otherFreight.orderNo, kind: this.freightText(this.isSea ? 'sea' : 'air') }))
                 } else {
                     bad((r.orderNo && r.orderNo.message) || this.$tp('{no} can\'t go on this batch', { no }))
                 }

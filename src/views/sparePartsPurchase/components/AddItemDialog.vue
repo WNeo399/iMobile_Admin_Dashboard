@@ -50,8 +50,8 @@
                 <div class="ai-ctrls">
                     <el-input-number v-model="l.orderQty" :min="1" :max="99999" :precision="0" size="mini" controls-position="right" class="ai-qty" />
                     <el-radio-group v-if="!fixedCategory" v-model="l.sea" size="mini" class="ai-chan">
-                        <el-radio-button :label="false" :title="$tp('Files under {c}', { c: $tp(l.suggestedCategory) })">空运</el-radio-button>
-                        <el-radio-button :label="true">海运</el-radio-button>
+                        <el-radio-button :label="false" :title="$tp('Files under {c}', { c: $tp(l.suggestedCategory) })">{{ $tp('Air Freight') }}</el-radio-button>
+                        <el-radio-button :label="true">{{ $tp('Sea Freight') }}</el-radio-button>
                     </el-radio-group>
                     <!-- urgent from the start: leads the Purchase Order list, highlighted (2026-10-29) -->
                     <el-checkbox v-if="canUrgent" v-model="l.urgent" size="mini" border class="ai-urgent">{{ $tp('Urgent') }}</el-checkbox>
@@ -105,6 +105,12 @@ export default {
         }
     },
     methods: {
+        // A new line starts on 海运 when the page is on 海运, and a Tools item
+        // always does (user 2026-11-19: "default all Tools purchase to 海运");
+        // either can still be switched to 空运.
+        startsSea(item) {
+            return this.defaultSea || (item && item.suggestedCategory === 'Tools')
+        },
         focusSearch() {
             const r = this.$refs.search
             if (r && r.focus) r.focus()
@@ -117,7 +123,7 @@ export default {
         // the preset items as lines, with what is on order for them (one call)
         async fillPreset() {
             if (!this.preset.length) return
-            this.lines = this.preset.slice(0, MAX_LINES).map(item => ({ ...item, orderQty: 1, sea: this.defaultSea, urgent: false, note: '', onOrder: '' }))
+            this.lines = this.preset.slice(0, MAX_LINES).map(item => ({ ...item, orderQty: 1, sea: this.startsSea(item), urgent: false, note: '', onOrder: '' }))
             try {
                 const r = await purchasesByItemIds(this.lines.map(l => l.itemId))
                 const data = (r && r.data) || {}
@@ -177,7 +183,7 @@ export default {
                 return
             }
             if (this.lines.length >= MAX_LINES) { this.$message.warning(this.$tp('At most {n} items at a time', { n: MAX_LINES })); return }
-            const line = { ...item, orderQty: 1, sea: this.defaultSea, urgent: false, note: '', onOrder: '' }
+            const line = { ...item, orderQty: 1, sea: this.startsSea(item), urgent: false, note: '', onOrder: '' }
             this.lines.push(line)
             // what is already on order for it (best effort)
             try {
