@@ -1534,7 +1534,11 @@ export default {
                 try {
                     const r = await deleteRefurbDevice(row._id)
                     if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
-                    this.$message.success(this.$tp('Device removed'))
+                    // a device on a Pending supply draft leaves that draft too (2026-11-23)
+                    const drafts = (r.removedFromDrafts || []).filter(Boolean)
+                    this.$message.success(drafts.length
+                        ? this.$tp('Device removed — also taken off supply draft {drafts}', { drafts: drafts.join(', ') })
+                        : this.$tp('Device removed'))
                     this.load()
                 } catch (e) {
                     this.$message.error(this.msg(e, this.$tp('Failed to delete device')))

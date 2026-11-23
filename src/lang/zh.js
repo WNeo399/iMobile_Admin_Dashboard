@@ -373,6 +373,7 @@ export default {
     'Delete device': '删除设备',
     'Delete': '删除',
     'Device removed': '设备已移除',
+    'Device removed — also taken off supply draft {drafts}': '设备已移除——已同时从供货草稿 {drafts} 中移除',
     'Failed to delete device': '删除设备失败',
     'Blackbelt still has no report for this device': 'Blackbelt 仍无该设备的报告',
     'Corrected from Blackbelt': '已按 Blackbelt 更正',
