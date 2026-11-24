@@ -1025,7 +1025,7 @@ export default {
         canUrgent(row) {
             return !!row && OPEN_STATUSES.includes(row.status) && this.can('spp:order:create')
         },
-        // open urgent lines: highlighted (the server puts them first)
+        // open urgent lines: highlighted (the server puts the PENDING ones first, 2026-11-24)
         rowClass({ row }) {
             return row.urgent && OPEN_STATUSES.includes(row.status) ? 'spp-row-urgent' : ''
         },

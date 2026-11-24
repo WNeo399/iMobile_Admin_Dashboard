@@ -238,6 +238,7 @@
                         <div class="spb-lcard-main">
                             <div class="spb-pname">{{ g.productName || g.sku }} <span v-if="g.forCustomer" class="spb-for">{{ g.forCustomer }}</span></div>
                             <div class="spb-dim">SKU: {{ g.sku || '—' }}<span v-if="g.category"> · {{ catLabel(g.category) }}</span> · {{ groupOrderedText(g) }}</div>
+                            <div v-for="t in elsewhereNotes(g.lines)" :key="t" class="spb-elsewhere"><i class="el-icon-warning-outline" /> {{ t }}</div>
                         </div>
                         <el-button type="text" icon="el-icon-close" class="spb-del spb-lcard-del" @click="removeLine(g)" />
                     </div>
@@ -273,6 +274,7 @@
                         <div class="spb-dim spb-psku">SKU: {{ s.row.sku || '—' }}<span v-if="s.row.category"> · {{ catLabel(s.row.category) }}</span>
                             <span v-if="s.row.forCustomer" class="spb-for">{{ s.row.forCustomer }}</span></div>
                         <div v-if="s.row.lines.length > 1" class="spb-dim">{{ s.row.lines.map(l => l.orderNo).join(' · ') }}</div>
+                        <div v-for="t in elsewhereNotes(s.row.lines)" :key="t" class="spb-elsewhere"><i class="el-icon-warning-outline" /> {{ t }}</div>
                     </template>
                 </el-table-column>
                 <el-table-column :label="$tp('Supplier')" width="150" align="center">
@@ -345,6 +347,7 @@
                                 <div class="spb-dim">{{ l.orderNo }}<span v-if="l.requestedFor"> · {{ $tp('For') }} {{ l.requestedFor }}</span> ·
                                     <template v-if="l.status === 'pending'">{{ $tp('Pending') }}</template><template v-else>{{ $tp('Ordered') }} {{ fmtDay(l.orderedAt) }}</template>
                                     · {{ $tp('Ordered Qty') }} {{ l.orderQty }}</div>
+                                <div v-for="t in elsewhereNotes([l])" :key="t" class="spb-elsewhere"><i class="el-icon-warning-outline" /> {{ t }}</div>
                             </template>
                         </div>
                         <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option clearable :placeholder="$tp('Supplier') + ' (' + $tp('optional') + ')'" class="spb-slrow-sup">
@@ -385,6 +388,7 @@
                                     · {{ $tp('Ordered Qty') }} {{ l.orderQty }}</template>
                                 <el-tag size="mini" type="success" class="spb-warranty-tag">{{ $tp('No charge') }}</el-tag>
                             </div>
+                            <div v-for="t in elsewhereNotes([l])" :key="t" class="spb-elsewhere"><i class="el-icon-warning-outline" /> {{ t }}</div>
                         </div>
                         <el-select v-model="l.supplier" size="small" filterable allow-create default-first-option clearable :placeholder="$tp('Supplier') + ' (' + $tp('optional') + ')'" class="spb-slrow-sup">
                             <el-option v-for="sup in suppliers" :key="sup" :label="sup" :value="sup" />
@@ -525,6 +529,7 @@
                         <div class="spb-dim">{{ r.orderNo }}<span v-if="r.requestedFor"> · {{ $tp('For') }} {{ r.requestedFor }}</span> ·
                             <span class="spb-status spb-line-status" :style="statusStyle(r.status)">{{ statusLabel(r.status) }}</span>
                             <span v-if="r.supplier"> · {{ r.supplier }}</span> · {{ fmtDay(r.orderedAt || r.createdAt) }}<span v-if="r.note"> · {{ r.note }}</span></div>
+                        <div v-if="r.inBatches && r.inBatches.length" class="spb-elsewhere"><i class="el-icon-warning-outline" /> {{ onBatchesText(r.inBatches) }}</div>
                     </div>
                     <div class="spb-line-qty">× {{ r.orderQty }}</div>
                 </div>
@@ -572,6 +577,7 @@
                                 <span class="spb-status spb-line-status" :style="statusStyle(r.status)">{{ statusLabel(r.status) }}</span>
                                 <span v-if="r.supplier"> · {{ r.supplier }}</span> · {{ fmtDay(r.orderedAt || r.createdAt) }}<span
                                     v-if="r.note"> · {{ r.note }}</span></div>
+                            <div v-if="r.inBatches && r.inBatches.length" class="spb-elsewhere"><i class="el-icon-warning-outline" /> {{ onBatchesText(r.inBatches) }}</div>
                         </div>
                         <div class="spb-line-qty">× {{ r.orderQty }}</div>
                     </div>
@@ -818,7 +824,7 @@
 
 <script>
 import { hasPermission } from '@/utils/permission'
-import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft, searchProducts } from '@/api/sparePartsPurchase'
+import { listBatches, getBatch, createBatch, updateBatch, receiveBatch, lookupOrder, openLines, getMeta, retryBatchZoho, updateBatchDraft, shipBatchDraft, discardBatchDraft, searchProducts, checkBatchLines } from '@/api/sparePartsPurchase'
 import BarcodeScanner from './components/BarcodeScanner'
 import * as XLSX from 'xlsx-js-style'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
@@ -888,6 +894,10 @@ export default {
             specialPicked: {},
             creating: false,
             draftId: null,
+            // order lines on the form that another batch also holds, or that
+            // shipped elsewhere meanwhile: orderId → { status, batchNo, inBatches } (2026-11-23)
+            elsewhere: {},
+            newElsewhere: [],
             savingDraft: false,
             discarding: false,
             pricesUploading: false,
@@ -1180,6 +1190,8 @@ export default {
         },
         async openCreate(freight) {
             this.draftId = null
+            this.elsewhere = {}
+            this.newElsewhere = []
             this.createForm = { freight: freight === 'sea' ? 'sea' : 'air', zohoVendorId: '', tracking: '', shippedAt: todayYmd(), note: '', shippingCost: undefined, lines: [], extra: [], special: [], warranty: [] }
             this.scan = ''
             this.createVisible = true
@@ -1202,9 +1214,74 @@ export default {
                 special: (row.lines || []).filter(l => this.isSpecialLine(l)).map(l => this.formLine(l))
             }
             this.scan = ''
+            this.elsewhere = {}
+            this.newElsewhere = []
             this.createVisible = true
             this.loadSuppliers()
             this.joinWaitingLines(row._id)
+            this.checkDraftLines(row._id)
+        },
+        // ── Lines also on another batch (user ask 2026-11-23) ──
+        // A draft's order lines checked again as it opens: one another batch
+        // shipped meanwhile can't ship from here, one also on another draft
+        // would go twice. Shown on the rows, and said once.
+        async checkDraftLines(draftId) {
+            const ids = this.allLines.map(l => l.orderId).filter(Boolean)
+            if (!ids.length) return
+            let r
+            try { r = await checkBatchLines(ids, draftId) } catch (e) { return }
+            if (!this.createVisible || this.draftId !== draftId || !r || !r.lines) return
+            let n = 0
+            for (const [id, x] of Object.entries(r.lines)) {
+                const gone = !['ordered', 'pending'].includes(x.status)
+                if (gone || (x.inBatches && x.inBatches.length)) { this.$set(this.elsewhere, id, x); n++ }
+            }
+            if (n) this.$message({ type: 'warning', duration: 7000, showClose: true, message: this.$tp('{n} line(s) on this draft are already on another batch — check them before shipping', { n }) })
+        },
+        // a waiting line just added that another batch already holds
+        noteElsewhere(o) {
+            if (!o || !o._id || !o.inBatches || !o.inBatches.length) return
+            this.$set(this.elsewhere, o._id, { status: o.status, inBatches: o.inBatches })
+            this.newElsewhere.push(o)
+        },
+        // one warning for the lines just added that are on another batch
+        flushElsewhere() {
+            const list = this.newElsewhere
+            this.newElsewhere = []
+            if (!list.length) return
+            const message = list.length === 1
+                ? this.$tp('{no} is already on {batches}', { no: list[0].orderNo || list[0].sku, batches: this.batchesText(list[0].inBatches) })
+                : this.$tp('{n} line(s) are already on another batch — check them before shipping', { n: list.length })
+            this.$message({ type: 'warning', duration: 7000, showClose: true, message })
+        },
+        // a batch as the warning names it: its PB number, else "draft <tracking> (<by>)"
+        batchName(b) {
+            if (b.batchNo) return b.batchNo
+            const what = b.tracking || (b.at ? fmtDay(b.at) : '')
+            return this.$tp('draft') + (what ? ' ' + what : '') + (b.by ? ` (${b.by})` : '')
+        },
+        batchesText(list) {
+            return (list || []).map(b => this.batchName(b)).join(', ')
+        },
+        onBatchesText(list) {
+            return this.$tp('Already on {batches}', { batches: this.batchesText(list) })
+        },
+        // the notes under a row: shipped elsewhere, or also on another batch
+        elsewhereNotes(lines) {
+            const out = []
+            for (const l of lines || []) {
+                const x = l && l.orderId && this.elsewhere[l.orderId]
+                if (!x) continue
+                const no = l.orderNo || l.sku || ''
+                if (!['ordered', 'pending'].includes(x.status)) {
+                    out.push(x.batchNo
+                        ? this.$tp('{no} was shipped on {batch} — it cannot ship again', { no, batch: x.batchNo })
+                        : this.$tp('{no} is {status} — it cannot ship', { no, status: this.statusLabel(x.status) }))
+                } else if (x.inBatches && x.inBatches.length) {
+                    out.push(this.$tp('{no} is also on {batches}', { no, batches: this.batchesText(x.inBatches) }))
+                }
+            }
+            return out
         },
         // A draft saved before its SKU's rows were grouped (or before another
         // PO line of the SKU was placed) holds only some of a row's waiting
@@ -1214,7 +1291,7 @@ export default {
         // price takes the row's.
         async joinWaitingLines(draftId) {
             let r
-            try { r = await openLines(undefined, this.createForm.freight) } catch (e) { return }
+            try { r = await openLines(undefined, this.createForm.freight, draftId) } catch (e) { return }
             // the dialog was closed or another draft opened meanwhile
             if (!this.createVisible || this.draftId !== draftId) return
             const keys = new Set(this.lineGroups.filter(g => g.sku).map(g => g.key))
@@ -1228,7 +1305,9 @@ export default {
                 const was = before[this.groupKey(line)]
                 if (line.unitPrice == null && was && was.price != null) line.unitPrice = was.price
                 this.createForm.lines.push(line)
+                this.noteElsewhere(o)
             }
+            this.flushElsewhere()
             const touched = new Set(join.map(o => this.groupKey(this.toLine(o))))
             for (const g of this.lineGroups) {
                 if (touched.has(g.key) && before[g.key] && before[g.key].qty != null) this.setGroupQty(g, before[g.key].qty)
@@ -1262,6 +1341,10 @@ export default {
                     : await createBatch({ ...this.batchPayload(), draft: true })
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.$message.success(this.$tp('Draft saved'))
+                // lines this draft can't ship as they stand (2026-11-23)
+                if (r.warnings && r.warnings.length) {
+                    this.$message({ type: 'warning', duration: 7000, showClose: true, message: this.$tp('{n} line(s) on this draft are already on another batch — check them before shipping', { n: r.warnings.length }) })
+                }
                 this.createVisible = false
                 this.reload()
             } catch (e) {
@@ -1451,6 +1534,7 @@ export default {
             // Order goes to its own section
             const target = o.category === 'Special Order' ? this.createForm.special : o.category === 'Warranty' ? this.createForm.warranty : this.createForm.lines
             target.unshift(this.toLine(o, qty))
+            this.noteElsewhere(o)
             return true
         },
         // a waiting PO line (as the server lists it) in the form's shape
@@ -1557,7 +1641,7 @@ export default {
             }
             this.scanning = true
             try {
-                const r = await lookupOrder(sku, this.createForm.lines.map(l => l.orderId), this.createForm.freight)
+                const r = await lookupOrder(sku, this.createForm.lines.map(l => l.orderId), this.createForm.freight, this.draftId)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 this.lastScan = sku
                 if (r.match) {
@@ -1566,6 +1650,7 @@ export default {
                     const rows = (r.all || [r.match]).filter(o => this.groupKey(this.toLine(o)) === key)
                     if (!rows.some(o => o._id === r.match._id)) rows.push(r.match)
                     rows.forEach(o => this.addLine(o))
+                    this.flushElsewhere()
                     this.countScan(this.lineGroups.find(x => x.key === key), sku)
                 } else if (room(g)) {
                     // only a customer's row of this SKU has room left: count it there
@@ -1603,10 +1688,11 @@ export default {
             if (on) { this.countLine(on, no); done(); return }
             this.scanning = true
             try {
-                const r = await lookupOrder(no, this.allLines.map(l => l.orderId).filter(Boolean), this.createForm.freight)
+                const r = await lookupOrder(no, this.allLines.map(l => l.orderId).filter(Boolean), this.createForm.freight, this.draftId)
                 if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
                 if (r.match) {
                     this.addLine(r.match)
+                    this.flushElsewhere()
                     this.countLine(this.allLines.find(l => l.orderId === r.match._id), no)
                 } else if (r.otherFreight) {
                     bad(this.$tp('{sku} is waiting on a {other} line ({no}) — it can\'t go on this {kind} batch', { sku: no, other: this.freightText(r.otherFreight.label === SEA ? 'sea' : 'air'), no: r.otherFreight.orderNo, kind: this.freightText(this.isSea ? 'sea' : 'air') }))
@@ -1817,7 +1903,7 @@ export default {
         async loadSpecialPicker() {
             this.specialPickerLoading = true
             try {
-                const r = await openLines()
+                const r = await openLines(undefined, undefined, this.draftId)
                 const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
                 this.specialPickerRows = ((r && r.rows) || []).filter(o => o.category === this.specialPickerKind && !on.has(o._id))
             } catch (e) {
@@ -1835,6 +1921,7 @@ export default {
             for (const o of Object.values(this.specialPicked).reverse()) if (this.addLine(o)) n++
             this.specialPickerVisible = false
             if (n) this.$message.success(this.$tp('{n} line(s) added', { n }))
+            this.flushElsewhere()
         },
         addSpecialBlank() {
             this.createForm.special.unshift(this.specialLine(null))
@@ -1889,7 +1976,7 @@ export default {
             this.pickerLoading = true
             try {
                 // only the lines this kind of batch takes (海运 / everything else)
-                const r = await openLines(undefined, this.createForm.freight)
+                const r = await openLines(undefined, this.createForm.freight, this.draftId)
                 const on = new Set(this.allLines.map(l => l.orderId).filter(Boolean))
                 this.pickerRows = ((r && r.rows) || []).filter(o => !on.has(o._id) && o.category !== 'Special Order' && o.category !== 'Warranty')
                 // land on the first category that has something to pick
@@ -1935,6 +2022,8 @@ export default {
             for (const o of [...picked, ...along].reverse()) if (this.addLine(o)) n++
             this.pickerVisible = false
             if (n) this.$message.success(this.$tp('{n} line(s) added', { n }) + (along.length ? ` · ${this.$tp('{n} more waiting line(s) of the same SKU joined their rows', { n: along.length })}` : ''))
+            // after the success note, so the warning is the one left showing
+            this.$nextTick(() => this.flushElsewhere())
         },
         async submitCreate() {
             if (this.unlinkedCount) { this.$message.warning(this.$tp('{n} line(s) are not on any order — pick a product for them or remove them before shipping', { n: this.unlinkedCount })); return }
@@ -1959,6 +2048,10 @@ export default {
                 this.$message.success(this.$tp('{no} created with {n} line(s)', { no: r.batch.batchNo, n: r.batch.lineCount }))
                 if (r.remainders && r.remainders.length) {
                     this.$message.info(this.$tp('{n} short shipment(s): the rest was carried over as new pending line(s)', { n: r.remainders.length }))
+                }
+                // other drafts that held a short-shipped line now hold its remainder (2026-11-23)
+                if (r.repointed && r.repointed.length) {
+                    this.$message({ type: 'info', duration: 6000, showClose: true, message: this.$tp('{n} line(s) on other drafts moved to the remainder line', { n: r.repointed.length }) })
                 }
                 this.zohoToast(r.zoho)
                 this.createVisible = false
@@ -2366,6 +2459,9 @@ export default {
 .spb-line-qty { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spb-foot-sum { float: left; line-height: 32px; font-size: 12px; color: #909399; }
 .spb-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
+/* a line another batch already holds, or that shipped elsewhere (2026-11-23) */
+.spb-elsewhere { margin-top: 2px; font-size: 11px; line-height: 1.35; color: #B45309; }
+.spb-elsewhere i { color: #D97706; }
 .spb-desc { margin-bottom: 10px; }
 .spb-hint { font-size: 12px; color: #909399; margin-top: 8px; i { margin-right: 3px; } }
 /* phones (user ask 2026-10-13): the list and the dialogs' lines as cards */

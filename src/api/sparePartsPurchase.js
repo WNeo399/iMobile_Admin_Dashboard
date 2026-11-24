@@ -103,12 +103,18 @@ export function deleteOrderImage(id, imageId) {
 }
 // Scan-to-batch: the oldest waiting line for a SKU, skipping `exclude` ids.
 // `freight` ('sea' | 'air'): only lines a batch of that kind takes
-export function lookupOrder(sku, exclude, freight) {
-  return request({ url: `${BASE}/orders/lookup`, method: 'get', params: { sku, exclude: (exclude || []).join(','), freight } })
+// `draft`: the draft being edited — left out of each line's `inBatches`
+export function lookupOrder(sku, exclude, freight, draft) {
+  return request({ url: `${BASE}/orders/lookup`, method: 'get', params: { sku, exclude: (exclude || []).join(','), freight, draft: draft || undefined } })
 }
-// The ordered / pending lines waiting to ship (the batch picker).
-export function openLines(search, freight) {
-  return request({ url: `${BASE}/orders/open-lines`, method: 'get', params: { search, freight } })
+// The ordered / pending lines waiting to ship (the batch picker). A line
+// another batch already holds carries `inBatches`.
+export function openLines(search, freight, draft) {
+  return request({ url: `${BASE}/orders/open-lines`, method: 'get', params: { search, freight, draft: draft || undefined } })
+}
+// A draft's order lines checked again: their order's state now and the other batches holding them.
+export function checkBatchLines(ids, draft) {
+  return request({ url: `${BASE}/orders/batch-check`, method: 'post', data: { ids, draft } })
 }
 // Live parts from the stock register, by name or SKU.
 export function searchProducts(q) {
