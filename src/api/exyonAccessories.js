@@ -66,6 +66,14 @@ export function getExyonLabels(orderIds) {
 export function confirmExyonDispatch(day, orders, dryRun) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/dispatch`, method: 'post', data: { orders, dryRun: !!dryRun }, timeout: 180000 })
 }
+// Neto's live status of a list's orders (2026-11-25): { statuses: { [orderId]: { status, tracking } } }
+export function getPickListNetoStatus(day, orderIds) {
+  return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/neto-status`, method: 'post', data: { orderIds }, timeout: 90000 })
+}
+// dispatched on our list but Neto has it at Pick / New: send it to Neto as Dispatched again
+export function redispatchExyonOrders(day, orderIds) {
+  return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/redispatch`, method: 'post', data: { orderIds }, timeout: 180000 })
+}
 export function removeFromPickList(day, orderId) {
   return request({ url: `/exyon-accessories/pick-lists/${encodeURIComponent(day)}/remove`, method: 'post', data: { orderId } })
 }

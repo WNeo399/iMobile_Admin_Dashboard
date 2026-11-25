@@ -94,8 +94,19 @@
                     </div>
 
                     <div class="xp-sec">{{ view === 'all' ? $tp('Orders on this list') : $tp('Orders in this batch') }} <span class="xp-dim">({{ viewedOrders.length }})</span></div>
+                    <!-- dispatched here but Neto has them at Pick / New again (2026-11-25) -->
+                    <el-alert v-if="netoReopened.length" type="error" show-icon :closable="false" class="xp-neto-alert">
+                        <div slot="title">{{ $tp('{n} order(s) are dispatched on this list but Neto has them at Pick or New', { n: netoReopened.length }) }}</div>
+                        <div class="xp-neto-alert-row">
+                            <span>{{ $tp('Neto may have reset them — send them to Neto as Dispatched again, with their tracking numbers') }}</span>
+                            <el-button v-if="canEdit" size="mini" type="danger" icon="el-icon-refresh-right" :loading="redispatching"
+                                @click="redispatch(netoReopened)">{{ $tp('Re-dispatch all ({n})', { n: netoReopened.length }) }}</el-button>
+                        </div>
+                    </el-alert>
+                    <div v-if="netoError" class="xp-neto-err"><i class="el-icon-warning-outline" /> {{ netoError }}
+                        <el-button type="text" size="mini" @click="loadNeto(true)">{{ $tp('Try again') }}</el-button></div>
                     <el-table :data="viewedOrders" border size="mini" class="xp-table"
-                        :row-class-name="r => (r.row.orderId === foundOrder ? 'xp-row-found' : '')">
+                        :row-class-name="r => [r.row.orderId === foundOrder ? 'xp-row-found' : '', isReopened(r.row) ? 'xp-row-reopened' : ''].join(' ')">
                         <el-table-column :label="$tp('Order')" min-width="130">
                             <template slot-scope="s">
                                 <div class="xp-order">{{ s.row.orderId }}</div>
@@ -148,8 +159,28 @@
                                 <span v-else class="xp-zero">{{ $tp('To confirm') }}</span>
                             </template>
                         </el-table-column>
+                        <!-- Neto's live status, read when the day / batch opens (2026-11-25) -->
+                        <el-table-column min-width="140">
+                            <!-- #header (scoped), not slot="header": Element draws a plain header slot once, so the spinner never stopped -->
+                            <template #header>{{ $tp('Neto status') }}
+                                <el-tooltip :content="$tp('Check with Neto again')" placement="top">
+                                    <i :class="['xp-neto-refresh', netoLoading ? 'el-icon-loading' : 'el-icon-refresh']" @click="loadNeto(true)" />
+                                </el-tooltip>
+                            </template>
+                            <template slot-scope="s">
+                                <template v-if="netoOf(s.row)">
+                                    <span :class="['xp-neto', netoClass(s.row)]">{{ netoOf(s.row).missing ? $tp('Not in Neto') : $tp(netoOf(s.row).status || '—') }}</span>
+                                    <div v-if="isReopened(s.row)" class="xp-dsp-sub xp-neto-warn"><i class="el-icon-warning" /> {{ $tp('Dispatched here — not in Neto') }}</div>
+                                    <div v-if="s.row.dispatch && s.row.dispatch.reDispatch" class="xp-dsp-sub" :title="s.row.dispatch.reDispatch.message || ''">
+                                        {{ $tp('Re-dispatched') }} · {{ time(s.row.dispatch.reDispatch.at) }}{{ s.row.dispatch.reDispatch.by ? ' · ' + s.row.dispatch.reDispatch.by : '' }}</div>
+                                </template>
+                                <i v-else-if="netoLoading" class="el-icon-loading xp-dim" />
+                                <span v-else class="xp-zero">—</span>
+                            </template>
+                        </el-table-column>
                         <el-table-column v-if="canEdit" width="96" align="center">
                             <template slot-scope="s">
+                                <el-button v-if="isReopened(s.row)" type="text" size="mini" class="xp-redispatch" :disabled="redispatching" @click="redispatch([s.row])">{{ $tp('Re-dispatch') }}</el-button>
                                 <el-button v-if="['held', 'failed'].includes(dstatus(s.row))" type="text" size="mini" @click="openConfirm([s.row])">{{ $tp('Dispatch') }}</el-button>
                                 <el-tooltip v-if="dstatus(s.row) !== 'dispatched'" :content="$tp('Take off this list')" placement="top">
                                     <el-button type="text" icon="el-icon-close" class="xp-remove" @click="remove(s.row)" />
@@ -241,7 +272,7 @@
 </template>
 
 <script>
-import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch, findOnPickLists, printExyonPickList } from '@/api/exyonAccessories'
+import { getExyonPickLists, getExyonPickList, removeFromPickList, confirmExyonDispatch, findOnPickLists, printExyonPickList, getPickListNetoStatus, redispatchExyonOrders } from '@/api/exyonAccessories'
 import { buildPickListPdf, pickListFileName } from '@/utils/exyonPickListPdf'
 import { hasPermission } from '@/utils/permission'
 
@@ -284,7 +315,14 @@ export default {
             // switched-off order: the newest goes first; the one scanned last is highlighted
             confirmSeq: 0,
             confirmLast: '',
-            confirming: false
+            confirming: false,
+            // Neto's live status of the shown orders (2026-11-25): orderId → { status, tracking, missing }
+            neto: {},
+            netoLoading: false,
+            netoError: '',
+            netoSeq: 0,
+            netoAsked: { key: '', at: 0 },
+            redispatching: false
         }
     },
     computed: {
@@ -306,7 +344,8 @@ export default {
         viewedOrders() {
             const ids = new Set(this.viewed.orderIds)
             const RANK = { held: 0, failed: 1, dispatched: 3 }
-            const rank = o => (this.dstatus(o) in RANK ? RANK[this.dstatus(o)] : 2)
+            // dispatched here but back at Pick / New in Neto: before everything (2026-11-25)
+            const rank = o => (this.isReopened(o) ? -1 : this.dstatus(o) in RANK ? RANK[this.dstatus(o)] : 2)
             return ((this.list && this.list.orders) || [])
                 .map((o, i) => ({ o, i }))
                 .filter(x => ids.has(x.o.orderId))
@@ -323,6 +362,10 @@ export default {
         },
         nextBatchNo() {
             return Math.max(0, ...this.batches.map(b => b.no)) + 1
+        },
+        // the shown orders our list has as dispatched while Neto has them at Pick / New
+        netoReopened() {
+            return this.viewedOrders.filter(o => this.isReopened(o))
         },
         // the shown orders still to go out — to confirm, held back, or a failed push
         notDispatched() {
@@ -352,6 +395,12 @@ export default {
         // or held back with no reason
         confirmProblems() {
             return this.confirmRows.filter(r => (r.dispatch ? !this.trackingOk(r) : !r.reason)).length
+        }
+    },
+    watch: {
+        // another batch / the whole day shown: ask Neto about its orders
+        view() {
+            this.loadNeto()
         }
     },
     created() {
@@ -398,10 +447,80 @@ export default {
                 if (!(sameDay && has(this.view))) {
                     this.view = this.openBatch.orderIds.length ? 'open' : this.batches.length ? this.batches[this.batches.length - 1].no : 'all'
                 }
+                if (!sameDay) { this.neto = {}; this.netoError = '' }
+                this.$nextTick(() => this.loadNeto())
             } catch (e) {
                 this.$message.error(this.msg(e, this.$tp('Failed to load the pick list')))
             } finally {
                 this.detailLoading = false
+            }
+        },
+        // ── Neto status + re-dispatch (2026-11-25) ──
+        netoOf(o) {
+            return (o && this.neto[o.orderId]) || null
+        },
+        // dispatched on our list, but Neto has it at Pick / New (Neto reset it)
+        isReopened(o) {
+            const n = this.netoOf(o)
+            return !!n && this.dstatus(o) === 'dispatched' && ['Pick', 'New'].includes(n.status)
+        },
+        netoClass(o) {
+            const n = this.netoOf(o)
+            if (!n || n.missing) return 'xp-neto-none'
+            if (this.isReopened(o)) return 'xp-neto-bad'
+            if (n.status === 'Dispatched') return 'xp-neto-ok'
+            if (n.status === 'Cancelled') return 'xp-neto-cancel'
+            return 'xp-neto-open'
+        },
+        // the shown orders' status from Neto; the same view asked again within
+        // a moment is skipped unless forced (open() and the view watcher both ask)
+        async loadNeto(force) {
+            if (!this.list) return
+            const ids = this.viewed.orderIds || []
+            if (!ids.length) return
+            const key = this.list.day + '|' + this.view
+            if (!force && this.netoAsked.key === key && Date.now() - this.netoAsked.at < 2000) return
+            this.netoAsked = { key, at: Date.now() }
+            const seq = ++this.netoSeq
+            this.netoLoading = true
+            this.netoError = ''
+            try {
+                const r = await getPickListNetoStatus(this.list.day, ids)
+                if (seq !== this.netoSeq) return
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                for (const [id, s] of Object.entries(r.statuses || {})) this.$set(this.neto, id, s)
+            } catch (e) {
+                if (seq === this.netoSeq) this.netoError = this.msg(e, this.$tp('Could not check with Neto'))
+            } finally {
+                if (seq === this.netoSeq) this.netoLoading = false
+            }
+        },
+        async redispatch(rows) {
+            const ids = rows.map(r => r.orderId)
+            if (!ids.length) return
+            try {
+                await this.$confirm(this.$tp('Send {n} order(s) to Neto as Dispatched again, with their tracking numbers?', { n: ids.length }),
+                    this.$tp('Re-dispatch'), { type: 'warning', confirmButtonText: this.$tp('Re-dispatch'), cancelButtonText: this.$tp('Cancel') })
+            } catch (e) { return }
+            this.redispatching = true
+            try {
+                const r = await redispatchExyonOrders(this.list.day, ids)
+                if (!r || r.success === false) throw new Error((r && r.message) || 'Failed')
+                const res = r.results || []
+                const count = k => res.filter(x => x.outcome === k).length
+                const done = count('dispatched') + count('already')
+                const bad = res.filter(x => !['dispatched', 'already'].includes(x.outcome))
+                if (!bad.length) this.$message.success(this.$tp('{n} order(s) are Dispatched in Neto again', { n: done }))
+                else {
+                    this.$alert(bad.map(x => `${x.orderId}: ${x.message || x.outcome}`).join('; '),
+                        this.$tp('{ok} re-dispatched, {n} not', { ok: done, n: bad.length }), { type: 'warning' })
+                }
+                await this.open(this.day)
+                await this.loadNeto(true)
+            } catch (e) {
+                this.$message.error(this.msg(e, this.$tp('Failed to re-dispatch')))
+            } finally {
+                this.redispatching = false
             }
         },
         async remove(order) {
@@ -754,6 +873,20 @@ export default {
 ::v-deep .el-table .xp-cf-held > td { background: #fdf6ec; }
 /* the order scanned last — a blue bar down its left */
 ::v-deep .el-table .xp-cf-last > td:first-child { box-shadow: inset 4px 0 0 #409eff; }
+/* Neto status column + the reset warning (2026-11-25) */
+.xp-neto { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.xp-neto-ok { background: #f0f9eb; color: #529b2e; }
+.xp-neto-bad { background: #fef0f0; color: #c45656; }
+.xp-neto-open { background: #fdf6ec; color: #b88230; }
+.xp-neto-cancel, .xp-neto-none { background: #f4f4f5; color: #909399; }
+.xp-neto-warn { color: #c45656; }
+.xp-neto-refresh { margin-left: 4px; cursor: pointer; color: #909399; }
+.xp-neto-refresh:hover { color: #409eff; }
+.xp-neto-alert { margin: 6px 0 10px; }
+.xp-neto-alert-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.xp-neto-err { margin: 6px 0; font-size: 12px; color: #c45656; }
+.xp-redispatch { color: #c45656; font-weight: 600; }
+::v-deep .el-table .xp-row-reopened > td { background: #fef0f0; }
 .xp-cf-foot { display: flex; align-items: center; gap: 8px; }
 .xp-cf-count { font-size: 13px; color: #606266; b { color: #303133; } }
 .xp-cf-warn { margin-left: 10px; color: #e6a23c; }
