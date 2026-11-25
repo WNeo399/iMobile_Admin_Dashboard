@@ -110,6 +110,7 @@
                     <span v-if="preview.unconfirmedAtExyon" :title="$tp('In Stock at Assigned To Exyon in our register, but Exyon never received it or has no record of it')">{{ $tp('{n} shown: not yet received at Exyon', { n: preview.unconfirmedAtExyon }) }}</span>
                     <span v-if="preview.hiddenUnits">{{ $tp('{n} hidden: hidden models', { n: preview.hiddenUnits }) }}</span>
                     <span v-if="preview.belowCostUnits" class="sch-contact">{{ $tp('{n} units below cost: Contact us', { n: preview.belowCostUnits }) }}</span>
+                    <span v-if="preview.heldUnits" :title="$tp('Pending and confirmed chat orders hold these units — they are not shown to other customers')">{{ $tp('{n} held by chat orders', { n: preview.heldUnits }) }}</span>
                     <span class="sch-muted">{{ $tp('Stock as of {t}', { t: fmt(preview.at, true) }) }}</span>
                 </div>
                 <el-table v-loading="prevLoading" :data="previewShown" size="small" border :max-height="600">
@@ -254,6 +255,11 @@
                     </div>
                     <div class="sch-muted">{{ $tp('A unit whose cost is above its listed price shows Contact us; HKD / CNY costs are converted with these') }}</div>
                 </el-form-item>
+                <el-form-item :label="$tp('Chat order hold')">
+                    <el-input-number v-model="settings.orderHoldHours" :min="1" :max="168" />
+                    <span class="sch-muted"> {{ $tp('hours') }}</span>
+                    <div class="sch-muted">{{ $tp('A pending chat order holds its stock this long, then expires unless confirmed') }}</div>
+                </el-form-item>
             </el-form>
             <span slot="footer">
                 <el-button size="small" @click="settingsDialog = false">{{ $tp('Cancel') }}</el-button>
@@ -322,7 +328,7 @@ export default {
             logLoading: false,
             // settings
             settingsDialog: false,
-            settings: { priceNote: '', dailyLimit: 0, hiddenModels: [], fxToAud: { HKD: 0.19, CNY: 0.2128 } }
+            settings: { priceNote: '', dailyLimit: 0, hiddenModels: [], fxToAud: { HKD: 0.19, CNY: 0.2128 }, orderHoldHours: 24 }
         }
     },
     computed: {
@@ -466,7 +472,8 @@ export default {
                 priceNote: s.priceNote || '',
                 dailyLimit: s.dailyLimit,
                 hiddenModels: (s.hiddenModels || []).slice(),
-                fxToAud: { HKD: (s.fxToAud && s.fxToAud.HKD) || 0.19, CNY: (s.fxToAud && s.fxToAud.CNY) || 0.2128 }
+                fxToAud: { HKD: (s.fxToAud && s.fxToAud.HKD) || 0.19, CNY: (s.fxToAud && s.fxToAud.CNY) || 0.2128 },
+                orderHoldHours: s.orderHoldHours || 24
             }
             this.settingsDialog = true
             // model names to pick from (the stock as customers see it + the price list)

@@ -81,3 +81,23 @@ export function askStockChat(token, messages) {
     body: JSON.stringify({ messages })
   })
 }
+
+// Ordering from the page (2026-11-25): { items, note, clientRef, dryRun } → { order }.
+// A refusal's body (err.body) carries `code` and the problem `items`.
+export function placeStockChatOrder(token, data) {
+  return publicCall(`/stock-chat/${encodeURIComponent(token)}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+}
+export function getStockChatOrders(token) {
+  return publicCall(`/stock-chat/${encodeURIComponent(token)}/orders`, { method: 'GET' })
+}
+export function cancelStockChatOrder(token, orderNo, reason) {
+  return publicCall(`/stock-chat/${encodeURIComponent(token)}/orders/${encodeURIComponent(orderNo)}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason })
+  })
+}

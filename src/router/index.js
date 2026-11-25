@@ -1026,6 +1026,18 @@ export const moduleRoutes = [
             }
           },
           {
+            // Orders from the WhatsApp chat bot (CO-), apart from Sales
+            // Orders: by model / storage / grade + qty (2026-11-25).
+            path: "/refurbished/chat-orders",
+            component: (resolve) => require(["@/views/refurbished/chatOrders"], resolve),
+            name: "RefurbishedChatOrders",
+            meta: {
+              title: "Chat Orders",
+              icon: "el-icon-chat-line-square",
+              permissions: ["refurb:sale:view"]
+            }
+          },
+          {
             // Devices coming back from a customer — picked from what that
             // customer currently holds, and back into stock on create.
             path: "/refurbished/sales-returns",
