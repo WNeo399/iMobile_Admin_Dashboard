@@ -737,6 +737,13 @@
                 </el-radio-group>
                 <span v-if="labelSize === '40x30x2'">{{ $tp('2 labels per page, side by side') }}</span>
             </div>
+            <!-- Best Sourcing's labels: 100 × 50 or 70 × 40 (user 2026-11-25); remembered -->
+            <div v-if="labelHasBs" class="label-orient">
+                <span>{{ $tp('Best Sourcing size') }}</span>
+                <el-radio-group v-model="bsLabelSize" size="mini" @change="onBsLabelSize">
+                    <el-radio-button v-for="z in BS_LABEL_SIZES" :key="z.key" :label="z.key">{{ z.label }}</el-radio-button>
+                </el-radio-group>
+            </div>
             <iframe v-if="labelUrl" :src="labelUrl" class="spb-label-frame" title="labels" />
             <span slot="footer">
                 <el-button size="small" icon="el-icon-download" @click="downloadLabels">{{ $tp('Download') }}</el-button>
@@ -829,7 +836,7 @@ import BarcodeScanner from './components/BarcodeScanner'
 import * as XLSX from 'xlsx-js-style'
 import { STATUS_META, BATCH_STATUS, CATEGORIES, fmtDay, fmtWhen, yuan, dhlLink, zohoPoLink, todayYmd, packingListHtml, batchAmount } from './shared'
 import { buildSppLineLabelsPdf, buildSppBatchLabelsPdf, sppLabelCount, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
-import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
+import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc, isBestSourcingCustomer, getBsLabelSize, setBsLabelSize, BS_LABEL_SIZES } from '@/utils/dispatchItemLabelPdf'
 // Category names are stored in English (the register's words) and shown
 // through $tp, like everything else on the page.
 
@@ -871,6 +878,9 @@ export default {
             labelOscar: false, // the preview holds only fixed-size labels (Oscar's / Order Dispatch's): no size / orientation choice
             labelSize: getLabelSize(),
             LABEL_SIZES,
+            labelHasBs: false, // the preview holds Best Sourcing labels: their size switch shows
+            bsLabelSize: getBsLabelSize(),
+            BS_LABEL_SIZES,
             // a phone-width window (user ask 2026-10-13: batches are created on
             // the team's phones): cards instead of tables, fullscreen dialogs
             phone: window.innerWidth < 768,
@@ -2158,12 +2168,14 @@ export default {
         // the description under the label-name rule, as on the Purchase Order page (a line from withLabelNames; 2026-10-20)
         customerArgs(l, batch) {
             const b = batch || this.view || {}
-            // the customer picks the label size (Best Sourcing 100 × 50, 2026-11-05)
-            return { record: { invoiceNumber: l.customerPo || '', customerName: l.forCustomer || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName } }
+            // the customer picks the label size (Best Sourcing 100 × 50 or 70 × 40: bsSize)
+            return { record: { invoiceNumber: l.customerPo || '', customerName: l.forCustomer || '' }, batch: { at: b.shippedAt || b.createdAt || new Date() }, line: { sku: l.customerSku, description: l.customerLabelName || l.labelName || l.customerDescription || l.productName }, bsSize: this.bsLabelSize }
         },
         async printLineLabels(line) {
+            this.labelHasBs = false
             if (this.isCustomerLine(line)) {
                 this.labelOscar = true // a fixed-size label: no size / orientation choice
+                this.labelHasBs = isBestSourcingCustomer(line.forCustomer)
                 const [named] = await withLabelNames([line])
                 this.showLabels(() => appendDispatchLabelsToDoc(null, this.customerArgs(named), 1), sppLabelFileName(this.view, line), this.$tp('Label') + ' — ' + line.forCustomer + ' · ' + line.customerSku)
                 return
@@ -2189,6 +2201,7 @@ export default {
             const customer = named.lines.filter(l => this.isCustomerLine(l))
             const rest = named.lines.filter(l => l.forCustomer !== 'OSCAR' && !this.isCustomerLine(l))
             this.labelOscar = !rest.length // only fixed-size pages: nothing to re-lay out
+            this.labelHasBs = customer.some(l => isBestSourcingCustomer(l.forCustomer))
             const units = l => Math.max(1, Math.floor(Number(l.shippedQty)) || 1)
             const build = () => {
                 let doc = rest.length ? buildSppBatchLabelsPdf({ ...named, lines: rest }) : null
@@ -2206,6 +2219,10 @@ export default {
         },
         onLabelSize(v) {
             setLabelSize(v)
+            this.redrawLabels()
+        },
+        onBsLabelSize(v) {
+            setBsLabelSize(v)
             this.redrawLabels()
         },
         redrawLabels() {

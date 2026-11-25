@@ -1296,6 +1296,7 @@ export default {
     'Landscape': '横向',
     '40 × 30 (2 across)': '40 × 30（双排）',
     '2 labels per page, side by side': '每页 2 张标签，左右并排',
+    'Best Sourcing size': 'Best Sourcing 标签尺寸',
     'The label prints twice, side by side — each copy in the printer dialog gives 2': '同一标签左右各打印一张 — 打印对话框中的每一份为 2 张',
     'Size': '尺寸',
     'Unit price set': '已设置采购单价',

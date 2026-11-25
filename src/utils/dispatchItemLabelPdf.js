@@ -32,13 +32,43 @@ const LARGE = {
     digitsFs: 10, digitsY: 42, footFs: 9, footY: 47
 }
 
+// 70mm × 40mm — Best Sourcing's other size, picked on the Spare Parts Purchase
+// pages (user ask 2026-11-25); SMALL's heights, wider
+const MEDIUM = {
+    w: 70, h: 40, margin: 3,
+    font: 11, minFont: 7.5, descTop: 6.5, descGap: 2.2,
+    barW: 58, barBottom: 30.5, barMax: 15, barMin: 8,
+    digitsFs: 8, digitsY: 33.8, footFs: 7.5, footY: 37.6
+}
+
 export function isBestSourcingCustomer(name) {
     return /best\s*sourc/i.test(String(name || '')) // "Best Sourcing Pty Ltd" / "BEST SOURCING"
 }
 
-// The label size for a dispatch record's customer.
-export function dispatchLabelLayout(record) {
-    return isBestSourcingCustomer(record && record.customerName) ? LARGE : SMALL
+// Best Sourcing's label size, switchable on the Spare Parts Purchase pages and
+// remembered per browser; Order Dispatch passes none and keeps 100 × 50.
+const BS_SIZE_KEY = 'bs-label-size'
+export const BS_LABEL_SIZES = [
+    { key: '100x50', label: '100 × 50' },
+    { key: '70x40', label: '70 × 40' }
+]
+export function getBsLabelSize() {
+    try {
+        const v = localStorage.getItem(BS_SIZE_KEY)
+        if (BS_LABEL_SIZES.some(s => s.key === v)) return v
+    } catch (e) { /* private mode: the default */ }
+    return '100x50'
+}
+export function setBsLabelSize(v) {
+    if (!BS_LABEL_SIZES.some(s => s.key === v)) return
+    try { localStorage.setItem(BS_SIZE_KEY, v) } catch (e) { /* not remembered */ }
+}
+
+// The label size for a dispatch record's customer; `bsSize` ('100x50' /
+// '70x40') only changes a Best Sourcing label.
+export function dispatchLabelLayout(record, bsSize) {
+    if (!isBestSourcingCustomer(record && record.customerName)) return SMALL
+    return bsSize === '70x40' ? MEDIUM : LARGE
 }
 
 function fmtDate(d) {
@@ -158,9 +188,10 @@ export function buildBatchLabelsPdf({ record, batch }) {
 // null), `units` copies — the Spare Parts Purchase pages print it for a
 // line ordered for a customer other than Oscar (Best Sourcing, 2026-10-19):
 // the customer's description and barcode, their PO number and the date.
-// `record.customerName` picks the size, as on Order Dispatch.
-export function appendDispatchLabelsToDoc(doc, { record, batch, line }, units = 1) {
-    const L = dispatchLabelLayout(record)
+// `record.customerName` picks the size, as on Order Dispatch; `bsSize` a Best
+// Sourcing label's (100 × 50 when none).
+export function appendDispatchLabelsToDoc(doc, { record, batch, line, bsSize }, units = 1) {
+    const L = dispatchLabelLayout(record, bsSize)
     const pngCache = {}
     for (let u = 0; u < Math.max(1, Math.floor(Number(units)) || 1); u++) {
         if (!doc) doc = newLabelDoc(L)

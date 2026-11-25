@@ -621,6 +621,13 @@
                 </el-radio-group>
                 <span v-if="labelSize === '40x30x2'">{{ $tp(labelMulti ? '2 labels per page, side by side' : 'The label prints twice, side by side — each copy in the printer dialog gives 2') }}</span>
             </div>
+            <!-- Best Sourcing's labels: 100 × 50 or 70 × 40 (user 2026-11-25); remembered -->
+            <div v-if="labelHasBs" class="label-orient">
+                <span>{{ $tp('Best Sourcing size') }}</span>
+                <el-radio-group v-model="bsLabelSize" size="mini" @change="onBsLabelSize">
+                    <el-radio-button v-for="z in BS_LABEL_SIZES" :key="z.key" :label="z.key">{{ z.label }}</el-radio-button>
+                </el-radio-group>
+            </div>
             <!-- several lines: one label per line (user 2026-11-09; per piece before) -->
             <div v-if="labelMulti" class="label-orient">
                 <b>{{ $tp('{n} labels', { n: labelCount }) }}</b>
@@ -672,7 +679,7 @@ const blankNew = (category) => ({ category, productName: '', orderQty: 1, note: 
 const BOARD_OPEN = 200
 const BOARD_RECEIVED = 30
 import { buildSppLineLabelsPdf, buildSpecialOrderLabelPdf, buildSppMixedLabelsPdf, sppLabelFileName, withLabelNames, getLabelOrientation, setLabelOrientation, getLabelSize, setLabelSize, LABEL_SIZES } from '@/utils/sppLabelPdf'
-import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc } from '@/utils/dispatchItemLabelPdf'
+import { appendOscarLabelsToDoc, appendDispatchLabelsToDoc, isBestSourcingCustomer, getBsLabelSize, setBsLabelSize, BS_LABEL_SIZES } from '@/utils/dispatchItemLabelPdf'
 
 // Ticked lines printed together: ONE label per line (user 2026-11-09 — it was
 // one per piece from 2026-11-04). A PDF past MAX_LABELS would stall the page.
@@ -767,6 +774,9 @@ export default {
             labelOscar: false, // the preview holds fixed-size labels (Oscar's, or Order Dispatch's for another customer): no size / orientation choice
             labelSize: getLabelSize(),
             LABEL_SIZES,
+            labelHasBs: false, // the preview holds Best Sourcing labels: their size switch shows
+            bsLabelSize: getBsLabelSize(),
+            BS_LABEL_SIZES,
             // ticked lines' labels together (2026-11-04)
             selected: [],
             labelBusy: false,
@@ -1466,6 +1476,7 @@ export default {
             this.cleanupLabels()
             this.labelMulti = false
             this.labelSel = null
+            this.labelHasBs = false
             try {
                 // a Special Order (user ask 2026-10-20): its SP- number as a barcode — what
                 // Dispatch Batches scans — who placed it and the date code; no item name
@@ -1505,12 +1516,14 @@ export default {
                     const [named] = await withLabelNames([row])
                     const args = this.customerLabelArgs(named)
                     const cline = args.line
-                    const build = () => appendDispatchLabelsToDoc(null, args, 1)
+                    // args again per build: the Best Sourcing size may be switched in the preview
+                    const build = () => appendDispatchLabelsToDoc(null, this.customerLabelArgs(named), 1)
                     this.labelBuild = build
                     this.labelFileName = `label_${String(cdr.invoiceNumber || row.orderNo).replace(/[^a-z0-9-]/gi, '')}_${cline.sku}.pdf`
                     this.labelUrl = build().output('bloburl') + '#toolbar=0'
                     this.labelTitle = this.$tp('Label') + ' — ' + row.forCustomer + ' · ' + cline.sku
                     this.labelOscar = true // a fixed-size label: no size / orientation choice
+                    this.labelHasBs = isBestSourcingCustomer(args.record.customerName)
                     this.labelVisible = true
                     return
                 }
@@ -1542,10 +1555,11 @@ export default {
         customerLabelArgs(named) {
             const cdr = named.dispatchRef || {}
             return {
-                // the customer picks the label size (Best Sourcing 100 × 50, 2026-11-05)
+                // the customer picks the label size (Best Sourcing 100 × 50 or 70 × 40: bsSize)
                 record: { invoiceNumber: cdr.invoiceNumber || '', customerName: cdr.customerName || named.forCustomer || '' },
                 batch: { at: new Date() },
-                line: { sku: cdr.customerSku, description: named.customerLabelName || named.labelName || cdr.customerDescription || named.productName }
+                line: { sku: cdr.customerSku, description: named.customerLabelName || named.labelName || cdr.customerDescription || named.productName },
+                bsSize: this.bsLabelSize
             }
         },
         // ── Ticked lines' labels together (user ask 2026-11-04) ────
@@ -1595,6 +1609,7 @@ export default {
             if (!this.selected.length || this.labelBusy) return
             this.labelBusy = true
             this.cleanupLabels()
+            this.labelHasBs = false
             try {
                 // the latest copy of each ticked line, in the table's order;
                 // lines ticked on another page / list follow in the order ticked
@@ -1624,6 +1639,7 @@ export default {
                 }
                 this.labelMulti = true
                 this.labelOscar = !sel.part.length // only fixed-size pages: no size / orientation choice
+                this.labelHasBs = sel.customer.some(l => isBestSourcingCustomer(this.customerLabelArgs(l).record.customerName))
                 this.labelCount = count
                 const doc = this.buildSelectedLabels()
                 if (!doc) { this.$message.info(this.$tp('Nothing to print')); return }
@@ -1646,6 +1662,10 @@ export default {
         },
         onLabelSize(v) {
             setLabelSize(v)
+            this.redrawLabels()
+        },
+        onBsLabelSize(v) {
+            setBsLabelSize(v)
             this.redrawLabels()
         },
         redrawLabels() {
