@@ -2502,6 +2502,10 @@ export default {
     'A unit whose cost is above its listed price shows Contact us; HKD / CNY costs are converted with these': '成本高于标价的设备显示「联系我们」；港币 / 人民币成本按这些汇率换算',
     '{n} hidden: hidden models': '{n} 台已隐藏：隐藏的型号',
     '{n} units below cost: Contact us': '{n} 台低于成本：显示联系我们',
+    // Stock chat: grade groups, Exyon grade (2026-11-27)
+    'Customers see grade groups: A+ 100% Battery uses the A+ price, A the A price, B the B price, C the C price A++, B+ and C+ prices are not used Units at Exyon use the Exyon grade': '客户看到的是等级分组：A+ 100% Battery 用 A+ 的价格，A 用 A 的价格，B 用 B 的价格，C 用 C 的价格。A++、B+、C+ 的价格不再使用。在 Exyon 的设备使用 Exyon 的等级。',
+    '{n} graded by Exyon': '{n} 台用 Exyon 等级',
+    'Units at Exyon show the grade Exyon gave them; the rest show our grade': '在 Exyon 的设备显示 Exyon 给的等级；其余显示我们的等级',
     // Stock chat: no daily limit (2026-11-16)
     '0 = no limit': '0 = 不限',
     // Stock chat: units not yet received at Exyon (2026-11-17)

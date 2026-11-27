@@ -71,6 +71,10 @@
                     <i class="el-icon-info" />
                     {{ $tp('One price per Model + Storage + Grade, written as in the stock register. Leave Storage or Grade empty to cover all of them. Models with no price show Contact us.') }}
                 </div>
+                <div class="sch-hint">
+                    <i class="el-icon-info" />
+                    {{ $tp('Customers see grade groups: A+ 100% Battery uses the A+ price, A the A price, B the B price, C the C price. A++, B+ and C+ prices are not used. Units at Exyon use the Exyon grade.') }}
+                </div>
                 <el-table v-loading="priceLoading" :data="pricesShown" size="small" border>
                     <el-table-column :label="$tp('Model')" prop="model" min-width="200" />
                     <el-table-column :label="$tp('Storage')" width="110">
@@ -108,6 +112,7 @@
                     <span>{{ $tp('{n} rows priced ({u} units)', { n: preview.pricedRows, u: preview.pricedUnits }) }}</span>
                     <span :title="$tp('In Stock in our register at Assigned To Exyon, but sold, being picked or in a non-sellable zone in Exyon')">{{ $tp('{n} hidden: sold or unavailable at Exyon', { n: preview.hiddenAtExyon }) }}</span>
                     <span v-if="preview.unconfirmedAtExyon" :title="$tp('In Stock at Assigned To Exyon in our register, but Exyon never received it or has no record of it')">{{ $tp('{n} shown: not yet received at Exyon', { n: preview.unconfirmedAtExyon }) }}</span>
+                    <span v-if="preview.gradedByExyon" :title="$tp('Units at Exyon show the grade Exyon gave them; the rest show our grade')">{{ $tp('{n} graded by Exyon', { n: preview.gradedByExyon }) }}</span>
                     <span v-if="preview.hiddenUnits">{{ $tp('{n} hidden: hidden models', { n: preview.hiddenUnits }) }}</span>
                     <span v-if="preview.belowCostUnits" class="sch-contact">{{ $tp('{n} units below cost: Contact us', { n: preview.belowCostUnits }) }}</span>
                     <span v-if="preview.heldUnits" :title="$tp('Pending and confirmed chat orders hold these units — they are not shown to other customers')">{{ $tp('{n} held by chat orders', { n: preview.heldUnits }) }}</span>
