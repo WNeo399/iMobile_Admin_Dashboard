@@ -28,6 +28,7 @@
 
 import { jsPDF } from 'jspdf'
 import { deviceTerms } from '@/api/sparePartsPurchase'
+import { isBestSourcingCustomer } from '@/utils/dispatchItemLabelPdf'
 import QRCode from 'qrcode'
 
 // The layout per label height: margin, name size / lines, QR size range,
@@ -156,7 +157,9 @@ export function labelName(name, terms) {
 // (OSCAR, Best Sourcing …) also gets `customerLabelName`: the customer's
 // description under the same rule, for the customer labels these pages
 // print (Oscar 2026-10-14, the other customers 2026-10-20; Order Dispatch
-// keeps the description as written).
+// keeps the description as written). Best Sourcing's labels always lose
+// "Samsung" too (user 2026-11-27): many of their lines have no register item
+// yet, so the brand lookup can't take it off ("SAMSUNG S24 BACK GLASS …").
 export async function withLabelNames(lines) {
     const list = lines || []
     const ids = [...new Set(list.map(l => l && l.itemId).filter(Boolean).map(String))]
@@ -170,7 +173,10 @@ export async function withLabelNames(lines) {
     return list.map(l => {
         const t = terms[String(l.itemId)]
         const cd = (l.customerDescription || (l.dispatchRef && l.dispatchRef.customerDescription) || '').trim()
-        return { ...l, labelName: labelName(l.productName, t), ...(cd ? { customerLabelName: labelName(cd, t) } : {}) }
+        let cln = cd ? labelName(cd, t) : ''
+        const bs = isBestSourcingCustomer(l.forCustomer) || isBestSourcingCustomer(l.dispatchRef && l.dispatchRef.customerName)
+        if (cln && bs) cln = labelName(cln, { brand: 'Samsung' })
+        return { ...l, labelName: labelName(l.productName, t), ...(cln ? { customerLabelName: cln } : {}) }
     })
 }
 
