@@ -1478,11 +1478,12 @@ export default {
             this.labelSel = null
             this.labelHasBs = false
             try {
-                // a Special Order (user ask 2026-10-20): its SP- number as a barcode — what
-                // Dispatch Batches scans — who placed it and the date code; no item name
+                // a Special Order (user ask 2026-10-20): its SP- number as a QR code — what
+                // Dispatch Batches scans — the item name and the date code; no user name
+                // (user 2026-11-28)
                 if (row.category === 'Special Order') {
                     this.labelOscar = false // the part labels' sizes and orientation
-                    const sline = { orderNo: row.orderNo, by: this.specialBy(row) || row.requestedFor || '' }
+                    const sline = { orderNo: row.orderNo, name: row.productName || '' }
                     const build = () => buildSpecialOrderLabelPdf(sline, 1)
                     this.labelBuild = build
                     this.labelFileName = `label_${String(row.orderNo).replace(/[^a-z0-9-]/gi, '')}.pdf`
@@ -1598,7 +1599,7 @@ export default {
             if (!s) return null
             const items = s.part.map(l => {
                 const special = l.category === 'Special Order'
-                return { line: special ? { orderNo: l.orderNo, by: this.specialBy(l) || l.requestedFor || '' } : l, special }
+                return { line: special ? { orderNo: l.orderNo, name: l.productName || '' } : l, special }
             })
             let doc = items.length ? buildSppMixedLabelsPdf(items) : null
             for (const l of s.oscar) doc = appendOscarLabelsToDoc(doc, this.oscarLabelArgs(l), 1)

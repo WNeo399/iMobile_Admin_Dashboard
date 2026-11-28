@@ -327,54 +327,16 @@ export function buildSppBatchLabelsPdf(batch, orientation = getLabelOrientation(
 }
 
 // ── Special Order label (user ask 2026-10-20) ───────────────────────
-// No item name: the line's SP- number as a QR code (it was a Code 128
-// barcode at first, changed the same day) with the number
-// under it, the account that placed the order bottom-left and the print
-// date code bottom-right — on the part labels' sizes, orientation and
-// two-across rows. Dispatch Batches finds the line by scanning it.
-//   line: { orderNo, by } (by = who placed it)
-function drawSpecialLabel(doc, line, pngCache, orientation, size, dateCode, col = 0) {
-    const { w: W, h: H } = sizeOf(size)
-    const L = LAYOUTS[H] || LAYOUTS[40]
-    const M = L.margin
-    const p = painter(doc, orientation, H, col * (W + ACROSS_GAP))
-    doc.setTextColor(0)
-    const no = String((line && line.orderNo) || '').trim()
-    const by = String((line && line.by) || '').replace(/\s+/g, ' ').trim()
-
-    // the bottom row: who placed it (left), the date code (right)
-    const bottom = H - L.dateBase
-    doc.setFontSize(L.dateFont)
-    let dateW = 0
-    if (dateCode) {
-        // the date code bold (user 2026-10-30)
-        doc.setFont('helvetica', 'bold')
-        p.text(dateCode, W - M, bottom, 'right')
-        dateW = doc.getTextWidth(dateCode) + L.gap * 2
-    }
-    doc.setFont('helvetica', 'normal')
-    if (by) {
-        let s = by
-        while (s.length > 1 && doc.getTextWidth(s) > W - M * 2 - dateW) s = s.slice(0, -1)
-        p.text(s === by ? s : s.replace(/\s+$/, '') + '…', M, bottom, 'left')
-    }
-
-    // the number, bold and centred above the bottom row
-    const noFont = H >= 40 ? 13 : 10
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(noFont)
-    const noBase = bottom - L.dateFont * 0.253 - L.gap * 2
-    p.text(no, W / 2, noBase)
-
-    // the QR code (user 2026-10-20: "can the SP be a QR code?"), centred, as
-    // large as the room between the top margin and the number allows
-    if (no) {
-        const room = noBase - noFont * 0.253 - L.gap * 1.5 - M
-        const qs = Math.max(6, Math.min(room, W - M * 2))
-        const key = 'qr|' + no
-        const png = pngCache ? pngCache[key] || (pngCache[key] = qrPng(no)) : qrPng(no)
-        p.image(png, (W - qs) / 2, M, qs, qs)
-    }
+// Since 2026-11-28 (user: "need to have the item name on the label and
+// need to remove the user name") it is the part label's layout with the
+// SP- number in the SKU's place: the number as a QR code at the top (what
+// Dispatch Batches scans), the item name bold under it (under the
+// label-name rule), the number and the date code on the bottom row. The
+// account that placed it is no longer printed.
+//   line: { orderNo, name }
+function drawSpecialLabel(doc, line, ...rest) {
+    const sku = String((line && line.orderNo) || '').trim()
+    drawLabel(doc, { sku, labelName: labelName((line && line.name) || '') }, ...rest)
 }
 // One Special Order line, `copies` labels (one fills a two-across row, as
 // on the part labels).
